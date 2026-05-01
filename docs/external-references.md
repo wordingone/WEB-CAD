@@ -138,16 +138,16 @@ Synthesised 2026-05-01 after Pass 1+2+3 source verification + per-reference subs
 | Rank | Reference | Type | License | Code released? | Format-aligned with arch-1 emission target? | arch-1 role | 18-day blocker? |
 |---|---|---|---|---|---|---|---|
 | 1 | **pascal/editor model** | Browser CAD product | MIT | yes (lifting model only) | YES — flat parametric graph, 19 node types | Runtime template + emission target shape | None |
-| 2 | **Fusion360 Gallery — Reconstruction subset** | Dataset | unclear; needs LICENSE-file check | yes | YES — JSON sketch+extrude+revolve+sweep+loft+fillet+chamfer; ~400-500 tok/model | LoRA training corpus (8,625 sequences) | **License-verification BLOCKER** before train commits |
+| ✕ | **Fusion360 Gallery — Reconstruction subset** | Dataset | custom NC ("non-commercial research only") | yes | YES — JSON sketch+extrude+revolve+sweep+loft+fillet+chamfer; ~400-500 tok/model | DROPPED — see §17 gate 1 | **NC license excludes $200K-prize derivative** |
 | 3 | **ArchCAD-400K dataset** | Dataset | CC BY 4.0 | yes (HF + GitHub) | NO (recognition) but symbol vocab is grammar input | Emission grammar anchor; 27 architectural symbol classes | None |
 | 4 | **BIMNet paired IFCs** | Dataset | MIT (code) + Matterport ToU (scans) | yes | PARTIAL — 382 manually-modeled IFCs | Round-trip validation corpus | Matterport ToU on scans only; IFCs alone are usable |
-| 5 | **BRepNet (encoder/validator)** | Method (recognition) | code MIT-equiv + assets CC-BY-NC-SA 4.0 | yes (Autodesk AI Lab repo) | NO (segmentation) | Post-generation topological validator IF NC OK | **NC license vs hackathon prize commerciality** — confirm acceptable |
+| ✕ | **BRepNet (encoder/validator)** | Method (recognition) | CC-BY-NC-SA 4.0 (whole repo) | yes (Autodesk AI Lab repo) | NO (segmentation) | DROPPED — see §17 gate 2 | **NC + SA both incompatible with prize-eligible permissive release** |
 | 6 | **ABC dataset** | Dataset (geometry-only) | nonexclusive distrib | yes (NYU) | NO — final geometry only, no operation history | Pretraining for shape encoder; not for emission LoRA | None |
 | 7 | **DreamCAD method ideas** | Method paper-only | n/a (no code) | NO | Concept-only: forward-only B-rep inference | Inspiration; reimplement-from-scratch infeasible in 18d | Code release status: not announced |
 | 8 | **Pointer-CAD method ideas** | Method paper-only | n/a (Snitro/Pointer-CAD: "coming soon") | NO | Concept-only: pointer over B-rep entities | Inspiration; can lift pointer-vs-quantization framing for tokenization | Code release status: timeline unstated |
 | ✕ | **Matterport3D** | RGB-D scan dataset | Matterport ToU (signed agreement) | yes (gated) | NO — no IFC, photo-of-scene only | Out of scope for arch-1 (text→IFC, not photo→IFC) | n/a |
 
-Tie-breakers when format-alignment is equal: license clarity > code reachability > dataset format > paper-only ideas. Pascal beats Fusion360 only because pascal's license is unambiguous; if Fusion360 license clears, both are top-tier.
+Tie-breakers when format-alignment is equal: license clarity > code reachability > dataset format > paper-only ideas. Both NC-licensed entries (Fusion360 rank 2, BRepNet rank 5) dropped 2026-05-01 after empirical license-text verification (§17 gates 1 + 2). Pascal/editor remains rank 1 unchallenged; LoRA training corpus moves to D1-D3 synthetic+hand-curated path (already shipped per #99-#101); topological validation moves to in-house web-ifc + replicad checks (no ML validator).
 
 ## 16. Use-case cross-reference
 
@@ -156,22 +156,25 @@ Map each arch-1 implementation sub-task to the references that contribute concre
 | Sub-task | Primary | Secondary | Role |
 |---|---|---|---|
 | **Emission target shape** (LLM output schema) | pascal/editor 19-node model | Fusion360 Reconstruction JSON, Pointer-CAD ideas | pascal gives flat-graph + parentId pointers; Fusion360 gives sketch/extrude/revolve/sweep/loft/fillet/chamfer vocabulary |
-| **LoRA training corpus** | Fusion360 Reconstruction (8,625 sequences) | DreamCAD CADCap-1M (if released), ABC pretrain | ~4-5M training tokens at ~400-500 tok/model — tractable on E2B |
+| **LoRA training corpus** | D1-D3 synthetic IFC + tier2 hand-curation (400 pairs, shipped #99-#101) | DreamCAD CADCap-1M (if released), ABC pretrain | Fusion360 Reconstruction excluded 2026-05-01 (§17 gate 1 — NC license). D1-D3 path is the binding corpus. |
 | **Architectural symbol grammar** | ArchCAD-400K (27 classes) | WBDG COBie samples | Constrain emission to industry-standard names |
 | **In-browser inference** | webllm OR transformers.js | pascal WebGPU+WebGL2 fallback patterns | Pick runtime after benchmark; pascal renderer files show real-world WebGPU/WebGL2 fallback handling |
 | **Solid modelling kernel** | replicad (sgenoud) | OpenCASCADE.js (replicad's underlying lib) | NOT in pascal; needed for proper boolean ops + B-Rep |
 | **IFC export** | web-ifc (IFCjs) | BIMNet IFC examples for validation | Closes hackathon sub-gate 3 |
 | **Round-trip validation** | BIMNet 382 IFCs, WBDG 4 reference projects | NIST geometry data NOT applicable (wind-tunnel aero) | Round-trip a known-good IFC through arch-1 → diff |
-| **Topological correctness check** | BRepNet (if NC license OK for hackathon) | ArchCAD-400K DPSS for 2D drawings | Optional inference-time validator |
+| **Topological correctness check** | In-house geometric checks via web-ifc + replicad (manifoldness, closed-edge counts, face-count parity) | ArchCAD-400K DPSS for 2D drawings | BRepNet excluded 2026-05-01 (§17 gate 2 — CC-BY-NC-SA NC + SA both block). |
 | **MCP integration** | pascal/editor `@pascal-app/mcp` (37+ tools) | Anthropic MCP SDK | NOT needed for arch-1 in-browser; consider only if ship-as-MCP-server fallback |
 | **Hackathon writeup framing** | Pointer-CAD ("closest prior art without code") | DreamCAD ("multimodal forward-only ideal") | Position arch-1 as missing in-browser local-first execution of the LLM-emits-CAD pattern |
 
 ## 17. Open verification gates
 
-Before relying on §15 ranks 2 and 5 in any binding decision:
+Closed gates (resolved 2026-05-01):
 
-1. **Fusion360 Gallery LICENSE.** WebFetch `https://raw.githubusercontent.com/AutodeskAILab/Fusion360GalleryDataset/master/LICENSE` (or whichever filename the repo uses) and read the actual terms. If commercial-use restricted: arch-1's hackathon submission may need a different training corpus or a license waiver.
-2. **BRepNet NC license vs Kaggle hackathon prize.** Read Gemma 4 Good Hackathon rules section on "code/dataset licensing" — does winning a $200K prize qualify as "commercial use"? If yes, BRepNet weights cannot ship in the demo.
+1. **Fusion360 Gallery LICENSE — RESOLVED, BLOCKED for hackathon.** Custom proprietary license, not standard open-source. Verbatim: *"You may access, use, reproduce and modify the Dataset, in each case, only for non-commercial research purposes."* Downstream recipients must be bound to identical NC restrictions; redistribution of the whole dataset prohibited; no warranties; California law governs. Source: `https://github.com/AutodeskAILab/Fusion360GalleryDataset/blob/master/LICENSE.md` (WebFetched 2026-05-01). $200K hackathon prize is a monetary-compensation derivative; conservative reading = commercial use prohibited. **Effect on §15 rank 2:** drop from training corpus options. **Effect on D1-D3 corpus path (synthetic IFC + tier2 hand-curation, 400 pairs):** unchanged — that path was already chosen. Fusion360 was a hypothetical alternative, not a dependency.
+2. **BRepNet NC license vs Kaggle hackathon prize — RESOLVED, BLOCKED for hackathon.** License: CC BY-NC-SA 4.0 (Creative Commons Attribution-NonCommercial-ShareAlike). Source: `https://github.com/AutodeskAILab/BRepNet` README. Two independent blockers: (a) NC clause vs $200K prize (same conservative reading as gate 1); (b) ShareAlike clause requires derivatives to inherit CC BY-NC-SA, which is incompatible with releasing arch-1 weights under a permissive hackathon-derivative license. **Effect on §15 rank 5:** drop from validator options. **Mitigation:** topological validation falls to in-house geometric checks (closed-edge counts, manifoldness via web-ifc + replicad) instead of an ML validator.
+
+Open gates:
+
 3. **Pointer-CAD code release timeline.** GitHub `Snitro/Pointer-CAD` says "coming soon." Re-check before 2026-05-15 (3 days before hackathon deadline) — if released, becomes rank-1 candidate.
 4. **DreamCAD code release.** No announced timeline; re-check at the same cadence.
 5. **Pascal MCP local-model capability.** Confirmed model-agnostic at code level; not benchmarked with a local model. If arch-1 ever needs an MCP fallback, run a smoke test against pascal MCP + transformers.js.
