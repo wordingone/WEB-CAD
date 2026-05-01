@@ -2,16 +2,21 @@ node_modules/
 dist/
 *.log
 .DS_Store
+logs/
 
 # IFC sample files — pulled by scripts/fetch-data.sh
 data/ifc/
 data/cache/
 
-# LoRA adapters and checkpoints
+# LoRA adapters and checkpoints — published to HF Hub, not committed
 data/checkpoints/
 data/adapters/
+outputs/
 *.safetensors
 *.gguf
+
+# Unsloth's compiled-kernel cache — generated, not source
+unsloth_compiled_cache/
 
 # Python venv for training scripts
 .venv/

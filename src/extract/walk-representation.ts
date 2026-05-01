@@ -70,12 +70,36 @@ export function walkRepresentation(
   const item = body.Items?.[0];
   if (!item) return null;
 
-  // IfcExtrudedAreaSolid is the most common — the spike-A path.
-  if (item.constructor?.name === "IfcExtrudedAreaSolid" || item.type === "IFCEXTRUDEDAREASOLID") {
-    return extractExtruded(item, element.ObjectPlacement);
+  return extractItem(item, element.ObjectPlacement);
+}
+
+/**
+ * Extract a single representation item. Recurses through Boolean
+ * clipping results down to the underlying extruded solid.
+ *
+ * IfcBooleanClippingResult / IfcBooleanResult are common in real-world
+ * walls (extrusion clipped by a half-space to slope the top against a
+ * roof). For Spike B we unwrap to the base extrusion and drop the clip
+ * — lossy but the NL description ("a 2.8m wall") still matches the
+ * unclipped solid. Tier-2 will emit `.cut(plane)` for the clipping.
+ */
+function extractItem(item: any, objectPlacement: any): ExtractedRepresentation | null {
+  if (!item) return null;
+  const typeName = (item.constructor?.name || item.type || "") as string;
+
+  if (typeName.includes("ExtrudedAreaSolid") || typeName === "IFCEXTRUDEDAREASOLID") {
+    return extractExtruded(item, objectPlacement);
   }
 
-  // Add more cases as they surface in Spike B mining.
+  // Recurse through Boolean ops to the base solid.
+  if (typeName.includes("BooleanClippingResult") ||
+      typeName.includes("BooleanResult") ||
+      typeName === "IFCBOOLEANCLIPPINGRESULT" ||
+      typeName === "IFCBOOLEANRESULT") {
+    const base = item.FirstOperand;
+    if (base) return extractItem(base, objectPlacement);
+  }
+
   return null;
 }
 
@@ -113,14 +137,46 @@ function extractExtruded(
 
   if (profileType.includes("ArbitraryClosedProfileDef")) {
     const outerCurve = profile.OuterCurve;
-    if (
-      outerCurve?.constructor?.name === "IfcPolyline" ||
-      outerCurve?.type === "IFCPOLYLINE"
-    ) {
-      const points = (outerCurve.Points ?? []).map((p: any) => {
+    const curveType = outerCurve?.constructor?.name ?? outerCurve?.type ?? "";
+    let points: [number, number][] | null = null;
+
+    if (curveType.includes("Polyline") && !curveType.includes("Indexed")) {
+      // IfcPolyline: Points is an array of IfcCartesianPoint
+      points = (outerCurve.Points ?? []).map((p: any) => {
         const coords = p.Coordinates ?? [];
         return [coords[0]?.value ?? coords[0], coords[1]?.value ?? coords[1]] as [number, number];
       });
+    } else if (curveType.includes("IndexedPolyCurve") || curveType === "IFCINDEXEDPOLYCURVE") {
+      // IfcIndexedPolyCurve: Points is an IfcCartesianPointList2D with
+      // CoordList = [[x,y], [x,y], ...]; Segments references point indices
+      // (1-based). For axis-aligned rectangle profiles we just need the
+      // ordered point list — the segments are line segments by default.
+      const ptList = outerCurve.Points;
+      const coords = ptList?.CoordList ?? [];
+      points = coords.map((pair: any) => {
+        const x = pair?.[0]?.value ?? pair?.[0];
+        const y = pair?.[1]?.value ?? pair?.[1];
+        return [x, y] as [number, number];
+      });
+    }
+
+    if (points && points.length > 0) {
+
+      // Collapse axis-aligned closed rectangles to extruded_rectangle.
+      // IFC4 commonly uses polyline+ArbitraryClosedProfile even for plain
+      // rectangular wall/slab footprints — recognize the shape and emit
+      // the simpler primitive so emit-sequence can use drawRectangle.
+      const rect = collapseToAxisAlignedRect(points);
+      if (rect) {
+        return {
+          kind: "extruded_rectangle",
+          width: rect.width,
+          height: rect.height,
+          depth,
+          placement,
+        };
+      }
+
       return {
         kind: "extruded_polyline",
         points,
@@ -131,6 +187,35 @@ function extractExtruded(
   }
 
   return null;
+}
+
+/**
+ * If the polyline is a closed axis-aligned rectangle (4 unique corners +
+ * optional closing duplicate), return its width/height. Otherwise null.
+ *
+ * Closed rectangles in IFC arrive as 5-point polylines (last == first) or
+ * 4-point implicit-close. Both forms accepted.
+ */
+function collapseToAxisAlignedRect(
+  pts: [number, number][]
+): { width: number; height: number } | null {
+  if (!pts || pts.length < 4) return null;
+  // Trim trailing duplicate of first point if present.
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  const ring = (last[0] === first[0] && last[1] === first[1]) ? pts.slice(0, -1) : pts;
+  if (ring.length !== 4) return null;
+  const xs = ring.map((p) => p[0]);
+  const ys = ring.map((p) => p[1]);
+  const xUniq = new Set(xs);
+  const yUniq = new Set(ys);
+  if (xUniq.size !== 2 || yUniq.size !== 2) return null;
+  const xArr = [...xUniq].sort((a, b) => a - b);
+  const yArr = [...yUniq].sort((a, b) => a - b);
+  return {
+    width: xArr[1] - xArr[0],
+    height: yArr[1] - yArr[0],
+  };
 }
 
 /**

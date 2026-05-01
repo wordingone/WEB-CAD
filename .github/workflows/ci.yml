@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  typecheck-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Unit tests
+        run: bun test
+
+  fixtures-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate JSONL fixtures parse
+        run: |
+          python - <<'PY'
+          import json, sys
+          from pathlib import Path
+          ok = True
+          for p in Path("fixtures").glob("*.jsonl"):
+              with p.open() as f:
+                  for i, line in enumerate(f, 1):
+                      line = line.strip()
+                      if not line:
+                          continue
+                      try:
+                          d = json.loads(line)
+                      except Exception as e:
+                          print(f"{p}:{i} JSON error: {e}")
+                          ok = False
+                          continue
+                      if "id" not in d or ("prompt" not in d and "nl" not in d):
+                          print(f"{p}:{i} missing required field")
+                          ok = False
+          sys.exit(0 if ok else 1)
+          PY
