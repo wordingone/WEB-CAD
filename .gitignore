@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# IFC sample files — pulled by scripts/fetch-data.sh
+data/ifc/
+data/cache/
+
+# LoRA adapters and checkpoints
+data/checkpoints/
+data/adapters/
+*.safetensors
+*.gguf
+
+# Python venv for training scripts
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment
+.env
+.env.local
