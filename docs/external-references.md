@@ -156,7 +156,7 @@ Map each arch-1 implementation sub-task to the references that contribute concre
 | Sub-task | Primary | Secondary | Role |
 |---|---|---|---|
 | **Emission target shape** (LLM output schema) | pascal/editor 19-node model | Fusion360 Reconstruction JSON, Pointer-CAD ideas | pascal gives flat-graph + parentId pointers; Fusion360 gives sketch/extrude/revolve/sweep/loft/fillet/chamfer vocabulary |
-| **LoRA training corpus** | D1-D3 synthetic IFC + tier2 hand-curation (400 pairs, shipped #99-#101) | DreamCAD CADCap-1M (if released), ABC pretrain | Fusion360 Reconstruction excluded 2026-05-01 (§17 gate 1 — NC license). D1-D3 path is the binding corpus. |
+| **LoRA training corpus** | D1-D3 synthetic IFC + tier2 hand-curation (400 pairs, shipped #99-#101) | ABC pretrain | Fusion360 Reconstruction excluded 2026-05-01 (§17 gate 1 — NC license). DreamCAD CADCap-1M dataset IS released on HF (`SadilKhan/CADCap-1M`) but CC-BY-NC-SA-4.0 + gated → BLOCKED for hackathon (§17 gate 4 update 2026-05-01, same NC + SA blockers as gate 2). D1-D3 path is the binding corpus. |
 | **Architectural symbol grammar** | ArchCAD-400K (27 classes) | WBDG COBie samples | Constrain emission to industry-standard names |
 | **In-browser inference** | webllm OR transformers.js | pascal WebGPU+WebGL2 fallback patterns | Pick runtime after benchmark; pascal renderer files show real-world WebGPU/WebGL2 fallback handling |
 | **Solid modelling kernel** | replicad (sgenoud) | OpenCASCADE.js (replicad's underlying lib) | NOT in pascal; needed for proper boolean ops + B-Rep |
@@ -175,6 +175,6 @@ Closed gates (resolved 2026-05-01):
 
 Open gates:
 
-3. **Pointer-CAD code release timeline.** GitHub `Snitro/Pointer-CAD` says "coming soon." Re-check before 2026-05-15 (3 days before hackathon deadline) — if released, becomes rank-1 candidate.
-4. **DreamCAD code release.** No announced timeline; re-check at the same cadence.
+3. **Pointer-CAD code release timeline — RE-CHECKED 2026-05-01, STILL "coming soon".** Repo `Snitro/Pointer-CAD` has 2 commits, no source files, README still "🚧 Code coming soon." arXiv 2603.04337 latest revision v2 (Apr 29, 2026, 2 days pre-check) added no code URL. CVPR 2026 acceptance suggests pre-conference release pressure but timeline unstated. Re-check again before 2026-05-15 (3 days before hackathon deadline). Status quo holds: Pointer-CAD remains paper-only inspiration for §15 rank 8.
+4. **DreamCAD code release — RE-CHECKED 2026-05-01, code STILL pending; CADCap-1M dataset DOES NOT unblock corpus path.** arXiv 2603.05607 v1 (Mar 5, 2026) says "Code and dataset will be publicly available." **NEW finding:** CADCap-1M caption dataset is released on HF at `SadilKhan/CADCap-1M`, BUT licensed `CC-BY-NC-SA-4.0` + gated (auto-acknowledge required). Same blockers as gate 2 BRepNet: (a) NC clause vs $200K prize, (b) SA clause forces inheritance to derivative weights → incompatible with permissive hackathon release. **Effect on §16 LoRA training corpus row:** CADCap-1M EXCLUDED; ABC remains the only secondary pretrain candidate. **Effect on §15 rank 7 (DreamCAD method ideas):** unchanged (was already paper-only). D1-D3 corpus path is binding. Re-check method-code release at same 2026-05-15 cadence.
 5. **Pascal MCP local-model capability.** Confirmed model-agnostic at code level; not benchmarked with a local model. If arch-1 ever needs an MCP fallback, run a smoke test against pascal MCP + transformers.js.
