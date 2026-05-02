@@ -122,13 +122,21 @@
 
   <div id="statusbar" role="status" aria-label="Status bar">
     <div class="sb-group sb-left">
-      <span class="sb-cell sb-doc" id="sb-doc">untitled.gar</span>
-      <span class="sb-cell sb-saved" id="sb-saved">saved</span>
-      <span class="sb-cell sb-mode" id="sb-mode">MODELING</span>
+      <span class="sb-cell sb-local" id="sb-local"  title="Local cursor position">Local: 0.00, 0.00, 0.00</span>
+      <span class="sb-cell sb-tool"  id="sb-tool"   title="Active tool">Tool: Select</span>
+      <span class="sb-cell sb-snap"  id="sb-snap"   title="Snap state">Snap: off</span>
+      <span class="sb-cell sb-ortho" id="sb-ortho"  title="Ortho state">Ortho: on</span>
+      <span class="sb-cell sb-units" id="sb-units"  title="Units">Units: m</span>
+      <span class="sb-cell sb-cplane" id="sb-cplane" title="Construction plane">CPlane: XY</span>
     </div>
     <div class="sb-group sb-right">
-      <span class="sb-cell sb-units" id="sb-units">units: m</span>
-      <span class="sb-cell sb-fps" id="sb-fps" title="Frames per second">— fps</span>
+      <span class="sb-cell sb-sel"    id="sb-sel"    title="Selection count">Sel: 0</span>
+      <span class="sb-cell sb-bounds" id="sb-bounds" title="Selection bounds">Bounds: —</span>
+      <span class="sb-cell sb-verts"  id="sb-verts"  title="Vertex count">Verts: —</span>
+      <span class="sb-cell sb-faces"  id="sb-faces"  title="Face count">Faces: —</span>
+      <span class="sb-cell sb-fps"    id="sb-fps"    title="Frames per second">— fps</span>
+      <span class="sb-cell sb-saved"  id="sb-saved"  title="Save state">saved</span>
+      <span class="sb-cell sb-mode"   id="sb-mode"   title="Workbench mode">MODELING</span>
       <button id="theme-toggle" class="sb-theme-btn" type="button" title="Toggle day/night (Ctrl+\)" aria-label="Toggle theme">
         <span class="theme-icon">◐</span>
       </button>

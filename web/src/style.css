@@ -984,3 +984,184 @@ html[data-mode="day"] #statusbar {
   background: var(--chrome);
   box-shadow: inset 0 -1px 0 rgba(120, 100, 60, 0.10);
 }
+
+/* ── Menu dropdown panels ─────────────────────────────────────────────── */
+
+.menu-dropdown {
+  position: fixed;
+  z-index: 100;
+  min-width: 200px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  font-size: 0.8rem;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  font-family: inherit;
+}
+
+.menu-row:hover {
+  background: var(--accent-2);
+  color: #fff;
+}
+
+html[data-mode="day"] .menu-row:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.menu-row-label { flex: 1 1 auto; }
+
+.menu-row-shortcut {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  margin-left: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
+.menu-row:hover .menu-row-shortcut { color: rgba(255, 255, 255, 0.85); }
+
+.menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 0.25rem 0;
+}
+
+/* ── Ribbon body — tool groups ───────────────────────────────────────── */
+
+#ribbon-body {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.35rem 0.4rem;
+  min-height: 56px;
+}
+
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 0.5rem;
+  border-right: 1px solid var(--border-soft);
+  gap: 0.3rem;
+}
+
+.tool-group:last-child { border-right: 0; }
+
+.tool-group-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  padding-top: 0.15rem;
+  align-self: center;
+}
+
+.tool-group-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  justify-content: center;
+}
+
+.tool-btn {
+  background: var(--panel-2);
+  color: var(--fg-soft);
+  border: 1px solid var(--border-soft);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.005em;
+  transition: background 80ms ease, color 80ms ease, border-color 80ms ease;
+}
+
+.tool-btn:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.tool-btn.active {
+  background: var(--accent);
+  color: #0b1410;
+  border-color: var(--accent);
+}
+
+html[data-mode="day"] .tool-btn.active {
+  background: var(--accent);
+  color: #f4ecd8;
+  border-color: var(--accent-strong);
+}
+
+/* ── Statusbar refinements (12-cell variant) ─────────────────────────── */
+
+.sb-group { flex: 0 0 auto; }
+.sb-group.sb-left { margin-right: auto; }
+
+#statusbar { letter-spacing: 0.005em; }
+
+.sb-cell { font-size: 0.68rem; }
+.sb-doc, .sb-local { color: var(--fg-soft); }
+.sb-tool { color: var(--accent-strong); font-weight: 600; }
+
+/* ── Registration marks (corner ticks) ───────────────────────────────── */
+
+.reg-mark {
+  position: fixed;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.55;
+}
+
+.reg-mark::before,
+.reg-mark::after {
+  content: "";
+  position: absolute;
+  background: var(--fg-dim);
+}
+
+.reg-mark::before { /* horizontal arm */
+  left: 0; right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+
+.reg-mark::after { /* vertical arm */
+  top: 0; bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+
+.reg-tl { top: 4px;     left: 4px; }
+.reg-tr { top: 4px;     right: 4px; }
+.reg-bl { bottom: 4px;  left: 4px; }
+.reg-br { bottom: 4px;  right: 4px; }
+
+html[data-mode="day"] .reg-mark { opacity: 0.7; }
+html[data-mode="day"] .reg-mark::before,
+html[data-mode="day"] .reg-mark::after { background: var(--accent-strong); }

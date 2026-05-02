@@ -13,23 +13,106 @@
 //     against the requestAnimationFrame loop; viewer instrumentation is #173.
 //   - theme toggle (Ctrl+\, click button) flips html[data-mode] + persists.
 
+type MenuEntry = { label: string; shortcut?: string; separator?: false } | { separator: true };
 type MenuItem = {
   label: string;
   /** Single-letter access key (Alt+key opens the menu in a real OS). Underlined in the label. */
   key: string;
-  items: string[];
+  entries: MenuEntry[];
 };
 
 const MENUS: MenuItem[] = [
-  { label: "File",   key: "F", items: ["New", "Open...", "Save", "Save As...", "Export...", "Recent ▸", "Quit"] },
-  { label: "Edit",   key: "E", items: ["Undo", "Redo", "Cut", "Copy", "Paste", "Preferences..."] },
-  { label: "View",   key: "V", items: ["Top", "Front", "Right", "Iso", "Fit", "Toggle Grid", "Toggle Snap"] },
-  { label: "Sketch", key: "S", items: ["Line", "Rectangle", "Circle", "Arc", "Polygon", "Constrain ▸"] },
-  { label: "Solid",  key: "O", items: ["Extrude", "Revolve", "Sweep", "Loft", "Boolean ▸", "Fillet", "Chamfer"] },
-  { label: "Arch",   key: "A", items: ["Wall", "Floor", "Roof", "Door", "Window", "Stair", "Column"] },
-  { label: "Render", key: "R", items: ["Realtime", "Daylight", "Material Library", "Render Region..."] },
-  { label: "Window", key: "W", items: ["Single", "Quad", "Horizontal Split", "Vertical Split", "Reset Layout"] },
-  { label: "Help",   key: "H", items: ["Keyboard Shortcuts", "Documentation", "Report Issue", "About"] },
+  { label: "File",   key: "F", entries: [
+    { label: "New",        shortcut: "Ctrl+N" },
+    { label: "Open…",      shortcut: "Ctrl+O" },
+    { label: "Save",       shortcut: "Ctrl+S" },
+    { label: "Save As…",   shortcut: "Ctrl+Shift+S" },
+    { separator: true },
+    { label: "Export…",    shortcut: "Ctrl+E" },
+    { label: "Recent ▸" },
+    { separator: true },
+    { label: "Quit",       shortcut: "Ctrl+Q" },
+  ]},
+  { label: "Edit",   key: "E", entries: [
+    { label: "Undo",         shortcut: "Ctrl+Z" },
+    { label: "Redo",         shortcut: "Ctrl+Shift+Z" },
+    { separator: true },
+    { label: "Cut",          shortcut: "Ctrl+X" },
+    { label: "Copy",         shortcut: "Ctrl+C" },
+    { label: "Paste",        shortcut: "Ctrl+V" },
+    { separator: true },
+    { label: "Preferences…", shortcut: "Ctrl+," },
+  ]},
+  { label: "View",   key: "V", entries: [
+    { label: "Top",          shortcut: "7" },
+    { label: "Front",        shortcut: "1" },
+    { label: "Right",        shortcut: "3" },
+    { label: "Iso",          shortcut: "9" },
+    { label: "Fit",          shortcut: "F" },
+    { separator: true },
+    { label: "Toggle Grid",  shortcut: "G" },
+    { label: "Toggle Snap",  shortcut: "Shift+S" },
+  ]},
+  { label: "Sketch", key: "S", entries: [
+    { label: "Line",       shortcut: "L" },
+    { label: "Rectangle",  shortcut: "R" },
+    { label: "Circle",     shortcut: "C" },
+    { label: "Arc",        shortcut: "A" },
+    { label: "Polygon" },
+    { separator: true },
+    { label: "Constrain ▸" },
+  ]},
+  { label: "Solid",  key: "O", entries: [
+    { label: "Extrude",   shortcut: "E" },
+    { label: "Revolve" },
+    { label: "Sweep" },
+    { label: "Loft" },
+    { separator: true },
+    { label: "Boolean ▸" },
+    { label: "Fillet",    shortcut: "Shift+F" },
+    { label: "Chamfer" },
+  ]},
+  { label: "Arch",   key: "A", entries: [
+    { label: "Wall",   shortcut: "W" },
+    { label: "Floor",  shortcut: "F" },
+    { label: "Roof" },
+    { separator: true },
+    { label: "Door",   shortcut: "D" },
+    { label: "Window" },
+    { label: "Stair" },
+    { label: "Column" },
+  ]},
+  { label: "Render", key: "R", entries: [
+    { label: "Realtime",         shortcut: "Shift+R" },
+    { label: "Daylight" },
+    { separator: true },
+    { label: "Material Library", shortcut: "M" },
+    { label: "Render Region…" },
+  ]},
+  { label: "Window", key: "W", entries: [
+    { label: "Single",            shortcut: "1" },
+    { label: "Quad",              shortcut: "2" },
+    { label: "Horizontal Split",  shortcut: "3" },
+    { label: "Vertical Split",    shortcut: "4" },
+    { separator: true },
+    { label: "Reset Layout" },
+  ]},
+  { label: "Help",   key: "H", entries: [
+    { label: "Keyboard Shortcuts", shortcut: "?" },
+    { label: "Documentation" },
+    { label: "Report Issue" },
+    { separator: true },
+    { label: "About" },
+  ]},
+];
+
+type ToolGroup = { label: string; tools: string[] };
+const TOOL_GROUPS: ToolGroup[] = [
+  { label: "TRANSFORM", tools: ["Move", "Rotate", "Scale", "Mirror"] },
+  { label: "SKETCH 2D", tools: ["Line", "Rect", "Circle", "Arc", "Poly"] },
+  { label: "SOLID",     tools: ["Extrude", "Revolve", "Sweep", "Loft", "Boolean"] },
+  { label: "ARCH",      tools: ["Wall", "Floor", "Roof", "Door", "Window", "Stair"] },
+  { label: "MEASURE",   tools: ["Distance", "Angle", "Area"] },
 ];
 
 const MODES = ["Modeling", "Drafting", "Layout", "Research"] as const;
@@ -67,6 +150,67 @@ function renderMenuLabel(label: string, key: string): string {
 
 function buildMenubar(host: HTMLElement) {
   host.innerHTML = "";
+  let openMenu: HTMLDivElement | null = null;
+  let openButton: HTMLButtonElement | null = null;
+
+  function closeOpenMenu() {
+    if (openMenu) {
+      openMenu.remove();
+      openMenu = null;
+    }
+    if (openButton) {
+      openButton.setAttribute("aria-expanded", "false");
+      openButton = null;
+    }
+  }
+
+  function openDropdown(menu: MenuItem, anchor: HTMLButtonElement) {
+    closeOpenMenu();
+    const panel = document.createElement("div");
+    panel.className = "menu-dropdown";
+    panel.setAttribute("role", "menu");
+    panel.dataset.for = menu.label.toLowerCase();
+    for (const entry of menu.entries) {
+      if ("separator" in entry && entry.separator) {
+        const sep = document.createElement("div");
+        sep.className = "menu-sep";
+        sep.setAttribute("role", "separator");
+        panel.appendChild(sep);
+        continue;
+      }
+      const e = entry as { label: string; shortcut?: string };
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu-row";
+      row.setAttribute("role", "menuitem");
+      row.tabIndex = -1;
+      const label = document.createElement("span");
+      label.className = "menu-row-label";
+      label.textContent = e.label;
+      row.appendChild(label);
+      if (e.shortcut) {
+        const sc = document.createElement("span");
+        sc.className = "menu-row-shortcut";
+        sc.textContent = e.shortcut;
+        row.appendChild(sc);
+      }
+      row.addEventListener("click", () => {
+        // Per #171 task scope: actions wire to handlers in per-feature sub-tasks.
+        console.debug(`[shell] ${menu.label} → ${e.label}${e.shortcut ? " (" + e.shortcut + ")" : ""}`);
+        closeOpenMenu();
+      });
+      panel.appendChild(row);
+    }
+    // Position relative to the anchor button.
+    const rect = anchor.getBoundingClientRect();
+    panel.style.left = `${Math.round(rect.left)}px`;
+    panel.style.top = `${Math.round(rect.bottom)}px`;
+    document.body.appendChild(panel);
+    anchor.setAttribute("aria-expanded", "true");
+    openMenu = panel;
+    openButton = anchor;
+  }
+
   for (const menu of MENUS) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -76,13 +220,72 @@ function buildMenubar(host: HTMLElement) {
     btn.setAttribute("aria-expanded", "false");
     btn.dataset.menu = menu.label.toLowerCase();
     btn.innerHTML = renderMenuLabel(menu.label, menu.key);
-    btn.addEventListener("click", () => {
-      // Dropdown panels land in the follow-up palette/menu sub-task. For #171
-      // we just record that the menu was activated so the structure works
-      // end-to-end before the panel implementation lands.
-      console.debug(`[shell] menu "${menu.label}" — items: ${menu.items.join(" / ")}`);
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (openButton === btn) {
+        closeOpenMenu();
+      } else {
+        openDropdown(menu, btn);
+      }
+    });
+    btn.addEventListener("mouseenter", () => {
+      // Mouse-enter on adjacent menu while another is open swaps to it (per design spec).
+      if (openButton && openButton !== btn) {
+        openDropdown(menu, btn);
+      }
     });
     host.appendChild(btn);
+  }
+
+  // Click-outside closes the dropdown.
+  document.addEventListener("click", (e) => {
+    if (!openMenu) return;
+    const tgt = e.target as Node | null;
+    if (tgt && (openMenu.contains(tgt) || openButton?.contains(tgt))) return;
+    closeOpenMenu();
+  });
+  // Escape closes.
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && openMenu) {
+      closeOpenMenu();
+    }
+  });
+}
+
+function buildRibbonBody(host: HTMLElement) {
+  host.innerHTML = "";
+  for (const group of TOOL_GROUPS) {
+    const groupEl = document.createElement("div");
+    groupEl.className = "tool-group";
+    const groupLabel = document.createElement("div");
+    groupLabel.className = "tool-group-label";
+    groupLabel.textContent = group.label;
+    groupEl.appendChild(groupLabel);
+    const tools = document.createElement("div");
+    tools.className = "tool-group-tools";
+    for (const tool of group.tools) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tool-btn";
+      btn.dataset.tool = tool.toLowerCase();
+      btn.title = tool;
+      btn.textContent = tool;
+      tools.appendChild(btn);
+    }
+    groupEl.appendChild(tools);
+    host.appendChild(groupEl);
+  }
+}
+
+function buildRegistrationMarks() {
+  // Ensure marks exist in document.body. Idempotent — skip if already present.
+  if (document.getElementById("reg-mark-tl")) return;
+  for (const corner of ["tl", "tr", "bl", "br"] as const) {
+    const m = document.createElement("div");
+    m.id = `reg-mark-${corner}`;
+    m.className = `reg-mark reg-${corner}`;
+    m.setAttribute("aria-hidden", "true");
+    document.body.appendChild(m);
   }
 }
 
@@ -180,9 +383,12 @@ export function initShellChrome() {
   const menubar = document.getElementById("menubar");
   const modebar = document.getElementById("modebar");
   const ribbonTabs = document.getElementById("ribbon-tabs");
+  const ribbonBody = document.getElementById("ribbon-body");
   if (menubar) buildMenubar(menubar);
   if (modebar) buildModebar(modebar);
   if (ribbonTabs) buildRibbonTabs(ribbonTabs);
+  if (ribbonBody) buildRibbonBody(ribbonBody);
+  buildRegistrationMarks();
   wireThemeToggle();
   wireFpsCounter();
 }
