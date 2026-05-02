@@ -72,8 +72,11 @@ function countTriangles(obj: THREE.Object3D): number {
 // emit Y-up; the viewer is configured Z-up. Rotating the wrapping object
 // keeps each format consistent with the on-screen grid + axes.
 function applyYupToZup(obj: THREE.Object3D): void {
-  // Rx(-90deg): (x, y, z) → (x, z, -y)
-  obj.rotateX(-Math.PI / 2);
+  // Rx(+90deg): (x, y, z) → (x, -z, y)
+  // Maps +Y (Y-up) to +Z (Z-up). The opposite sign Rx(-90) inverts to -Z;
+  // verified empirically 2026-05-02 with the labeled axis triad — Schultz
+  // Residence loaded upside down (up along -Z) when this used -π/2.
+  obj.rotateX(Math.PI / 2);
 }
 
 // --- glTF / GLB ---
