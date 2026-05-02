@@ -137,9 +137,11 @@ worker.onmessage = (ev: MessageEvent<WorkerOut>) => {
   if (msg.type === "ready") {
     workerReady = true;
     runBtn.disabled = false;
-    setStatus("OpenCascade ready. Pick a demo and Run, or switch to Load file.", "info");
+    setStatus("OpenCascade ready. Running first demo…", "info");
     pendingRuns.forEach((fn) => fn());
     pendingRuns.length = 0;
+    // Auto-run the loaded demo on first ready so the viewer isn't empty on landing.
+    runJs(jsSource.value);
     return;
   }
 
