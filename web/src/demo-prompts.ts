@@ -113,15 +113,16 @@ const corner = wallX.fuse(wallY);`,
     id: "four-walled-room",
     label: "7. Four-walled room (multi-fuse)",
     prompt: "Four-walled room 9.12m × 9.34m, 0.24m thick walls, 3.06m tall.",
-    js: `const front = drawRectangle(L, T).sketchOnPlane("XY").extrude(H).translate([0, -(L - T) / 2, 0]);
-const back  = drawRectangle(L, T).sketchOnPlane("XY").extrude(H).translate([0,  (L - T) / 2, 0]);
-const left  = drawRectangle(T, L - 2 * T).sketchOnPlane("XY").extrude(H).translate([-(L - T) / 2, 0, 0]);
-const right = drawRectangle(T, L - 2 * T).sketchOnPlane("XY").extrude(H).translate([ (L - T) / 2, 0, 0]);
+    js: `const front = drawRectangle(L, T).sketchOnPlane("XY").extrude(H).translate([0, -(W - T) / 2, 0]);
+const back  = drawRectangle(L, T).sketchOnPlane("XY").extrude(H).translate([0,  (W - T) / 2, 0]);
+const left  = drawRectangle(T, W - 2 * T).sketchOnPlane("XY").extrude(H).translate([-(L - T) / 2, 0, 0]);
+const right = drawRectangle(T, W - 2 * T).sketchOnPlane("XY").extrude(H).translate([ (L - T) / 2, 0, 0]);
 const room = front.fuse(back).fuse(left).fuse(right);`,
     params: [
-      { name: "L", label: "side length (m)", min: 3,   max: 15, step: 0.05, default: 9.12 },
+      { name: "L", label: "length X (m)",       min: 3,   max: 15, step: 0.05, default: 9.12 },
+      { name: "W", label: "width Y (m)",        min: 3,   max: 15, step: 0.05, default: 9.34 },
       { name: "T", label: "wall thickness (m)", min: 0.1, max: 0.5, step: 0.01, default: 0.24 },
-      { name: "H", label: "wall height (m)",  min: 2,   max: 5,  step: 0.05, default: 3.06 },
+      { name: "H", label: "wall height (m)",    min: 2,   max: 5,  step: 0.05, default: 3.06 },
     ],
   },
   {
