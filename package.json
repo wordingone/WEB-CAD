@@ -8,7 +8,11 @@
     "spike-b": "bun scripts/spike-b-ifc-mining.ts",
     "extract-walls": "bun scripts/extract-walls.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "web:dev": "vite --config web/vite.config.ts",
+    "web:build": "vite build --config web/vite.config.ts",
+    "web:preview": "vite preview --config web/vite.config.ts",
+    "web:typecheck": "tsc --noEmit -p web/tsconfig.json"
   },
   "dependencies": {
     "replicad": "^0.20.0",
@@ -19,7 +23,12 @@
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/three": "^0.162.0",
-    "typescript": "^5.3.3"
+    "esbuild": "^0.28.0",
+    "rollup": "^4.60.2",
+    "typescript": "^5.3.3",
+    "vite": "^8.0.10",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,0 +1,575 @@
+// Wires the UI: prompt mode (existing) + file-load mode (new).
+//
+// The prompt-mode flow is unchanged from the v1 release — dropdown, textarea,
+// Run button, worker, viewer.setMesh.
+// The file-load flow accepts IFC/STEP via the worker (heavy parsing) and
+// GLB/GLTF/OBJ/STL on the main thread via three.js JSM loaders.
+//
+// Export menu is shared: the active source (whether replicad-generated or
+// loaded-from-file) is queried via viewer.getActiveMeshData().
+
+import { Viewer } from "./viewer";
+import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
+import { buildIfc, ifcRoundTrip } from "./ifc";
+import {
+  detectFormat,
+  loadMainThreadFormat,
+  buildIfcMesh,
+  buildStepMesh,
+  WORKER_FORMATS,
+  MAIN_THREAD_FORMATS,
+  ALL_FORMATS,
+  isSupported,
+  type LoadedScene,
+} from "./loader";
+import {
+  exportObj,
+  exportGltfJson,
+  exportGlb,
+  exportUsdz,
+  exportSvg,
+  exportDxf,
+  exportPdf,
+} from "./exporters";
+import { SAMPLES } from "./sample-files";
+import type { WorkerOut } from "./worker";
+
+const $ = <T extends HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing`);
+  return el as T;
+};
+
+// Mode toggle + panels
+const modePromptBtn = $<HTMLButtonElement>("mode-prompt-btn");
+const modeFileBtn = $<HTMLButtonElement>("mode-file-btn");
+const promptPanel = $<HTMLDivElement>("prompt-mode-panel");
+const filePanel = $<HTMLDivElement>("file-mode-panel");
+
+// Prompt mode controls
+const promptSelect = $<HTMLSelectElement>("prompt-select");
+const promptText = $<HTMLTextAreaElement>("prompt-text");
+const jsSource = $<HTMLTextAreaElement>("js-source");
+const runBtn = $<HTMLButtonElement>("run-btn");
+
+// File mode controls
+const sampleSelect = $<HTMLSelectElement>("sample-select");
+const filePickBtn = $<HTMLButtonElement>("file-pick-btn");
+const fileInput = $<HTMLInputElement>("file-input");
+const fileNameLabel = $<HTMLSpanElement>("file-name");
+
+// Shared UI
+const status = $<HTMLDivElement>("status");
+const canvas = $<HTMLCanvasElement>("viewer-canvas");
+const paramPanel = $<HTMLDivElement>("param-panel");
+const paramSliders = $<HTMLDivElement>("param-sliders");
+const paramCollapseBtn = $<HTMLButtonElement>("param-collapse-btn");
+const dropOverlay = $<HTMLDivElement>("drop-overlay");
+const viewerPane = $<HTMLElement>("viewer-pane");
+
+// Export buttons (data-fmt attribute on each)
+const exportButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>(".exp-btn"),
+);
+
+paramCollapseBtn.addEventListener("click", () => {
+  paramPanel.classList.toggle("collapsed");
+  const collapsed = paramPanel.classList.contains("collapsed");
+  paramCollapseBtn.setAttribute(
+    "aria-label",
+    collapsed ? "Expand parameters panel" : "Collapse parameters panel",
+  );
+});
+
+const viewer = new Viewer(canvas);
+
+// Worker boot. Vite resolves the URL + format=es per vite.config.ts worker block.
+const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+let nextId = 1;
+let pendingStl: ArrayBuffer | null = null;
+
+// Source mode tracking — drives which export buttons are enabled.
+type Source =
+  | { kind: "none" }
+  | { kind: "prompt"; demoId: string }
+  | { kind: "file"; format: string; filename: string };
+
+let currentSource: Source = { kind: "none" };
+
+// Pending requests from the file path. Worker responses arrive on the same
+// onmessage handler; we use a numeric id + callbacks map to route.
+type WorkerCallback = (msg: WorkerOut) => void;
+const workerCallbacks = new Map<number, WorkerCallback>();
+
+function setStatus(msg: string, kind: "ok" | "err" | "info" | "warn" | "" = "") {
+  status.textContent = msg;
+  status.className = `status${kind ? " " + kind : ""}`;
+}
+
+let workerReady = false;
+const pendingRuns: Array<() => void> = [];
+
+worker.onmessage = (ev: MessageEvent<WorkerOut>) => {
+  const msg = ev.data;
+  if (msg.type === "ready") {
+    workerReady = true;
+    runBtn.disabled = false;
+    setStatus("OpenCascade ready. Pick a demo and Run, or switch to Load file.", "info");
+    pendingRuns.forEach((fn) => fn());
+    pendingRuns.length = 0;
+    return;
+  }
+
+  // Route worker messages with id field via callbacks map first; fall through
+  // to the legacy run-ok / run-error handlers if no callback registered.
+  if ("id" in msg) {
+    const cb = workerCallbacks.get((msg as any).id);
+    if (cb) {
+      workerCallbacks.delete((msg as any).id);
+      cb(msg);
+      return;
+    }
+  }
+
+  if (msg.type === "run-error") {
+    setStatus(`Error: ${msg.error}`, "err");
+    runBtn.disabled = false;
+    refreshExportButtons();
+    return;
+  }
+  if (msg.type === "run-ok") {
+    viewer.setMesh(msg.mesh, msg.bounds);
+    pendingStl = msg.stl.byteLength > 0 ? msg.stl : null;
+    currentSource = { kind: "prompt", demoId: currentDemo.id };
+    setStatus(
+      `${shortLabel(currentDemo.label)} · ${formatBounds(msg.bounds)} · ready to export`,
+      "ok",
+    );
+    runBtn.disabled = false;
+    refreshExportButtons();
+  }
+};
+
+function formatBounds(b: { min: [number, number, number]; max: [number, number, number] }): string {
+  const dx = (b.max[0] - b.min[0]).toFixed(2);
+  const dy = (b.max[1] - b.min[1]).toFixed(2);
+  const dz = (b.max[2] - b.min[2]).toFixed(2);
+  return `${dx}×${dy}×${dz}m`;
+}
+
+// "1. Wall (5.5m × 0.2m × 2.8m)" → "Wall"
+function shortLabel(label: string): string {
+  const stripped = label.replace(/^\d+\.\s*/, "").replace(/\s*\(.*\)\s*$/, "").trim();
+  return stripped || label;
+}
+
+// Populate dropdowns.
+DEMOS.forEach((d, i) => {
+  const opt = document.createElement("option");
+  opt.value = String(i);
+  opt.textContent = d.label;
+  promptSelect.appendChild(opt);
+});
+
+SAMPLES.forEach((s) => {
+  const opt = document.createElement("option");
+  opt.value = s.id;
+  opt.textContent = s.label;
+  if (s.note) opt.title = s.note;
+  sampleSelect.appendChild(opt);
+});
+
+let currentDemo: DemoPrompt = DEMOS[0];
+let currentParams: Record<string, number> = {};
+
+function loadDemo(idx: number) {
+  currentDemo = DEMOS[idx];
+  promptText.value = currentDemo.prompt;
+  buildSliders(currentDemo);
+  jsSource.value = applyParams(currentDemo.js, currentParams);
+}
+
+function buildSliders(demo: DemoPrompt) {
+  paramSliders.innerHTML = "";
+  currentParams = {};
+  if (!demo.params || demo.params.length === 0) {
+    paramPanel.classList.add("hidden");
+    return;
+  }
+  paramPanel.classList.remove("hidden");
+
+  for (const p of demo.params) {
+    currentParams[p.name] = p.default;
+
+    const row = document.createElement("div");
+    row.className = "slider-row";
+
+    const label = document.createElement("label");
+    label.textContent = p.label;
+    label.htmlFor = `slider-${p.name}`;
+
+    const valueSpan = document.createElement("span");
+    valueSpan.className = "value";
+    valueSpan.textContent = p.default.toString();
+
+    const input = document.createElement("input");
+    input.id = `slider-${p.name}`;
+    input.type = "range";
+    input.min = String(p.min);
+    input.max = String(p.max);
+    input.step = String(p.step);
+    input.value = String(p.default);
+
+    let timer: number | undefined;
+    input.addEventListener("input", () => {
+      const v = parseFloat(input.value);
+      currentParams[p.name] = v;
+      valueSpan.textContent = formatParam(v, p);
+      jsSource.value = applyParams(currentDemo.js, currentParams);
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => runJs(jsSource.value), 90);
+    });
+
+    row.appendChild(label);
+    row.appendChild(valueSpan);
+    row.appendChild(input);
+    paramSliders.appendChild(row);
+  }
+}
+
+function formatParam(v: number, p: Param): string {
+  if (p.step >= 1) return v.toFixed(0);
+  if (p.step >= 0.1) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function runJs(js: string) {
+  const send = () => {
+    runBtn.disabled = true;
+    refreshExportButtons(true);
+    setStatus("Running...", "info");
+    worker.postMessage({ type: "run", id: nextId++, js });
+  };
+  if (workerReady) send();
+  else pendingRuns.push(send);
+}
+
+promptSelect.addEventListener("change", () => {
+  loadDemo(Number(promptSelect.value));
+});
+
+runBtn.addEventListener("click", () => {
+  runJs(jsSource.value);
+});
+
+// --- Source mode toggle ---
+
+function setMode(mode: "prompt" | "file") {
+  if (mode === "prompt") {
+    modePromptBtn.classList.add("active");
+    modePromptBtn.setAttribute("aria-selected", "true");
+    modeFileBtn.classList.remove("active");
+    modeFileBtn.setAttribute("aria-selected", "false");
+    promptPanel.classList.remove("hidden");
+    filePanel.classList.add("hidden");
+    runBtn.disabled = !workerReady;
+  } else {
+    modeFileBtn.classList.add("active");
+    modeFileBtn.setAttribute("aria-selected", "true");
+    modePromptBtn.classList.remove("active");
+    modePromptBtn.setAttribute("aria-selected", "false");
+    promptPanel.classList.add("hidden");
+    filePanel.classList.remove("hidden");
+    runBtn.disabled = true;
+    paramPanel.classList.add("hidden");
+  }
+}
+
+modePromptBtn.addEventListener("click", () => setMode("prompt"));
+modeFileBtn.addEventListener("click", () => setMode("file"));
+
+// --- File-load flow ---
+
+async function handleFile(file: File): Promise<void> {
+  const fmt = detectFormat(file.name);
+  fileNameLabel.textContent = file.name;
+  fileNameLabel.classList.remove("muted");
+  if (!isSupported(fmt)) {
+    setStatus(`Unsupported format: .${fmt} — try .ifc / .glb / .gltf / .obj / .stl / .step`, "err");
+    return;
+  }
+  setStatus(`Reading ${file.name} (${fmt.toUpperCase()})...`, "info");
+
+  const buffer = await file.arrayBuffer();
+
+  if (MAIN_THREAD_FORMATS.has(fmt)) {
+    try {
+      const scene = await loadMainThreadFormat(buffer, fmt);
+      finalizeFileLoad(scene, file.name);
+    } catch (e) {
+      setStatus(`Failed to parse ${file.name}: ${(e as Error).message}`, "err");
+    }
+    return;
+  }
+
+  if (WORKER_FORMATS.has(fmt)) {
+    if (!workerReady) {
+      setStatus("Waiting for OpenCascade WASM to finish loading...", "info");
+      pendingRuns.push(() => handleFile(file));
+      return;
+    }
+    if (fmt === "ifc") {
+      setStatus(`Parsing ${file.name} via web-ifc... (may take a few seconds)`, "info");
+      const id = nextId++;
+      workerCallbacks.set(id, (msg) => {
+        if (msg.type === "load-ifc-ok") {
+          buildIfcMesh(msg, file.name).then((scene) => finalizeFileLoad(scene, file.name));
+        } else if (msg.type === "load-ifc-error") {
+          setStatus(`IFC parse failed: ${msg.error}`, "err");
+        }
+      });
+      worker.postMessage({ type: "load-ifc", id, bytes: buffer }, [buffer]);
+    } else if (fmt === "step" || fmt === "stp" || fmt === "iges" || fmt === "igs" || fmt === "brep") {
+      setStatus(`Parsing ${file.name} via OpenCascade... (may take a few seconds)`, "info");
+      const id = nextId++;
+      workerCallbacks.set(id, (msg) => {
+        if (msg.type === "load-step-ok") {
+          buildStepMesh(msg, file.name, fmt).then((scene) => finalizeFileLoad(scene, file.name));
+        } else if (msg.type === "load-step-error") {
+          setStatus(`${fmt.toUpperCase()} parse failed: ${msg.error}`, "err");
+        }
+      });
+      worker.postMessage(
+        { type: "load-step", id, bytes: buffer, format: fmt as any },
+        [buffer],
+      );
+    }
+  }
+}
+
+function finalizeFileLoad(scene: LoadedScene, filename: string) {
+  viewer.setObject(scene.object, scene.bounds);
+  pendingStl = null; // STL is replicad-only; loaded-file path doesn't ship one.
+  currentSource = { kind: "file", format: scene.format, filename };
+  setStatus(scene.summary, "ok");
+  refreshExportButtons();
+}
+
+// File picker
+filePickBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files?.[0];
+  if (f) handleFile(f);
+});
+
+// Sample dropdown
+sampleSelect.addEventListener("change", async () => {
+  const id = sampleSelect.value;
+  if (!id) return;
+  const sample = SAMPLES.find((s) => s.id === id);
+  if (!sample) return;
+  setStatus(`Fetching ${sample.label}...`, "info");
+  try {
+    const resp = await fetch(`./${sample.path}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const buffer = await resp.arrayBuffer();
+    // Synthesize a File so handleFile() can route by extension.
+    const file = new File([buffer], sample.path.split("/").pop() ?? "sample", {
+      type: "application/octet-stream",
+    });
+    await handleFile(file);
+  } catch (e) {
+    setStatus(`Failed to fetch sample: ${(e as Error).message}`, "err");
+  }
+});
+
+// Drag-drop overlay
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  e.preventDefault();
+  if (!hasFiles(e)) return;
+  dragDepth++;
+  dropOverlay.classList.remove("hidden");
+});
+window.addEventListener("dragleave", (e) => {
+  e.preventDefault();
+  if (!hasFiles(e)) return;
+  dragDepth--;
+  if (dragDepth <= 0) {
+    dragDepth = 0;
+    dropOverlay.classList.add("hidden");
+  }
+});
+window.addEventListener("dragover", (e) => {
+  e.preventDefault();
+});
+window.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.add("hidden");
+  const dt = e.dataTransfer;
+  if (!dt || !dt.files || dt.files.length === 0) return;
+  const file = dt.files[0];
+  // If dropped while in prompt mode, switch to file mode for clarity.
+  if (filePanel.classList.contains("hidden")) setMode("file");
+  handleFile(file);
+});
+
+function hasFiles(e: DragEvent): boolean {
+  return Array.from(e.dataTransfer?.types ?? []).includes("Files");
+}
+
+// --- Export pipeline ---
+
+function refreshExportButtons(disabledOverride: boolean = false): void {
+  const has = currentSource.kind !== "none";
+  for (const btn of exportButtons) {
+    const fmt = btn.dataset.fmt;
+    if (!fmt) continue;
+    if (disabledOverride || !has) {
+      btn.disabled = true;
+      continue;
+    }
+    // STL is only available when the prompt path produced a binary STL blob.
+    if (fmt === "stl") {
+      btn.disabled = !pendingStl;
+      continue;
+    }
+    // STEP is only available when the source is a replicad-generated shape
+    // (currently we don't keep the OCCT shape handle around outside the
+    // worker, so STEP write is gated to "prompt" source for now).
+    if (fmt === "step") {
+      btn.disabled = currentSource.kind !== "prompt";
+      continue;
+    }
+    btn.disabled = false;
+  }
+}
+
+async function handleExport(fmt: string): Promise<void> {
+  const stem = currentSource.kind === "prompt"
+    ? currentDemo.id
+    : currentSource.kind === "file"
+      ? sanitizeStem(currentSource.filename)
+      : "export";
+  try {
+    if (fmt === "ifc") {
+      await exportIfc(stem);
+      return;
+    }
+    if (fmt === "stl") {
+      if (pendingStl) {
+        downloadBlob(new Blob([pendingStl], { type: "model/stl" }), `${stem}.stl`);
+        setStatus(`STL · ${(pendingStl.byteLength / 1024).toFixed(1)} KB`, "ok");
+      } else {
+        setStatus("STL only available for replicad-generated geometry.", "warn");
+      }
+      return;
+    }
+    const obj = viewer.getActiveObject();
+    if (!obj) {
+      setStatus("No geometry loaded.", "warn");
+      return;
+    }
+    setStatus(`Exporting ${fmt.toUpperCase()}...`, "info");
+    if (fmt === "obj") {
+      const text = exportObj(obj);
+      downloadBlob(new Blob([text], { type: "model/obj" }), `${stem}.obj`);
+      setStatus(`OBJ · ${(text.length / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "glb") {
+      const buf = await exportGlb(obj);
+      downloadBlob(new Blob([buf], { type: "model/gltf-binary" }), `${stem}.glb`);
+      setStatus(`GLB · ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "gltf") {
+      const json = await exportGltfJson(obj);
+      downloadBlob(new Blob([json], { type: "model/gltf+json" }), `${stem}.gltf`);
+      setStatus(`glTF · ${(json.length / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "usdz") {
+      const buf = await exportUsdz(obj);
+      downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "model/vnd.usdz+zip" }), `${stem}.usdz`);
+      setStatus(`USDZ · ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "svg") {
+      const text = exportSvg(obj);
+      downloadBlob(new Blob([text], { type: "image/svg+xml" }), `${stem}.svg`);
+      setStatus(`SVG · ${(text.length / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "dxf") {
+      const text = exportDxf(obj);
+      downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
+      setStatus(`DXF · ${(text.length / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "pdf") {
+      const buf = exportPdf(obj);
+      downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/pdf" }), `${stem}.pdf`);
+      setStatus(`PDF · ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
+    } else if (fmt === "step") {
+      setStatus("STEP export is stubbed for the import pass — coming next.", "warn");
+    } else {
+      setStatus(`Unknown export format: ${fmt}`, "err");
+    }
+  } catch (e) {
+    setStatus(`Export ${fmt.toUpperCase()} failed: ${(e as Error).message}`, "err");
+  }
+}
+
+function sanitizeStem(filename: string): string {
+  return filename.replace(/\.[a-z0-9]+$/i, "").replace(/[^A-Za-z0-9_\-]+/g, "_") || "export";
+}
+
+async function exportIfc(stem: string): Promise<void> {
+  const data = viewer.getActiveMeshData();
+  if (!data) {
+    setStatus("No mesh data available to export as IFC.", "warn");
+    return;
+  }
+  setStatus("Building IFC + verifying round-trip via web-ifc...", "info");
+  try {
+    const label =
+      currentSource.kind === "prompt"
+        ? currentDemo.label
+        : currentSource.kind === "file"
+          ? `Imported ${currentSource.filename}`
+          : "GemmaArchitect Element";
+    const bytes = buildIfc({ vertices: data.vertices, indices: data.indices }, label);
+    const result = await ifcRoundTrip(bytes);
+    if (result.ok) {
+      setStatus(
+        `IFC4 ${(result.byteSize / 1024).toFixed(1)} KB · ${result.productCount} proxy · ${result.schema} round-trip OK`,
+        "ok",
+      );
+    } else {
+      setStatus(
+        `IFC built (${(bytes.byteLength / 1024).toFixed(1)} KB) — round-trip skipped: ${result.error}`,
+        "warn",
+      );
+    }
+    downloadBlob(
+      new Blob([new Uint8Array(bytes)], { type: "application/x-step" }),
+      `${stem}.ifc`,
+    );
+  } catch (e) {
+    setStatus(`IFC build failed: ${(e as Error).message}`, "err");
+  }
+}
+
+for (const btn of exportButtons) {
+  btn.addEventListener("click", () => {
+    const fmt = btn.dataset.fmt;
+    if (fmt) handleExport(fmt);
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Boot.
+loadDemo(0);
+setStatus("Loading OpenCascade WebAssembly...", "info");
+runBtn.disabled = true;
+refreshExportButtons(true);

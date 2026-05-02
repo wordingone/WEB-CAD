@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gemma-architect — browser-native parametric CAD</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <header>
+    <h1>gemma-architect</h1>
+    <p class="tag">Natural language &rarr; replicad &rarr; IFC, in your browser. No install. No cloud.</p>
+  </header>
+
+  <main>
+    <section id="prompt-pane">
+      <div id="source-toggle" role="tablist" aria-label="Source mode">
+        <button id="mode-prompt-btn" role="tab" type="button" class="mode-btn active" aria-selected="true">
+          <span class="mode-icon">&#8634;</span> Generate from prompt
+        </button>
+        <button id="mode-file-btn" role="tab" type="button" class="mode-btn" aria-selected="false">
+          <span class="mode-icon">&#128193;</span> Load file
+        </button>
+      </div>
+
+      <!-- Prompt mode panel -->
+      <div id="prompt-mode-panel" class="mode-panel">
+        <label for="prompt-select">Demo prompt</label>
+        <select id="prompt-select"></select>
+
+        <label for="prompt-text">Prompt (read-only &mdash; canned model output for the offline demo)</label>
+        <textarea id="prompt-text" rows="3" readonly></textarea>
+
+        <label for="js-source">Generated replicad sequence</label>
+        <textarea id="js-source" rows="4" spellcheck="false"></textarea>
+
+        <div class="row">
+          <button id="run-btn" type="button">Run</button>
+        </div>
+      </div>
+
+      <!-- File mode panel -->
+      <div id="file-mode-panel" class="mode-panel hidden">
+        <label for="sample-select">Sample file</label>
+        <select id="sample-select">
+          <option value="">— pick a sample, or use the picker below —</option>
+        </select>
+
+        <label>Or pick from disk</label>
+        <div class="row">
+          <button id="file-pick-btn" type="button">Choose file&hellip;</button>
+          <span id="file-name" class="file-name muted">No file loaded</span>
+        </div>
+        <input id="file-input" type="file" hidden
+          accept=".ifc,.glb,.gltf,.obj,.stl,.step,.stp,.iges,.igs,.brep" />
+
+        <p class="hint">
+          Supported: <code>.ifc</code>, <code>.glb</code>, <code>.gltf</code>,
+          <code>.obj</code>, <code>.stl</code>, <code>.step</code>/<code>.stp</code>.
+          IGES/BREP best-effort. Drop a file anywhere on the viewer.
+        </p>
+      </div>
+
+      <!-- Export menu (shared between modes) -->
+      <div class="export-row">
+        <span class="export-label">Export &rarr;</span>
+        <div class="export-group" aria-label="3D exports">
+          <button class="exp-btn" data-fmt="ifc" disabled type="button">IFC</button>
+          <button class="exp-btn" data-fmt="obj" disabled type="button">OBJ</button>
+          <button class="exp-btn" data-fmt="stl" disabled type="button">STL</button>
+          <button class="exp-btn" data-fmt="glb" disabled type="button">GLB</button>
+          <button class="exp-btn" data-fmt="gltf" disabled type="button">glTF</button>
+          <button class="exp-btn" data-fmt="usdz" disabled type="button">USDZ</button>
+          <button class="exp-btn" data-fmt="step" disabled type="button" title="STEP only available for replicad-generated geometry">STEP</button>
+        </div>
+        <span class="export-label sep">2D &rarr;</span>
+        <div class="export-group" aria-label="2D exports">
+          <button class="exp-btn" data-fmt="svg" disabled type="button">SVG</button>
+          <button class="exp-btn" data-fmt="dxf" disabled type="button">DXF</button>
+          <button class="exp-btn" data-fmt="pdf" disabled type="button">PDF</button>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+    </section>
+
+    <section id="viewer-pane">
+      <canvas id="viewer-canvas"></canvas>
+      <div id="drop-overlay" class="hidden">
+        <div class="drop-card">
+          <div class="drop-icon">&#8615;</div>
+          <div class="drop-title">Drop file to load</div>
+          <div class="drop-hint">.ifc · .glb · .gltf · .obj · .stl · .step</div>
+        </div>
+      </div>
+      <div id="param-panel" class="hidden">
+        <div id="param-panel-header">
+          <h3>Parameters</h3>
+          <button id="param-collapse-btn" type="button" aria-label="Collapse parameters panel">&#9776;</button>
+        </div>
+        <p class="hint">Sliders re-execute the sequence with the substituted value. No model call.</p>
+        <div id="param-sliders"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/wordingone/gemma-architect" target="_blank" rel="noopener">Repo</a>
+    <span>&middot;</span>
+    <a href="https://huggingface.co/gemma-architect/cad-lora-v2" target="_blank" rel="noopener">Model</a>
+    <span>&middot;</span>
+    <a href="../docs/plan-18-day.md">18-day plan</a>
+    <span>&middot;</span>
+    Apache-2.0
+  </footer>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
