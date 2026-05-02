@@ -202,12 +202,19 @@ export async function buildIfcMesh(
   const mesh = new THREE.Mesh(geometry, material);
   const root = new THREE.Group();
   root.add(mesh);
-  // IFC is Z-up natively (spec: +X east, +Y north, +Z up). web-ifc preserves
-  // the file's coordinates — no conversion. Viewer is Z-up too. No rotation.
+  // IFC spec is Z-up, but web-ifc emits geometry rotated to Y-up to match
+  // three.js's internal convention (empirical: Schultz Residence loaded with
+  // building-up axis along world Y, observed 2026-05-02 with the labeled
+  // axis triad). Rotate Y-up → Z-up so the building stands upright in the
+  // Z-up viewer/grid.
+  applyYupToZup(root);
   const tris = result.indices.length / 3;
+  // Recompute bounds AFTER rotation — worker-side bounds were Y-up; the
+  // viewer's fitCamera needs Z-up bounds to frame correctly.
+  const boundsZup = computeBoundsFromObject(root);
   return {
     object: root,
-    bounds: result.bounds,
+    bounds: boundsZup,
     triangles: tris,
     format: "ifc",
     summary: `${filename} · ${result.entityCount.toLocaleString()} entities · ${tris.toLocaleString()} triangles · ${result.schema}`,

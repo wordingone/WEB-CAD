@@ -83,6 +83,26 @@ paramCollapseBtn.addEventListener("click", () => {
 
 const viewer = new Viewer(canvas);
 
+// Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
+// keyboards without a numpad. Captured at window level but ignored if the
+// user is typing in any input/textarea/contenteditable.
+window.addEventListener("keydown", (e) => {
+  const tgt = e.target as HTMLElement | null;
+  if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // Numpad first; falls through to letter keys for laptops.
+  switch (e.key) {
+    case "1": case "Numpad1": viewer.setView("front"); break;
+    case "3": case "Numpad3": viewer.setView("right"); break;
+    case "7": case "Numpad7": viewer.setView("top"); break;
+    case "9": case "Numpad9": viewer.setView("iso"); break;
+    case "5": case "Numpad5": viewer.setView("extents"); break;
+    case "f": case "F":       viewer.setView("extents"); break;
+    default: return;
+  }
+  e.preventDefault();
+});
+
 // Worker boot. Vite resolves the URL + format=es per vite.config.ts worker block.
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
 let nextId = 1;

@@ -29,6 +29,8 @@ export class Viewer {
   private currentObject: THREE.Object3D | null = null;
   private grid: THREE.GridHelper;
   private axes: THREE.AxesHelper;
+  private axisLabels: THREE.Sprite[] = [];
+  private currentBounds: Bounds | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -70,6 +72,7 @@ export class Viewer {
 
     this.axes = new THREE.AxesHelper(2);
     this.scene.add(this.axes);
+    this.createAxisLabels();
 
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
@@ -222,6 +225,7 @@ export class Viewer {
   }
 
   private fitCamera(bounds: Bounds): void {
+    this.currentBounds = bounds;
     const cx = (bounds.min[0] + bounds.max[0]) / 2;
     const cy = (bounds.min[1] + bounds.max[1]) / 2;
     const cz = (bounds.min[2] + bounds.max[2]) / 2;
@@ -251,5 +255,80 @@ export class Viewer {
       (this.grid as any).__lastSize = gridSize;
       this.scene.add(this.grid);
     }
+
+    // Re-scale axis triad + labels to match scene size.
+    const triadLen = Math.max(2, Math.min(dx, dy, dz) * 0.5);
+    this.scene.remove(this.axes);
+    this.axes.dispose();
+    this.axes = new THREE.AxesHelper(triadLen);
+    this.scene.add(this.axes);
+    this.createAxisLabels(triadLen);
+  }
+
+  // Sprite-based axis tip labels (X red, Y green, Z blue) — three.js AxesHelper
+  // is unlabeled by default, leaving users guessing which colored line is which.
+  private createAxisLabels(length = 2): void {
+    for (const s of this.axisLabels) {
+      this.scene.remove(s);
+      s.material.map?.dispose();
+      s.material.dispose();
+    }
+    this.axisLabels = [];
+    const make = (text: string, color: string, pos: [number, number, number]): THREE.Sprite => {
+      const c = document.createElement("canvas");
+      c.width = 96; c.height = 96;
+      const ctx = c.getContext("2d")!;
+      ctx.clearRect(0, 0, 96, 96);
+      ctx.fillStyle = color;
+      ctx.font = "700 64px 'Inter', system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 48, 50);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true });
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.set(pos[0], pos[1], pos[2]);
+      const s = Math.max(0.4, length * 0.18);
+      sprite.scale.set(s, s, 1);
+      sprite.renderOrder = 999;
+      return sprite;
+    };
+    const tip = length * 1.12;
+    this.axisLabels = [
+      make("X", "#ff5c5c", [tip, 0, 0]),
+      make("Y", "#7ad36a", [0, tip, 0]),
+      make("Z", "#5b8def", [0, 0, tip]),
+    ];
+    for (const s of this.axisLabels) this.scene.add(s);
+  }
+
+  // Snap camera to a named view, framed on current scene bounds.
+  // Names match AutoCAD/Revit/Blender conventions in Z-up world.
+  setView(name: "top" | "bottom" | "front" | "back" | "left" | "right" | "iso" | "extents"): void {
+    const b = this.currentBounds ?? { min: [-5, -5, -5] as [number, number, number], max: [5, 5, 5] as [number, number, number] };
+    const cx = (b.min[0] + b.max[0]) / 2;
+    const cy = (b.min[1] + b.max[1]) / 2;
+    const cz = (b.min[2] + b.max[2]) / 2;
+    const dx = b.max[0] - b.min[0];
+    const dy = b.max[1] - b.min[1];
+    const dz = b.max[2] - b.min[2];
+    const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    const dist = diag * 1.7;
+    let dir: THREE.Vector3;
+    switch (name) {
+      case "top":     dir = new THREE.Vector3(0, 0, 1); break;
+      case "bottom":  dir = new THREE.Vector3(0, 0, -1); break;
+      case "front":   dir = new THREE.Vector3(0, -1, 0); break;
+      case "back":    dir = new THREE.Vector3(0, 1, 0); break;
+      case "right":   dir = new THREE.Vector3(1, 0, 0); break;
+      case "left":    dir = new THREE.Vector3(-1, 0, 0); break;
+      case "iso":     dir = new THREE.Vector3(1, 1, 1).normalize(); break;
+      case "extents": dir = new THREE.Vector3(1, 1, 1.5).normalize(); break;
+    }
+    this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
+    this.controls.target.set(cx, cy, cz);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 }
