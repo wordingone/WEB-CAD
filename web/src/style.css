@@ -1,4 +1,6 @@
-:root {
+/* ── Theme tokens — night (default) ─────────────────────────────────────── */
+:root,
+html[data-mode="night"] {
   --bg: #0b0b0e;
   --panel: #15161b;
   --panel-2: #1d1e25;
@@ -13,10 +15,32 @@
   --warn: #f5c97c;
   --border: #2a2b35;
   --border-soft: #1f2027;
+  --chrome: #101117;
+  --chrome-2: #181922;
   --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
   --gap: clamp(0.5rem, 0.6vw + 0.3rem, 1rem);
   --pad: clamp(0.75rem, 0.8vw + 0.5rem, 1.25rem);
   --radius: 6px;
+}
+
+/* ── Theme tokens — day (vellum + blueprint) ───────────────────────────── */
+html[data-mode="day"] {
+  --bg: #f4ecd8;
+  --panel: #ece2cc;
+  --panel-2: #e3d6bc;
+  --panel-3: #d8c8aa;
+  --fg: #1a1a1a;
+  --fg-dim: #5e574b;
+  --fg-soft: #3a342b;
+  --accent: #1d4380;
+  --accent-2: #4a7bb6;
+  --accent-strong: #0e2d5a;
+  --error: #aa3333;
+  --warn: #b56d00;
+  --border: #c5b794;
+  --border-soft: #d8c8aa;
+  --chrome: #ece2cc;
+  --chrome-2: #e3d6bc;
 }
 
 * { box-sizing: border-box; }
@@ -746,3 +770,217 @@ footer span { margin: 0 0.55rem; color: var(--border); }
 *::-webkit-scrollbar-track { background: var(--bg); }
 *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+/* ────────────────────────────────────────────────────────────────────────
+   Shell chrome — design-handoff #171
+   menubar (9 menus) + modebar (4 modes) + ribbon (6 tabs + body) + statusbar
+   ──────────────────────────────────────────────────────────────────────── */
+
+#menubar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+  height: 28px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.78rem;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.menu-btn {
+  background: transparent;
+  border: 0;
+  color: var(--fg-soft);
+  padding: 0 0.7rem;
+  height: 100%;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.menu-btn:hover:not(:disabled),
+.menu-btn[aria-expanded="true"] {
+  background: var(--panel-2);
+  color: var(--fg);
+}
+
+.menu-btn .menu-key {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+#modebar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+  height: 32px;
+  background: var(--chrome-2);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.mode-tab {
+  background: transparent;
+  border: 0;
+  color: var(--fg-dim);
+  padding: 0 1.1rem;
+  height: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 100ms ease, border-color 100ms ease;
+}
+
+.mode-tab:hover:not([aria-selected="true"]) {
+  color: var(--fg-soft);
+}
+
+.mode-tab[aria-selected="true"] {
+  color: var(--accent-strong);
+  border-bottom-color: var(--accent);
+}
+
+#ribbon {
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#ribbon-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+  height: 30px;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.ribbon-tab {
+  background: transparent;
+  border: 0;
+  color: var(--fg-dim);
+  padding: 0 0.95rem;
+  height: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+}
+
+.ribbon-tab:hover:not([aria-selected="true"]) {
+  color: var(--fg-soft);
+  background: var(--panel-2);
+}
+
+.ribbon-tab[aria-selected="true"] {
+  color: var(--accent-strong);
+  border-bottom-color: var(--accent);
+}
+
+#ribbon-body {
+  min-height: 4px;
+  /* Toolgroups land here in #173+. Empty for now reserves vertical space without thrash. */
+}
+
+#statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.7rem;
+  height: 22px;
+  background: var(--chrome);
+  border-top: 1px solid var(--border-soft);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.sb-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.sb-cell {
+  padding: 0 0.55rem;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  border-right: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.sb-group.sb-right .sb-cell {
+  border-right: 0;
+  border-left: 1px solid var(--border-soft);
+}
+
+.sb-group .sb-cell:last-child { border-right: 0; }
+.sb-group.sb-right .sb-cell:first-child { border-left: 0; }
+
+.sb-saved {
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.sb-mode {
+  color: var(--fg-soft);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sb-theme-btn {
+  background: transparent;
+  border: 0;
+  color: var(--fg-soft);
+  padding: 0 0.55rem;
+  height: 100%;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-left: 1px solid var(--border-soft);
+  transition: color 80ms ease, background 80ms ease;
+}
+
+.sb-theme-btn:hover {
+  color: var(--accent-strong);
+  background: var(--panel-2);
+}
+
+.theme-icon { line-height: 1; }
+html[data-mode="day"] .theme-icon { transform: rotate(180deg); display: inline-block; }
+
+/* Day-mode chrome refinement — vellum paper texture cue via subtle inset */
+html[data-mode="day"] #menubar,
+html[data-mode="day"] #modebar,
+html[data-mode="day"] #ribbon,
+html[data-mode="day"] #statusbar {
+  background: var(--chrome);
+  box-shadow: inset 0 -1px 0 rgba(120, 100, 60, 0.10);
+}

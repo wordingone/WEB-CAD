@@ -8,6 +8,7 @@
 // Export menu is shared: the active source (whether replicad-generated or
 // loaded-from-file) is queried via viewer.getActiveMeshData().
 
+import { initShellChrome } from "./shell";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -617,6 +618,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 // Boot.
+initShellChrome();
 loadDemo(0);
 setStatus("Loading OpenCascade WebAssembly...", "info");
 runBtn.disabled = true;

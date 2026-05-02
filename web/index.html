@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-mode="night">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,6 +7,13 @@
   <link rel="stylesheet" href="./src/style.css" />
 </head>
 <body>
+  <nav id="menubar" role="menubar" aria-label="Application menu"><!-- ShellChrome.menubar --></nav>
+  <div id="modebar" role="tablist" aria-label="Workbench mode"><!-- ShellChrome.modebar --></div>
+  <div id="ribbon">
+    <div id="ribbon-tabs" role="tablist" aria-label="Tool ribbon"><!-- ShellChrome.ribbon-tabs --></div>
+    <div id="ribbon-body"><!-- ShellChrome.ribbon-body — toolgroups land here in #173+ --></div>
+  </div>
+
   <header>
     <h1>gemma-architect</h1>
     <p class="tag">Natural language &rarr; replicad &rarr; IFC, in your browser. No install. No cloud.</p>
@@ -112,6 +119,21 @@
     <span>&middot;</span>
     Apache-2.0
   </footer>
+
+  <div id="statusbar" role="status" aria-label="Status bar">
+    <div class="sb-group sb-left">
+      <span class="sb-cell sb-doc" id="sb-doc">untitled.gar</span>
+      <span class="sb-cell sb-saved" id="sb-saved">saved</span>
+      <span class="sb-cell sb-mode" id="sb-mode">MODELING</span>
+    </div>
+    <div class="sb-group sb-right">
+      <span class="sb-cell sb-units" id="sb-units">units: m</span>
+      <span class="sb-cell sb-fps" id="sb-fps" title="Frames per second">— fps</span>
+      <button id="theme-toggle" class="sb-theme-btn" type="button" title="Toggle day/night (Ctrl+\)" aria-label="Toggle theme">
+        <span class="theme-icon">◐</span>
+      </button>
+    </div>
+  </div>
 
   <script type="module" src="./src/main.ts"></script>
 </body>
