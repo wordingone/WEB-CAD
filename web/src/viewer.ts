@@ -303,6 +303,28 @@ export class Viewer {
     for (const s of this.axisLabels) this.scene.add(s);
   }
 
+  // Frame the camera on a single child object (subset of full scene). Does not
+  // touch the grid or axis-triad scaling — those still follow the full scene.
+  // Used by the scene panel's "zoom to mesh" interaction.
+  frameObjectOnly(obj: THREE.Object3D): void {
+    obj.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(obj);
+    if (box.isEmpty() || !isFinite(box.min.x) || !isFinite(box.max.x)) return;
+    const cx = (box.min.x + box.max.x) / 2;
+    const cy = (box.min.y + box.max.y) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    const dx = box.max.x - box.min.x;
+    const dy = box.max.y - box.min.y;
+    const dz = box.max.z - box.min.z;
+    const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    const dist = diag * 1.7;
+    const dir = new THREE.Vector3(1, 1, 1.5).normalize();
+    this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
+    this.controls.target.set(cx, cy, cz);
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
+  }
+
   // Snap camera to a named view, framed on current scene bounds.
   // Names match AutoCAD/Revit/Blender conventions in Z-up world.
   setView(name: "top" | "bottom" | "front" | "back" | "left" | "right" | "iso" | "extents"): void {

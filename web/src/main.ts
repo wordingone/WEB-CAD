@@ -9,6 +9,7 @@
 // loaded-from-file) is queried via viewer.getActiveMeshData().
 
 import { Viewer } from "./viewer";
+import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
 import { buildIfc, ifcRoundTrip } from "./ifc";
 import {
@@ -66,6 +67,7 @@ const paramSliders = $<HTMLDivElement>("param-sliders");
 const paramCollapseBtn = $<HTMLButtonElement>("param-collapse-btn");
 const dropOverlay = $<HTMLDivElement>("drop-overlay");
 const viewerPane = $<HTMLElement>("viewer-pane");
+const scenePanelEl = $<HTMLElement>("scene-panel");
 
 // Export buttons (data-fmt attribute on each)
 const exportButtons = Array.from(
@@ -82,6 +84,7 @@ paramCollapseBtn.addEventListener("click", () => {
 });
 
 const viewer = new Viewer(canvas);
+const scenePanel = new ScenePanel(scenePanelEl, viewer);
 
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
 // keyboards without a numpad. Captured at window level but ignored if the
@@ -165,6 +168,15 @@ worker.onmessage = (ev: MessageEvent<WorkerOut>) => {
       `${shortLabel(currentDemo.label)} · ${formatBounds(msg.bounds)} · ready to export`,
       "ok",
     );
+    // Approximate triangle count from worker-emitted mesh.
+    const promptTris = msg.mesh.indices?.length
+      ? msg.mesh.indices.length / 3
+      : (msg.mesh.vertices?.length ?? 0) / 9;
+    scenePanel.update({
+      format: "replicad",
+      triangles: Math.round(promptTris),
+      filename: shortLabel(currentDemo.label),
+    });
     runBtn.disabled = false;
     refreshExportButtons();
   }
@@ -372,6 +384,20 @@ function finalizeFileLoad(scene: LoadedScene, filename: string) {
   pendingStl = null; // STL is replicad-only; loaded-file path doesn't ship one.
   currentSource = { kind: "file", format: scene.format, filename };
   setStatus(scene.summary, "ok");
+  // Pull schema/entityCount out of the summary for IFC; other formats
+  // omit them and the panel just shows format + triangles.
+  const summary: SceneSummary = {
+    format: scene.format,
+    triangles: scene.triangles,
+    filename,
+  };
+  // Summary string for IFC looks like
+  //   "<filename> · 7,123 entities · 56,832 triangles · IFC4"
+  const m = scene.summary.match(/(\d[\d,]*)\s+entit/i);
+  if (m) summary.entityCount = parseInt(m[1].replace(/,/g, ""), 10);
+  const sm = scene.summary.match(/IFC[24X]+/i);
+  if (sm) summary.schema = sm[0].toUpperCase();
+  scenePanel.update(summary);
   refreshExportButtons();
 }
 
