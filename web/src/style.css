@@ -1165,3 +1165,116 @@ html[data-mode="day"] .tool-btn.active {
 html[data-mode="day"] .reg-mark { opacity: 0.7; }
 html[data-mode="day"] .reg-mark::before,
 html[data-mode="day"] .reg-mark::after { background: var(--accent-strong); }
+
+/* ── Cmd-K palette overlay (#179) ────────────────────────────────────── */
+
+#palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+html[data-mode="day"] #palette-overlay {
+  background: rgba(60, 50, 30, 0.35);
+}
+
+.pl-panel {
+  width: clamp(420px, 56vw, 660px);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  overflow: hidden;
+}
+
+.pl-input {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 400;
+  padding: 0.85rem 1rem;
+  outline: none;
+}
+
+.pl-input::placeholder {
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+.pl-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.pl-group {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  padding: 0.55rem 1rem 0.25rem;
+}
+
+.pl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  padding: 0.45rem 1rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.pl-row[aria-selected="true"] {
+  background: var(--accent-2);
+  color: #fff;
+}
+
+html[data-mode="day"] .pl-row[aria-selected="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pl-row-label { flex: 1 1 auto; }
+
+.pl-row-shortcut {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  margin-left: 1.25rem;
+  letter-spacing: 0.02em;
+}
+
+.pl-row[aria-selected="true"] .pl-row-shortcut {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pl-empty {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  padding: 1.25rem 1rem;
+  text-align: center;
+  font-style: italic;
+}
