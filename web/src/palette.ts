@@ -117,8 +117,11 @@ function executeCommand(cmd: Command) {
   window.dispatchEvent(new CustomEvent("gemma:command", { detail: cmd }));
 
   // A tiny built-in: theme toggle, since the shell already owns it via #171.
+  // Vellum (day) is the canonical default — blueprint (night) is the toggle.
+  // Fall back to "day" when data-mode isn't set so the first toggle goes to
+  // blueprint, not back to itself.
   if (cmd.id === "app.toggleTheme") {
-    const cur = (document.documentElement.getAttribute("data-mode") as "day" | "night" | null) ?? "night";
+    const cur = (document.documentElement.getAttribute("data-mode") as "day" | "night" | null) ?? "day";
     const next = cur === "day" ? "night" : "day";
     document.documentElement.setAttribute("data-mode", next);
     try { localStorage.setItem("gemma-architect.theme", next); } catch { /* ignore */ }
