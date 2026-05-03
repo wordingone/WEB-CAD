@@ -79,7 +79,7 @@ Setup is implicit — don't skip beats.
 | 22 | NURBS kernel — IFC IfcAdvancedBrep import + round-trip | 12 | TODO |
 | 23 | Persistence — save/load/recover, sidecar kg.json | 10 | TODO |
 | 24 | Edge cases — empty scene / huge IFC / malformed input | 16 | TODO |
-| 25 | **Terminal reconstruction-parity gate (Schultz Residence, 533 architectural elements, 100% IFC parity)** | ~550 | DRAFT (this commit, structure + verification protocol) |
+| 25 | **Terminal reconstruction-parity gate (Schultz Residence, 549 architectural elements, 100% IFC parity)** | ~550 | DRAFT (verifier ships diff-ifc.ts; structure + protocol locked) |
 
 Total target: ~1450 beats. The terminal §25 alone is ~550 beats — one
 beat per architectural element placement plus the verification protocol.
@@ -146,9 +146,11 @@ recording the video.
 1. **Do:** Open File menu → click "Open sample…" → select "Schultz
    Residence". File is 22.9 MB — wait for parse + render (~30s).
 2. **See:** Viewport populates with the full 11-storey building. Walls
-   render as solid surfaces. Multiple slabs visible. ~533 architectural
-   elements (105 walls, 17 doors, 25 windows, 12 slabs, 10 stairs, 25
-   columns, 83 beams, 253 railings, 3 roofs).
+   render as solid surfaces. Multiple slabs visible. **549 architectural
+   elements** (105 walls = 4 IfcWall + 101 IfcWallStandardCase, 17 doors,
+   25 windows, 12 slabs, 12 stairs = 10 IfcStair + 2 IfcStairFlight, 25
+   columns, 83 beams, 253 railings, 3 roofs, 11 storeys, 3 spaces). File
+   is in IMPERIAL UNITS (FOOT, scale 0.3048 → meters).
 3. **Verify:** Right sidebar SCENE tab shows scene tree organized by
    storey: Project → Site → Building → 11 Storeys → elements per storey.
    Element count matches §25.0 inventory table. **NOTE:** the synthetic
@@ -940,10 +942,20 @@ Element inventory (from `grep -c "^#[0-9]*= IFCXXX("` on the file):
 | IfcBuildingElementProxy | 146 | OUT OF SCOPE (catch-all; review case-by-case) |
 | IfcSpace | 3 | Rooms + zones |
 
-**In-scope architectural total: 533 elements** (everything above except
-furnishings + proxies). 100% parity = reconstructing all 533 with
-matching position, dimensions, host relationships, and storey
-assignment.
+**In-scope architectural total: 549 elements** (everything above except
+furnishings + proxies; verified by `bun scripts/qa/diff-ifc.ts <ref> <ref>`
+which reports `ref=549` after counting the 13 architectural classes
+above). 100% parity = reconstructing all 549 with matching position,
+dimensions, host relationships, and storey assignment.
+
+**File length unit: FOOT** (scale 0.3048 → meters). Schultz_Residence.ifc
+is a Revit 2014 export in imperial units — `IfcSIUnit` declares
+`UnitType=LENGTHUNIT, Name=FOOT`. Eli reconstructing via the web app
+must enter values in meters (the canonical kernel unit) and let the IFC
+exporter convert on the way out, OR keep dimensions in feet to match
+the file natively. `diff-ifc.ts` normalises both files to meters before
+comparing, so a Schultz-in-feet ↔ recon-in-meters diff is unit-correct
+as long as each file's own SIUnit declaration is set right.
 
 NOTE: The "Schultz Residence demo" in `web/src/demo-prompts.ts` is a
 14-element synthetic placeholder, NOT this asset. The terminal gate
@@ -956,22 +968,43 @@ different things; rename one to avoid confusion.
 Before authoring beats, fix HOW we verify parity. Three layers, all
 required to PASS:
 
-**Layer 1 — Structural diff (lossless)**
+**Layer 1 — Structural diff (lossless) — `scripts/qa/diff-ifc.ts` SHIPS**
 
 ```
 bun scripts/qa/diff-ifc.ts \
   --reference web/public/samples/Schultz_Residence.ifc \
   --reconstruction <eli-export>.ifc \
-  --tolerance-mm 1.0 \
-  --tolerance-deg 0.1
+  --tolerance-mm 1
 ```
 
-Pass condition: zero entity-class deltas (counts must match exactly per
-the table above), zero unmatched element pairs (every reference element
-finds a reconstructed counterpart within position tolerance + dimension
-tolerance), zero missing relations (every IfcRelVoidsElement /
-IfcRelFillsElement / IfcRelContainedInSpatialStructure / IfcRelAggregates
-in the reference has a counterpart).
+Three sub-layers verified by the script (auto-detects per-file length unit
+via `IfcSIUnit`, normalises positions to meters before comparing):
+
+- **1a — entity counts** by class: 13 architectural classes, must match
+  exactly per §25.0 inventory.
+- **1b — position pairing** within `--tolerance-mm` (default 1mm),
+  greedy nearest-neighbour scoped to each class. Every reference element
+  must pair with a reconstructed counterpart inside tolerance.
+- **1c — relation cardinality** for the 7 IfcRel* classes
+  (IfcRelAggregates, IfcRelVoidsElement, IfcRelFillsElement,
+  IfcRelContainedInSpatialStructure, IfcRelConnectsElements,
+  IfcRelSpaceBoundary, IfcRelAssignsToGroup) — counts must match.
+
+Self-test (identity case, verified 2026-05-03 against the real Schultz
+file, exit 0):
+
+```
+$ bun scripts/qa/diff-ifc.ts \
+    web/public/samples/Schultz_Residence.ifc \
+    web/public/samples/Schultz_Residence.ifc
+…
+PASS  diff-ifc: zero structural delta across all three layers
+      (ref=549, recon=549 elements)
+```
+
+Rotation-tolerance (`--tolerance-deg`) and dimension-tolerance gates
+are layer-1 follow-up enhancements (track separately; not blocking
+v0 of the gate).
 
 **Layer 2 — Voxel IoU (lossy-tolerant)**
 
@@ -999,8 +1032,8 @@ missing rooms, no displaced walls, no missing openings.
 **Authoring helpers (write before walking the section)**
 
 The reconstruction needs Eli to know each element's parameters. Hand-
-typing 533 elements from raw .ifc inspection is 8+ hours of error-prone
-work. Two scripts must exist before walking §25:
+typing 549 elements from raw .ifc inspection is 8+ hours of error-prone
+work. Three scripts must exist before walking §25:
 
 1. `scripts/qa/extract-schultz-parameters.ts` — parses the reference IFC
    and dumps per-element parameter tables in markdown. Output:
@@ -1008,11 +1041,18 @@ work. Two scripts must exist before walking §25:
    columns: `id | type | startX | startY | startZ | endX | endY | endZ
    | thickness | height | host_id | material`. Eli copies values into
    the web app as he reconstructs.
-2. `scripts/qa/diff-ifc.ts` and `scripts/qa/voxel-iou.ts` — the verifiers
-   from layers 1 + 2 above.
+2. `scripts/qa/diff-ifc.ts` — Layer 1 structural diff. **Shipped 2026-05-03.**
+   Self-test passes (identity case = exit 0 with `ref=549, recon=549`);
+   contrast case (Schultz vs FZK-Haus) = exit 1 with 13 count deltas +
+   529 unmatched + 6 relation deltas. Real Schultz length-unit
+   correctly detected as FOOT.
+3. `scripts/qa/voxel-iou.ts` — Layer 2 geometric IoU. **TODO** — pending
+   tessellation pipeline (web-ifc → vertex/triangle arrays → voxelize
+   on a uniform grid → set-intersection/union per-voxel).
 
-These scripts are Leo's authoring lane (gate-shape definition). File
-them as a Leo task; they unblock §25 walkthrough.
+These scripts are Leo's authoring lane (gate-shape definition). #195
+tracks the remaining two (`extract-schultz-parameters.ts` +
+`voxel-iou.ts`); they unblock §25 walkthrough.
 
 ### §25.2 Two-viewport setup
 
@@ -1168,14 +1208,22 @@ the working number.
 ### Beat 1449: Layer 1 — structural diff
 
 1. **Do:** Run `bun scripts/qa/diff-ifc.ts --reference Schultz_Residence.ifc
-   --reconstruction <eli>-schultz-reconstruction.ifc --tolerance-mm 1.0
-   --tolerance-deg 0.1`.
-2. **See:** Script output:
+   --reconstruction <eli>-schultz-reconstruction.ifc --tolerance-mm 1`.
+2. **See:** Script output (real shape, verified against the reference vs
+   itself):
    ```
-   diff-ifc: 0 entity-class deltas, 533 of 533 elements matched, 0
-   unmatched, 0 missing relations — PASS
+   --- Layer 1a: entity counts ---
+     class                    ref   recon   delta
+     ...zero in the delta column, all 13 classes...
+   --- Layer 1b: position pairing (1mm tolerance) ---
+     matched=549  unmatched=0
+   --- Layer 1c: relation counts ---
+     ...zero in the delta column, all 7 IfcRel* classes...
+   PASS  diff-ifc: zero structural delta across all three layers
+         (ref=549, recon=549 elements)
    ```
-3. **Verify:** Exit code 0. Stdout shows "PASS".
+3. **Verify:** Exit code 0. Stdout ends with `PASS  diff-ifc: zero
+   structural delta across all three layers`.
 
 ### Beat 1450: Layer 2 — voxel IoU
 
@@ -1216,7 +1264,7 @@ exercises the integration of every surface. Failures cluster:
   This is the most common failure path; T9 (predicates + IFC sidecar)
   must be tight.
 - **Performance gap** — the web app slows / crashes / drops frames at
-  N=200 elements before the full 533 are placed. File: "Performance
+  N=200 elements before the full 549 are placed. File: "Performance
   ceiling at <N> elements — Schultz parity blocked".
 
 A first-attempt at §25 that fails on tool/precision/export gaps is
