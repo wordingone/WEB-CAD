@@ -286,17 +286,18 @@ bun scripts/web-self-harness.ts
 
 Expected output:
 ```
-gemma-architect web self-harness — 8 demos
+gemma-architect web self-harness — 9 demos
 OpenCascade ready.
   PASS  wall                 Solid 12 tris  5.50×0.20×2.80m  ifc=4.4KB / 90 entities
   PASS  column               Solid 164 tris  0.90×0.90×5.00m  ifc=29.1KB / 694 entities
   PASS  raised-slab          Solid 12 tris  5.00×4.00×0.20m  ifc=4.0KB / 90 entities
   PASS  slab-with-hole       Compound 20 tris  6.00×6.00×0.20m  ifc=5.3KB / 126 entities
   PASS  wall-with-door       Compound 20 tris  4.13×0.28×2.69m  ifc=6.4KB / 126 entities
-  PASS  l-walls              Compound 44 tris  8.45×9.25×3.35m  ifc=11.0KB / 234 entities
-  PASS  four-walled-room     Compound 68 tris  13.56×13.20×3.06m  ifc=16.8KB / 354 entities
+  PASS  l-walls              Compound 20 tris  8.45×9.25×3.35m  ifc=5.8KB / 126 entities
+  PASS  four-walled-room     Compound 32 tris  9.12×9.34×3.06m  ifc=8.3KB / 174 entities
   PASS  stair-step           Compound 36 tris  1.56×2.77×0.84m  ifc=10.0KB / 198 entities
-8/8 demos passed.
+  PASS  schultz-residence    Compound 120 tris  12.00×8.00×3.20m  ifc=24.6KB / 566 entities
+9/9 demos passed.
 ```
 
 The harness:

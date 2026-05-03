@@ -34,10 +34,33 @@ in Revit, ArchiCAD, BlenderBIM, IFC.js viewers, BimVision.
         (parameter sliders)     (loads in any BIM tool)
 ```
 
-Eight canned demos ship in the page: walls, columns, raised slabs,
+Nine canned demos ship in the page: walls, columns, raised slabs,
 slabs with stair holes, walls with doorways, L-shape walls, four-walled
-rooms, stair-step structures. Each has 3-6 sliders that re-trigger the
-worker without re-running the model.
+rooms, stair-step structures, and a 14-element Schultz Residence (the
+hero demo, also reachable via the Cmd-K palette). Each has 3-6 sliders
+that re-trigger the worker without re-running the model.
+
+---
+
+## AI prompt pipeline
+
+The PROMPT textbox supports two paths:
+
+- **Cache-first (default).** A 60-row prompt → JS cache ships with the
+  bundle (40 from the v2 LoRA eval at 100 % round-trip + 19 DSL corpus
+  rows compiled via `compileDsl()` + 1 Schultz gold). F1-weighted
+  similarity (numeric tokens 2x, stop-words filtered) returns the best
+  match in ~50 ms. No GPU, no network call — the path judges hit by
+  default and the path that survives offline demo settings.
+- **Live LoRA (opt-in).** `src/serve/serve_lora.py` is a FastAPI wrapper
+  around the v2 adapter exposing `/v1/chat/completions`. Set
+  `window.__loraUrl` (or `VITE_LORA_URL` at build time) and the page
+  hits the live model first, falling back to the cache on
+  network/HTTP errors.
+
+Architecture: [`docs/ai-pipeline.md`](docs/ai-pipeline.md). The
+console-DSL terminal that backs the cache's broader-coverage rows is
+documented in [`docs/console-dsl.md`](docs/console-dsl.md).
 
 ---
 
@@ -55,7 +78,9 @@ worker without re-running the model.
 | Eval `api_clean`                           | 40 / 40                           |
 | Eval `has_solid_op`                        | 40 / 40                           |
 | Eval **`runtime_pass` (full round-trip)**  | **40 / 40 = 100 %**               |
-| Self-harness demos (no browser)            | 8 / 8 pass                        |
+| Self-harness demos (no browser)            | 9 / 9 pass                        |
+| AI prompt cache rows (eval + DSL + Schultz)| 60                                |
+| DSL corpus rows compiled via `compileDsl()`| 19 / 19 pass                      |
 
 Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md).
 
@@ -98,17 +123,22 @@ compatible — commercial deployment unblocked.
 | `web/` | Browser app (Vite + TypeScript). Entry: `web/src/main.ts`. |
 | `web/src/worker.ts` | Geometry-kernel web worker (replicad + OpenCascade). |
 | `web/src/ifc.ts` + `ifc-build.ts` | IFC4 STEP-21 emit + web-ifc round-trip verify. |
-| `web/src/demo-prompts.ts` | The 8 canned demos with parameter slider config. |
+| `web/src/demo-prompts.ts` | The 9 canned demos with parameter slider config (incl. Schultz hero). |
+| `web/src/ai-generate.ts` | Cache-first prompt → JS pipeline + live LoRA fallback. |
+| `web/src/dsl-eval.ts` | `compileDsl()` — v0 lexicon → JS for the CONSOLE tab. |
+| `web/public/ai-cache.json` | 60-row prompt → JS cache (built by `scripts/build-ai-cache.ts`). |
 | `src/tools/tier1.ts` | The 12-op replicad surface the model is trained against. |
 | `src/train/` | Unsloth LoRA training scripts (build dataset, train, eval, publish). |
+| `src/serve/serve_lora.py` | OpenAI-compat FastAPI wrapper around the v2 adapter. |
 | `src/extract/` | IFC → (NL, replicad) extraction pipeline. |
 | `src/generate/` | Synthetic-IFC generator (D2 in 18-day plan). |
 | `fixtures/` | Hand-curated training pairs (tier1 + tier1-extra + tier2-curated + mined-extra). |
+| `data/dsl-demo-corpus.jsonl` | 19-row DSL corpus that broadens cache coverage. |
 | `data/` | Built training/eval JSONL (gitignored — produced by `build_dataset_v2.py`). |
 | `outputs/` | LoRA adapter + train stats + eval results (gitignored — produced by training). |
-| `scripts/` | Bun scripts: `validate-fixtures.ts`, `web-self-harness.ts`, `generate-v2.ts`, `leo-as-architect.ts`, `probe-conventions.ts`. |
+| `scripts/` | Bun scripts: `validate-fixtures.ts`, `web-self-harness.ts`, `generate-v2.ts`, `leo-as-architect.ts`, `probe-conventions.ts`, `build-ai-cache.ts`, `test-ai-match.ts`, `test-ifc-bounds.ts`, `verify-dsl-corpus.ts`. |
 | `submission/` | Hackathon submission docs + screenshots. |
-| `docs/` | Design docs (tool taxonomy, training-pair format, 18-day plan, retrospectives, **tier1-conventions** — the empirical rules of the 12-op surface). |
+| `docs/` | Design docs (`ai-pipeline.md`, `console-dsl.md`, **`tier1-conventions.md`**, tool taxonomy, training-pair format, 18-day plan, retrospectives). |
 
 ---
 
@@ -132,9 +162,13 @@ Self-harness (no browser, validates the same data path the worker
 takes):
 
 ```bash
-bun scripts/web-self-harness.ts          # 8/8 canned demos pass
+bun scripts/web-self-harness.ts          # 9/9 canned demos pass
 bun scripts/leo-as-architect.ts          # 8/8 hand-written designs (revolve, gables, T-junctions)
 bun scripts/probe-conventions.ts         # primitive-by-primitive bounds — run when in doubt
+bun scripts/build-ai-cache.ts            # rebuild the 60-row prompt → JS cache
+bun scripts/test-ai-match.ts             # F1-similarity smoke test for the matcher
+bun scripts/test-ifc-bounds.ts           # IFC viewer column-major matrix regression
+bun scripts/verify-dsl-corpus.ts         # 19/19 DSL corpus rows compile + execute
 ```
 
 The hand-written harness exercises corners of the tool surface the

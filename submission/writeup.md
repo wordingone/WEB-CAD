@@ -197,7 +197,7 @@ A separate `bun scripts/web-self-harness.ts` exercises the same data path
 the worker takes — execute against tier1, mesh via OpenCascade, build IFC
 bytes, validate STEP-21 structure (header, schema marker, footer, exact
 face count, exactly one IfcBuildingElementProxy / IfcFacetedBrep /
-IfcClosedShell). All 8 demos pass.
+IfcClosedShell). All 9 demos pass (8 dropdown + Schultz hero).
 
 ```
 gemma-architect web self-harness — 9 demos
