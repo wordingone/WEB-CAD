@@ -98,10 +98,14 @@ The submission is not a research artifact; it's a deployable web app.
   with structurally-validated face counts, single IfcBuildingElementProxy,
   IfcFacetedBrep, and IfcClosedShell. Run via
   `bun scripts/web-self-harness.ts`.
-- **Bundle size**: Vite production build ships a 4.0 MB JS chunk + 0.5 MB
-  worker chunk + replicad's 10.8 MB OpenCascade WASM (4.6 MB gzipped) +
-  web-ifc's 1.3 MB WASM (0.5 MB gzipped). Loads under 5s on a mid-tier
-  consumer link with COOP+COEP headers configured.
+- **Bundle size** (verified 2026-05-03 against `bun run web:build`): a
+  4.24 MB main JS chunk (gzip 0.58 MB) + a 3.84 MB worker chunk + replicad's
+  10.8 MB OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB WASM (gzip
+  0.48 MB) + a 61 kB CSS chunk (gzip 12 kB). Total wire size on a cold load
+  is dominated by the OpenCascade WASM; both WASMs and the JS chunks gzip
+  well, so an empty-cache load is reasonable on a mid-tier consumer link.
+  COOP+COEP headers are required (SharedArrayBuffer prerequisite for
+  multithreaded WASM paths).
 - **License chain**: Apache-2.0 on the LoRA + repo, MIT on replicad, LGPL-2.1
   with linking exception on replicad-opencascadejs, Apache-2.0 on web-ifc.
   Commercial deployment unblocked.
