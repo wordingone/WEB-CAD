@@ -1328,12 +1328,51 @@ html[data-mode="night"] .snap-dock::after {
 }
 /* When the viewport is in single-pane mode (only one .viewport visible),
    hide the CSS grid entirely so the THREE.js scene gets a clean canvas.
-   Quad-split mode keeps the per-pane grid (visual frame for each scissor). */
+   Quad-split mode keeps the per-pane grid only for the perspective pane —
+   ortho panes (top/front/right/etc.) hide the CSS overlay so just the dark
+   THREE.js drafting grid shows (T14 — was creating a duplicate "white"
+   grid over the ortho cameras). */
 .viewport-area.split-single .vp-grid { display: none; }
+/* T14: ortho cameras (top / front / right / etc.) hide the light "graph
+   paper" CSS overlay that would otherwise read as a duplicate white grid
+   over the dark THREE.js drafting grid. Perspective panes keep the bundle
+   look (CSS overlay + soft tan THREE grid). */
+.viewport.vp-pane-ortho .vp-grid { display: none; }
 .vp-grid.persp {
   background-image: none;
   background:
     radial-gradient(ellipse at 50% 60%, transparent 30%, oklch(0.93 0.014 80 / 0.5) 100%);
+}
+
+/* Per-pane view-switch dropdown (T14). Upper-left, minimal chrome so it
+   reads as a small affordance, not as an input form element. */
+.vp-view-select {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px 4px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  /* Tiny — fits in the chrome of the pane without hiding canvas content. */
+  max-width: 110px;
+}
+.vp-view-select:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.vp-view-select:focus {
+  border-color: var(--ink-soft);
 }
 
 /* viewport gizmo (axes corner) */

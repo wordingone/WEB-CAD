@@ -94,6 +94,21 @@ const viewer = new Viewer(canvas);
 (window as unknown as { __viewer: Viewer }).__viewer = viewer;
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
 
+// Layout toggle wiring — palette commands "Window" group dispatch
+// `gemma:command` CustomEvents (palette.ts:117). Drive Viewer.setLayout()
+// from those so quad/single hotkeys (1/2 in palette) just work.
+window.addEventListener("gemma:command", (ev: Event) => {
+  const cmd = (ev as CustomEvent<{ id: string }>).detail;
+  if (!cmd) return;
+  switch (cmd.id) {
+    case "window.single": viewer.setLayout("single"); break;
+    case "window.quad":   viewer.setLayout("quad");   break;
+    case "window.reset":  viewer.setLayout("single"); break;
+    // hsplit / vsplit reserved for future T-tasks; fall through.
+    default: return;
+  }
+});
+
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
 // keyboards without a numpad. Captured at window level but ignored if the
 // user is typing in any input/textarea/contenteditable.
