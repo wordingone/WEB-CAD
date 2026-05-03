@@ -1,5 +1,28 @@
 # Demo video script — gemma-architect (3:00)
 
+> ⚠️ **STALE pre-bundle-port (last updated 2026-05-01).**
+> The script below targets the v1/v2 page (single dropdown + `Run` /
+> `Export IFC` buttons). The current page has shipped the bundle
+> drafting-workbench port (#170 umbrella): menubar/modebar/ribbon shell,
+> mode tabs (MODEL/LAYOUT/RESEARCH), Cmd-K palette, multi-format Export
+> drawer, drafting-style toggle (`D` hotkey), IFC sample dropdown.
+> Quad-split viewport (#180 Gap 1) is in flight via forge.
+>
+> **Do not record from this script as-is.** Update mapping (current → v2):
+> - "Pick demo from dropdown" → PROMPT dock tab → demo chips OR Cmd-K → "New wall" / "New column" / etc.
+> - **Run** button → **GENERATE** in the AIPanel (or `⌘⏎`)
+> - **Export IFC** button → **EXPORT** ribbon button (or `⌘E`) → drawer slides in → click IFC tile
+> - "OpenCascade ready" status → check `#status` text; format may differ
+> - Add: drafting-style toggle (`D`) for the architect-render aesthetic
+> - Add: load `Schultz Residence` from sample-select for a real-building hero shot
+>
+> Refresh this script once Gap 1 lands and the UI surface is stable. Open
+> issue: rewrite cut-by-cut against current page; re-shoot pacing; keep
+> the equity-track narrative (block below) intact — only the click path
+> changes.
+
+---
+
 The 3-minute screen-recording for the Kaggle submission. Voice-over
 scripted line-by-line, cuts timed against a single take of the
 production page (`bun run web:preview`). Shoot at 1920×1080, 30 fps.
