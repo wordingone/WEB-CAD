@@ -1257,21 +1257,437 @@ fix verified: scene-panel theme-aware in sidebar embed.
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §5-§24 — TODO (subsequent ticks)
+## §5 — Every ribbon tool (50 beats)
 
-Sections 5 (every ribbon tool, 50 beats), 6 (left palette, 24 beats),
-7 (right sidebar full, 40 beats), 8 (snap dock, 16 beats), 9 (dock
-tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats), 11 (viewport
-interactions, 18 beats), 12 (selection 7-topology × filters ×
-Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15 (boolean + edge
-ops, 16 beats), 16 (layout mode full, 28 beats), 17 (research full,
-14 beats), 18 (every export format, 26 beats), 19 (console DSL every
-keyword, 30 beats), 20 (Gemma 4 E2B agent — full loop with KG state
-assertions per turn, 40 beats), 21 (skills, 16 beats), 22 (NURBS,
-12 beats), 23 (persistence, 10 beats), 24 (edge cases, 16 beats).
+The ribbon hosts **24 tools** across 5 groups + **6 tabs** (MODEL/DRAFT/
+ANALYZE/RENDER/ANNOTATE/SUBMIT) + **2 right-side actions** (⌘K palette,
+EXPORT). Source: `web/src/shell.ts` `TOOL_GROUPS` (lines 45-80) +
+`RIBBON_TABS` (line 104) + `buildRibbon` (lines 483-560).
+
+Each `<button class="tool-btn">` carries `data-tool=<id>` and on click
+calls `setState("activeTool", tool.id)`. The active tool drives the
+viewport sketcher pipeline in `web/src/create-mode.ts`.
+
+Pipeline status per `create-mode.ts:11-15` comment:
+- **Fully wired** (8): line, rect, circle, wall, slab, column, door, window
+- **Stubbed** (logs to console, no geometry): polyline, polygon, arc, spline,
+  stair, extrude, revolve
+- **Routed via dispatch.ts** (not click-to-place): boolean (case at :160)
+- **Status TBD until smoke** (verify in build): fillet, chamfer, ruler, compass
+
+Cross-refs:
+- §3 beats 100-117 covered modebar transitions; ribbon tools live inside
+  the model-mode workbench. §5 stays inside model mode unless a beat
+  explicitly switches.
+- §6 (left palette) is the SAME tool surface in a different DOM container
+  (`.palette-btn`). Beats below explicitly verify ribbon-vs-palette
+  state synchrony.
+- §7 (right sidebar) covers SCENE entries that should appear after each
+  click-to-place beat below.
+
+### Beats 140-143: TRANSFORM group (4 tools)
+
+#### Beat 140: TRANSFORM > Select activates
+1. **Do:** Click TRANSFORM > Select button (first tool in ribbon).
+2. **See:** Select button gains `.active` styling. Cursor in viewport is
+   default arrow. Statusbar Tool cell reads "Select".
+3. **Verify:** `getState("activeTool") === "select"`. Button DOM has
+   `.active` class. `data-tool="select"` is present.
+
+#### Beat 141: TRANSFORM > Move + selection → translate gizmo
+1. **Do:** Click any wall in the scene (selects it). Click TRANSFORM > Move.
+2. **See:** Three.js TransformControls appear on selected wall — three
+   colored arrows (R=X, G=Y, B=Z) at the wall's center.
+3. **Verify:** `getState("activeTool") === "move"`. `viewer.transformControls
+   .getMode() === "translate"` AND `viewer.transformControls.object` is
+   the selected wall mesh.
+
+#### Beat 142: TRANSFORM > Rotate → rotate gizmo
+1. **Do:** With wall still selected, click TRANSFORM > Rotate.
+2. **See:** TransformControls switch from arrows to three rotation circles
+   (R=X-axis ring, G=Y-axis, B=Z-axis).
+3. **Verify:** `viewer.transformControls.getMode() === "rotate"`. Statusbar
+   Tool reads "Rotate".
+
+#### Beat 143: TRANSFORM > Scale → scale gizmo
+1. **Do:** With wall still selected, click TRANSFORM > Scale.
+2. **See:** TransformControls switch to three scale handles (R/G/B cube
+   handles on each axis tip).
+3. **Verify:** `viewer.transformControls.getMode() === "scale"`. Statusbar
+   Tool reads "Scale".
+
+### Beats 144-149: SKETCH 2D fully-wired (3 tools, 2 beats each)
+
+#### Beat 144: SKETCH 2D > Line click-to-place
+1. **Do:** Click SKETCH 2D > Line. Click viewport at world (-2, -2). Click
+   at world (2, 2).
+2. **See:** First click drops a small marker at (-2, -2). Cursor draws a
+   rubber-band preview line to the cursor position. Second click commits
+   the line; markers clear; activeTool reverts to Select.
+3. **Verify:** `getCreateSequence()` last entry contains `makeLine` or
+   `drawLine` token (per `create-mode.ts:buildLine`). SCENE tab shows a
+   new "line" entry.
+
+#### Beat 145: SKETCH 2D > Line preview cancellation (ESC)
+1. **Do:** Click SKETCH 2D > Line. Single-click viewport at (0, 0). Press ESC.
+2. **See:** First-click marker disappears. Rubber-band preview disappears.
+   activeTool stays "line" (or reverts to "select" — verify which).
+3. **Verify:** `_pending` array in create-mode is cleared (no double-click
+   geometry on next click triggers nothing). No new entry in
+   `getCreateSequence()`.
+
+#### Beat 146: SKETCH 2D > Rectangle click-to-place
+1. **Do:** Click SKETCH 2D > Rectangle. Click world (-1, -1). Click world (1, 1).
+2. **See:** Marker at first click. Rubber-band rectangle expands with cursor.
+   Second click commits — 2×2m rectangle solid (height=2.8m default per
+   `DEFAULT_RECT_HEIGHT`).
+3. **Verify:** `getCreateSequence()` last entry: `drawRectangle(2, 2)
+   .sketchOnPlane("XY").extrude(2.8).translate([0, 0, 0])`.
+
+#### Beat 147: SKETCH 2D > Circle click-to-place
+1. **Do:** Click SKETCH 2D > Circle. Click world (0, 0) (center). Click
+   world (1.5, 0) (radius point).
+2. **See:** Marker at center. Rubber-band circle expands as cursor moves
+   away. Second click commits — 1.5m radius circle solid.
+3. **Verify:** `getCreateSequence()` last entry contains `drawCircle(1.5)`
+   or equivalent. Mesh radius matches per `THREE.CircleGeometry` test.
+
+#### Beat 148: SKETCH 2D > Circle radius math
+1. **Do:** Click Circle. Click (3, 0). Click (3, 4).
+2. **See:** 4m-radius circle (Pythagorean: dx=0, dy=4 → r=4).
+3. **Verify:** `getCreateSequence()` last entry has `drawCircle(4)` (the
+   radial distance, not the absolute coords).
+
+#### Beat 149: SKETCH 2D > Rect snap-to-grid
+1. **Do:** Snap dock (right side) → Grid: ON, size 0.5. Click Rectangle.
+   Click near (0.13, 0.27) — NOT exactly on grid.
+2. **See:** Marker snaps to (0, 0.5) (nearest 0.5m intersection). Subsequent
+   click also snaps.
+3. **Verify:** First entry in `_pending` has snapped coords (per
+   `snap-state.ts:snapPoint` from #194 Issue-9 fix).
+
+### Beats 150-153: SKETCH 2D stubbed (4 tools, 1 beat each)
+
+These tools activate (set `activeTool`) but click-to-place logs to console
+without emitting geometry. Each beat MUST file a gap issue if the build
+hasn't wired the kernel call.
+
+#### Beat 150: SKETCH 2D > Polygon (stubbed click pipeline)
+1. **Do:** Open DevTools console. Click SKETCH 2D > Polygon. Click viewport
+   at (0, 0).
+2. **See:** activeTool changes to "polygon". Statusbar reads "Polygon".
+   Console emits a stub log. No geometry persists.
+3. **Verify:** `getState("activeTool") === "polygon"`. `getCreateSequence()`
+   length unchanged.
+4. **Gap (file if hit):** "polygon click-to-place not wired — only console
+   stub" with `create-mode.ts:Lxxx` citation. Reference issue #166 (command
+   + hotkey system) as parent.
+
+#### Beat 151: SKETCH 2D > Polyline (stubbed click pipeline)
+1. **Do:** Click SKETCH 2D > Polyline. Click (0,0), (1,0), (1,1), (0,1),
+   double-click to close.
+2. **See:** activeTool="polyline". Console stub log per click. No geometry.
+   Note: dispatch.ts:174 has a "polyline" case — verify whether that
+   handler runs from click events or only DSL.
+3. **Verify:** `getState("activeTool") === "polyline"`. Sequence unchanged.
+4. **Gap (file if hit):** Discrepancy between dispatch.ts:174 polyline
+   handler and create-mode.ts polyline-stub.
+
+#### Beat 152: SKETCH 2D > Arc (stubbed)
+1. **Do:** Click SKETCH 2D > Arc. Click 3 points (start, mid, end).
+2. **See:** activeTool="arc". Console stub. No arc geometry.
+3. **Gap (file if hit):** Arc click-to-place stubbed — file with arc-3-point
+   construction note for the kernel handler.
+
+#### Beat 153: SKETCH 2D > Spline (stubbed)
+1. **Do:** Click SKETCH 2D > Spline. Click 4 points.
+2. **See:** activeTool="spline". Console stub. No spline geometry.
+3. **Gap (file if hit):** Spline click-to-place stubbed — file with
+   degree-3 / catmull-rom default note.
+
+### Beats 154-160: SOLID group (5 tools)
+
+#### Beat 154: SOLID > Extrude (stubbed click; works via DSL)
+1. **Do:** Click any 2D rectangle (selects). Click SOLID > Extrude.
+2. **See:** activeTool="extrude". No height-prompt UI appears. (The DSL
+   path `extrude(rect, 2)` in CONSOLE tab does work — that's the wired
+   surface; click is stubbed.)
+3. **Verify:** `getState("activeTool") === "extrude"`. Console stub.
+4. **Gap:** Extrude click pipeline needs height-input UX (modal or
+   numeric drag). File with reference to dispatch.ts extrude handler.
+
+#### Beat 155: SOLID > Extrude via console DSL
+1. **Do:** Open CONSOLE tab in dock. Type `rect(2, 2, 0)` Enter. Type
+   `extrude(0, 3)` Enter (extrude index-0 result by 3m).
+2. **See:** Console echoes both commands. After extrude: prismatic 2×2×3 box.
+3. **Verify:** `getCreateSequence().length` increased by 2.
+
+#### Beat 156: SOLID > Revolve (stubbed click)
+1. **Do:** Click SOLID > Revolve.
+2. **See:** activeTool="revolve". Console stub.
+3. **Gap:** Revolve needs axis-line + profile pick. File.
+
+#### Beat 157: SOLID > Fillet (verify in build)
+1. **Do:** Select an edge of any solid. Click SOLID > Fillet.
+2. **See:** Either (a) radius-prompt appears + edge fillets on commit, or
+   (b) no UI — stub.
+3. **Verify (a):** Mesh edge geometry replaced by radius arc.
+   **Verify (b):** Console stub log; file gap.
+
+#### Beat 158: SOLID > Chamfer (verify in build)
+1. **Do:** Select an edge. Click SOLID > Chamfer.
+2. **See:** As Beat 157 but flat 45° cut instead of arc.
+3. **Verify:** Mirror Beat 157. File gap if stubbed.
+
+#### Beat 159: SOLID > Boolean (routed via dispatch.ts:160)
+1. **Do:** Select two intersecting solids (Ctrl+click second). Click
+   SOLID > Boolean.
+2. **See:** activeTool="boolean". Either (a) modal asks Union/Difference/
+   Intersect, or (b) stub log.
+3. **Verify (a):** Selecting Union → single fused mesh. Difference → first
+   minus second. Intersect → only overlap.
+4. **Cross-ref:** §15 "boolean + edge ops" covers full coverage; this
+   beat is the activation smoke.
+
+#### Beat 160: SOLID > Boolean via console DSL fallback
+1. **Do:** CONSOLE: `union(0, 1)` (combine first two scene objects).
+2. **See:** Two meshes replaced by single fused mesh. SCENE tab shows
+   one entry where there were two.
+3. **Verify:** `getCreateSequence()` last entry has `union` or `fuse` token.
+
+### Beats 161-167: ARCH group (6 tools, 5 wired + stair stubbed)
+
+#### Beat 161: ARCH > Wall click-to-place (canonical 2-click pipeline)
+1. **Do:** Click ARCH > Wall. Click world (-3, 0). Click world (3, 0).
+2. **See:** First click drops marker. Cursor extrudes a wall preview from
+   marker → cursor. Second click commits — 6m wall, 0.2m thick, 3m tall
+   (defaults from `create-mode.ts:23-24`), oriented along +X.
+3. **Verify:** `getCreateSequence()` last entry contains `makeBox(6, 0.2, 3)
+   .rotate(0, [0, 0, 0], [0, 0, 1]).translate([0, 0, 0])` per
+   `buildWall()`. SCENE tab adds "wall" entry.
+
+#### Beat 162: ARCH > Wall rotation
+1. **Do:** Click Wall. Click (0, 0). Click (0, 5) — 90° rotated wall.
+2. **See:** 5m wall placed along +Y axis.
+3. **Verify:** `getCreateSequence()` last entry has `.rotate(90, [0, 0, 0],
+   [0, 0, 1])`. Mesh `rotation.z` is π/2.
+
+#### Beat 163: ARCH > Slab click-to-place (rect-style)
+1. **Do:** Click ARCH > Slab. Click corner-1 (-2, -2). Click corner-2 (2, 2).
+2. **See:** 4×4m slab (height 0.2m default per `DEFAULT_SLAB_THICKNESS`)
+   placed at z=0 floor.
+3. **Verify:** `getCreateSequence()` last entry has `makeBox(4, 4, 0.2)
+   .translate([0, 0, ...])`. Slab mesh sits flush at z ∈ [-0.1, 0.1] (or
+   [0, 0.2] depending on thickness anchor convention).
+
+#### Beat 164: ARCH > Column click-to-place
+1. **Do:** Click ARCH > Column. Click world (0, 0).
+2. **See:** Single click commits — 4m-tall column (per
+   `DEFAULT_COLUMN_HEIGHT`) at (0, 0).
+3. **Verify:** `getCreateSequence()` last entry has column geometry with
+   z-range [0, 4].
+
+#### Beat 165: ARCH > Stair (stubbed)
+1. **Do:** Click ARCH > Stair. Click two points.
+2. **See:** activeTool="stair". Console stub. No stair geometry.
+3. **Gap:** File "stair click-to-place not wired" with riser/tread default
+   spec (e.g., 0.18m riser × 0.28m tread, riser/tread ≤ 7.75"/10" per
+   §25 Schultz inventory's stair-name "7.75 max riser 10_LR").
+
+#### Beat 166: ARCH > Door click-to-place (single-click on host wall)
+1. **Do:** Place a wall first (Beat 161). Click ARCH > Door. Click on the
+   wall surface near its midpoint.
+2. **See:** Door opening (0.9m wide × 2.1m tall per `DEFAULT_DOOR_W/H`)
+   appears in the wall, hosted at click location. KG triple
+   `hosts(wall_id, door_id)` added.
+3. **Verify:** `getCreateSequence()` last entry adds door geometry.
+   `queryKG({p: "hosts"})` returns at least one wall→door triple.
+
+#### Beat 167: ARCH > Window click-to-place
+1. **Do:** Wall exists. Click ARCH > Window. Click on wall.
+2. **See:** Window opening (1.2m × 1.4m, sill height 1.0m per
+   `DEFAULT_WINDOW_W/H/SILL`) at click location.
+3. **Verify:** `getCreateSequence()` last entry adds window geometry.
+   KG `hosts(wall, window)` added. Sill anchors at z=1.0.
+
+### Beats 168-169: MEASURE group (2 tools, status TBD)
+
+#### Beat 168: MEASURE > Ruler (verify in build)
+1. **Do:** Click MEASURE > Ruler. Click world (0, 0). Click world (3, 4).
+2. **See:** Either (a) distance label "5.0 m" appears between markers, or
+   (b) console stub.
+3. **Verify (a):** Annotation persists; SCENE > ANNOTATIONS shows "ruler"
+   entry. Pythagorean: √(9+16) = 5. **Verify (b):** Stub log; file gap.
+
+#### Beat 169: MEASURE > Compass (verify in build)
+1. **Do:** Click MEASURE > Compass. Click center. Click circumference.
+2. **See:** Either (a) construction circle drawn (non-solid, dashed annotation
+   style), or (b) stub.
+3. **Verify:** Mirror 168.
+
+### Beats 170-175: Ribbon tabs (6 tabs, 1 beat each)
+
+The ribbon-tabs strip lives ABOVE ribbon-tools (`shell.ts:486-504`). Each
+tab is a `<div class="ribbon-tab">` with `data-tab` and `aria-selected`.
+
+#### Beat 170: MODEL tab default + active class
+1. **Do:** Page load. Inspect ribbon-tabs strip.
+2. **See:** "MODEL" tab has `.active` class. Other 5 tabs are inactive.
+3. **Verify:** `document.querySelector('.ribbon-tab.active').dataset.tab
+   === "MODEL"`. `aria-selected="true"` only on MODEL.
+
+#### Beat 171: DRAFT tab click
+1. **Do:** Click "DRAFT" tab.
+2. **See:** Active class moves from MODEL to DRAFT. ribbon-tools area
+   updates (or stays — verify whether tools change per tab).
+3. **Verify:** `document.querySelector('.ribbon-tab.active').dataset.tab
+   === "DRAFT"`. `aria-selected` flipped.
+4. **Gap (potentially):** If the tools area is identical across all 6 tabs,
+   that's a UX gap — file "ribbon tabs do not change tool surface; tab
+   strip is decorative". Mirrors app.jsx's per-tab tool customization.
+
+#### Beat 172: ANALYZE tab
+1. **Do:** Click "ANALYZE".
+2. **See/Verify:** Mirror Beat 171. File same gap if tool surface unchanged.
+
+#### Beat 173: RENDER tab
+1. **Do:** Click "RENDER".
+2. **See/Verify:** Mirror.
+
+#### Beat 174: ANNOTATE tab
+1. **Do:** Click "ANNOTATE".
+2. **See/Verify:** Mirror.
+
+#### Beat 175: SUBMIT tab
+1. **Do:** Click "SUBMIT".
+2. **See/Verify:** Mirror. Gap-file if SUBMIT does not surface any
+   submission UX (export-to-judges, repo push, etc.) — that's a
+   hackathon-relevant feature.
+
+### Beats 176-177: Ribbon-right (2 actions)
+
+#### Beat 176: ⌘K palette button opens cmdk
+1. **Do:** Click `#ribbon-palette-btn` (icon "command" + "⌘K" label).
+2. **See:** Cmd+K palette overlay opens. Input focused.
+3. **Verify:** `openCmdK()` invoked. `.cmdk-overlay` DOM has `display !==
+   "none"` (or `[data-open="true"]`).
+
+#### Beat 177: EXPORT button opens export drawer
+1. **Do:** Click `#ribbon-export-btn` (icon "export" + "EXPORT" label).
+2. **See:** Export drawer opens (right-side slide-in panel per
+   `export-drawer.ts`).
+3. **Verify:** `openExportDrawer()` invoked. Drawer DOM is mounted +
+   visible.
+
+### Beats 178-189: Cross-cuts (12 beats)
+
+#### Beat 178: tool-btn icons render as SVG (not text labels)
+1. **Do:** Inspect any `.tool-btn` in DOM.
+2. **See:** Inner HTML is `<svg>...</svg>` from `iconSVG(tool.icon, 16)`.
+   No text content (text fallback would indicate `iconSVG()` returned
+   empty).
+3. **Verify:** `el.querySelector('svg') !== null`. `el.textContent.trim()
+   === ""`. (T7 acceptance criterion in plan.)
+
+#### Beat 179: tool-btn 28×28 square (T7 size)
+1. **Do:** Inspect bounding box of any `.tool-btn`.
+2. **See:** Width and height both 28px (or close — CSS rounding).
+3. **Verify:** `el.getBoundingClientRect()` width === height === 28
+   (±1px for sub-pixel rounding).
+
+#### Beat 180: tool-btn tooltip on hover
+1. **Do:** Hover any `.tool-btn` (e.g. Wall) for >800ms.
+2. **See:** Native browser tooltip shows the tool's `label` (e.g. "Wall").
+3. **Verify:** `el.title === "Wall"` (set in `shell.ts:521`).
+
+#### Beat 181: tool-group label visible
+1. **Do:** Inspect any `.tool-group` in DOM.
+2. **See:** Inside the group's container, a `<span class="tool-group-label">`
+   shows the group name ("TRANSFORM", "SKETCH 2D", "SOLID", "ARCH",
+   "MEASURE").
+3. **Verify:** `groupEl.querySelector('.tool-group-label').textContent ===
+   group.label` for each of the 5 groups.
+
+#### Beat 182: dataset.tool round-trip
+1. **Do:** Inspect every `.tool-btn[data-tool]`.
+2. **See:** 24 buttons, each with a unique `data-tool` matching one entry
+   in `TOOL_GROUPS[].tools[].id`.
+3. **Verify:** `[...document.querySelectorAll('.tool-btn[data-tool]')]
+   .map(b => b.dataset.tool)` returns exactly the 24 ids in TOOL_GROUPS
+   order.
+
+#### Beat 183: activeTool persistence across reload
+1. **Do:** Click ARCH > Door. Reload page (F5 or Ctrl+R).
+2. **See:** After reload, Door button has `.active` class; statusbar Tool
+   reads "Door".
+3. **Verify:** `getState("activeTool") === "door"` post-reload. localStorage
+   has key `app-state.activeTool` with value "door" (per
+   `app-state.ts:hydrateFromStorage`).
+4. **Gap (file if missing):** If activeTool does NOT persist, that's an
+   app-state hydration gap. File against `app-state.ts`.
+
+#### Beat 184: ribbon vs left-palette tool sync
+1. **Do:** Click ARCH > Wall on RIBBON. Inspect the LEFT palette.
+2. **See:** Both surfaces show Wall as active. (Same `activeTool` state
+   key drives both.)
+3. **Verify:** `.tool-btn[data-tool="wall"].active` exists in `.ribbon-tools`
+   AND `.palette-btn[data-tool="wall"].active` exists in left-palette.
+4. **Cross-ref:** §6 will exhaustively cover the left-palette surface;
+   this beat verifies the synchrony point.
+
+#### Beat 185: clicking same tool twice does not de-activate
+1. **Do:** Click ARCH > Wall (activates). Click ARCH > Wall again.
+2. **See:** Wall stays active. activeTool stays "wall".
+3. **Verify:** `getState("activeTool") === "wall"` after both clicks.
+   No "select" fallback.
+
+#### Beat 186: ribbon-tools horizontal scroll at narrow viewport
+1. **Do:** Resize window to ≤900px wide.
+2. **See:** ribbon-tools area becomes horizontally scrollable. All 24
+   tool buttons remain accessible (scroll right reveals MEASURE group).
+3. **Verify:** `.ribbon-tools` `scrollWidth > clientWidth`. No tool button
+   is `display:none` due to narrow viewport.
+
+#### Beat 187: Tool button focus ring visibility (a11y)
+1. **Do:** Tab from menubar through ribbon-tabs to tool-btn.
+2. **See:** Focus ring visible on whichever button receives focus.
+   Outline does NOT collapse to 0.
+3. **Verify:** `getComputedStyle(focusedBtn, ':focus-visible').outline`
+   is non-empty AND non-`none`.
+
+#### Beat 188: ribbon-tabs role="tablist" ARIA
+1. **Do:** Inspect `.ribbon-tabs` in accessibility tree.
+2. **See:** Container has `role="tablist"`. Each child has `role="tab"`.
+3. **Verify:** `document.querySelector('.ribbon-tabs').getAttribute('role')
+   === "tablist"`. Each `.ribbon-tab` has `role === "tab"`.
+
+#### Beat 189: dispatch.ts canonical-name parity check
+1. **Do:** For each tool id in `TOOL_GROUPS`, verify a corresponding
+   handler exists in `dispatch.ts` (per T6 plan acceptance).
+2. **See/Verify:** Run `bun web/test/dispatch.test.ts` (per plan T6
+   verification row). For every entry in `spatial-dictionary.yaml`:
+   `dispatch(canonical_name, valid_args)` returns `{ok: true}`. With
+   invalid args: `{ok: false, error: "ArgValidationError"}`.
+3. **Gap (file if hit):** Any tool id in `TOOL_GROUPS` that lacks a
+   dispatch handler entry. Cross-ref to spatial-dictionary.yaml.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §6-§24 — TODO (subsequent ticks)
+
+Sections 6 (left palette, 24 beats), 7 (right sidebar full, 40 beats),
+8 (snap dock, 16 beats), 9 (dock tabs, 30 beats), 10 (Cmd+K full
+coverage, 28 beats), 11 (viewport interactions, 18 beats), 12
+(selection 7-topology × filters × Ctrl+Shift, 36 beats), 13 (transforms,
+18 beats), 15 (boolean + edge ops, 16 beats), 16 (layout mode full,
+28 beats), 17 (research full, 14 beats), 18 (every export format,
+26 beats), 19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B
+agent — full loop with KG state assertions per turn, 40 beats),
+21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence, 10 beats),
+24 (edge cases, 16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
-~7-9 ticks to full coverage.
+~6-8 ticks remaining to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
