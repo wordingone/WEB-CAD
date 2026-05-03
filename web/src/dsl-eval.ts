@@ -48,8 +48,13 @@ interface Column {
   height: number;
   profile: { kind: "square" | "circle"; size: number };
 }
+interface Cut {
+  kind: "cut";
+  a: string;
+  b: string;
+}
 
-type Stmt = (Wall | Slab | Column) & { binding: string };
+type Stmt = (Wall | Slab | Column | Cut) & { binding: string };
 
 const NUM = /-?\d+(?:\.\d+)?(?:e-?\d+)?/;
 
@@ -315,7 +320,27 @@ export function compileDsl(source: string): CompileResult {
       continue;
     }
 
-    return { ok: false, line: i + 1, message: `unknown verb: '${verb}' (v0 supports: wall, slab, column)` };
+    if (verb === "cut") {
+      // cut <a> <b> → const result = a.cut(b);
+      // Operands must be names of previously-bound solids.
+      if (positional.length !== 2) {
+        return { ok: false, line: i + 1, message: `cut: expected 2 operand names, got ${positional.length}` };
+      }
+      const aRaw = positional[0];
+      const bRaw = positional[1];
+      if (!/^[a-z][\w-]*$/i.test(aRaw) || !/^[a-z][\w-]*$/i.test(bRaw)) {
+        return { ok: false, line: i + 1, message: `cut: operands must be identifier names (use 'let' to bind solids first)` };
+      }
+      const a = aRaw.replace(/-/g, "_");
+      const b = bRaw.replace(/-/g, "_");
+      const known = new Set(stmts.map((s) => s.binding));
+      if (!known.has(a)) return { ok: false, line: i + 1, message: `cut: unknown name '${aRaw}'` };
+      if (!known.has(b)) return { ok: false, line: i + 1, message: `cut: unknown name '${bRaw}'` };
+      stmts.push({ kind: "cut", a, b, binding: name });
+      continue;
+    }
+
+    return { ok: false, line: i + 1, message: `unknown verb: '${verb}' (v0 supports: wall, slab, column, cut)` };
   }
 
   // Emit replicad. Each statement → one binding; final value is fused
@@ -326,14 +351,22 @@ export function compileDsl(source: string): CompileResult {
   }
   const body: string[] = [];
   const names: string[] = [];
+  const consumed = new Set<string>();
   for (const s of stmts) {
     if (s.kind === "wall") body.push(emitWall(s, s.binding));
     else if (s.kind === "slab") body.push(emitSlab(s, s.binding));
-    else body.push(emitColumn(s, s.binding));
+    else if (s.kind === "column") body.push(emitColumn(s, s.binding));
+    else if (s.kind === "cut") {
+      body.push(`const ${s.binding} = ${s.a}.cut(${s.b});`);
+      consumed.add(s.a);
+      consumed.add(s.b);
+    }
     names.push(s.binding);
   }
-  if (names.length > 1) {
-    body.push(`const composite = ${names.slice(1).reduce((acc, n) => `${acc}.fuse(${n})`, names[0])};`);
+  // Auto-fuse only solids not consumed by a cut. The cut's result stays live.
+  const live = names.filter((n) => !consumed.has(n));
+  if (live.length > 1) {
+    body.push(`const composite = ${live.slice(1).reduce((acc, n) => `${acc}.fuse(${n})`, live[0])};`);
   }
-  return { ok: true, js: body.join("\n"), solids: names };
+  return { ok: true, js: body.join("\n"), solids: live };
 }
