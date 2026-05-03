@@ -2257,20 +2257,199 @@ the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §8-§24 — TODO (subsequent ticks)
+## §8 — Snap dock (16 beats)
 
-Sections 8 (snap dock, 16 beats), 9 (dock tabs, 30 beats), 10 (Cmd+K
-full coverage, 28 beats), 11 (viewport interactions, 18 beats), 12
-(selection 7-topology × filters × Ctrl+Shift, 36 beats), 13 (transforms,
-18 beats), 15 (boolean + edge ops, 16 beats), 16 (layout mode full,
-28 beats), 17 (research full, 14 beats), 18 (every export format,
-26 beats), 19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B
-agent — full loop with KG state assertions per turn, 40 beats),
-21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence, 10 beats),
-24 (edge cases, 16 beats).
+The snap dock lives at the bottom of the right sidebar (below the
+selection-filters panel). Source: `web/src/workbench.ts` `buildSnapDock`
+(lines 135-165) + `web/src/snap-state.ts` (full module, 26 lines).
+
+**Surface inventory:**
+- "SNAP / CONSTRAIN" section title + 4 buttons: SNAP, ORTHO, GRID, POLAR
+  (defaults: SNAP / ORTHO / GRID on; POLAR off)
+- "OBJECT SNAP" section title + 4 buttons: END, MID, CEN, PERP
+  (defaults: END / MID / PERP on; CEN off)
+- 3 readout rows: step "0.10 m" / angle "15°" / cplane "XY · z=0"
+
+**Wiring depth (per source-of-truth grep):**
+- `snap-state.ts` only exports `gridOn` + `step` state (2 of 8 buttons + 1
+  of 3 readouts have real state behind them)
+- Only **GRID** button has a state-binding click handler (`setGridOn`
+  at workbench.ts:161)
+- **Other 7 buttons** (SNAP, ORTHO, POLAR, END, MID, CEN, PERP) are
+  visual-toggle-only — `.on` class flips but no consumer reads them
+- step readout hardcoded "0.10 m" — does NOT reflect `setStep()`
+- angle readout hardcoded "15°" — POLAR isn't wired anyway
+- cplane readout hardcoded "XY · z=0" — no cplane-rotate UI exists
+- `snapPoint()` at snap-state.ts:19-25 is the only consumer; called
+  from `create-mode.ts` during click-to-place
+
+**Cross-refs:**
+- §6 beat 213 covered ribbon-vs-palette sync; snap dock has no parallel
+  surface elsewhere — this is its only home.
+- §11 (viewport interactions) tests snap behavior at click time; §8
+  here tests the dock surface only.
+- #194 Issue 9 fix at `ba52a12` shipped the snap-state.ts module +
+  wired `snapPoint()` into `create-mode.ts`. Earlier the dock was
+  pure decoration.
+
+### Beats 254-269: Surface + behavior + gaps
+
+#### Beat 254: Snap dock structure (3 sub-sections + 11 elements)
+1. **Do:** Inspect `.snap-dock` at sidebar bottom.
+2. **See:** Two "SNAP / CONSTRAIN" + "OBJECT SNAP" titles. Two `.snap-grid`
+   children (4 buttons each). Three `.snap-row` readouts (step / angle /
+   cplane).
+3. **Verify:** `document.querySelectorAll('.snap-dock .snap-btn').length
+   === 8`. `.snap-row` count === 3. Two `.snap-dock-title` headers.
+
+#### Beat 255: SNAP/CONSTRAIN defaults — SNAP/ORTHO/GRID on, POLAR off
+1. **Do:** Page load. Inspect first `.snap-grid`.
+2. **See:** SNAP, ORTHO, GRID buttons have `.on` class. POLAR does not.
+3. **Verify:** Per workbench.ts:139-144 — first grid hardcodes the
+   `.on` class on SNAP/ORTHO/GRID. POLAR plain.
+
+#### Beat 256: OBJECT SNAP defaults — END/MID/PERP on, CEN off
+1. **Do:** Inspect second `.snap-grid`.
+2. **See:** END, MID, PERP have `.on` class. CEN does not.
+3. **Verify:** Per workbench.ts:146-151 — END/MID/PERP `.on`, CEN plain.
+
+#### Beat 257: 3 readout rows render with hardcoded values
+1. **Do:** Inspect `.snap-row` elements.
+2. **See:** Three rows: step="0.10 m", angle="15°", cplane="XY · z=0"
+   (per workbench.ts:152-154).
+3. **Verify:** `document.querySelectorAll('.snap-row .v')[0].textContent
+   === "0.10 m"`. `[1] === "15°"`. `[2] === "XY · z=0"`.
+
+#### Beat 258: Click toggles .on class on every button (visual)
+1. **Do:** For each of 8 buttons, click and inspect `.on`.
+2. **See:** Every button toggles `.on` class on click (per
+   workbench.ts:157-160 — `classList.toggle("on")` for ALL `.snap-btn`).
+3. **Verify:** All 8 buttons respond to click visually.
+
+#### Beat 259: GRID toggle wires to snap-state setGridOn (the only real binding)
+1. **Do:** Click GRID button OFF (removes `.on`). Open DevTools console.
+   Inspect `getGridOn()` import from `snap-state.ts`.
+2. **See:** `getGridOn()` returns false. `_state.gridOn` flipped per
+   `setGridOn(false)` at workbench.ts:161 (the handler ONLY fires on
+   buttons whose textContent === "GRID").
+3. **Verify:** `(await import('./snap-state.ts')).getGridOn() === false`
+   in console (or equivalent eval path). Click GRID again → true.
+
+#### Beat 260: GRID off → snapPoint rounds to 1mm only
+1. **Do:** GRID off. In create-mode click pipeline (e.g. Wall tool),
+   click viewport at world (0.12345, 0.67890).
+2. **See:** First-click marker snaps to (0.123, 0.679) — rounds to
+   1mm to remove float noise per `snap-state.ts:24`.
+3. **Verify:** `getCreateSequence()` last entry contains coords
+   matching .toFixed(3) precision, NOT `step`-multiples (since GRID
+   off).
+
+#### Beat 261: GRID on → snapPoint rounds to step (default 0.10m)
+1. **Do:** GRID on. Click Wall. Click world (0.12345, 0.67890).
+2. **See:** Marker snaps to (0.10, 0.70) — quantised to step=0.10m
+   per `snap-state.ts:21-22`.
+3. **Verify:** `getCreateSequence()` last entry has coords on 0.10m
+   grid intersections.
+
+#### Beat 262: SNAP master toggle — decorative (GAP)
+1. **Do:** Click SNAP off. Run create-mode click on a non-grid point.
+2. **See:** Marker still snaps if GRID is on. SNAP off has NO effect
+   on snapPoint behavior.
+3. **Verify:** Grep `snap-state.ts` and `create-mode.ts` for any
+   reference to "SNAP" master state — none exists.
+4. **Gap (file):** SNAP master toggle is decorative. Per Rhino
+   convention SNAP off should disable ALL snap-related quantisation.
+   File against `snap-state.ts` to add `getSnapEnabled()` + wire
+   `snapPoint()` to short-circuit.
+
+#### Beat 263: ORTHO toggle — decorative (GAP)
+1. **Do:** Click ORTHO on. Click Line; click (0,0); move cursor to
+   (5, 0.3) — slight Y drift.
+2. **See:** Rubber-band line follows cursor freely. ORTHO does NOT
+   constrain to axis-aligned.
+3. **Verify:** No ORTHO logic in `create-mode.ts` rubber-band update.
+4. **Gap (file):** ORTHO toggle decorative. Should constrain
+   second-click point to nearest axis-aligned (X or Y) from first
+   point. File for `create-mode.ts` integration.
+
+#### Beat 264: POLAR toggle — decorative (GAP)
+1. **Do:** Click POLAR on. Click Line; click (0,0); move cursor at
+   ~22° from origin.
+2. **See:** Cursor follows freely. POLAR does NOT snap to 15°
+   increments (per the angle readout).
+3. **Verify:** No POLAR logic in `create-mode.ts`.
+4. **Gap (file):** POLAR toggle decorative. Should snap second-click
+   angle to nearest multiple of `angle` readout (15° default). File.
+
+#### Beat 265: OBJECT SNAP — END/MID/CEN/PERP all decorative (GAP)
+1. **Do:** Click END off (or any of the 4). Click Line near a wall
+   endpoint; cursor near vertex.
+2. **See:** No magnetic snap-to-vertex. Cursor stays at raw position.
+3. **Verify:** No object-snap raycast/proximity logic in
+   `create-mode.ts` or `viewer.ts`.
+4. **Gap (file):** All 4 object-snap toggles are decorative. Should
+   raycast cursor proximity against scene-mesh vertices (END),
+   midpoints (MID), centers (CEN), perpendicular projections (PERP).
+   File as 4 sub-tasks under #166.
+
+#### Beat 266: step readout hardcoded — does NOT reflect setStep()
+1. **Do:** In DevTools console: `(await import('./snap-state.ts'))
+   .setStep(0.50)`. Inspect step readout in snap dock.
+2. **See:** Readout still says "0.10 m". Hardcoded HTML innerHTML at
+   workbench.ts:152.
+3. **Verify:** No subscription. setStep() updates internal state but
+   not the readout.
+4. **Gap (file):** step readout must subscribe to snap-state changes
+   AND offer click-to-edit (numeric input). Without this, users
+   can't change grid step without DSL.
+
+#### Beat 267: angle + cplane readouts also hardcoded
+1. **Do:** Inspect snap-state.ts module.
+2. **See:** No `angle` or `cplane` exported state. Both readouts are
+   pure cosmetic strings at workbench.ts:153-154.
+3. **Verify:** Grep `snap-state.ts` for "angle" / "cplane" — zero
+   matches.
+4. **Gap (file):** Add angle (for POLAR) + cplane (for sketch-plane
+   selection) state and reactive readouts.
+
+#### Beat 268: GRID state does NOT persist across reload (GAP)
+1. **Do:** GRID off. Reload page.
+2. **See:** GRID button reverts to `.on` (default). `getGridOn()`
+   returns true.
+3. **Verify:** `snap-state.ts:9` — `_state` is module-scope; no
+   localStorage hydrate/persist hooks. Default `gridOn: true` always
+   wins after reload.
+4. **Gap (file):** Add localStorage persistence for snap-state (gridOn,
+   step, and future toggles when wired). User pref should survive
+   sessions.
+
+#### Beat 269: Snap dock keyboard nav (a11y)
+1. **Do:** Tab from selection-filters panel into snap dock.
+2. **See:** Each `.snap-btn` should receive focus. Enter/Space
+   activates (toggles `.on`). Currently `.snap-btn` is a plain `<div>`
+   per `el("div", "snap-btn ...")` — NOT a button element.
+3. **Verify:** `document.querySelectorAll('.snap-dock .snap-btn')[0]
+   .tagName === "DIV"`. Default `tabIndex` is -1 — NOT focusable.
+4. **Gap (file):** Snap dock buttons are `<div>` not `<button>` — fails
+   keyboard nav and screen-reader semantics. Should be `<button>` with
+   appropriate ARIA (or `role="switch"` + `aria-checked`).
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §9-§24 — TODO (subsequent ticks)
+
+Sections 9 (dock tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats),
+11 (viewport interactions, 18 beats), 12 (selection 7-topology ×
+filters × Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15
+(boolean + edge ops, 16 beats), 16 (layout mode full, 28 beats),
+17 (research full, 14 beats), 18 (every export format, 26 beats),
+19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B agent —
+full loop with KG state assertions per turn, 40 beats),
+21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence,
+10 beats), 24 (edge cases, 16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
-~5-7 ticks remaining to full coverage.
+~4-6 ticks remaining to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
