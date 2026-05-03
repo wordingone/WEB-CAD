@@ -3,6 +3,7 @@
 // navigate, Enter to invoke. Filter narrows by label substring.
 
 import { iconSVG } from "./icons";
+import { openExportDrawer } from "./export-drawer";
 
 type Cmd = {
   group: "GENERATE" | "MODEL" | "VIEW" | "FILE";
@@ -50,9 +51,10 @@ const ALL_CMDS: Cmd[] = [
   { group: "VIEW",     icon: "graph",        label: "Show NODES tab",       kbd: "⌥N",  run: () => activateDockTab("nodes") },
   { group: "VIEW",     icon: "history",      label: "Show HISTORY tab",     kbd: "⌥H",  run: () => activateDockTab("history") },
   { group: "FILE",     icon: "import",   label: "Import IFC / STEP / OBJ…", kbd: "⌘O",  run: () => clickById("file-pick-btn") },
-  { group: "FILE",     icon: "export",   label: "Export IFC4",              kbd: "⌘E",  run: () => (document.querySelector('.exp-btn[data-fmt="ifc"]') as HTMLElement | null)?.click() },
-  { group: "FILE",     icon: "export",   label: "Export GLB",               kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="glb"]') as HTMLElement | null)?.click() },
-  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => alert("Save .gma project — not yet implemented (#178 / future).") },
+  { group: "FILE",     icon: "export",   label: "Export…",                   kbd: "⌘E",  run: () => openExportDrawer() },
+  { group: "FILE",     icon: "export",   label: "Export IFC4 (one-click)",   kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="ifc"]') as HTMLElement | null)?.click() },
+  { group: "FILE",     icon: "export",   label: "Export GLB (one-click)",    kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="glb"]') as HTMLElement | null)?.click() },
+  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => alert("Save .gma project — not yet implemented.") },
 ];
 
 let overlayEl: HTMLDivElement | null = null;

@@ -13,6 +13,7 @@ import { initPalette } from "./palette";
 import { buildWorkbench } from "./workbench";
 import { buildModes, activateMode } from "./modes";
 import { initCmdK } from "./cmdk";
+import { initExportDrawer, openExportDrawer } from "./export-drawer";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -629,6 +630,16 @@ initPalette();
 buildWorkbench();
 if (workbenchEl) buildModes(workbenchEl);
 initCmdK();
+initExportDrawer();
+// Ctrl+E shortcut → open export drawer.
+window.addEventListener("keydown", (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "e" || e.key === "E")) {
+    const tgt = e.target as HTMLElement | null;
+    if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+    e.preventDefault();
+    openExportDrawer();
+  }
+});
 loadDemo(0);
 setStatus("Loading OpenCascade WebAssembly...", "info");
 runBtn.disabled = true;
