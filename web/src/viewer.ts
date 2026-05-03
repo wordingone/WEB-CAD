@@ -40,11 +40,13 @@ export class Viewer {
       alpha: true,
     });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.renderer.setClearColor(0x1a1a1f, 1);
+    // Transparent clear — bundle's .viewport-area::before (vellum paper)
+    // shows through. See styles.css line 288-293 (#171/#172/#173).
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.shadowMap.enabled = false;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1a1a1f);
+    // No scene.background — let CSS paper layer through.
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
     this.camera.position.set(8, 8, 8);
@@ -66,7 +68,9 @@ export class Viewer {
 
     // Reference grid + axes. 20m × 20m grid, 1m subdivisions; matches the
     // architectural-scale demo prompts (3-15m primitives).
-    this.grid = new THREE.GridHelper(20, 20, 0x444444, 0x2c2c34);
+    // Grid colors tuned for the bundle's vellum paper background — major
+    // lines at ink-soft, subdivisions at hairline-strong. (#173)
+    this.grid = new THREE.GridHelper(20, 20, 0x6f6f78, 0xc8c2b4);
     this.grid.rotation.x = Math.PI / 2; // grid in XY plane (replicad uses Z-up).
     this.scene.add(this.grid);
 
