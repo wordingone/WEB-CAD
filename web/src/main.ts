@@ -16,6 +16,7 @@ import { initCmdK } from "./cmdk";
 import { initExportDrawer, openExportDrawer } from "./export-drawer";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
+import { applyDrafting, removeDrafting, isDrafting } from "./drafting";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
 import { buildIfc, ifcRoundTrip } from "./ifc";
 import {
@@ -106,10 +107,23 @@ window.addEventListener("keydown", (e) => {
     case "9": case "Numpad9": viewer.setView("iso"); break;
     case "5": case "Numpad5": viewer.setView("extents"); break;
     case "f": case "F":       viewer.setView("extents"); break;
+    case "d": case "D":       toggleDraftingStyle(); break;
     default: return;
   }
   e.preventDefault();
 });
+
+// Drafting-style toggle (#173 Gap 2). Walks the active scene root, adds
+// EdgesGeometry overlays + flat paper-tone fill on first call; restores on
+// second call. Surfaced via "D" hotkey above and Cmd-K palette command.
+function toggleDraftingStyle(): void {
+  const root = viewer.getActiveObject();
+  if (!root) return;
+  if (isDrafting(root)) removeDrafting(root);
+  else applyDrafting(root);
+}
+// Expose for cmdk.ts and external testing.
+(window as unknown as { __toggleDrafting?: () => void }).__toggleDrafting = toggleDraftingStyle;
 
 // Worker boot. Vite resolves the URL + format=es per vite.config.ts worker block.
 const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
