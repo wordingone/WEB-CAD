@@ -57,7 +57,7 @@ Setup is implicit — don't skip beats.
 |---|---|---|---|
 | 1 | Critical path / demo flow | 50 | DRAFT (this commit) |
 | 2 | Menubar — File / Edit / View / Mode / Window / Help | 42 | DRAFT (this commit) |
-| 3 | Modebar — MODEL / LAYOUT / RESEARCH transitions | 18 | TODO |
+| 3 | Modebar — MODEL / LAYOUT / RESEARCH transitions | 18 | DRAFT (this commit) |
 | 4 | Theme — BLUEPRINT ↔ VELLUM (every surface flips) | 22 | TODO |
 | 5 | Ribbon — 24 tool buttons + tab switcher | 50 | TODO |
 | 6 | Left palette — collapsed/expanded, every entry | 24 | TODO |
@@ -887,18 +887,190 @@ to host" semantics + KG `hosts` triple verification.
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §3-§24 — TODO (subsequent ticks)
+## §3 — Modebar transitions (MODEL / LAYOUT / RESEARCH)
 
-Sections 3 (modebar transitions), 4 (theme audit), 5 (every ribbon tool),
-6 (left palette), 7 (right sidebar full), 8 (snap dock), 9 (dock tabs),
-10 (Cmd+K full coverage), 11 (viewport interactions), 12 (selection 7-
-topology × filters × Ctrl+Shift), 13 (transforms), 15 (boolean + edge
-ops), 16 (layout mode full), 17 (research full), 18 (every export
-format), 19 (console DSL every keyword), 20 (Gemma 4 E2B agent — full
-loop with KG state assertions per turn), 21 (skills), 22 (NURBS), 23
-(persistence), 24 (edge cases).
+18 beats. Modebar is the three-button strip below the menubar with `01
+MODEL`, `02 LAYOUT`, `03 RESEARCH`. Drives `setState("viewMode", key)`
+which the workbench subscribes to. Each mode replaces the centre column;
+sidebar and dock persist.
 
-Authoring cadence: ~50 beats per tick. ~10 ticks to full coverage.
+### Beat 100: Initial mode is MODEL
+
+1. **Do:** Cold-load the page (Beat 1 prerequisite).
+2. **See:** `01 MODEL` tab has `.active` class (highlighted). `02 LAYOUT`
+   and `03 RESEARCH` are dim. Workbench shows the three drafting viewports
+   + perspective (post-T1 quad-split).
+3. **Verify:** `getState("viewMode") === "model"`. `document.querySelector(".mode-tab[data-mode=\"model\"]")` carries `aria-selected="true"`.
+
+### Beat 101: Switch to LAYOUT
+
+1. **Do:** Click `02 LAYOUT` tab.
+2. **See:** Centre column rebuilds — drafting viewports replaced by paper-
+   space layout (A4 sheet placeholder by default with one panel previewing
+   the perspective view from MODEL). Modebar's `.active` class moves from
+   MODEL → LAYOUT. Statusbar mode cell updates to `LAYOUT`.
+3. **Verify:** `getState("viewMode") === "layout"`. No console errors. Issue
+   2 fix is intact: panel renders the real scene projection, not diagonal-
+   hatching placeholder, when MODEL has content.
+
+### Beat 102: Switch to RESEARCH
+
+1. **Do:** Click `03 RESEARCH` tab.
+2. **See:** Centre column rebuilds again — layout sheet replaced by
+   research view (corpus search input + LOCAL/WEB/CITE pill filters +
+   results pane). Sidebar persists with INSPECT / SCENE / ASSETS tabs
+   intact. Snap dock persists (filters still active even though they
+   don't apply to research).
+3. **Verify:** `getState("viewMode") === "research"`. Search input has
+   focus or is at least focusable. Demo corpus loaded (T16) — type
+   "wall" and at least one fixture document ranks.
+
+### Beat 103: Return to MODEL
+
+1. **Do:** Click `01 MODEL` tab.
+2. **See:** Centre column rebuilds back to drafting viewports. Any
+   selection that existed before leaving MODEL is restored. Active tool
+   is restored.
+3. **Verify:** `getState("viewMode") === "model"`. If a wall was
+   selected before Beat 101, it's selected again now (selection-state
+   persists across mode switches). Active tool from before is restored
+   (e.g. "wall" if user had wall tool armed).
+
+### Beat 104: Selection survives MODEL → LAYOUT → MODEL
+
+1. **Do:** In MODEL, click a wall to select. Switch to LAYOUT. Switch
+   back to MODEL.
+2. **See:** Wall is still selected (highlight + edge helpers visible).
+   INSPECT tab still shows the wall's metadata (post-#148 fix).
+   Statusbar `Sel: 1`.
+3. **Verify:** `getSelected()` returns the same uuid both before and
+   after the round-trip. Mode-switch is non-destructive to scene state.
+
+### Beat 105: Active tool survives mode round-trip
+
+1. **Do:** In MODEL, activate Wall tool. Round-trip through LAYOUT
+   and RESEARCH.
+2. **See:** On return to MODEL, Wall tool is still active (`.tool-btn[data-tool="wall"].active`). Statusbar `Tool: Wall`.
+3. **Verify:** `getState("activeTool") === "wall"` post-roundtrip.
+
+### Beat 106: Mode hotkeys (1 / 2 / 3)
+
+1. **Do:** Press `1` → `2` → `3` → `1` keystrokes when no input is focused.
+2. **See:** Modebar cycles MODEL → LAYOUT → RESEARCH → MODEL. Each step
+   updates statusbar mode cell.
+3. **Verify:** `getState("viewMode")` matches the visible mode after
+   each press. **If hotkeys are not yet wired, file as #166 follow-up.**
+
+### Beat 107: Mode hotkey suppressed in input field
+
+1. **Do:** Open Cmd+K palette, type `1` in the search input.
+2. **See:** Character `1` appears in the input. Mode does NOT change.
+3. **Verify:** `getState("viewMode")` unchanged. Hotkey handler must
+   short-circuit when `document.activeElement` is an input/textarea.
+
+### Beat 108: BLUEPRINT/VELLUM toggle persists across modes
+
+1. **Do:** Set theme to VELLUM (parchment) via menubar pill toggle.
+   Switch MODEL → LAYOUT → RESEARCH.
+2. **See:** Each mode's UI is in VELLUM theme (parchment background,
+   warm ink). No regressions to dark BLUEPRINT chrome inside any mode.
+   Issue 4 fix is intact: SCENE tab remains theme-aware in every mode.
+3. **Verify:** `<body>` has the VELLUM theme class active in all three
+   modes. No element has hardcoded BLUEPRINT colour leaking through.
+
+### Beat 109: Empty MODEL → LAYOUT shows hatched-empty placeholder
+
+1. **Do:** Start fresh (no scene content). Click LAYOUT.
+2. **See:** Layout panels show diagonal-hatching placeholder ("empty
+   model" indicator), NOT a stub-rectangle.
+3. **Verify:** Issue 2 fix is intact for the empty case. Hatching is
+   present only when there are no scene objects to project.
+
+### Beat 110: Modebar tab order
+
+1. **Do:** Inspect the modebar DOM.
+2. **See:** Three tabs in order MODEL / LAYOUT / RESEARCH, each with
+   numeric prefix `01` / `02` / `03`. Icons match: extrude / rect /
+   sparkle.
+3. **Verify:** DOM order matches the spec; numeric prefixes present
+   (numbers from `MODES[].num` in shell.ts:99-102).
+
+### Beat 111: Modebar Aria
+
+1. **Do:** Inspect the modebar `role` and `aria-selected` attributes.
+2. **See:** Modebar parent has `role="tablist"`. Each `.mode-tab` has
+   `role="tab"`. Active tab has `aria-selected="true"`, others
+   `aria-selected="false"`.
+3. **Verify:** Screen-reader walking the modebar gets the correct mode
+   announcement. Tab order via Tab key is left-to-right.
+
+### Beat 112: Mode-switch fires command for skill loader
+
+1. **Do:** Open browser devtools console. Switch MODEL → RESEARCH.
+2. **See:** A `gemma:command` event fires with `detail.id` containing
+   "research" (the skill loader uses this to inject the
+   `research-from-prompt` skill into the agent context).
+3. **Verify:** Window event listener captures the event. Used by T11
+   skill auto-load.
+
+### Beat 113: Layout panel content reflects MODEL view
+
+1. **Do:** In MODEL, frame the perspective viewport on the Schultz
+   roof. Switch to LAYOUT.
+2. **See:** Layout's perspective panel shows the same Schultz roof
+   framing (or close to it; layout panels project from the MODEL
+   cameras per T15). Adjust panel viewport selector to switch to TOP
+   → panel shows the top-orthographic projection.
+3. **Verify:** Per-panel viewport-picker (top/front/right/perspective)
+   works post-T15. Panel content updates within ~200ms of selector
+   change.
+
+### Beat 114: Research mode citation tracker
+
+1. **Do:** In RESEARCH, search "wall thickness". Click "cite" on a
+   result.
+2. **See:** Citation tracker session-log appends one entry. INSPECT
+   tab (when on MODEL) is unaffected.
+3. **Verify:** Citation log has `{source, line, claim}` per T16 spec.
+
+### Beat 115: RESEARCH mode is keyboard-accessible
+
+1. **Do:** Tab into the research search input. Type "stair". Press
+   Enter.
+2. **See:** Search executes. Top result highlighted.
+3. **Verify:** No mouse needed. Enter activates. Esc clears.
+
+### Beat 116: LAYOUT mode export → PDF
+
+1. **Do:** In LAYOUT, click EXPORT → PDF.
+2. **See:** Browser download `<scene>.pdf`. File opens in any PDF
+   viewer; sheet dimensions match the selected paper size.
+3. **Verify:** Output passes T15 layout test (jsPDF MediaBox matches
+   the paper size in pixels at 96dpi).
+
+### Beat 117: RESEARCH mode export → markdown bibliography
+
+1. **Do:** In RESEARCH after at least one citation, click EXPORT →
+   `<session>.bib.md`.
+2. **See:** Markdown file with bibliography entries (one per cited
+   source).
+3. **Verify:** Each entry has source title, source path, claim text.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §4-§24 — TODO (subsequent ticks)
+
+Sections 4 (theme audit — every surface flips BLUEPRINT ↔ VELLUM),
+5 (every ribbon tool), 6 (left palette), 7 (right sidebar full),
+8 (snap dock), 9 (dock tabs), 10 (Cmd+K full coverage), 11 (viewport
+interactions), 12 (selection 7-topology × filters × Ctrl+Shift),
+13 (transforms), 15 (boolean + edge ops), 16 (layout mode full),
+17 (research full), 18 (every export format), 19 (console DSL every
+keyword), 20 (Gemma 4 E2B agent — full loop with KG state assertions
+per turn), 21 (skills), 22 (NURBS), 23 (persistence), 24 (edge cases).
+
+Authoring cadence: ~18-50 beats per tick depending on section size.
+~8-10 ticks to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
