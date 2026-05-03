@@ -2131,14 +2131,25 @@ the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
    316472 → INSPECT shows x=-0.283, y=-1.150, z=0.039, dx=1.151,
    dy=0.594, dz=0.046, storey="1st Floor". File a beat-failure if
    numeric Position differs from table by > 0.001m.
-5. **Architecture gate:** Beat 235 "current build" smokes whenever
-   loader's mesh-name binding is intact (4d5573f). Terminal-target
-   smokes only after the IFC loader is refactored from
-   single-merged-mesh to a Group of per-element meshes carrying
-   `userData.{ifcClass, guid, storeyName, storeyElevation}` from
-   the hierarchy[] array (already plumbed through worker.ts +
-   loader.ts → SceneSummary at e382d93). That refactor is the
-   per-element-mesh sub-issue under #148.
+5. **Architecture gate (RESOLVED at b451932):** Per-element mesh
+   refactor landed. worker.ts now emits `elementRanges` (expressID +
+   vertex/index offsets per IFC element) on `LoadIfcSuccess`;
+   `loader.ts:buildIfcMesh` materialises a `THREE.Group` of
+   per-element `THREE.Mesh` instances, slicing vertex/normal/color
+   buffers per range, remapping indices to element-local space, and
+   attaching `userData.{expressID, ifcClass, guid, storeyName,
+   storeyElevation}` from the hierarchy[] lookup. Mesh `name` set
+   from `hierarchy.name`. `workbench.ts:updateInspect` reads
+   `userData.ifcClass / .guid / .storeyName` when present (real data
+   for IFC) and falls back to topology/uuid otherwise. Position
+   uses `Box3.getCenter` (correct for world-space-baked IFC vertices,
+   which is how web-ifc emits them).
+6. **Live smoke verification:** Jun runs the click in the web app —
+   load Schultz, click wall id 316472 in viewport (or via SCENE
+   tree), confirm INSPECT shows the table-derived values within
+   1mm tolerance. Failures here surface as element-pairing or
+   coordinate-frame bugs in `loader.ts` slicing logic, NOT
+   architectural gaps. File against b451932 if mismatch.
 
 ### Beats 236-247: ASSETS tab (12 beats)
 
