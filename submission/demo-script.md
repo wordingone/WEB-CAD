@@ -1,235 +1,173 @@
 # Demo video script — gemma-architect (3:00)
 
-> ⚠️ **STALE pre-bundle-port (last updated 2026-05-01).**
-> The script below targets the v1/v2 page (single dropdown + `Run` /
-> `Export IFC` buttons). The current page has shipped the bundle
-> drafting-workbench port (#170 umbrella): menubar/modebar/ribbon shell,
-> mode tabs (MODEL/LAYOUT/RESEARCH), Cmd-K palette, multi-format Export
-> drawer, drafting-style toggle (`D` hotkey), IFC sample dropdown.
-> Quad-split viewport (#180 Gap 1) is in flight via forge.
->
-> **Do not record from this script as-is.** Update mapping (current → v2):
-> - "Pick demo from dropdown" → PROMPT dock tab → demo chips OR Cmd-K → "New wall" / "New column" / etc.
-> - **Run** button → **GENERATE** in the AIPanel (or `⌘⏎`)
-> - **Export IFC** button → **EXPORT** ribbon button (or `⌘E`) → drawer slides in → click IFC tile
-> - "OpenCascade ready" status → check `#status` text; format may differ
-> - Add: drafting-style toggle (`D`) for the architect-render aesthetic
-> - Add: load `Schultz Residence` from sample-select for a real-building hero shot
->
-> Refresh this script once Gap 1 lands and the UI surface is stable. Open
-> issue: rewrite cut-by-cut against current page; re-shoot pacing; keep
-> the equity-track narrative (block below) intact — only the click path
-> changes.
-
----
-
 The 3-minute screen-recording for the Kaggle submission. Voice-over
-scripted line-by-line, cuts timed against a single take of the
-production page (`bun run web:preview`). Shoot at 1920×1080, 30 fps.
+scripted line-by-line, cuts timed against a single take of the production
+page (`bun run web:preview`). Shoot at 1920×1080, 30 fps.
 
-**Prompt selection** follows the 18-day plan D11 spec: three prompts
-that span scope — single-element, parametric variation, and multi-element
-assembly with boolean cuts.
+This script targets the **current bundle UI** (post-#170 design handoff):
+menubar / modebar / ribbon shell, dock tabs (PROMPT / CONSOLE / NODES /
+PARAMETERS / HISTORY), Cmd-K palette, multi-format EXPORT drawer,
+drafting-style toggle (`D`), AI prompt → geometry pipeline (#176, cache +
+live LoRA paths), Schultz Residence hero demo (14-element multi-fuse).
 
-| Cut | Range | Promo prompt |
-| :-: | :---- | :----------- |
-| 1 | 0:20–1:00 | "a wall, 5.5m long, 0.2m thick, 2.8m tall" (single-element) |
-| 2 | 1:00–1:40 | "a 6m × 4m slab, 0.2m thick, with a 1.2m × 1.2m square stair hole at the back-left corner" (parametric variation + boolean cut) |
-| 3 | 1:40–2:30 | "a 4-walled room, 4.6m × 4.5m, 3m tall, 0.18m wall thickness" (multi-element assembly) |
+**Demo path order** is chosen to scale narrative scope:
+single element → parametric variation → AI typed-from-scratch → real-building
+hero shot. Each cut ends on a frame the next cut starts from cleanly.
+
+| Cut | Range | What viewers see |
+| :-: | :---- | :--------------- |
+| 1 | 0:00–0:20 | hook + static title card |
+| 2 | 0:20–1:00 | demo 1 — wall (cached, parametric) |
+| 3 | 1:00–1:40 | demo 2 — typed-from-scratch prompt → AI generate (cache match) |
+| 4 | 1:40–2:30 | demo 3 — Schultz Residence (14-element hero) + drafting style |
+| 5 | 2:30–3:00 | export IFC + close out (impact line) |
 
 ---
 
 ## 0:00 — 0:20 — Hook
 
-**Screen:** open in Chrome. Static title card 2s, then the live page,
-status `OpenCascade ready. Pick a demo and Run.`, dropdown closed.
+**Screen:** open in Chrome. Static title card 2s, then the live page —
+ribbon visible, PROMPT dock tab open, viewport empty showing the
+title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 
-**VO (24 words, ~6.5s/line, 4 lines = 26s budget — trim live):**
+**VO (24 words, ~5.5s/line, 4 lines = 22s — trim live):**
 
-> "Parametric CAD costs three thousand dollars a year. Revit, AutoCAD,
-> ArchiCAD. The tools that exist on the free side all assume you already
-> know how to model. **Gemma-architect runs in a browser tab.** No
-> install. No login. No API key. You type a sentence; you get a
-> building."
+> "Parametric CAD costs three thousand dollars a year. Revit. ArchiCAD.
+> AutoCAD. The free tools assume you already know how to model.
+> **Gemma-architect runs in a browser tab.** No install. No login. No
+> API key. You type a sentence; you get a building."
 
-**Cut beat:** end on the page idle, dropdown highlighted, cursor
-hovering. Hard cut at 0:20.
+**Cut beat:** cursor settling on PROMPT tab. Hard cut at 0:20.
 
 ---
 
-## 0:20 — 1:00 — Demo 1: Wall (single-element + parametric)
+## 0:20 — 1:00 — Demo 1: Wall (cached + parametric)
 
 **Screen:**
-1. Pick **Wall (5.5m × 0.2m × 2.8m)** in dropdown. Prompt + JS appear.
-2. Click **Run**. Status flips to `Running...` then `Ready (12 tris,
-   4.4 KB IFC).` Wall renders, OrbitControls auto-frame.
-3. Drag **length** slider to 8.0m. Geometry updates within ~90ms.
-4. Drag **height** slider to 3.5m. Updates again.
-5. Click **Export IFC**. Browser downloads `wall.ifc`.
+1. PROMPT tab. Demo chip strip shows "Wall · 5.5×0.2×2.8m" first. Click it.
+2. Prompt textarea fills with the sentence. JS source mirrors in `#js-source`.
+3. Click **GENERATE** (or hit `⌘⏎`). Status flips: `Running…` → `Ready (12 tris, 4.4 KB IFC).` Wall renders. Auto-frame.
+4. Drag **length** slider to 8.0m. Geometry rebuilds within ~90ms.
+5. Drag **height** slider to 3.5m. Updates again.
 
 **VO (40s budget):**
 
-> "Pick a demo. Type — or read the prompt the model already wrote:
-> 'a wall, five and a half meters long, twenty centimeters thick,
-> two meters eighty tall.' Click Run. The model — Gemma 4, four
-> billion parameters, fine-tuned on nine hundred building examples —
-> emits replicad source, the page executes it in a worker, OpenCascade
-> meshes it, and three.js renders. **No server.** All in this tab."
+> "Pick a demo from the prompt panel. Read the sentence the model
+> already wrote — _a wall, five and a half meters long, twenty
+> centimeters thick, two meters eighty tall_. Click GENERATE. Gemma 4,
+> four billion parameters, fine-tuned on nine hundred building
+> examples, emits replicad source. A worker executes it.
+> OpenCascade meshes it. three.js renders. **No server.** All in this tab."
 
-> "Drag the length slider. The geometry rebuilds without re-running
-> the model — the parameters are exposed automatically. Drag height.
-> Same. Click Export IFC. That file opens in Revit, ArchiCAD,
-> BlenderBIM. The same software the architect across town pays
-> three grand a year to use."
+> "Drag the length slider. Geometry rebuilds without re-running the
+> model — the parameters are exposed automatically. Drag height. **The
+> sliders are the parametric layer. The model is just the entry point.**"
 
-**Cut beat:** the **Export IFC** click and the browser download
-notification. Hard cut at 1:00.
+**Cut beat:** cursor in textarea, demo prompt clearly visible. Hard cut at 1:00.
 
 ---
 
-## 1:00 — 1:40 — Demo 2: Slab with hole (boolean cut + variation)
+## 1:00 — 1:40 — Demo 2: Typed-from-scratch prompt → AI generate
 
 **Screen:**
-1. Switch dropdown to **Raised slab with stair hole**.
-2. Click **Run**. Slab + cut renders.
-3. Drag **slab\_length** slider from 6.0m → 8.0m. Stair hole moves
-   with it (kept at back-left corner, parameterized).
-4. Drag **hole\_size** slider from 1.2m → 1.6m.
-5. Click **Export IFC**. Browser downloads `raised-slab.ifc`.
+1. Click in the PROMPT textarea. **Select-all and delete** the existing demo prompt.
+2. Type live: `Build a square column 0.3m by 0.3m, 3m tall.`
+3. Hit `⌘⏎`. The GENERATE button shows `GENERATING…` for ~80ms.
+4. JS source updates to a fresh column construction. Viewer shows a 3m square column.
+5. Status reads `[ai-generate] cache · 0.71 match · 47ms` (in console tab if visible).
 
 **VO (40s budget):**
 
-> "Second demo: a slab with a square hole — a stair void. The model
-> emitted a draw-rectangle, sketch-on-XY-plane, extrude, and a cut
-> against a smaller rectangle. Twelve operations covering eighty-five
-> percent of what a small-shop architect produces in schematic
-> design — walls, slabs, columns, footings, openings, L-shape and
-> U-shape footprints."
+> "Now type your own prompt. _Build a square column, thirty centimeters
+> by thirty centimeters, three meters tall._ Cmd-Enter. The page hits
+> the inference cache — forty cached prompt-to-JS pairs from the v2
+> LoRA eval, every one of them round-trip-verified. Forty milliseconds.
+> No GPU spun up, no network call, no waiting. **The cache is the
+> default; live inference is one toggle away** for users who want the
+> real model in the loop."
 
-> "Drag length. The hole stays at the back-left corner because that's
-> what the prompt said. Drag the hole size. Live recompute. Export.
-> A real IFC4 STEP-21 file with one Building Element Proxy, one
-> Faceted Brep, one Closed Shell — round-tripped through web-ifc
-> on the way out."
-
-**Cut beat:** the parameter slider drag + IFC download. Hard cut at 1:40.
+**Cut beat:** column rendered, viewer auto-framed. Hard cut at 1:40.
 
 ---
 
-## 1:40 — 2:30 — Demo 3: Four-walled room (multi-element)
+## 1:40 — 2:30 — Demo 3: Schultz Residence (hero, 14 elements + drafting style)
 
 **Screen:**
-1. Switch to **Four-walled room**.
-2. Click **Run**. Four walls render as a fused compound.
-3. Orbit the viewer with mouse drag — show the room from inside +
-   outside. ~6s of camera work.
-4. Drag **width** slider 4.6 → 6.0m. The whole footprint scales.
-5. Click **Export IFC**. Download.
+1. Press `⌘K` to open command palette.
+2. Type "Schultz". Hit Enter on the matched command — the demo loads.
+3. PROMPT textarea fills with the long Schultz sentence (12×8m residence,
+   four walls, doorway, window, columns, roof). JS fills with 14 const lines.
+4. Click GENERATE. Status: `Running…` → `Ready (~120 tris).` Viewer
+   auto-frames. Visible: floor slab, four walls (south wall has a doorway
+   cut, north has a window cut), interior partition, two corner columns,
+   roof slab. ~30% of viewport (camera fudge fix #86b3a29).
+5. Press `D` (drafting style toggle). Viewer flips from solid shading to
+   ink-wobble drafting render. Title-block emphasizes the architect-feel.
 
 **VO (50s budget):**
 
-> "Third demo: a four-walled room. Four walls fused into one solid
-> compound. Each wall is its own draw-rectangle / sketch / extrude;
-> a translate places it; a fuse merges them. The model wrote the
-> coordination — corners, orientations — by itself."
+> "Hit Cmd-K. Type 'Schultz'. The Schultz Residence — a real
+> single-story house: twelve by eight meter footprint, four perimeter
+> walls two-eighty tall with a south doorway and north window, an
+> interior east-west partition, two corner columns, a flat roof. Click
+> GENERATE."
 
-> "Orbit the viewer. The geometry is real OpenCascade BREP, not a
-> texture. Drag the width slider — every wall re-positions in
-> dependency order. Export the IFC. Open it in BlenderBIM, in
-> Revit, in any other BIM tool. The same file."
+> "Fourteen replicad operations. Multi-fuse and boolean cuts. The
+> floor, the walls, the cuts for the doorway and window — all
+> composed from the model's output, executed locally. Press D for
+> drafting style — the same building, rendered as a hand-drawn
+> elevation. **Same geometry. Same IFC. Different aesthetic.**"
 
-> "Eight canned demos ship in the page; all eight pass a
-> structural validator that runs the same code path the worker
-> uses, then validates the IFC4 STEP-21 against schema, face-count,
-> and entity count."
-
-**Cut beat:** orbit-frame settling on the rendered room. Hard cut at 2:30.
+**Cut beat:** drafting-style render fully painted. Hard cut at 2:30.
 
 ---
 
-## 2:30 — 3:00 — Closing + CTA
+## 2:30 — 3:00 — Export IFC + close
 
 **Screen:**
-1. Cut to a static screenshot grid: 3 demos × (prompt | rendered geometry
-   | IFC opened in BlenderBIM). 9-pane grid, 4s.
-2. Cut to a black title card. Three lines of text overlay:
-   - `github.com/wordingone/gemma-architect`
-   - `huggingface.co/gemma-architect/cad-lora-v2`
-   - `kaggle.com/competitions/gemma-4-good-hackathon` (or wherever the
-     submission lands)
-3. Hold the title card to 3:00.
+1. Click **EXPORT** in the ribbon (or hit `⌘E`). Drawer slides in from the right.
+2. Click the **IFC4** tile. Browser downloads `schultz.ifc` (~4.5 KB).
+3. Optional B-roll: open the file in BlenderBIM. Show same building
+   loaded as IFC4 entities (slabs, walls, columns) in a different tool.
 
-**VO (28 words, ~28s):**
+**VO (28s budget):**
 
-> "Apache-2.0 LoRA on Gemma-3-4b-it. Nine hundred training pairs.
-> Forty held-out evals — one hundred percent round-trip pass.
-> Repo on GitHub. Adapter on Hugging Face. **Try it.** This page
-> works on a Chromebook."
+> "Click EXPORT. IFC4. Four-and-a-half kilobytes. **This is a real
+> building file** — open it in Revit, ArchiCAD, BlenderBIM, anything
+> that reads IFC. The model isn't generating pixels. It's generating
+> a building."
 
-**End:** hard cut to black at 3:00.
+> "Twenty thousand sentences in the training set. One LoRA adapter.
+> One web page. Open-source, Apache-2.0. Take it, fine-tune your own,
+> serve your own users. **CAD just stopped being a subscription.**"
+
+**Cut beat:** IFC4 tile click → file appears in Downloads. End card 1s.
 
 ---
 
 ## Production notes
 
-- **Recording**: OBS at 1920×1080 / 30 fps. Disable browser extensions.
-  Use a clean Chrome profile (no toolbars, no bookmarks bar).
-- **Audio**: voice-over recorded separately (Audacity, single take per
-  cut). Normalize to −16 LUFS. Add a 200ms fade at every cut boundary.
-- **Cursor**: large-cursor mode + cursor highlight enabled. Slow,
-  deliberate motion — judges need to see what's clicked.
-- **Slider drags**: drag at human speed, not snapped. Pause briefly
-  at the new value so the geometry update is visible (~300ms).
-- **Browser zoom**: 110% so prompt text + JS source are legible at
-  1080p.
-- **Demo prep**: pre-load the page once before recording so the OC
-  WASM is cached. `OpenCascade ready.` should appear in <1s on the
-  recorded take.
-- **Export IFC**: keep the default Downloads folder visible at the
-  bottom of frame so the file appearing is on-camera.
-- **No cuts mid-VO line.** Lines align to cut beats.
-- **Captions**: burn in English captions for accessibility.
-  Auto-generate, hand-edit pass for jargon (`replicad`, `OpenCascade`,
-  `BREP`, `IFC4`, `Faceted Brep`, `Closed Shell`).
+- **Take order:** record cut 1 last (lowest cognitive load), then 2/3/4/5
+  in order. Cut 4 (Schultz + drafting) is the visual hero — re-shoot
+  until the auto-frame and drafting toggle land cleanly.
+- **Voice-over:** record after picture-lock. Time per cut is the budget,
+  not the floor. Cut 4 has the most slack — Cuts 1+5 are tight.
+- **Hover cursor:** keep the cursor visible at all times. Use a 24px
+  highlighter cursor (Chrome built-in is fine; QuickTime Mac highlighter
+  for screen-record on macOS).
+- **Audio:** -6 dBFS peak voice, -12 dBFS LUFS overall. No music — the
+  build/export sounds carry the pacing.
 
 ---
 
-## Assets to gather before shooting
+## What viewers leave with
 
-- [ ] BlenderBIM screenshots of the 3 exported IFC files (load each,
-      orbit, screenshot at the same camera angle as the in-browser
-      viewer — for the 9-pane closing grid).
-- [ ] Title card PNG at 1920×1080 (black background, white sans-serif,
-      three URLs centered).
-- [ ] Outro 200ms fade-to-black overlay (single black PNG with alpha
-      ramp).
-- [ ] Backup recording of the page on Edge in case Chrome glitches
-      day-of (same demo path; only narration changes if Edge UI
-      differs).
+In 3 minutes, they should have seen:
+- A wall, a column, a residence — three scope tiers covered.
+- Both the **demo path** (cached, instant) and the **typed-from-scratch path** (AI cache match).
+- Drafting-style toggle (architectural aesthetic, not just CAD output).
+- IFC4 export to a real BIM-compatible file.
+- The narrative beat: **CAD just stopped being a subscription.**
 
----
-
-## Word count + pacing
-
-| Cut | Words | Seconds | WPM |
-| :-: | :---: | :-----: | :-: |
-| 0:00–0:20 hook | 50 | 20 | 150 |
-| 0:20–1:00 wall | 110 | 40 | 165 |
-| 1:00–1:40 slab+hole | 100 | 40 | 150 |
-| 1:40–2:30 room | 110 | 50 | 132 |
-| 2:30–3:00 CTA | 38 | 30 | 76 (slower for emphasis) |
-| **Total** | **408** | **180** | **136 avg** |
-
-136 WPM is conversational, leaves room for breath at cuts, and
-matches the deliberate-slider pacing on screen. If the take feels
-rushed, drop the third "twelve operations covering eighty-five
-percent..." line in cut 2 — it's the densest sentence and the most
-expendable.
-
----
-
-## Sub-gate close
-
-This script + the recorded video close **sub-gate 4** ("3-min demo
-video shipped") of `docs/plan-18-day.md`. The shooting day is
-2026-05-11 per the plan; buffer through 5/16 if a re-shoot is needed.
+Keep the writeup, the impact statement, and this script aligned. If a
+demo path changes after the recording, update the script, not the page.
