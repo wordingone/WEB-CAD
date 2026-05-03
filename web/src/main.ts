@@ -14,6 +14,7 @@ import { buildWorkbench } from "./workbench";
 import { buildModes, activateMode } from "./modes";
 import { initCmdK } from "./cmdk";
 import { initExportDrawer, openExportDrawer } from "./export-drawer";
+import { subscribe, type LayoutMode } from "./app-state";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { applyDrafting, removeDrafting, isDrafting } from "./drafting";
@@ -647,6 +648,25 @@ buildWorkbench();
 if (workbenchEl) buildModes(workbenchEl);
 initCmdK();
 initExportDrawer();
+
+// Wire layout state → .viewport-area class. View menu and splitMenu (T1)
+// drive setState("layout", mode); this subscription paints the matching
+// CSS class so split-quad / split-h / split-v / split-single take effect.
+// Multi-viewport rendering (per-pane Three.js cameras) lands in T14 — for
+// now this just changes the layout grid; canvas is single-viewport.
+const viewportArea = document.getElementById("viewport-area-host");
+if (viewportArea) {
+  subscribe("layout", (mode: LayoutMode) => {
+    viewportArea.classList.remove("split-single", "split-quad", "split-h", "split-v");
+    viewportArea.classList.add(
+      mode === "single" ? "split-single" :
+      mode === "quad"   ? "split-quad" :
+      mode === "hsplit" ? "split-h" :
+      "split-v"
+    );
+  });
+}
+
 // Ctrl+E shortcut → open export drawer.
 window.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && (e.key === "e" || e.key === "E")) {
