@@ -18,6 +18,8 @@ import { compileDsl } from "./dsl-eval";
 import { setState } from "./app-state";
 import { setGridOn } from "./snap-state";
 import { buildSelectionFiltersPanel } from "./scene-panel";
+import * as THREE from "three";
+import { subscribe, getSelected, type Selection } from "./selection-state";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -175,8 +177,6 @@ function buildSceneTab(scenePanel: HTMLElement | null): HTMLElement {
 }
 
 function buildInspectTab(): HTMLElement {
-  // Properties stub — bundle's full Properties UI (transform, dimensions,
-  // material, replicad source) will land in #176 (AI prompt → geometry).
   const wrap = el("div", "tab-body props");
   wrap.innerHTML = `
     <div class="props-header">
@@ -188,29 +188,51 @@ function buildInspectTab(): HTMLElement {
     <div class="prop-section">
       <div class="prop-section-title">IDENTITY</div>
       <div class="prop-row"><span class="k">Name</span><span class="v">—</span></div>
-      <div class="prop-row"><span class="k">GUID</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">GUID</span><span class="v" data-field="guid">—</span></div>
       <div class="prop-row"><span class="k">Layer</span><span class="v">—</span></div>
     </div>
     <div class="prop-section">
       <div class="prop-section-title">TRANSFORM</div>
       <div class="prop-vec3">
         <span class="k">Position</span>
-        <span class="axis" data-axis="X">0.000</span>
-        <span class="axis" data-axis="Y">0.000</span>
-        <span class="axis" data-axis="Z">0.000</span>
+        <span class="axis" data-axis="X">—</span>
+        <span class="axis" data-axis="Y">—</span>
+        <span class="axis" data-axis="Z">—</span>
       </div>
       <div class="prop-vec3">
         <span class="k">Rotation</span>
-        <span class="axis" data-axis="X">0°</span>
-        <span class="axis" data-axis="Y">0°</span>
-        <span class="axis" data-axis="Z">0°</span>
+        <span class="axis" data-axis="Rx">—</span>
+        <span class="axis" data-axis="Ry">—</span>
+        <span class="axis" data-axis="Rz">—</span>
       </div>
     </div>
-    <div class="prop-section">
-      <div class="prop-section-title">STATUS</div>
-      <div class="prop-row"><span class="k">Mode</span><span class="v">live · object inspector populates after #176 wires geometry → IFC4 round-trip</span></div>
-    </div>
   `;
+
+  function updateInspect(sel: Selection | null): void {
+    const title = wrap.querySelector<HTMLElement>(".props-title");
+    const subtitle = wrap.querySelector<HTMLElement>(".props-subtitle");
+    if (!sel) {
+      if (title) title.textContent = "—";
+      if (subtitle) subtitle.textContent = "no selection";
+      wrap.querySelectorAll<HTMLElement>(".prop-row .v").forEach((v) => (v.textContent = "—"));
+      wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
+      return;
+    }
+    const obj = sel.object as THREE.Object3D;
+    if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
+    if (subtitle) subtitle.textContent = sel.topology;
+    const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
+    if (guidEl) guidEl.textContent = sel.uuid.slice(0, 16) + "…";
+    const pos = new THREE.Vector3();
+    obj.getWorldPosition(pos);
+    const posAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(1) .axis');
+    if (posAxes[0]) posAxes[0].textContent = pos.x.toFixed(3);
+    if (posAxes[1]) posAxes[1].textContent = pos.y.toFixed(3);
+    if (posAxes[2]) posAxes[2].textContent = pos.z.toFixed(3);
+  }
+
+  subscribe(updateInspect);
+  updateInspect(getSelected());
   return wrap;
 }
 

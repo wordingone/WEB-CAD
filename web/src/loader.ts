@@ -17,6 +17,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import type { Bounds } from "./viewer";
+import type { IfcHierarchyElement } from "./ifc-types";
+export type { IfcHierarchyElement };
 
 export type LoadedScene = {
   object: THREE.Object3D;
@@ -24,6 +26,7 @@ export type LoadedScene = {
   summary: string;
   triangles: number;
   format: string;
+  hierarchy?: IfcHierarchyElement[];
 };
 
 export type LoaderProgress = (msg: string) => void;
@@ -175,6 +178,7 @@ export type IfcLoadResult = {
   bounds: Bounds;
   schema: string;
   entityCount: number;
+  hierarchy: IfcHierarchyElement[];
 };
 
 export async function buildIfcMesh(
@@ -221,6 +225,7 @@ export async function buildIfcMesh(
     triangles: tris,
     format: "ifc",
     summary: `${filename} · ${result.entityCount.toLocaleString()} entities · ${tris.toLocaleString()} triangles · ${result.schema}`,
+    hierarchy: result.hierarchy,
   };
 }
 

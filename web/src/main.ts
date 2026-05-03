@@ -490,6 +490,7 @@ function finalizeFileLoad(scene: LoadedScene, filename: string) {
   if (m) summary.entityCount = parseInt(m[1].replace(/,/g, ""), 10);
   const sm = scene.summary.match(/IFC[24X]+/i);
   if (sm) summary.schema = sm[0].toUpperCase();
+  if (scene.hierarchy) summary.hierarchy = scene.hierarchy;
   scenePanel.update(summary);
   refreshExportButtons();
 }
