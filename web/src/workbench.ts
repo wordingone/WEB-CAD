@@ -264,6 +264,7 @@ const PROMPT_CHIPS: { label: string; demoId: string }[] = [
   { label: "L-shape walls",                     demoId: "l-walls" },
   { label: "Four-walled room",                  demoId: "four-walled-room" },
   { label: "Stair-step",                        demoId: "stair-step" },
+  { label: "Schultz Residence · 14 elements",   demoId: "schultz-residence" },
 ];
 
 const RECENT_LINES: { ts: string; t: string; demoId: string }[] = [
@@ -278,6 +279,7 @@ const RECENT_LINES: { ts: string; t: string; demoId: string }[] = [
 const DEMO_ID_ORDER = [
   "wall", "column", "raised-slab", "slab-with-hole",
   "wall-with-door", "l-walls", "four-walled-room", "stair-step",
+  "schultz-residence",
 ];
 function demoIdToIndex(id: string): string | null {
   const i = DEMO_ID_ORDER.indexOf(id);
