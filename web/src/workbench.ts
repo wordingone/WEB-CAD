@@ -17,6 +17,7 @@ import { generateGeometry, GenerateError } from "./ai-generate";
 import { compileDsl } from "./dsl-eval";
 import { setState } from "./app-state";
 import { setGridOn } from "./snap-state";
+import { buildSelectionFiltersPanel } from "./scene-panel";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -282,8 +283,11 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
     if (panes[id]) body.appendChild(panes[id]);
   }
 
+  const filterPanel = buildSelectionFiltersPanel();
+
   host.appendChild(tabs);
   host.appendChild(body);
+  host.appendChild(filterPanel);
   host.appendChild(snap);
   activate("scene");
 }

@@ -122,9 +122,7 @@ export class ScenePanel {
       <div class="sp-meta-row" style="padding:6px 10px; font-family:var(--mono); font-size:10px; color:var(--ink-faint); border-bottom:1px solid var(--hairline-soft);">
         no scene loaded — drop a file or pick a sample
       </div>
-      ${buildSelectionFilterHtml()}
     `;
-    this.wireSelectionFilters();
   }
 
   private render(summary: SceneSummary): void {
@@ -176,28 +174,30 @@ export class ScenePanel {
     outlinerHtml += `</div>`;
 
     const metaRow = `<div class="sp-meta-row" style="padding:6px 10px; font-family:var(--mono); font-size:10px; color:var(--ink-faint); border-bottom:1px solid var(--hairline-soft);">${fmtStr}${filenameStr}${entityStr}${schemaStr} &middot; ${this.nodes.length} mesh${this.nodes.length === 1 ? "" : "es"} &middot; ${totalTris.toLocaleString()} tri</div>`;
-    this.root.innerHTML = metaRow + buildSelectionFilterHtml() + outlinerHtml;
+    this.root.innerHTML = metaRow + outlinerHtml;
     this.wireRowActions();
-    this.wireSelectionFilters();
-  }
-
-  private wireSelectionFilters(): void {
-    const filters = getFilters();
-    this.root.querySelectorAll<HTMLInputElement>("input[data-filter]").forEach((input) => {
-      const key = input.dataset.filter as keyof SelectionFilters;
-      input.checked = filters[key];
-      input.addEventListener("change", () => {
-        setFilter(key, input.checked);
-        // Vertex sprite visibility tracks the Points filter — drive it from
-        // here so toggling Points shows/hides the corner markers immediately.
-        if (key === "Points" && (this.viewer as any).setVertexHelpersVisible) {
-          (this.viewer as any).setVertexHelpersVisible(input.checked);
-        }
-      });
-    });
   }
 
   private wireRowActions(): void {
+    // Collapsible section headers.
+    this.root.querySelectorAll<HTMLElement>(".outliner-section-header").forEach((header) => {
+      header.style.cursor = "pointer";
+      header.addEventListener("click", () => {
+        const section = header.parentElement as HTMLElement;
+        const collapsed = section.dataset.collapsed === "1";
+        if (collapsed) {
+          section.dataset.collapsed = "";
+          section.querySelectorAll<HTMLElement>(".outliner-row").forEach((r) => (r.style.display = ""));
+          const svg = header.querySelector<SVGElement>("svg");
+          if (svg) svg.style.transform = "";
+        } else {
+          section.dataset.collapsed = "1";
+          section.querySelectorAll<HTMLElement>(".outliner-row").forEach((r) => (r.style.display = "none"));
+          const svg = header.querySelector<SVGElement>("svg");
+          if (svg) svg.style.transform = "rotate(-90deg)";
+        }
+      });
+    });
     this.root.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -240,7 +240,8 @@ function escapeHtml(s: string): string {
 }
 
 // Selection-filter checkbox bank (Rhino-style). Eight entries; defaults match
-// selection-state.ts. Wired in wireSelectionFilters.
+// selection-state.ts. Returned as a live DOM element so it can be mounted
+// permanently in the sidebar, independent of which tab is active.
 const SELECTION_FILTER_KEYS: Array<{ key: keyof SelectionFilters; label: string }> = [
   { key: "Points",        label: "Points" },
   { key: "Curves",        label: "Curves" },
@@ -252,7 +253,7 @@ const SELECTION_FILTER_KEYS: Array<{ key: keyof SelectionFilters; label: string 
   { key: "Blocks",        label: "Blocks" },
 ];
 
-function buildSelectionFilterHtml(): string {
+export function buildSelectionFiltersPanel(): HTMLElement {
   const filters = getFilters();
   const rows = SELECTION_FILTER_KEYS.map(({ key, label }) => {
     const checked = filters[key] ? "checked" : "";
@@ -261,13 +262,24 @@ function buildSelectionFilterHtml(): string {
       <span style="color:var(--ink-soft);">${label}</span>
     </label>`;
   }).join("");
-  return `
-    <div class="selection-filters" style="padding:6px 10px; border-bottom:1px solid var(--hairline-soft);">
-      <div style="font-family:var(--mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.08em; padding-bottom:4px;">SELECTION FILTERS</div>
-      <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px;">
-        ${rows}
-      </div>
-      <div style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); padding-top:4px;">Ctrl+Shift+click to drill into sub-objects</div>
+
+  const container = document.createElement("div");
+  container.className = "selection-filters";
+  container.style.cssText = "padding:6px 10px; border-top:1px solid var(--hairline-soft);";
+  container.innerHTML = `
+    <div style="font-family:var(--mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.08em; padding-bottom:4px;">SELECTION FILTERS</div>
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px;">
+      ${rows}
     </div>
+    <div style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); padding-top:4px;">Ctrl+Shift+click to drill into sub-objects</div>
   `;
+
+  // Wire checkboxes — setFilter drives subscribeFilters in main.ts which
+  // handles vertex-helper visibility for the Points key.
+  container.querySelectorAll<HTMLInputElement>("input[data-filter]").forEach((input) => {
+    const key = input.dataset.filter as keyof SelectionFilters;
+    input.addEventListener("change", () => setFilter(key, input.checked));
+  });
+
+  return container;
 }
