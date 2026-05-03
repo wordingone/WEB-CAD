@@ -2478,20 +2478,318 @@ selection-filters panel). Source: `web/src/workbench.ts` `buildSnapDock`
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §9-§24 — TODO (subsequent ticks)
+## §9 — Dock tabs (30 beats)
 
-Sections 9 (dock tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats),
-11 (viewport interactions, 18 beats), 12 (selection 7-topology ×
-filters × Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15
-(boolean + edge ops, 16 beats), 16 (layout mode full, 28 beats),
-17 (research full, 14 beats), 18 (every export format, 26 beats),
-19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B agent —
-full loop with KG state assertions per turn, 40 beats),
-21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence,
-10 beats), 24 (edge cases, 16 beats).
+The dock is the bottom-of-viewport panel. Source: `web/src/workbench.ts`
+`DOCK_TABS` (lines 80-86) + `buildDock` (line 699) + 5 tab body
+builders (`buildPromptTabBody` :395, `buildConsoleTabBody` :571,
+`buildNodesTabBody` :650, `buildParametersTabBody` :665,
+`buildHistoryTabBody` :677).
+
+**Tabs (5):** PROMPT / CONSOLE / NODES / PARAMETERS / HISTORY
+
+**Wiring depth:**
+- **PROMPT (wired):** AI generate textarea + chips + generate button
+  → `ai-generate.ts:generateGeometry`. Chips drive the existing
+  `#prompt-select` dropdown via `pickDemo(demoId)`. RECENT_LINES list
+  is hardcoded (3 fake entries).
+- **CONSOLE (wired, full):** DSL REPL with Enter → `compileDsl` →
+  `#js-source` → `#run-btn` click. ↑/↓ history buffer. Boot banner
+  with 4 init lines.
+- **NODES (stub):** Pure decorative. Self-marker "Full node graph
+  editor lands in #176." But #176 is already closed (completed). Gap.
+- **PARAMETERS (wired):** Embeds the existing `#param-panel` element
+  with `.param-panel-embed` class. Reactive when sliders live there.
+- **HISTORY (stub):** 5 hardcoded fake entries with frozen timestamps
+  (00:00:08 / 14 / 14 / 18 / 48). Self-marker "Live history populates
+  after #176 wires geometry ops to the timeline." But #176 is closed.
+  Gap.
+
+**Cross-refs:**
+- §7 covered the right sidebar; §9 covers the bottom dock. Both are
+  Eli's `#172` design-handoff territory.
+- §10 covers Cmd+K palette (which can also drive PROMPT/CONSOLE).
+- §19 covers full DSL keyword coverage in CONSOLE tab; §9 here only
+  smokes that the REPL is wired.
+
+### Beats 270-273: Dock shell (4 beats)
+
+#### Beat 270: 5 dock tabs render
+1. **Do:** Inspect `.dock-tabs` strip at top of dock.
+2. **See:** Five `.dock-tab` elements with text "PROMPT", "CONSOLE",
+   "NODES", "PARAMETERS", "HISTORY" + matching SVG icons (sparkle /
+   terminal / graph / sliders / history per `DOCK_TABS`).
+3. **Verify:** `document.querySelectorAll('.dock-tab').length === 5`.
+   Each `data-tab` matches a `DOCK_TABS[].id`.
+
+#### Beat 271: PROMPT is default-active on load
+1. **Do:** Page load.
+2. **See:** PROMPT tab has `.active` class. Dock body shows the AI
+   panel.
+3. **Verify:** `document.querySelector('.dock-tab.active').dataset.tab
+   === "prompt"`. `.dock-body > .prompt-tab` exists.
+
+#### Beat 272: Tab switch swaps dock-body content
+1. **Do:** Click CONSOLE tab.
+2. **See:** Active class moves PROMPT → CONSOLE. Dock body content
+   swaps to `.console-tab` (per workbench.ts:734 single-pane swap).
+3. **Verify:** Only one `.tab-body.*` child under dock body at any
+   time. Ribbon STATE persists (active tool unaffected by dock tab
+   change).
+
+#### Beat 273: dock-divider drag resizes dock height
+1. **Do:** Hover the horizontal `.dock-divider` between viewport-area
+   and dock — cursor becomes ns-resize. Drag up by 80px.
+2. **See:** Dock grows; viewport shrinks. Layout reflows live.
+3. **Verify:** CSS `--dock-h` variable on `.app` updates. Min/max
+   clamp at workbench.ts:543 keeps dock between sensible bounds (e.g.
+   100px floor, 35vh ceiling).
+
+### Beats 274-280: PROMPT tab (7 beats)
+
+#### Beat 274: ai-panel structure (header / prompt col / side col)
+1. **Do:** Inspect `.dock-body .prompt-tab` (default tab on load).
+2. **See:** Header row with sparkle icon + "PROMPT · NATURAL LANGUAGE
+   → GEOMETRY" title + Gemma badge ("GEMMA·3·4B · LOCAL"). Two-column
+   layout: prompt textarea + actions on left, RECENT + PIPELINE on
+   right.
+3. **Verify:** `.ai-header`, `.ai-prompt-col`, `.ai-side-col` all
+   present. Badge text matches workbench.ts:340-341.
+
+#### Beat 275: Prompt textarea + char counter
+1. **Do:** Click `#ai-prompt-input` textarea. Type "wall 5x3x0.2".
+2. **See:** Text appears. `#ai-prompt-meta` counter updates from
+   "0 ch · ~0 tok · ⌘⏎ to run" to a non-zero count (verify if wired).
+3. **Verify:** Textarea `value === "wall 5x3x0.2"`. If counter is
+   inert, file gap — should subscribe to `input` event.
+
+#### Beat 276: Generate button → generateGeometry pipeline
+1. **Do:** Type a prompt. Click `#ai-generate-btn` ("GENERATE").
+2. **See:** Console output (or PROMPT-tab activity indicator) shows
+   the generate cycle. On success, geometry appears in viewport;
+   pushConsoleLine emits telemetry to the CONSOLE tab.
+3. **Verify:** `ai-generate.ts:generateGeometry` is invoked with the
+   textarea content. Errors throw `GenerateError` and surface in the
+   PROMPT tab.
+
+#### Beat 277: 9 suggestion chips render + click drives demo
+1. **Do:** Inspect `#ai-chips` row.
+2. **See:** 9 `.ai-chip` elements with labels matching `PROMPT_CHIPS`
+   (workbench.ts:298-308): Wall · 5.5×0.2×2.8m / Circular column /
+   Raised slab / Slab w/ stair hole / Wall with doorway / L-shape
+   walls / Four-walled room / Stair-step / Schultz Residence ·
+   14 elements.
+3. **Verify:** `document.querySelectorAll('#ai-chips .ai-chip')
+   .length === 9`. Click any chip → `#prompt-select` dropdown value
+   updates to the corresponding demo index per `demoIdToIndex`
+   (workbench.ts:324-327). Demo loads via change event.
+
+#### Beat 278: Recent list (hardcoded fake) renders 3 entries
+1. **Do:** Inspect `#ai-recent-list`.
+2. **See:** Three rows with timestamps 00:14 / 00:09 / 00:03 + prompt
+   text. These are HARDCODED in `RECENT_LINES` (workbench.ts:310-314)
+   — they do NOT reflect actual session history.
+3. **Verify:** Row text matches RECENT_LINES values. Click any row →
+   `pickDemo(demoId)` fires (same path as chips).
+4. **Gap (file):** RECENT list is fake. Should populate from real
+   prompt-history (last N successful generates this session). File
+   for #176 follow-up — actually persist + display real recents.
+
+#### Beat 279: PIPELINE side-column display
+1. **Do:** Inspect `.ai-side-col`.
+2. **See:** RECENT section + a PIPELINE label below + 4-line ASCII:
+   "PROMPT → TOKENS / → REPLICAD JS / → OCCT KERNEL / → MESH + IFC4"
+   (workbench.ts:357-363).
+3. **Verify:** Static text, no live indicator. (Real pipeline state
+   would highlight current stage; this is decorative.)
+
+#### Beat 280: Cmd+Enter shortcut hint vs actual binding
+1. **Do:** Type a prompt. Press Cmd+Enter (or Ctrl+Enter).
+2. **See:** Counter hint says "⌘⏎ to run" — verify whether the
+   shortcut actually fires `#ai-generate-btn` click.
+3. **Verify:** If wired, generate cycle triggers. If inert, file
+   gap — hint advertises a binding that doesn't exist.
+
+### Beats 281-288: CONSOLE tab (8 beats)
+
+#### Beat 281: Console boot banner — 4 init lines
+1. **Do:** Click CONSOLE tab. Inspect `#console-history`.
+2. **See:** 4 hardcoded boot lines (workbench.ts:576-579):
+   "OpenCascade WebAssembly initialized" (info, ts=00:00:01),
+   "web-ifc parser ready · IFC4 schema" (info, 00:00:01),
+   "Gemma-3-4b-it adapter loaded" (ok, 00:00:02),
+   "DSL ready · type wall|slab|column|box|cut, then ⏎" (info,
+   00:00:03).
+3. **Verify:** All 4 `.console-line` elements present at the top with
+   correct kind classes (info / ok). Timestamps are FROZEN — do not
+   reflect actual init sequence times.
+4. **Gap (minor):** Boot banner is decorative. Real init telemetry
+   should replace these. File if judges-tier polish requires it.
+
+#### Beat 282: Console input renders with helpful placeholder
+1. **Do:** Inspect `#console-input`.
+2. **See:** Input field with placeholder showing two example DSL
+   commands separated by `|`. "⏎ run" hint at right.
+3. **Verify:** Placeholder text matches workbench.ts:583.
+
+#### Beat 283: Enter compiles DSL → runs through #js-source/#run-btn
+1. **Do:** Type `wall (0 0) (5 0) height=3 thickness=0.2`. Press
+   Enter.
+2. **See:** Command echo line (kind="cmd") appears in history. Then
+   "compiled · 1 solid → kernel" (info). Geometry appears in viewport.
+3. **Verify:** `compileDsl(src)` returns `{ok: true, js, solids}`.
+   `#js-source` textarea value updated; `#run-btn` clicked
+   programmatically. Real kernel execution path.
+
+#### Beat 284: Compile failure → red ✗ error line
+1. **Do:** Type `wall (broken syntax`. Press Enter.
+2. **See:** Echo line + error line (kind="err") with format
+   `line N: <message>` per workbench.ts:620.
+3. **Verify:** `compileDsl` returns `{ok: false, line, message}`.
+   pushLine called with kind="err".
+
+#### Beat 285: ↑/↓ arrow keys cycle input history buffer
+1. **Do:** Type 3 commands (any DSL). Then press ↑ three times.
+2. **See:** Input field cycles through the 3 prior commands in
+   reverse order (most recent first → oldest last). ↓ cycles forward.
+3. **Verify:** `buffer[]` array at workbench.ts:592 holds command
+   history. `bufferIdx` clamps at [0, buffer.length].
+
+#### Beat 286: console-history auto-scrolls to bottom
+1. **Do:** Run 20 DSL commands rapidly. Don't manually scroll.
+2. **See:** History stays scrolled to bottom; latest line always
+   visible.
+3. **Verify:** `history.scrollTop = history.scrollHeight` per
+   workbench.ts:606. (Beat fails if user manually scrolled up — tests
+   default behavior only.)
+
+#### Beat 287: Empty input → no-op (no error line)
+1. **Do:** Press Enter with empty input.
+2. **See:** Nothing happens. No echo line, no error line.
+3. **Verify:** Early return `if (!src) return` at workbench.ts:613.
+
+#### Beat 288: pushConsoleLine helper accessible to other modules
+1. **Do:** Trigger an `ai-generate` cycle from PROMPT tab.
+2. **See:** generate telemetry surfaces in CONSOLE tab via
+   `pushConsoleLine` (per workbench.ts:29-49).
+3. **Verify:** Console history grows during generate cycles, even
+   though user typed in PROMPT tab. Cross-module bridge intact.
+
+### Beats 289-291: NODES tab (3 beats)
+
+#### Beat 289: NODES tab body is pure decorative stub
+1. **Do:** Click NODES tab. Inspect body.
+2. **See:** Single `.empty-hint` div with "PIPELINE · GEMMA →
+   REPLICAD → IFC4" header + 4-line pipeline ASCII (same as PROMPT
+   tab's PIPELINE side column) + faint footer "Full node graph editor
+   lands in #176."
+3. **Verify:** `.nodes-tab` has no interactive elements (no
+   `<input>`, no `<button>`, no event listeners).
+
+#### Beat 290: GAP — NODES self-marker references closed issue #176
+1. **Do:** Read footer text + `gh issue view 176 --json state`.
+2. **See:** Footer says "Full node graph editor lands in #176." `gh`
+   reports #176 = CLOSED (per task list — #176 marked completed).
+3. **Verify:** #176 is closed but NODES tab is still a stub. The
+   self-marker is stale.
+4. **Gap (file):** Either repurpose NODES (delete tab if no plan to
+   build it) OR build a real node graph editor (visual programming
+   surface) OR update the marker to point at the actual blocker. File
+   for #170 design-handoff umbrella.
+
+#### Beat 291: NODES tab pipeline duplicates PROMPT side-col content
+1. **Do:** Compare NODES tab pipeline ASCII to PROMPT tab side-col
+   pipeline.
+2. **See:** Identical 4-line block.
+3. **Verify:** Both reference same conceptual pipeline. Either DRY
+   into a shared component OR remove the duplication.
+
+### Beats 292-294: PARAMETERS tab (3 beats)
+
+#### Beat 292: Embeds existing #param-panel element
+1. **Do:** Click PARAMETERS tab.
+2. **See:** Existing `#param-panel` element appears (with sliders if
+   the loaded sample has any). Class `.param-panel-embed` added per
+   workbench.ts:669.
+3. **Verify:** `#param-panel` has parent `.parameters-tab`. `.hidden`
+   class removed.
+
+#### Beat 293: Empty-hint when no #param-panel exists
+1. **Do:** Force-remove `#param-panel` from DOM, switch to PARAMETERS.
+2. **See:** Empty-hint "No parameters — load a sample with sliders or
+   run a prompt."
+3. **Verify:** Per workbench.ts:672. Fallback path.
+
+#### Beat 294: Param sliders are reactive after load
+1. **Do:** Load a sample with parametric sliders (e.g. wall demo).
+   Drag a slider.
+2. **See:** Geometry updates live in viewport.
+3. **Verify:** Existing param-panel reactivity intact when embedded
+   in dock tab. (Re-confirms #176 wiring.)
+
+### Beats 295-297: HISTORY tab (3 beats)
+
+#### Beat 295: 5 hardcoded fake history rows render
+1. **Do:** Click HISTORY tab.
+2. **See:** 5 rows with timestamps 00:00:08 / :14 / :14 / :18 / :48
+   + ops (demo.load / ai.prompt / kernel.exec / select / export.ifc)
+   + args. Per workbench.ts:679-685.
+3. **Verify:** All 5 rows render. Timestamps + ops match the
+   hardcoded literal — these are NOT real session events.
+
+#### Beat 296: GAP — HISTORY self-marker also references closed #176
+1. **Do:** Read footer text in HISTORY tab.
+2. **See:** "Live history populates after #176 wires geometry ops
+   to the timeline." Per workbench.ts:694.
+3. **Verify:** #176 closed; HISTORY still hardcoded.
+4. **Gap (file):** Subscribe to a session-event-log (geometry ops,
+   selections, exports, prompt cycles) and render real history.
+   Live HISTORY is a judges-tier feature — tells the demo audience
+   what the user just did. File for #170 umbrella.
+
+#### Beat 297: HISTORY rows have no click handler
+1. **Do:** Click any row.
+2. **See:** Nothing — row is pure visual.
+3. **Verify:** No event listener on `.history-tab` rows.
+4. **Gap (file):** Once real history populates, rows should support
+   click-to-replay (re-run the captured op against current scene)
+   or click-to-restore (jump to that scene state). Add when wiring
+   real history.
+
+### Beats 298-299: Cross-cuts (2 beats)
+
+#### Beat 298: Single tab body in DOM at any time
+1. **Do:** Click each tab in turn. After each, count
+   `.dock-body .tab-body` children.
+2. **See:** Always exactly one. Switching tabs replaces the entire
+   body via `body.innerHTML = ""` then `appendChild` (per dock build
+   pattern).
+3. **Verify:** No phantom prior-tab content lingers in DOM.
+
+#### Beat 299: Tab body rebuild on every switch (state loss check)
+1. **Do:** PROMPT tab → type "test" in textarea. CONSOLE tab. Back to
+   PROMPT.
+2. **See:** Textarea content — verify whether it persists or clears.
+3. **Verify:** If panes are appended/removed (not hidden), textarea
+   may rebuild fresh and lose draft content. File gap if user-input
+   loss is observable on tab cycle.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §10-§24 — TODO (subsequent ticks)
+
+Sections 10 (Cmd+K full coverage, 28 beats), 11 (viewport
+interactions, 18 beats), 12 (selection 7-topology × filters ×
+Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15 (boolean +
+edge ops, 16 beats), 16 (layout mode full, 28 beats), 17 (research
+full, 14 beats), 18 (every export format, 26 beats), 19 (console
+DSL every keyword, 30 beats), 20 (Gemma 4 E2B agent — full loop
+with KG state assertions per turn, 40 beats), 21 (skills, 16 beats),
+22 (NURBS, 12 beats), 23 (persistence, 10 beats), 24 (edge cases,
+16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
-~4-6 ticks remaining to full coverage.
+~3-5 ticks remaining to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
