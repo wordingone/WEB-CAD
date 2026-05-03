@@ -26,22 +26,29 @@ afford the $3K/year CAD subscription that today gates the practice.
 ## What it does
 
 A non-CAD user opens a static web page (no install, no login, no API
-key). They see a prompt dropdown listing eight canned demos, a 3D viewer,
-parameter sliders, and three buttons: **Run**, **Export IFC**, **Export STL**.
+key). The page shell is a drafting workbench (post-#170 bundle port):
+top-bar **EXPORT** drawer + Cmd-K palette, left palette of CAD-tool
+glyphs, right sidebar (SCENE / INSPECT / ASSETS), bottom dock with
+five tabs (PROMPT / CONSOLE / NODES / PARAMETERS / HISTORY), 3D viewer
+in the center.
 
-1. They pick a demo from the dropdown — say, `"Wall (5.5m × 0.2m × 2.8m)"`.
-2. The natural-language prompt and the model-generated replicad source
-   appear in two text boxes, side by side. They can edit either one.
-3. They click **Run**. A web worker boots OpenCascade WebAssembly
-   (replicad-opencascadejs), executes the source against the same Tier 1
-   tool surface the model was trained on, and posts the resulting mesh
-   back to the main thread. three.js renders it in the viewer.
-4. They drag the **length** / **thickness** / **height** sliders. Each
-   change debounces 90ms and re-runs the worker — geometry updates live,
-   no model re-inference needed.
-5. They click **Export IFC**. The page hand-emits an IFC4 STEP-21 file
-   (the IFC text wire format) wrapping the mesh in an
-   `IfcBuildingElementProxy` → `IfcFacetedBrep` → `IfcClosedShell` chain,
+1. They open the **PROMPT** tab. A chip strip lists the canned demos.
+   They click `"Wall · 5.5×0.2×2.8m"`.
+2. The natural-language prompt fills the textarea; the model-generated
+   replicad source mirrors into a JS source pane. Either is editable.
+3. They click **GENERATE** (or hit `⌘⏎`). A web worker boots
+   OpenCascade WebAssembly (replicad-opencascadejs), executes the
+   source against the same Tier 1 tool surface the model was trained
+   on, and posts the resulting mesh back to the main thread. three.js
+   renders it in the viewer. The CONSOLE tab logs
+   `[ai-generate] cache · X.XX match · ~50ms`.
+4. They drag the **length** / **thickness** / **height** sliders in
+   the PARAMETERS tab. Each change debounces 90ms and re-runs the
+   worker — geometry updates live, no model re-inference needed.
+5. They click **EXPORT** (or hit `⌘E`). A drawer slides in offering
+   12 formats (IFC4, STL, OBJ, GLB, STEP, IGES, ...). They pick
+   IFC4. The page hand-emits an IFC4 STEP-21 file (wrapping the mesh
+   in `IfcBuildingElementProxy` → `IfcFacetedBrep` → `IfcClosedShell`),
    round-trips the bytes through web-ifc.OpenModel to verify the file
    parses back, and downloads it.
 
@@ -89,7 +96,7 @@ drawPolyline([[x1,y1], [x2,y2], ...])
 .fuse(otherSolid)
 .cut(otherSolid)
 .translate([dx, dy, dz])
-.rotate(angle, axis, center)
+.rotate(angle, position, direction)
 ```
 
 This covers ~85% of what a small-shop architect produces in the
@@ -130,7 +137,8 @@ boolean chains) is curated in the dataset but not the model's primary target.
 
 Per-row results in `outputs/cad-lora-v2-4b-it-eval.jsonl`. Per-row prompts
 plus generated source are auditable; eight of them ship as canned demos in
-the web page.
+the web page (the ninth is the Schultz Residence hero, which uses `gold`
+because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 
 ### Browser runtime
 
