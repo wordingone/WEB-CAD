@@ -240,17 +240,22 @@ export class Viewer {
 
     // Pull back along a higher-tilt architectural-ish direction. Z=1.5 lifts
     // the camera enough that walls/slabs read as 3D rather than as a squashed
-    // top-down silhouette. Framing fudge factor 1.7 keeps the grid visible
-    // around tall objects.
-    const dist = diag * 1.7;
+    // top-down silhouette. Framing fudge factor 1.15 fills most of the frame
+    // with the object — fov 45 + aspect ~2.5 means dist=diag gives roughly a
+    // tight fit; 1.15 leaves a small breathing margin without burying the
+    // model under whitespace + grid.
+    const dist = diag * 1.15;
     const dir = new THREE.Vector3(1, 1, 1.5).normalize();
     this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
     this.controls.target.set(cx, cy, cz);
     this.camera.updateProjectionMatrix();
     this.controls.update();
 
-    // Re-scale grid so it always brackets the object.
-    const gridSize = Math.max(20, Math.ceil(Math.max(dx, dy) * 2));
+    // Re-scale grid so it always brackets the object — but not so far that the
+    // grid dominates the viewport for large scenes (a 60m building with a 120m
+    // grid + 1.7-distance camera makes the building look tiny). 1.3x leaves a
+    // visible context margin without overpowering the model.
+    const gridSize = Math.max(20, Math.ceil(Math.max(dx, dy) * 1.3));
     if ((this.grid as any).__lastSize !== gridSize) {
       this.scene.remove(this.grid);
       this.grid.geometry.dispose();
