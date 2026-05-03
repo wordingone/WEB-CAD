@@ -52,6 +52,9 @@ import {
 } from "./exporters";
 import { SAMPLES } from "./sample-files";
 import type { WorkerOut } from "./worker";
+import { installDefaultHandlers, dispatchSync, dispatchCoverage } from "./dispatch";
+import { getDictionary } from "./dictionary";
+import { snapshot as kgSnapshot } from "./scene-kg";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -121,6 +124,16 @@ const transformBinder = new TransformBinder(viewer);
 // via window.__createSequence for in-browser debugging + export integration.
 (window as unknown as { __createSequence: () => string[] }).__createSequence = getCreateSequence;
 initCreateMode(viewer);
+
+// T5/T6/T8: spatial dictionary + dispatch table boot.
+// getDictionary() warms the YAML-parse cache and ensures dictionary.ts lands
+// in the bundle (acceptance: grep dist for "IfcWall"). installDefaultHandlers()
+// bulk-registers gemma:command shims for every canonical verb.
+getDictionary();
+installDefaultHandlers();
+// Expose for DevTools + T10 agent harness.
+(window as unknown as { __dispatch: unknown; __kg: unknown }).__dispatch = { dispatchSync, dispatchCoverage };
+(window as unknown as { __dispatch: unknown; __kg: unknown }).__kg = { snapshot: kgSnapshot };
 
 // Navigation + transform hotkeys. Captured at window level but ignored if
 // the user is typing in any input/textarea/contenteditable. Transform

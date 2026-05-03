@@ -15,6 +15,7 @@
 import { iconSVG, axesGizmoSVG } from "./icons";
 import { generateGeometry, GenerateError } from "./ai-generate";
 import { compileDsl } from "./dsl-eval";
+import { dispatchSync, type DispatchArgs } from "./dispatch";
 import { setState } from "./app-state";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
@@ -540,7 +541,34 @@ function buildConsoleTabBody(): HTMLElement {
       bufferIdx = buffer.length;
       input.value = "";
       pushLine("cmd", src);
-      const c = compileDsl(src);
+
+      // `:` prefix routes through the dispatch table alongside the DSL compiler.
+      // Key=val pairs (height=3, thickness=0.2) become DispatchArgs; positional
+      // tuples like (0 0) are ignored by the dispatch path but handled by compileDsl.
+      const isDeclCmd = src.startsWith(":");
+      const dslSrc = isDeclCmd ? src.slice(1).trim() : src;
+
+      if (isDeclCmd) {
+        const tokens = dslSrc.split(/\s+/);
+        const verb = tokens[0];
+        const dispArgs: DispatchArgs = {};
+        for (const t of tokens.slice(1)) {
+          const eq = t.indexOf("=");
+          if (eq > 0) {
+            const k = t.slice(0, eq);
+            const v = t.slice(eq + 1);
+            const n = Number(v);
+            dispArgs[k] = Number.isFinite(n) ? n : v;
+          }
+        }
+        const dr = dispatchSync(verb, dispArgs);
+        pushLine(
+          dr.ok ? "ok" : "info",
+          `dispatch ${verb} → ${dr.ok ? dr.canonical! : `${dr.error}${dr.detail ? ": " + dr.detail : ""}`}`,
+        );
+      }
+
+      const c = compileDsl(dslSrc);
       if (!c.ok) {
         pushLine("err", `line ${c.line}: ${c.message}`);
         return;
