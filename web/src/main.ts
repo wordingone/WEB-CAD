@@ -14,7 +14,7 @@ import { buildWorkbench } from "./workbench";
 import { buildModes, activateMode } from "./modes";
 import { initCmdK } from "./cmdk";
 import { initExportDrawer, openExportDrawer } from "./export-drawer";
-import { subscribe, type LayoutMode } from "./app-state";
+import { subscribe, setState, type LayoutMode } from "./app-state";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { applyDrafting, removeDrafting, isDrafting } from "./drafting";
@@ -117,6 +117,16 @@ subscribeFilters((f) => {
 const transformBinder = new TransformBinder(viewer);
 (window as unknown as { __transforms: TransformBinder }).__transforms = transformBinder;
 
+// Wire toolbar Move/Rotate/Scale buttons → gizmo mode. The palette buttons
+// call setState("activeTool", id); this subscription translates that to a
+// TransformBinder mode switch so clicking the ribbon tool actually activates
+// the gizmo. (R/S keyboard shortcuts still work independently.)
+subscribe("activeTool", (tool: string) => {
+  if (tool === "move") transformBinder.setMode("translate");
+  else if (tool === "rotate") transformBinder.setMode("rotate");
+  else if (tool === "scale") transformBinder.setMode("scale");
+});
+
 // Create-mode click-to-place pipeline (Phase 3). Surfaces _createSequence
 // via window.__createSequence for in-browser debugging + export integration.
 (window as unknown as { __createSequence: () => string[] }).__createSequence = getCreateSequence;
@@ -145,17 +155,17 @@ window.addEventListener("keydown", (e) => {
   // Transform hotkeys when there's an active selection.
   if (getSelected()) {
     if (e.key === "g" || e.key === "G" || e.key === "t" || e.key === "T") {
-      transformBinder.setMode("translate");
+      setState("activeTool", "move");
       e.preventDefault();
       return;
     }
     if (e.key === "r" || e.key === "R") {
-      transformBinder.setMode("rotate");
+      setState("activeTool", "rotate");
       e.preventDefault();
       return;
     }
     if (e.key === "s" || e.key === "S") {
-      transformBinder.setMode("scale");
+      setState("activeTool", "scale");
       e.preventDefault();
       return;
     }
