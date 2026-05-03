@@ -220,6 +220,8 @@ export class TestViewer {
     return mesh;
   }
 
+  getScene(): THREE.Scene { return this.scene; }
+
   removeMesh(mesh: THREE.Mesh): boolean {
     const idx = this.helpers.findIndex((h) => h.owner === mesh);
     if (idx < 0) return false;
