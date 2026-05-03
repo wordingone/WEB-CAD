@@ -13,6 +13,7 @@
 // keeps working without changes.
 
 import { iconSVG, axesGizmoSVG } from "./icons";
+import { generateGeometry, GenerateError } from "./ai-generate";
 
 type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
 
@@ -380,11 +381,61 @@ function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
     });
   }
 
-  function runGenerate() {
-    // Mirror our textarea into legacy #prompt-text (read-only display) + #js-source
-    // is already populated by the demo change handler. Click run.
+  async function runGenerate() {
+    // The legacy #js-source is populated by the demo-change handler whenever
+    // a demo is picked. If the user has edited the prompt away from any demo,
+    // we route through ai-generate (cache-first, LoRA fallback) to produce
+    // a fresh JS string before clicking the legacy #run-btn.
     const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
-    if (runBtn) runBtn.click();
+    if (!runBtn) return;
+    const ptx = document.getElementById("prompt-text") as HTMLTextAreaElement | null;
+    const jsSrc = document.getElementById("js-source") as HTMLTextAreaElement | null;
+    const userPrompt = ta.value.trim();
+    const demoPrompt = (ptx?.value ?? "").trim();
+    // If the user hasn't edited away from the selected demo, the cached JS in
+    // #js-source is correct — preserve current "demo run" behavior.
+    if (userPrompt && demoPrompt && userPrompt === demoPrompt) {
+      runBtn.click();
+      return;
+    }
+    // Empty textarea — same fallback (just runs whatever js-source has).
+    if (!userPrompt) {
+      runBtn.click();
+      return;
+    }
+    // Edited away from the demo — invoke AI generate.
+    const prevLabel = genBtn.textContent;
+    genBtn.disabled = true;
+    genBtn.innerHTML = `${iconSVG("sparkle", 11)} GENERATING…`;
+    try {
+      const result = await generateGeometry(userPrompt);
+      if (jsSrc) {
+        jsSrc.value = result.js;
+        jsSrc.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      // Update legacy prompt-text mirror so re-runs treat this as the active prompt.
+      if (ptx) ptx.value = userPrompt;
+      // Surface telemetry to the console-tab (best-effort).
+      const msg = result.source === "cache"
+        ? `cache · ${(result.confidence ?? 0).toFixed(2)} match · ${result.latency_ms.toFixed(0)}ms`
+        : result.source === "lora"
+          ? `lora · ${result.latency_ms.toFixed(0)}ms`
+          : `demo`;
+      console.log(`[ai-generate] ${msg}`);
+      runBtn.click();
+    } catch (e) {
+      const err = e as GenerateError;
+      console.error("[ai-generate]", err.message);
+      const status = document.getElementById("status");
+      if (status) {
+        status.textContent = `AI: ${err.message}`;
+        status.className = "status err";
+      }
+    } finally {
+      genBtn.disabled = false;
+      if (prevLabel) genBtn.innerHTML = prevLabel;
+      else genBtn.innerHTML = `${iconSVG("play", 11)} GENERATE`;
+    }
   }
 
   // Initial seed: pick first demo so the textarea + js-source are populated.
