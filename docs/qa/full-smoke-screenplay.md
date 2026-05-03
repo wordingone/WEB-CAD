@@ -1673,21 +1673,235 @@ tab is a `<div class="ribbon-tab">` with `data-tab` and `aria-selected`.
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §6-§24 — TODO (subsequent ticks)
+## §6 — Left palette (24 beats)
 
-Sections 6 (left palette, 24 beats), 7 (right sidebar full, 40 beats),
-8 (snap dock, 16 beats), 9 (dock tabs, 30 beats), 10 (Cmd+K full
-coverage, 28 beats), 11 (viewport interactions, 18 beats), 12
-(selection 7-topology × filters × Ctrl+Shift, 36 beats), 13 (transforms,
-18 beats), 15 (boolean + edge ops, 16 beats), 16 (layout mode full,
-28 beats), 17 (research full, 14 beats), 18 (every export format,
-26 beats), 19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B
-agent — full loop with KG state assertions per turn, 40 beats),
-21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence, 10 beats),
-24 (edge cases, 16 beats).
+The left palette (`.palette` rail in workbench) is the always-visible tool
+surface — Rhino-style "Tools" panel. Source: `web/src/workbench.ts`
+`PALETTE_SECTIONS` (lines 51-75) + `buildPalette` (lines 111-131).
+
+**4 sections, 15 tools** (a SUBSET of the ribbon's 24):
+- TRANSFORM (4): select, move, rotate, scale
+- SKETCH 2D (4): line, rect, circle, polyline — *no polygon/arc/spline*
+- SOLID (3): extrude, boolean, fillet — *no revolve/chamfer*
+- ARCH (4): wall, slab, column, stair — *no door/window*
+- *MEASURE absent* (no ruler/compass)
+
+**9 tools are ribbon-only** — that's a UX gap. The palette is the
+primary always-visible surface; forcing users to dive into ribbon tabs
+for door/window/arc/ruler is friction. Beat 210 below files as #166
+follow-up.
+
+Each `.palette-btn` carries `data-tool=<id>` and on click calls
+`setState("activeTool", tool.id)` — same state key as ribbon. The
+`.active` class on EVERY `[data-tool]` element (palette + ribbon)
+is driven by `syncToolActiveClass` in `app-state.ts` — no local toggle.
+
+Cross-refs:
+- §5 beat 184 already verified ribbon→palette sync (clicking ribbon
+  Wall sets palette Wall active). §6 beat 206 verifies the inverse.
+- Snap dock is also rendered by workbench but lives in §8 (16 beats).
+- Sidebar is rendered alongside palette; covered fully in §7.
+
+### Beats 190-193: TRANSFORM section (4 tools)
+
+#### Beat 190: Palette > Select (default + click)
+1. **Do:** Page load. Inspect `.palette` for active button. Then click
+   any other tool, then click Select again.
+2. **See:** On load, Select has `.active` class (default `activeTool === "select"`).
+   Switching away then back restores `.active`.
+3. **Verify:** `document.querySelector('.palette-btn[data-tool="select"].active')`
+   exists on load. `getState("activeTool") === "select"`.
+
+#### Beat 191: Palette > Move
+1. **Do:** Click `.palette-btn[data-tool="move"]`.
+2. **See:** Active class moves from Select to Move. Statusbar Tool="Move".
+   Ribbon TRANSFORM > Move ALSO gains `.active` (sync).
+3. **Verify:** `getState("activeTool") === "move"`. BOTH `.palette-btn
+   [data-tool="move"].active` AND `.tool-btn[data-tool="move"].active`
+   exist in DOM.
+
+#### Beat 192: Palette > Rotate
+1. **Do:** Click palette Rotate.
+2. **See:** Active class moves to Rotate; Statusbar Tool="Rotate"; ribbon
+   sync. If a mesh is selected, transform gizmo switches to rotate mode.
+3. **Verify:** `getState("activeTool") === "rotate"`. Sync as Beat 191.
+
+#### Beat 193: Palette > Scale
+1. **Do:** Click palette Scale.
+2. **See:** Active class moves to Scale; ribbon sync; gizmo switches.
+3. **Verify:** Mirror Beat 192 with scale.
+
+### Beats 194-197: SKETCH 2D section (4 tools — note polygon/arc/spline absent)
+
+#### Beat 194: Palette > Line click pipeline
+1. **Do:** Click palette Line. Click viewport at world (-1, 0). Click (1, 0).
+2. **See:** Sketcher activates (marker + rubber band). Second click commits
+   2m line. Same pipeline as ribbon-driven Line (§5 beat 144).
+3. **Verify:** `getCreateSequence()` last entry contains `makeLine` /
+   `drawLine`. Pipeline-source-agnostic — palette and ribbon converge
+   on the same `create-mode.ts` handlers.
+
+#### Beat 195: Palette > Rectangle click pipeline
+1. **Do:** Click palette Rect. Click (-1, -1) and (1, 1).
+2. **See:** 2×2m rect placed (default 2.8m extruded height).
+3. **Verify:** Mirror §5 beat 146.
+
+#### Beat 196: Palette > Circle click pipeline
+1. **Do:** Click palette Circle. Click center (0, 0). Click radial (2, 0).
+2. **See:** 2m-radius circle solid placed.
+3. **Verify:** Mirror §5 beat 147.
+
+#### Beat 197: Palette > Polyline (stubbed click — same gap as §5 beat 151)
+1. **Do:** Click palette Polyline. Click 4 points.
+2. **See:** activeTool="polyline", console stub log per click, no geometry.
+3. **Verify:** `getState("activeTool") === "polyline"`. Sequence unchanged.
+4. **Cross-ref:** Same gap-issue as §5 beat 151 — single create-mode.ts
+   stub serves both surfaces.
+
+### Beats 198-200: SOLID section (3 tools — note revolve/chamfer absent)
+
+#### Beat 198: Palette > Extrude (stubbed click; DSL works)
+1. **Do:** Click palette Extrude.
+2. **See:** activeTool="extrude". No height-prompt UI. Same stub as §5
+   beat 154. The CONSOLE-tab DSL `extrude(0, 3)` is the working path.
+3. **Verify:** `getState("activeTool") === "extrude"`.
+
+#### Beat 199: Palette > Boolean (dispatch.ts:160 routed)
+1. **Do:** Select two intersecting solids. Click palette Boolean.
+2. **See:** Either modal (Union/Difference/Intersect) or stub log —
+   verify in build, mirror §5 beat 159.
+3. **Verify:** `getState("activeTool") === "boolean"`. Dispatch routing
+   active.
+
+#### Beat 200: Palette > Fillet (verify in build)
+1. **Do:** Select an edge. Click palette Fillet.
+2. **See:** Mirror §5 beat 157.
+3. **Verify:** Mirror.
+
+### Beats 201-204: ARCH section (4 tools — note door/window absent)
+
+#### Beat 201: Palette > Wall click pipeline
+1. **Do:** Click palette Wall. Click (-3, 0) and (3, 0).
+2. **See:** 6m wall placed (height 3m, thickness 0.2m). Same pipeline as
+   §5 beat 161.
+3. **Verify:** `getCreateSequence()` last entry has `makeBox(6, 0.2, 3)
+   .rotate(0, ...)`.
+
+#### Beat 202: Palette > Slab click pipeline
+1. **Do:** Click palette Slab. Click corners (-2, -2) and (2, 2).
+2. **See:** 4×4m slab at floor level.
+3. **Verify:** Mirror §5 beat 163.
+
+#### Beat 203: Palette > Column click pipeline
+1. **Do:** Click palette Column. Click (0, 0).
+2. **See:** 4m column at origin.
+3. **Verify:** Mirror §5 beat 164.
+
+#### Beat 204: Palette > Stair (stubbed)
+1. **Do:** Click palette Stair. Click two points.
+2. **See:** activeTool="stair", console stub. Same gap as §5 beat 165.
+3. **Verify:** Sequence unchanged.
+
+### Beats 205-213: Cross-cuts (9 beats)
+
+#### Beat 205: Palette section dividers visible
+1. **Do:** Inspect `.palette` DOM.
+2. **See:** Four `.palette-section` containers, each holding 3-4
+   `.palette-btn` children. Visual gap between sections (CSS spacing).
+3. **Verify:** `document.querySelectorAll('.palette-section').length === 4`.
+   Cumulative button count: `.palette-btn` total === 15.
+
+#### Beat 206: Palette ← Ribbon sync (inverse of §5 beat 184)
+1. **Do:** Click palette ARCH > Wall. Inspect ribbon ARCH group.
+2. **See:** Ribbon's Wall button gains `.active` simultaneously.
+3. **Verify:** Both `.palette-btn[data-tool="wall"].active` AND
+   `.tool-btn[data-tool="wall"].active` present in DOM. (sync via
+   `syncToolActiveClass` per `app-state.ts`.)
+
+#### Beat 207: Palette icon size 18×18 (vs ribbon's 16×16)
+1. **Do:** Inspect any `.palette-btn` SVG.
+2. **See:** Inner SVG has `width="18" height="18"` per `iconSVG(tool.icon,
+   18)` at workbench.ts:117.
+3. **Verify:** SVG attributes width===18 AND height===18. Confirms palette
+   uses larger icons than ribbon (16) — intentional per design.
+
+#### Beat 208: Palette tooltip + corner element render
+1. **Do:** Inspect a `.palette-btn` inner HTML.
+2. **See:** Three children: `<svg>` icon, `<span class="palette-tooltip">`
+   with the label text, and `<span class="corner">` (decorative corner
+   indicator per workbench.ts:117-118).
+3. **Verify:** `.palette-tooltip` text matches tool's `label`.
+   `.corner` exists.
+
+#### Beat 209: Palette tooltip on hover
+1. **Do:** Hover a `.palette-btn` for >300ms.
+2. **See:** `.palette-tooltip` becomes visible (CSS-driven, likely
+   `opacity` or `display` on `:hover`). Native `title` also fires after
+   ~800ms.
+3. **Verify:** `.palette-tooltip` computed style transitions on hover.
+
+#### Beat 210: GAP — 9 ribbon-only tools missing from palette
+1. **Do:** Inspect `[...document.querySelectorAll('.palette-btn')]
+   .map(b => b.dataset.tool)`. Compare against `[...document
+   .querySelectorAll('.tool-btn')].map(b => b.dataset.tool)`.
+2. **See:** Palette has 15 ids; ribbon has 24. Set-difference yields
+   9 ribbon-only ids: `polygon`, `arc`, `spline`, `revolve`, `chamfer`,
+   `door`, `window`, `ruler`, `compass`.
+3. **Verify:** Set diff is exactly those 9.
+4. **Gap (file):** "Left palette missing 9 tools that exist in ribbon —
+   forces users into ribbon tabs for door/window/arc/ruler. Most-impacted
+   §25 reconstruction surface needs door + window in palette."
+   Cross-ref to issue #166 (command + hotkey system) as parent.
+
+#### Beat 211: data-tool round-trip (15 unique ids in palette)
+1. **Do:** Read all `.palette-btn[data-tool]`.
+2. **See:** 15 unique strings.
+3. **Verify:** `new Set([...document.querySelectorAll('.palette-btn')]
+   .map(b => b.dataset.tool)).size === 15` AND set equals
+   `{select, move, rotate, scale, line, rect, circle, polyline, extrude,
+   boolean, fillet, wall, slab, column, stair}`.
+
+#### Beat 212: ESC during palette-driven sketch cancels properly
+1. **Do:** Click palette Wall. Click (0, 0) (first point). Press ESC.
+2. **See:** Marker disappears; rubber band disappears; activeTool reverts
+   per create-mode behavior. Pipeline-state matches §5 beat 145 (line
+   ESC cancel) — same handler.
+3. **Verify:** `_pending` array (in create-mode module scope) is cleared.
+   Subsequent click does not commit a 1-point wall.
+
+#### Beat 213: Palette + ribbon de-sync stress test
+1. **Do:** Rapid alternate clicks: palette Wall → ribbon Door → palette
+   Slab → ribbon Window. (Ribbon Door/Window are ribbon-only per
+   Beat 210; these clicks should still work, but PALETTE cannot show
+   them as active.)
+2. **See:** When activeTool is ribbon-only (door/window), palette has
+   NO `.active` button. Statusbar reflects current tool. Ribbon button
+   has `.active`.
+3. **Verify:** After clicking ribbon Door: `getState("activeTool") ===
+   "door"`. `.tool-btn[data-tool="door"].active` exists. NO `.palette-btn
+   .active` exists (palette has no door entry — sync'd correctly to
+   "no match" rather than stale-active).
+4. **Gap (file if hit):** If palette retains stale `.active` after
+   switching to a ribbon-only tool, that's a `syncToolActiveClass`
+   bug — file with cite to `app-state.ts`.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §7-§24 — TODO (subsequent ticks)
+
+Sections 7 (right sidebar full, 40 beats), 8 (snap dock, 16 beats),
+9 (dock tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats), 11
+(viewport interactions, 18 beats), 12 (selection 7-topology × filters
+× Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15 (boolean +
+edge ops, 16 beats), 16 (layout mode full, 28 beats), 17 (research
+full, 14 beats), 18 (every export format, 26 beats), 19 (console DSL
+every keyword, 30 beats), 20 (Gemma 4 E2B agent — full loop with KG
+state assertions per turn, 40 beats), 21 (skills, 16 beats),
+22 (NURBS, 12 beats), 23 (persistence, 10 beats), 24 (edge cases,
+16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
-~6-8 ticks remaining to full coverage.
+~5-7 ticks remaining to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
