@@ -10,6 +10,7 @@
 
 import { initShellChrome } from "./shell";
 import { initPalette } from "./palette";
+import { buildWorkbench } from "./workbench";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -68,7 +69,6 @@ const paramPanel = $<HTMLDivElement>("param-panel");
 const paramSliders = $<HTMLDivElement>("param-sliders");
 const paramCollapseBtn = $<HTMLButtonElement>("param-collapse-btn");
 const dropOverlay = $<HTMLDivElement>("drop-overlay");
-const viewerPane = $<HTMLElement>("viewer-pane");
 const scenePanelEl = $<HTMLElement>("scene-panel");
 
 // Export buttons (data-fmt attribute on each)
@@ -621,6 +621,7 @@ function downloadBlob(blob: Blob, filename: string) {
 // Boot.
 initShellChrome();
 initPalette();
+buildWorkbench();
 loadDemo(0);
 setStatus("Loading OpenCascade WebAssembly...", "info");
 runBtn.disabled = true;

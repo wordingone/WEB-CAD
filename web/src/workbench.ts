@@ -1,0 +1,426 @@
+// Workbench scaffolding — design-handoff #172 + #174 + #175.
+//
+// Builds the bundle's three-pane workbench structure:
+//   .workbench grid (44px palette / 1fr center-col / 280px sidebar)
+//     .palette       — left gutter, icon-only tool buttons in sections
+//     .center-col    — viewport-area + dock-divider + dock
+//     .sidebar       — right rail, SCENE / INSPECT / ASSETS tabs + snap-dock
+//
+// The dock has 5 tabs (PROMPT / CONSOLE / NODES / PARAMETERS / HISTORY).
+// Existing prompt-pane content moves into the PROMPT tab body; param-panel
+// into PARAMETERS; scene-panel into the SCENE sidebar tab. The IDs remain
+// intact so main.ts wiring (run button, file picker, sample selector, etc.)
+// keeps working without changes.
+
+import { iconSVG, axesGizmoSVG } from "./icons";
+
+type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
+
+const PALETTE_SECTIONS: PaletteSection[] = [
+  { tools: [
+    { id: "select",  icon: "select",  label: "Select" },
+    { id: "move",    icon: "move",    label: "Move" },
+    { id: "rotate",  icon: "rotate",  label: "Rotate" },
+    { id: "scale",   icon: "scale",   label: "Scale" },
+  ]},
+  { tools: [
+    { id: "line",    icon: "line",    label: "Line" },
+    { id: "rect",    icon: "rect",    label: "Rectangle" },
+    { id: "circle",  icon: "circle",  label: "Circle" },
+    { id: "polyline",icon: "polyline",label: "Polyline" },
+  ]},
+  { tools: [
+    { id: "extrude", icon: "extrude", label: "Extrude" },
+    { id: "boolean", icon: "boolean", label: "Boolean" },
+    { id: "fillet",  icon: "fillet",  label: "Fillet" },
+  ]},
+  { tools: [
+    { id: "wall",    icon: "wall",    label: "Wall" },
+    { id: "slab",    icon: "slab",    label: "Slab" },
+    { id: "column",  icon: "column",  label: "Column" },
+    { id: "stair",   icon: "stair",   label: "Stair" },
+  ]},
+];
+
+type DockTab = { id: string; icon: string; label: string };
+const DOCK_TABS: DockTab[] = [
+  { id: "prompt",     icon: "sparkle",  label: "PROMPT" },
+  { id: "console",    icon: "terminal", label: "CONSOLE" },
+  { id: "nodes",      icon: "graph",    label: "NODES" },
+  { id: "parameters", icon: "sliders",  label: "PARAMETERS" },
+  { id: "history",    icon: "history",  label: "HISTORY" },
+];
+
+type SidebarTab = { id: string; label: string };
+const SIDEBAR_TABS: SidebarTab[] = [
+  { id: "scene",   label: "SCENE" },
+  { id: "inspect", label: "INSPECT" },
+  { id: "assets",  label: "ASSETS" },
+];
+
+const SAMPLE_ASSETS = [
+  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 2.4 MB",  v: "schultz-residence" },
+  { id: "haus",    name: "FZK-Haus",        sub: "IFC · 412 KB",  v: "kit-fzk-haus" },
+  { id: "inst",    name: "Institute v2",    sub: "IFC · 1.2 MB",  v: "kit-office" },
+  { id: "bonsai",  name: "Bonsai openings", sub: "IFC · 88 KB",   v: "bonsai-openings" },
+  { id: "wall",    name: "Wall+Window",     sub: "IFC · 7 KB",    v: "wall-with-opening" },
+  { id: "sweep",   name: "Sweep · simple",  sub: "IFC · 12 KB",   v: "simple-sweep" },
+  { id: "tri-obj", name: "Triangle",        sub: "OBJ · 1 KB",    v: "triangle-obj" },
+  { id: "tri-stl", name: "Triangle",        sub: "STL · 1 KB",    v: "triangle-stl" },
+];
+
+function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElement {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (attrs) for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+
+function buildPalette(host: HTMLElement) {
+  host.innerHTML = "";
+  for (const section of PALETTE_SECTIONS) {
+    const sec = el("div", "palette-section");
+    for (const tool of section.tools) {
+      const btn = el("button", "palette-btn", { type: "button", title: tool.label, "data-tool": tool.id });
+      btn.innerHTML = iconSVG(tool.icon, 18) +
+        `<span class="palette-tooltip">${tool.label}</span><span class="corner"></span>`;
+      btn.addEventListener("click", () => {
+        host.querySelectorAll(".palette-btn.active").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        // Wire to ribbon-tool change later (#172). For now: just a visual selection.
+      });
+      sec.appendChild(btn);
+    }
+    host.appendChild(sec);
+  }
+  // Default activate Select.
+  (host.querySelector('[data-tool="select"]') as HTMLElement | null)?.classList.add("active");
+}
+
+function buildSnapDock(): HTMLElement {
+  const root = el("div", "snap-dock");
+  root.innerHTML = `
+    <div class="snap-dock-title">SNAP / CONSTRAIN</div>
+    <div class="snap-grid">
+      <div class="snap-btn on">SNAP</div>
+      <div class="snap-btn on">ORTHO</div>
+      <div class="snap-btn on">GRID</div>
+      <div class="snap-btn">POLAR</div>
+    </div>
+    <div class="snap-dock-title" style="margin-top:4px;">OBJECT SNAP</div>
+    <div class="snap-grid">
+      <div class="snap-btn on">END</div>
+      <div class="snap-btn on">MID</div>
+      <div class="snap-btn">CEN</div>
+      <div class="snap-btn on">PERP</div>
+    </div>
+    <div class="snap-row"><span class="k">step</span><span class="v">0.10 m</span></div>
+    <div class="snap-row"><span class="k">angle</span><span class="v">15°</span></div>
+    <div class="snap-row"><span class="k">cplane</span><span class="v">XY · z=0</span></div>
+  `;
+  // Toggle handlers.
+  root.querySelectorAll(".snap-btn").forEach((b) => {
+    b.addEventListener("click", () => b.classList.toggle("on"));
+  });
+  return root;
+}
+
+function buildSceneTab(scenePanel: HTMLElement | null): HTMLElement {
+  const wrap = el("div", "tab-body scene-tab");
+  if (scenePanel) {
+    // Move existing scene-panel into here so main.ts wiring keeps working.
+    scenePanel.classList.add("scene-panel-embed");
+    wrap.appendChild(scenePanel);
+  } else {
+    wrap.innerHTML = `<div class="empty-hint">No scene loaded — drop an IFC/GLB or pick a sample.</div>`;
+  }
+  return wrap;
+}
+
+function buildInspectTab(): HTMLElement {
+  // Properties stub — bundle's full Properties UI (transform, dimensions,
+  // material, replicad source) will land in #176 (AI prompt → geometry).
+  const wrap = el("div", "tab-body props");
+  wrap.innerHTML = `
+    <div class="props-header">
+      <div>
+        <div class="props-title">—</div>
+        <div class="props-subtitle">no selection</div>
+      </div>
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">IDENTITY</div>
+      <div class="prop-row"><span class="k">Name</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">GUID</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">Layer</span><span class="v">—</span></div>
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">TRANSFORM</div>
+      <div class="prop-vec3">
+        <span class="k">Position</span>
+        <span class="axis" data-axis="X">0.000</span>
+        <span class="axis" data-axis="Y">0.000</span>
+        <span class="axis" data-axis="Z">0.000</span>
+      </div>
+      <div class="prop-vec3">
+        <span class="k">Rotation</span>
+        <span class="axis" data-axis="X">0°</span>
+        <span class="axis" data-axis="Y">0°</span>
+        <span class="axis" data-axis="Z">0°</span>
+      </div>
+    </div>
+    <div class="prop-section">
+      <div class="prop-section-title">STATUS</div>
+      <div class="prop-row"><span class="k">Mode</span><span class="v">live · object inspector populates after #176 wires geometry → IFC4 round-trip</span></div>
+    </div>
+  `;
+  return wrap;
+}
+
+function buildAssetsTab(onPickSample: (v: string) => void): HTMLElement {
+  const wrap = el("div", "tab-body assets");
+  const search = el("div", "assets-search");
+  search.innerHTML = `${iconSVG("search", 11)}<input placeholder="search samples, primitives, blocks..."/>`;
+  wrap.appendChild(search);
+
+  const sectionLabel = el("div");
+  sectionLabel.style.cssText = "font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-dim); padding:6px 2px 4px; font-weight:600; display:flex; align-items:center; gap:6px;";
+  sectionLabel.innerHTML = `<span style="flex:1; height:1px; background:var(--hairline);"></span>SAMPLE FILES<span style="flex:1; height:1px; background:var(--hairline);"></span>`;
+  wrap.appendChild(sectionLabel);
+
+  const grid = el("div", "asset-grid");
+  for (const a of SAMPLE_ASSETS) {
+    const card = el("div", "asset-card", { "data-sample": a.v });
+    card.innerHTML = `
+      <div class="asset-thumb"></div>
+      <div class="asset-meta">
+        <div class="name">${a.name}</div>
+        <div class="sub">${a.sub}</div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      grid.querySelectorAll(".asset-card.selected").forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      onPickSample(a.v);
+    });
+    grid.appendChild(card);
+  }
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
+  host.innerHTML = "";
+
+  const tabs = el("div", "sb-tabs");
+  const body = el("div", "sb-body");
+  body.style.cssText = "flex:1; min-height:0; overflow:auto;";
+  const snap = buildSnapDock();
+
+  const panes: Record<string, HTMLElement> = {
+    scene:   buildSceneTab(scenePanel),
+    inspect: buildInspectTab(),
+    assets:  buildAssetsTab((v) => {
+      // Drive existing sample-select dropdown so loader picks up the sample.
+      const sel = document.getElementById("sample-select") as HTMLSelectElement | null;
+      if (sel) {
+        sel.value = v;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }),
+  };
+
+  for (const t of SIDEBAR_TABS) {
+    const tab = el("div", "sb-tab", { "data-tab": t.id });
+    tab.textContent = t.label;
+    tab.addEventListener("click", () => activate(t.id));
+    tabs.appendChild(tab);
+  }
+
+  function activate(id: string) {
+    tabs.querySelectorAll(".sb-tab").forEach((t) => {
+      const isActive = (t as HTMLElement).dataset.tab === id;
+      t.classList.toggle("active", isActive);
+    });
+    body.innerHTML = "";
+    if (panes[id]) body.appendChild(panes[id]);
+  }
+
+  host.appendChild(tabs);
+  host.appendChild(body);
+  host.appendChild(snap);
+  activate("scene");
+}
+
+function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
+  const wrap = el("div", "tab-body prompt-tab");
+  if (promptPane) {
+    promptPane.classList.add("prompt-pane-embed");
+    wrap.appendChild(promptPane);
+  } else {
+    wrap.innerHTML = `<div class="empty-hint">No prompt input wired yet.</div>`;
+  }
+  return wrap;
+}
+
+function buildConsoleTabBody(): HTMLElement {
+  const wrap = el("div", "tab-body console-tab");
+  wrap.innerHTML = `
+    <div class="console">
+      <div class="console-history">
+        <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">OpenCascade WebAssembly initialized</span></div>
+        <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">web-ifc parser ready · IFC4 schema</span></div>
+        <div class="console-line ok"><span class="ts">00:00:02</span><span class="glyph">✓</span><span class="text">Gemma-3-4b-it adapter loaded</span></div>
+        <div class="console-line cmd"><span class="ts">00:00:08</span><span class="glyph">›</span><span class="text">demo: wall.5500x200x2800</span></div>
+        <div class="console-line ok"><span class="ts">00:00:08</span><span class="glyph">✓</span><span class="text">Geometry rebuilt · 1 solid · 12 tri</span></div>
+      </div>
+      <div class="console-prompt">
+        <span class="caret">›</span>
+        <input placeholder="type a command — :extrude 2.8   :move 0,1,0   :prompt &quot;raised slab 4×6m&quot;   ?"/>
+        <span style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); letter-spacing:0.04em;">⏎ run</span>
+      </div>
+    </div>
+  `;
+  return wrap;
+}
+
+function buildNodesTabBody(): HTMLElement {
+  const wrap = el("div", "tab-body nodes-tab");
+  wrap.innerHTML = `
+    <div class="empty-hint" style="padding:24px; color:var(--ink-dim); font-family:var(--mono); font-size:11px; line-height:1.6;">
+      <div style="font-weight:700; color:var(--ink); margin-bottom:6px; letter-spacing:0.08em;">PIPELINE · GEMMA → REPLICAD → IFC4</div>
+      PROMPT → TOKENS<br/>
+      → REPLICAD JS<br/>
+      → OCCT KERNEL<br/>
+      → MESH + IFC4<br/><br/>
+      <span style="color:var(--ink-faint);">Full node graph editor lands in #176.</span>
+    </div>
+  `;
+  return wrap;
+}
+
+function buildParametersTabBody(paramPanel: HTMLElement | null): HTMLElement {
+  const wrap = el("div", "tab-body parameters-tab");
+  if (paramPanel) {
+    paramPanel.classList.remove("hidden");
+    paramPanel.classList.add("param-panel-embed");
+    wrap.appendChild(paramPanel);
+  } else {
+    wrap.innerHTML = `<div class="empty-hint">No parameters — load a sample with sliders or run a prompt.</div>`;
+  }
+  return wrap;
+}
+
+function buildHistoryTabBody(): HTMLElement {
+  const wrap = el("div", "tab-body history-tab");
+  const items = [
+    { ts: "00:00:08", op: "demo.load",      args: "wall.5500x200x2800" },
+    { ts: "00:00:14", op: "ai.prompt",      args: '"L-shape walls 8x6m"' },
+    { ts: "00:00:14", op: "kernel.exec",    args: "drawRectangle ▶ extrude ▶ fuse" },
+    { ts: "00:00:18", op: "select",         args: "wall.south.b" },
+    { ts: "00:00:48", op: "export.ifc",     args: "untitled.001.ifc · 4.2KB" },
+  ];
+  let html = `<div style="padding:6px 0; font-family:var(--mono); font-size:11px;">`;
+  for (const it of items) {
+    html += `<div style="display:grid; grid-template-columns:60px 140px 1fr 60px; align-items:center; padding:5px 14px; gap:10px; border-bottom:1px solid var(--hairline-soft); color:var(--ink);">
+      <span style="color:var(--ink-faint); font-size:10px;">${it.ts}</span>
+      <span style="color:var(--sanguine); font-weight:600; letter-spacing:0.04em;">${it.op}</span>
+      <span style="color:var(--ink-soft);">${it.args}</span>
+    </div>`;
+  }
+  html += `<div style="padding:14px; color:var(--ink-faint); font-size:10px;">Live history populates after #176 wires geometry ops to the timeline.</div></div>`;
+  wrap.innerHTML = html;
+  return wrap;
+}
+
+function buildDock(
+  tabsHost: HTMLElement,
+  bodyHost: HTMLElement,
+  promptPane: HTMLElement | null,
+  paramPanel: HTMLElement | null,
+) {
+  tabsHost.innerHTML = "";
+
+  const panes: Record<string, HTMLElement> = {
+    prompt:     buildPromptTabBody(promptPane),
+    console:    buildConsoleTabBody(),
+    nodes:      buildNodesTabBody(),
+    parameters: buildParametersTabBody(paramPanel),
+    history:    buildHistoryTabBody(),
+  };
+
+  for (const t of DOCK_TABS) {
+    const tab = el("div", "dock-tab", { "data-tab": t.id });
+    tab.innerHTML = `${iconSVG(t.icon, 11)} ${t.label}`;
+    tab.addEventListener("click", () => activate(t.id));
+    tabsHost.appendChild(tab);
+  }
+
+  // Spacer + actions on the right.
+  const spacer = el("div", "dock-spacer");
+  tabsHost.appendChild(spacer);
+  const actions = el("div", "dock-actions");
+  actions.innerHTML = `
+    <button class="vp-icon-btn" type="button" title="Pop out">${iconSVG("export", 11)}</button>
+    <button class="vp-icon-btn" type="button" title="Clear">${iconSVG("trash", 11)}</button>
+    <button class="vp-icon-btn" type="button" title="Settings">${iconSVG("settings", 11)}</button>
+  `;
+  tabsHost.appendChild(actions);
+
+  function activate(id: string) {
+    tabsHost.querySelectorAll(".dock-tab").forEach((t) => {
+      const isActive = (t as HTMLElement).dataset.tab === id;
+      t.classList.toggle("active", isActive);
+    });
+    bodyHost.innerHTML = "";
+    if (panes[id]) bodyHost.appendChild(panes[id]);
+  }
+  activate("prompt");
+}
+
+function wireDockResize() {
+  const divider = document.getElementById("dock-divider");
+  const app = document.querySelector(".app") as HTMLElement | null;
+  if (!divider || !app) return;
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+  divider.addEventListener("mousedown", (e: MouseEvent) => {
+    dragging = true;
+    startY = e.clientY;
+    const cur = getComputedStyle(app).getPropertyValue("--dock-h").trim();
+    startH = parseInt(cur || "260", 10);
+    document.body.style.userSelect = "none";
+  });
+  window.addEventListener("mousemove", (e: MouseEvent) => {
+    if (!dragging) return;
+    const dy = startY - e.clientY;
+    const newH = Math.max(80, Math.min(560, startH + dy));
+    app.style.setProperty("--dock-h", newH + "px");
+  });
+  window.addEventListener("mouseup", () => {
+    dragging = false;
+    document.body.style.userSelect = "";
+  });
+}
+
+export function buildWorkbench() {
+  const paletteHost = document.getElementById("palette-host");
+  const dockTabsHost = document.getElementById("dock-tabs-host");
+  const dockBodyHost = document.getElementById("dock-body-host");
+  const sidebarHost = document.getElementById("sidebar-host");
+  const axesHost = document.getElementById("vp-axes-host");
+
+  // The original prompt-pane and scene-panel and param-panel elements are
+  // built into the page by index.html / main.ts — we relocate them.
+  const promptPane = document.getElementById("prompt-pane");
+  const scenePanel = document.getElementById("scene-panel");
+  const paramPanel = document.getElementById("param-panel");
+
+  if (paletteHost) buildPalette(paletteHost);
+  if (sidebarHost) buildSidebar(sidebarHost, scenePanel);
+  if (dockTabsHost && dockBodyHost) buildDock(dockTabsHost, dockBodyHost, promptPane, paramPanel);
+  if (axesHost) axesHost.innerHTML = axesGizmoSVG();
+
+  wireDockResize();
+}
