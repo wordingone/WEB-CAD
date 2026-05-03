@@ -14,6 +14,7 @@
 
 import { iconSVG, axesGizmoSVG } from "./icons";
 import { generateGeometry, GenerateError } from "./ai-generate";
+import { compileDsl } from "./dsl-eval";
 
 type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
 
@@ -465,20 +466,78 @@ function buildConsoleTabBody(): HTMLElement {
   const wrap = el("div", "tab-body console-tab");
   wrap.innerHTML = `
     <div class="console">
-      <div class="console-history">
+      <div class="console-history" id="console-history">
         <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">OpenCascade WebAssembly initialized</span></div>
         <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">web-ifc parser ready · IFC4 schema</span></div>
         <div class="console-line ok"><span class="ts">00:00:02</span><span class="glyph">✓</span><span class="text">Gemma-3-4b-it adapter loaded</span></div>
-        <div class="console-line cmd"><span class="ts">00:00:08</span><span class="glyph">›</span><span class="text">demo: wall.5500x200x2800</span></div>
-        <div class="console-line ok"><span class="ts">00:00:08</span><span class="glyph">✓</span><span class="text">Geometry rebuilt · 1 solid · 12 tri</span></div>
+        <div class="console-line info"><span class="ts">00:00:03</span><span class="glyph">·</span><span class="text">DSL ready · type wall|slab|column|box|cut, then ⏎</span></div>
       </div>
       <div class="console-prompt">
         <span class="caret">›</span>
-        <input placeholder="type a command — :extrude 2.8   :move 0,1,0   :prompt &quot;raised slab 4×6m&quot;   ?"/>
+        <input id="console-input" placeholder="DSL — wall (0 0) (5 0) height=3 thickness=0.2     |     column (0 0) height=3 profile=square(0.3)"/>
         <span style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); letter-spacing:0.04em;">⏎ run</span>
       </div>
     </div>
   `;
+
+  // Input handler: type DSL → compile → push JS → run.
+  const input = wrap.querySelector<HTMLInputElement>("#console-input")!;
+  const history = wrap.querySelector<HTMLDivElement>("#console-history")!;
+  const buffer: string[] = [];
+  let bufferIdx = 0;
+
+  function ts(): string {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  }
+  function pushLine(kind: "cmd" | "ok" | "err" | "info", text: string) {
+    const line = document.createElement("div");
+    line.className = `console-line ${kind}`;
+    const glyph = kind === "cmd" ? "›" : kind === "ok" ? "✓" : kind === "err" ? "✗" : "·";
+    line.innerHTML = `<span class="ts">${ts()}</span><span class="glyph">${glyph}</span><span class="text"></span>`;
+    line.querySelector(".text")!.textContent = text;
+    history.appendChild(line);
+    history.scrollTop = history.scrollHeight;
+  }
+
+  input.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const src = input.value.trim();
+      if (!src) return;
+      buffer.push(src);
+      bufferIdx = buffer.length;
+      input.value = "";
+      pushLine("cmd", src);
+      const c = compileDsl(src);
+      if (!c.ok) {
+        pushLine("err", `line ${c.line}: ${c.message}`);
+        return;
+      }
+      // Compile result has multi-line JS — feed into legacy #js-source then click run.
+      const jsSrc = document.getElementById("js-source") as HTMLTextAreaElement | null;
+      const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
+      if (jsSrc && runBtn) {
+        jsSrc.value = c.js;
+        jsSrc.dispatchEvent(new Event("input", { bubbles: true }));
+        pushLine("info", `compiled · ${c.solids.length} solid${c.solids.length === 1 ? "" : "s"} → kernel`);
+        runBtn.click();
+      } else {
+        pushLine("err", "kernel not ready (no #run-btn / #js-source)");
+      }
+    } else if (e.key === "ArrowUp") {
+      if (buffer.length === 0) return;
+      e.preventDefault();
+      bufferIdx = Math.max(0, bufferIdx - 1);
+      input.value = buffer[bufferIdx] ?? "";
+    } else if (e.key === "ArrowDown") {
+      if (buffer.length === 0) return;
+      e.preventDefault();
+      bufferIdx = Math.min(buffer.length, bufferIdx + 1);
+      input.value = buffer[bufferIdx] ?? "";
+    }
+  });
+
   return wrap;
 }
 
