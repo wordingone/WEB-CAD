@@ -2044,18 +2044,21 @@ the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
 3. **Verify:** `.prop-section:nth-child(...)` STATUS row text matches.
    This message acknowledges the stub status.
 
-#### Beat 230: GAP — INSPECT does NOT populate on selection (current build)
+#### Beat 230: INSPECT populates on selection (RESOLVED at e382d93 first pass)
 1. **Do:** Click any wall. Open INSPECT tab.
-2. **See:** Header still "—" / "no selection". TRANSFORM still 0/0/0.
-   IDENTITY still "—". The pane is read-only static HTML — no
-   subscription to `selectedId` is wired.
-3. **Verify:** No `.prop-row .v` content changed from default. No
-   subscription to `app-state.selectedId` exists in `buildInspectTab`
-   (it returns static markup).
-4. **Gap (file):** **#148 — hero-tier UX pass — INSPECT must populate
-   on selection (Name, GUID, Layer, Position, Rotation, bbox, storey,
-   IFC class).** This blocks §25 reconstruction usability — architect
-   needs INSPECT to verify they placed each element correctly.
+2. **See:** Header `props-title` updates from "—" to the wall's
+   `obj.name` (or first 8 chars of uuid if name empty). Subtitle
+   updates from "no selection" to the topology level (e.g. "mesh"
+   or "brep"). GUID `[data-field="guid"]` shows first 16 chars of
+   uuid + "…". Position xyz shows world coords to 3 decimals.
+3. **Verify:** Subscription wired at `workbench.ts:234`
+   (`subscribe(updateInspect)`). Initial call at `:235`. Branch
+   handling at `:214-231` (null clears all `.v` and `.axis` to "—";
+   non-null populates title/subtitle/guid/position).
+4. **History:** Was a static-HTML stub before e382d93; first pass
+   wires title + subtitle + GUID + Position. Beats 231-234 below
+   track the remaining fields (Rotation/Layer/BOUNDS/storey/IFC-class/
+   multi-select).
 
 #### Beat 231: GAP — bbox not surfaced in INSPECT
 1. **Do:** Inspect INSPECT pane DOM and selected mesh's bounding box.
@@ -2089,16 +2092,22 @@ the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
 3. **Verify:** Header text after multi-select.
 4. **Gap (file):** INSPECT must handle 0 / 1 / N selection cases.
 
-#### Beat 235: INSPECT smoke after #148 lands
-1. **Do (after #148 ships):** Click any wall in viewport.
-2. **See:** INSPECT populates: Name (e.g. "Basic Wall:2x4 stud:431027"
-   per Schultz reconstruction tables), GUID, Layer, IFC class
-   (IfcWallStandardCase), Position xyz (matching reconstruction table),
-   Rotation xyz, BOUNDS dx/dy/dz, Storey ("1st Floor").
-3. **Verify:** Each prop-row's `.v` matches the reconstruction-tables
+#### Beat 235: INSPECT full reconstruction-parity smoke
+1. **Do:** ASSETS → Schultz Resid. → click wall id 316472 in SCENE
+   tree (1st Floor, "Basic Wall:2x4 stud:431027").
+2. **See (current build, post-e382d93):** Title shows the wall's
+   `obj.name` if loader.ts wires hierarchy.name → mesh.name (verify),
+   else uuid-prefix. Subtitle = topology. GUID populated. Position
+   x≈-0.283, y≈-1.150, z≈0.039 (within numeric tolerance vs
+   reconstruction table entry).
+3. **See (post-#148-completion):** Also shows Layer, IFC class
+   "IfcWallStandardCase", Rotation xyz, BOUNDS dx=1.151 / dy=0.594 /
+   dz=0.046, Storey="1st Floor".
+4. **Verify:** Each prop-row's `.v` matches the reconstruction-tables
    entry for that element id. Bidirectional smoke: select element id
    316472 → INSPECT shows x=-0.283, y=-1.150, z=0.039, dx=1.151,
-   dy=0.594, dz=0.046, storey="1st Floor".
+   dy=0.594, dz=0.046, storey="1st Floor". File a beat-failure if
+   numeric Position differs from table by > 0.001m.
 
 ### Beats 236-247: ASSETS tab (12 beats)
 
