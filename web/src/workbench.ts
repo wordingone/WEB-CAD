@@ -252,14 +252,159 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
   activate("scene");
 }
 
+// Suggestion chips → existing demo prompts (drives #prompt-select).
+// demoId is matched against the option label prefix ("1. ", "6. ", etc.)
+// because main.ts populates the dropdown with `value=index, text="N. Label"`.
+const PROMPT_CHIPS: { label: string; demoId: string }[] = [
+  { label: "Wall · 5.5 × 0.2 × 2.8 m",         demoId: "wall" },
+  { label: "Circular column",                   demoId: "column" },
+  { label: "Raised slab",                       demoId: "raised-slab" },
+  { label: "Slab w/ stair hole",                demoId: "slab-with-hole" },
+  { label: "Wall with doorway",                 demoId: "wall-with-door" },
+  { label: "L-shape walls",                     demoId: "l-walls" },
+  { label: "Four-walled room",                  demoId: "four-walled-room" },
+  { label: "Stair-step",                        demoId: "stair-step" },
+];
+
+const RECENT_LINES: { ts: string; t: string; demoId: string }[] = [
+  { ts: "00:14", t: "L-shape walls 8×6m, doorway south",     demoId: "l-walls" },
+  { ts: "00:09", t: "slab 6×4m, 200mm, with stair void",     demoId: "slab-with-hole" },
+  { ts: "00:03", t: "circular column r=0.45, h=5",           demoId: "column" },
+];
+
+// Map a demo id (e.g. "l-walls") to the dropdown's numeric option value
+// by matching the option text prefix. main.ts builds the dropdown from
+// DEMOS[] in order, so DEMO_ID_ORDER mirrors that order.
+const DEMO_ID_ORDER = [
+  "wall", "column", "raised-slab", "slab-with-hole",
+  "wall-with-door", "l-walls", "four-walled-room", "stair-step",
+];
+function demoIdToIndex(id: string): string | null {
+  const i = DEMO_ID_ORDER.indexOf(id);
+  return i >= 0 ? String(i) : null;
+}
+
 function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
   const wrap = el("div", "tab-body prompt-tab");
+
+  const panel = el("div", "ai-panel");
+  panel.innerHTML = `
+    <div class="ai-header">
+      <div class="ai-title">
+        ${iconSVG("sparkle", 13)}
+        PROMPT  ·  NATURAL LANGUAGE → GEOMETRY
+      </div>
+      <span class="ai-badge">
+        <span class="v">G</span>EMMA·3·4B  ·  LOCAL
+      </span>
+    </div>
+    <div class="ai-prompt-col">
+      <textarea class="ai-prompt" id="ai-prompt-input"
+        placeholder="Describe geometry — e.g. four walls forming a 6×4m room with a doorway on the south side"></textarea>
+      <div class="ai-actions">
+        <span class="ai-meta" id="ai-prompt-meta">0 ch · ~0 tok · ⌘⏎ to run</span>
+        <button class="btn btn-accent btn-sm" id="ai-generate-btn" type="button">
+          ${iconSVG("play", 11)} GENERATE
+        </button>
+      </div>
+      <div class="ai-suggestions" id="ai-chips"></div>
+    </div>
+    <div class="ai-side-col">
+      <div class="ai-side-title">RECENT</div>
+      <div id="ai-recent-list"></div>
+      <div class="ai-side-title" style="margin-top:8px;">PIPELINE</div>
+      <div style="font-family:var(--mono); font-size:10px; color:var(--ink-soft); line-height:1.7; padding-left:8px;">
+        PROMPT → TOKENS<br/>
+        → REPLICAD JS<br/>
+        → OCCT KERNEL<br/>
+        → MESH + IFC4
+      </div>
+    </div>
+  `;
+
+  // Build chips.
+  const chipsHost = panel.querySelector("#ai-chips") as HTMLElement;
+  for (const c of PROMPT_CHIPS) {
+    const chip = el("span", "ai-chip");
+    chip.textContent = c.label;
+    chip.addEventListener("click", () => {
+      pickDemo(c.demoId);
+    });
+    chipsHost.appendChild(chip);
+  }
+
+  // Build recents.
+  const recentHost = panel.querySelector("#ai-recent-list") as HTMLElement;
+  for (const r of RECENT_LINES) {
+    const line = el("div", "ai-recent");
+    line.innerHTML = `<span class="ts">${r.ts}</span>${r.t}`;
+    line.addEventListener("click", () => pickDemo(r.demoId));
+    recentHost.appendChild(line);
+  }
+
+  // Wire textarea ↔ legacy #prompt-text + char/token meta.
+  const ta = panel.querySelector<HTMLTextAreaElement>("#ai-prompt-input")!;
+  const meta = panel.querySelector<HTMLElement>("#ai-prompt-meta")!;
+  const updateMeta = () => {
+    const n = ta.value.length;
+    meta.textContent = `${n} ch · ~${Math.ceil(n / 4)} tok · ⌘⏎ to run`;
+  };
+  ta.addEventListener("input", updateMeta);
+  ta.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      runGenerate();
+    }
+  });
+
+  // GENERATE → click legacy #run-btn (preserves all existing wiring).
+  const genBtn = panel.querySelector<HTMLButtonElement>("#ai-generate-btn")!;
+  genBtn.addEventListener("click", () => runGenerate());
+
+  function pickDemo(id: string) {
+    const sel = document.getElementById("prompt-select") as HTMLSelectElement | null;
+    if (!sel) return;
+    const idx = demoIdToIndex(id);
+    if (idx === null) return;
+    sel.value = idx;
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    // After change handler fires, mirror prompt-text into our textarea.
+    queueMicrotask(() => {
+      const ptx = document.getElementById("prompt-text") as HTMLTextAreaElement | null;
+      if (ptx) {
+        ta.value = ptx.value;
+        updateMeta();
+      }
+    });
+  }
+
+  function runGenerate() {
+    // Mirror our textarea into legacy #prompt-text (read-only display) + #js-source
+    // is already populated by the demo change handler. Click run.
+    const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
+    if (runBtn) runBtn.click();
+  }
+
+  // Initial seed: pick first demo so the textarea + js-source are populated.
+  // (Uses queueMicrotask so main.ts has finished wiring the select first.)
+  queueMicrotask(() => {
+    const sel = document.getElementById("prompt-select") as HTMLSelectElement | null;
+    if (sel && sel.options.length > 0) {
+      const ptx = document.getElementById("prompt-text") as HTMLTextAreaElement | null;
+      if (ptx && ptx.value) {
+        ta.value = ptx.value;
+        updateMeta();
+      }
+    }
+  });
+
+  // Keep the legacy prompt-pane element alive in off-grid-host (it still hosts
+  // export buttons, file picker, etc.) — DO NOT relocate it here.
   if (promptPane) {
     promptPane.classList.add("prompt-pane-embed");
-    wrap.appendChild(promptPane);
-  } else {
-    wrap.innerHTML = `<div class="empty-hint">No prompt input wired yet.</div>`;
   }
+
+  wrap.appendChild(panel);
   return wrap;
 }
 
