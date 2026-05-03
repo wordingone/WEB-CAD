@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gemma-architect.local/schemas/skill.json",
+  "title": "Skill metadata sidecar",
+  "description": "Machine-readable metadata for a skill. The companion SKILL.md carries the prose body the LLM agent reads at runtime.",
+  "type": "object",
+  "required": ["name", "version", "schema_version", "keywords", "examples_count", "eval_id"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Stable identifier; matches the directory name and the YAML frontmatter `name`. Lowercase, hyphenated.",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "version": {
+      "type": "string",
+      "description": "SemVer string for the skill's prose + metadata. Bumped when the body or contract changes.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "schema_version": {
+      "type": "integer",
+      "description": "Version of THIS schema the sidecar was written against. Increments only on breaking schema changes.",
+      "minimum": 1
+    },
+    "keywords": {
+      "type": "array",
+      "description": "DSL-agnostic CAD verbs / nouns the prompt-matcher tokenises against. Avoid vendor-specific tokens.",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "examples_count": {
+      "type": "integer",
+      "description": "Number of prompt+code pairs in the SKILL.md `Examples` section. Used by load-time integrity checks.",
+      "minimum": 1
+    },
+    "eval_id": {
+      "type": "string",
+      "description": "Stable evaluation handle; lets a regression suite find the canonical fixtures for this skill.",
+      "minLength": 1
+    }
+  }
+}
