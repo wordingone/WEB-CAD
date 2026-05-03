@@ -1,0 +1,8 @@
+{"id":"wall","prompt":"Build a wall, 5.5m long, 0.2m thick, 2.8m tall.","dsl":"wall (-2.75 0) (2.75 0) height=2.8 thickness=0.2","v":"v0"}
+{"id":"column","prompt":"A circular column with 0.45m radius and 5m height.","dsl":"column (0 0) height=5 profile=circle(0.45)","v":"v0"}
+{"id":"raised-slab","prompt":"Place a 5 by 4m floor slab, 0.2m thick, raised 3m above ground.","dsl":"slab [(-2.5 -2) (2.5 -2) (2.5 2) (-2.5 2) (-2.5 -2)] thickness=0.2 offset=3","v":"v0"}
+{"id":"slab-with-hole","prompt":"Slab 6×6m × 0.2m thick with a 1×1m square hole at (2.5, 2.5).","dsl":"# v1 — needs `opening` or `cut` verb (boolean ops). Deferred.","v":"v1-pending"}
+{"id":"wall-with-door","prompt":"Wall 4.13×0.28×2.69m with a 1.01m × 2.1m doorway 1.77m from the left.","dsl":"# v1 — needs `door` verb (host-wall mutation). Deferred.","v":"v1-pending"}
+{"id":"l-walls","prompt":"Two walls forming an L: 8.45m and 9.25m, both 0.31m thick and 3.35m tall.","dsl":"let wall_x = wall (0 0.155) (8.45 0.155) height=3.35 thickness=0.31\nlet wall_y = wall (0.155 0) (0.155 9.25) height=3.35 thickness=0.31","v":"v0"}
+{"id":"four-walled-room","prompt":"Four-walled room 9.12m × 9.34m, 0.24m thick walls, 3.06m tall.","dsl":"let south = wall (0 0) (9.12 0) height=3.06 thickness=0.24\nlet north = wall (0 9.34) (9.12 9.34) height=3.06 thickness=0.24\nlet west = wall (0 0) (0 9.34) height=3.06 thickness=0.24\nlet east = wall (9.12 0) (9.12 9.34) height=3.06 thickness=0.24","v":"v0"}
+{"id":"stair-step","prompt":"Stair-step structure with 4 steps, run 0.39m, rise 0.21m, 2.77m wide.","dsl":"# v1 — needs `box` or `prism` verb for axis-aligned solid extrusion at varying heights. Deferred.","v":"v1-pending"}
