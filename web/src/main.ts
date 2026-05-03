@@ -116,7 +116,10 @@ subscribeFilters((f) => {
 const transformBinder = new TransformBinder(viewer);
 (window as unknown as { __transforms: TransformBinder }).__transforms = transformBinder;
 
-// Create-mode click-to-place pipeline (Phase 3).
+// Create-mode click-to-place pipeline (Phase 3). Surfaces _createSequence
+// via window.__createSequence for in-browser debugging + export integration.
+import { getCreateSequence } from "./create-mode";
+(window as unknown as { __createSequence: () => string[] }).__createSequence = getCreateSequence;
 initCreateMode(viewer);
 
 // Navigation + transform hotkeys. Captured at window level but ignored if

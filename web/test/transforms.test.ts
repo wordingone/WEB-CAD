@@ -151,3 +151,120 @@ describe("Phase 2 — transform gizmo chain emission", () => {
     expect(getSelected()).toBeNull();
   });
 });
+
+describe("Phase 3 — create-mode click-to-place", () => {
+  test("Line tool: click(0,0) + click(5,0) creates new edge with polyline chain", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const initialChildren = v.scene.children.length;
+    // Line tool needs 2 clicks. First click — no mesh yet.
+    const r1 = emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "line" });
+    expect(r1).toBeNull();
+    const r2 = emitClickWorld(v as any, { x: 5, y: 0 }, { tool: "line" });
+    expect(r2).not.toBeNull();
+    expect(v.scene.children.length).toBeGreaterThan(initialChildren);
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("drawPolyline([[0, 0], [5, 0]])");
+    expect(seq[0]).toContain('.sketchOnPlane("XY")');
+  });
+
+  test("Wall tool: click(0,0) + click(6,0) creates 6m wall along X with proper translate", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "wall" });
+    const r = emitClickWorld(v as any, { x: 6, y: 0 }, { tool: "wall" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    // Per tier1-conventions: makeBox(length, thickness, height).rotate(0).translate([midX, midY, 0])
+    expect(seq[0]).toContain("makeBox(6, 0.2, 3)");
+    expect(seq[0]).toContain("translate([3, 0, 0])");
+  });
+
+  test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "rect" });
+    const r = emitClickWorld(v as any, { x: 4, y: 3 }, { tool: "rect" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("drawRectangle(4, 3)");
+    expect(seq[0]).toContain("translate([2, 1.5, 0])");
+  });
+
+  test("Circle tool: click(2,2) center + click(5,2) → radius 3 cylinder", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    emitClickWorld(v as any, { x: 2, y: 2 }, { tool: "circle" });
+    const r = emitClickWorld(v as any, { x: 5, y: 2 }, { tool: "circle" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("makeCylinder(3,");
+    expect(seq[0]).toContain("translate([2, 2, 0])");
+  });
+
+  test("Door tool: single click emits cut chain", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const r = emitClickWorld(v as any, { x: 1, y: 0 }, { tool: "door" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("door:");
+    expect(seq[0]).toContain("makeBox(0.9, 0.2, 2.1)");
+  });
+
+  test("Window tool: single click emits cut chain at sill height", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const r = emitClickWorld(v as any, { x: 1, y: 0 }, { tool: "window" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("window:");
+    expect(seq[0]).toContain("translate([1, 0, 1])");
+  });
+
+  test("Switching tools resets pending click buffer", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    // Start a wall (1st click)
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "wall" });
+    // Switch tool — reset.
+    resetPending();
+    // Now circle tool: 2 clicks, both should land cleanly on circle.
+    emitClickWorld(v as any, { x: 1, y: 1 }, { tool: "circle" });
+    const r = emitClickWorld(v as any, { x: 2, y: 1 }, { tool: "circle" });
+    expect(r).not.toBeNull();
+    const seq = getCreateSequence();
+    expect(seq.length).toBe(1);
+    expect(seq[0]).toContain("makeCylinder(1,"); // radius=1 from (1,1)→(2,1)
+  });
+
+  test("Unsupported tool (extrude) logs TODO, returns null, no chain emitted", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/create-mode");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const r = emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "extrude" });
+    expect(r).toBeNull();
+    expect(getCreateSequence().length).toBe(0);
+  });
+});
