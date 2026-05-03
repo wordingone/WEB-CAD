@@ -17,8 +17,9 @@
   "dependencies": {
     "replicad": "^0.20.0",
     "replicad-opencascadejs": "^0.20.0",
-    "web-ifc": "^0.0.77",
-    "three": "^0.162.0"
+    "three": "^0.162.0",
+    "verb-nurbs": "^3.0.3",
+    "web-ifc": "^0.0.77"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
