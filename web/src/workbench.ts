@@ -16,6 +16,33 @@ import { iconSVG, axesGizmoSVG } from "./icons";
 import { generateGeometry, GenerateError } from "./ai-generate";
 import { compileDsl } from "./dsl-eval";
 
+// Push a line into the in-page CONSOLE dock tab. The tab body lives in
+// buildConsoleTabBody and re-implements its own local pushLine for the DSL
+// terminal — this exported variant lets runGenerate (and any future caller)
+// surface telemetry there too. Falls back to console.log when the dock isn't
+// mounted yet.
+function pushConsoleLine(kind: "cmd" | "ok" | "err" | "info", text: string): void {
+  const history = document.getElementById("console-history");
+  if (!history) {
+    console.log(`[console:${kind}] ${text}`);
+    return;
+  }
+  const d = new Date();
+  const ts =
+    String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0") + ":" +
+    String(d.getSeconds()).padStart(2, "0");
+  const glyph = kind === "cmd" ? "›" : kind === "ok" ? "✓" : kind === "err" ? "✗" : "·";
+  const line = document.createElement("div");
+  line.className = `console-line ${kind}`;
+  line.innerHTML = `<span class="ts"></span><span class="glyph"></span><span class="text"></span>`;
+  line.querySelector(".ts")!.textContent = ts;
+  line.querySelector(".glyph")!.textContent = glyph;
+  line.querySelector(".text")!.textContent = text;
+  history.appendChild(line);
+  history.scrollTop = history.scrollHeight;
+}
+
 type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
 
 const PALETTE_SECTIONS: PaletteSection[] = [
@@ -416,16 +443,18 @@ function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
       }
       // Update legacy prompt-text mirror so re-runs treat this as the active prompt.
       if (ptx) ptx.value = userPrompt;
-      // Surface telemetry to the console-tab (best-effort).
+      // Surface telemetry to the in-page CONSOLE tab + DevTools console.
       const msg = result.source === "cache"
         ? `cache · ${(result.confidence ?? 0).toFixed(2)} match · ${result.latency_ms.toFixed(0)}ms`
         : result.source === "lora"
           ? `lora · ${result.latency_ms.toFixed(0)}ms`
           : `demo`;
+      pushConsoleLine("ok", `[ai-generate] ${msg}`);
       console.log(`[ai-generate] ${msg}`);
       runBtn.click();
     } catch (e) {
       const err = e as GenerateError;
+      pushConsoleLine("err", `[ai-generate] ${err.message}`);
       console.error("[ai-generate]", err.message);
       const status = document.getElementById("status");
       if (status) {

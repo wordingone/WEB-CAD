@@ -74,7 +74,8 @@ title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 2. Type live: `Build a square column 0.3m by 0.3m, 3m tall.`
 3. Hit `⌘⏎`. The GENERATE button shows `GENERATING…` for ~80ms.
 4. JS source updates to a fresh column construction. Viewer shows a 3m square column.
-5. Status reads `[ai-generate] cache · 0.71 match · 47ms` (in console tab if visible).
+5. CONSOLE tab shows `[ai-generate] cache · 1.00 match · ~50ms` — the
+   `column-square-3m` corpus row matches exactly (added via `2c443dd`).
 
 **VO (40s budget):**
 
