@@ -45,12 +45,19 @@ MAX_SEQ = 2048
 print(f"variant={variant_key} model={MODEL_NAME} → {OUTPUT_DIR}")
 
 print(f"loading {MODEL_NAME} ...")
-model, tokenizer = FastModel.from_pretrained(
-    model_name=MODEL_NAME,
-    max_seq_length=MAX_SEQ,
-    load_in_4bit=True,
-    full_finetuning=False,
-)
+_load_kwargs = {
+    "model_name": MODEL_NAME,
+    "max_seq_length": MAX_SEQ,
+    "load_in_4bit": True,
+    "full_finetuning": False,
+}
+# Gemma-3n-E2B includes a vision tower (TimmWrapperModel) which under
+# transformers >= 5.3.0.dev0 + torch flex_attention raises ValueError on
+# init. Force eager attention for E2B; 4b-it loads cleanly under default.
+# Discovered 2026-05-03 on the first e2b train attempt.
+if variant_key == "e2b":
+    _load_kwargs["attn_implementation"] = "eager"
+model, tokenizer = FastModel.from_pretrained(**_load_kwargs)
 
 model = FastModel.get_peft_model(
     model,
