@@ -1016,8 +1016,18 @@ html[data-mode="night"] .snap-dock::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  /* Bundle uses 24x24 icon-only buttons. Until ribbon switches to SVG icons,
+     size buttons to fit their text label and add a tiny gap so they don't
+     run together ("SelectMoveRotateScale"). */
+  min-width: 24px;
   height: 24px;
+  padding: 0 6px;
+  margin: 0 1px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
   border: var(--lw-construction) solid transparent;
   background: transparent;
   color: var(--ink-soft);
@@ -1036,6 +1046,12 @@ html[data-mode="night"] .snap-dock::after {
   border-color: var(--gemma);
 }
 .tool-btn svg { width: 14px; height: 14px; stroke-width: 1.25; }
+/* When a tool-btn contains an svg only (no text), keep it tight 24x24. */
+.tool-btn:has(> svg:only-child) {
+  width: 24px;
+  min-width: 24px;
+  padding: 0;
+}
 
 .ribbon-right {
   display: flex;
@@ -1291,7 +1307,12 @@ html[data-mode="night"] .snap-dock::after {
   width: 100%; height: 100%;
 }
 
-/* drafting grid background per viewport */
+/* drafting grid background per viewport.
+   Pre-quad-split: a heavy CSS grid in the single visible pane drowns the
+   THREE.js render behind. Lower opacity until forge's quad-split scissor
+   refactor lands and each pane scissors its own canvas region (#180 Gap 1).
+   The bundle's drafting paper feel survives at 0.35 — graph paper is still
+   visible on a clean (mesh-free) viewport. */
 .vp-grid {
   position: absolute;
   inset: 0;
@@ -1303,8 +1324,12 @@ html[data-mode="night"] .snap-dock::after {
     linear-gradient(to bottom, oklch(0.92 0.012 80) 1px, transparent 1px);
   background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
   background-position: -1px -1px;
-  opacity: 0.9;
+  opacity: 0.35;
 }
+/* When the viewport is in single-pane mode (only one .viewport visible),
+   hide the CSS grid entirely so the THREE.js scene gets a clean canvas.
+   Quad-split mode keeps the per-pane grid (visual frame for each scissor). */
+.viewport-area.split-single .vp-grid { display: none; }
 .vp-grid.persp {
   background-image: none;
   background:
