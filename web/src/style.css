@@ -1097,6 +1097,24 @@ html[data-mode="night"] .snap-dock::after {
   background: transparent;
 }
 
+/* Mode pane swap — when mode != model, hide workbench children and let
+   the active .mode-pane fill the area. */
+.workbench[data-mode="layout"],
+.workbench[data-mode="research"] {
+  grid-template-columns: 1fr;
+}
+.workbench[data-mode="layout"] > .palette,
+.workbench[data-mode="layout"] > .center-col,
+.workbench[data-mode="layout"] > .sidebar,
+.workbench[data-mode="research"] > .palette,
+.workbench[data-mode="research"] > .center-col,
+.workbench[data-mode="research"] > .sidebar {
+  display: none;
+}
+.workbench > .mode-pane { display: none; }
+.workbench[data-mode="layout"]   > .paper-mode    { display: flex; }
+.workbench[data-mode="research"] > .research-mode { display: grid; }
+
 /* ============================================================
    TOOL PALETTE (left)
    ============================================================ */

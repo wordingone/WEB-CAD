@@ -11,6 +11,7 @@
 import { initShellChrome } from "./shell";
 import { initPalette } from "./palette";
 import { buildWorkbench } from "./workbench";
+import { buildModes, activateMode } from "./modes";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -619,9 +620,13 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 // Boot.
-initShellChrome();
+const workbenchEl = document.querySelector(".workbench") as HTMLElement | null;
+initShellChrome({
+  onModeChange: (k) => activateMode(k, workbenchEl),
+});
 initPalette();
 buildWorkbench();
+if (workbenchEl) buildModes(workbenchEl);
 loadDemo(0);
 setStatus("Loading OpenCascade WebAssembly...", "info");
 runBtn.disabled = true;

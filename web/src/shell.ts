@@ -450,12 +450,12 @@ function wireFpsCounter() {
   requestAnimationFrame(tick);
 }
 
-export function initShellChrome() {
+export function initShellChrome(opts?: { onModeChange?: (k: string) => void }) {
   const menubar = document.querySelector(".menubar") as HTMLElement | null;
   const modebar = document.querySelector(".modebar") as HTMLElement | null;
   const ribbon  = document.querySelector(".ribbon")  as HTMLElement | null;
   if (menubar) buildMenubar(menubar);
-  if (modebar) buildModebar(modebar);
+  if (modebar) buildModebar(modebar, opts?.onModeChange);
   if (ribbon)  buildRibbon(ribbon);
   wireThemeToggle();
   wireFpsCounter();
