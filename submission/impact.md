@@ -51,6 +51,15 @@ window:
 3. **Apache-2.0 license** — the model artifact ships under a license the
    hackathon and downstream users can actually deploy commercially without
    legal review.
+4. **Eval round-trip strong enough to ship a cache.** The held-out eval
+   produces 40/40 valid prompt → JS pairs. Those pairs ship as a 60-row
+   bundled cache (40 eval + 19 DSL corpus + 1 Schultz gold) the page
+   fuzzy-matches against. Result: a user without a GPU, behind a
+   network-blocked demo VM, or on a low-spec laptop hits the same demo
+   experience in ~50 ms as someone running the live LoRA. The live model
+   is one toggle away (`window.__loraUrl` → `src/serve/serve_lora.py`)
+   for novel off-corpus prompts — but the cache is the floor, not the
+   fallback.
 
 A larger non-Gemma model would have meant either a paid API (kills the
 free-tier deployment) or a server we'd have to host. Both contradict the
