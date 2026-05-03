@@ -43,5 +43,5 @@ These four lines in `writeup.md` are placeholders — without them, the submissi
 
 - `https://github.com/wordingone/gemma-architect` — no public git remote yet (`git remote -v` is empty).
 - `https://huggingface.co/gemma-architect/cad-lora-v2` — adapter not pushed (HF_TOKEN absent).
-- Live demo URL (Spaces / Vercel) — TBD.
+- Live demo URL (Spaces / Vercel) — TBD. **`vercel.json` shipped at repo root with COOP+COEP headers + WASM cache config; `vercel deploy` is one command after a public GitHub remote exists.**
 - Demo video URL (YouTube) — TBD.
