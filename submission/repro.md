@@ -170,14 +170,20 @@ bun run web:dev
 
 ```bash
 bun run web:build
-# Output: web/dist/
-#   index.html               (1.98 kB)
-#   assets/worker-*.js       (334.46 kB)
-#   assets/web-ifc-*.wasm    (1,303.94 kB / gzip 483.17 kB)
-#   assets/replicad_single-*.wasm (10,800.30 kB / gzip 4,575.06 kB)
-#   assets/index-*.css       (3.09 kB / gzip 1.10 kB)
-#   assets/index-*.js        (4,013.29 kB / gzip 509.71 kB)
+# Output: web/dist/  (sizes verified 2026-05-03 against current master)
+#   index.html                         12.30 kB / gzip    2.96 kB
+#   assets/worker-*.js              3,844.81 kB
+#   assets/web-ifc-*.wasm           1,303.94 kB / gzip  483.17 kB
+#   assets/replicad_single-*.wasm  10,800.30 kB / gzip 4,575.06 kB
+#   assets/index-*.css                 61.30 kB / gzip   11.61 kB
+#   assets/index-*.js               4,238.41 kB / gzip  576.57 kB
 ```
+
+The CSS chunk grew from 3 kB → 61 kB after the bundle design-system port
+(#170 umbrella) — the design tokens, lineweight ramp, and per-mode theme
+overrides. The JS worker chunk grew because the replicad geometry kernel
+is now bundled inline rather than externally; the on-screen import path
+is unchanged.
 
 ### Production preview
 
