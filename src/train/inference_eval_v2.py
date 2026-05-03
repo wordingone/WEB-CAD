@@ -110,11 +110,16 @@ def score_runtime(js: str) -> dict:
 
 
 print(f"loading adapter {ADAPTER} ...")
-model, tokenizer = FastModel.from_pretrained(
-    model_name=str(ADAPTER),
-    max_seq_length=2048,
-    load_in_4bit=True,
-)
+_load_kwargs = {
+    "model_name": str(ADAPTER),
+    "max_seq_length": 2048,
+    "load_in_4bit": True,
+}
+# E2B's vision tower (TimmWrapperModel) doesn't support flex_attention
+# under transformers 5.3.0.dev0 — same fix as lora_train_v2.py.
+if "e2b" in TAG.lower():
+    _load_kwargs["attn_implementation"] = "eager"
+model, tokenizer = FastModel.from_pretrained(**_load_kwargs)
 tokenizer = get_chat_template(tokenizer, chat_template="gemma-3")
 FastModel.for_inference(model)
 
