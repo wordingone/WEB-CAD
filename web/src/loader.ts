@@ -18,6 +18,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import type { Bounds } from "./viewer";
 import type { IfcHierarchyElement } from "./ifc-types";
+import type { IfcElementRange } from "./worker";
 export type { IfcHierarchyElement };
 
 export type LoadedScene = {
@@ -179,38 +180,64 @@ export type IfcLoadResult = {
   schema: string;
   entityCount: number;
   hierarchy: IfcHierarchyElement[];
+  elementRanges: IfcElementRange[];
 };
 
 export async function buildIfcMesh(
   result: IfcLoadResult,
   filename: string,
 ): Promise<LoadedScene> {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(result.vertices, 3));
-  if (result.normals.length > 0) {
-    geometry.setAttribute("normal", new THREE.BufferAttribute(result.normals, 3));
-  } else {
-    geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
-    geometry.computeVertexNormals();
-  }
-  geometry.setIndex(new THREE.BufferAttribute(result.indices, 1));
-  let material: THREE.Material;
-  if (result.colors && result.colors.length === result.vertices.length) {
-    geometry.setAttribute("color", new THREE.BufferAttribute(result.colors, 3));
-    material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.6,
-      metalness: 0.05,
-      side: THREE.DoubleSide,
-    });
-  } else {
-    material = DEFAULT_MAT();
-  }
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = filename;
+  const useColors = result.colors && result.colors.length === result.vertices.length;
+  const sharedMaterial = useColors
+    ? new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.6,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
+      })
+    : DEFAULT_MAT();
+
   const root = new THREE.Group();
   root.name = filename;
-  root.add(mesh);
+
+  // Index hierarchy by expressID for userData lookup.
+  const hierByExpressID = new Map<number, IfcHierarchyElement>();
+  for (const h of result.hierarchy) hierByExpressID.set(h.expressID, h);
+
+  // Build one Mesh per IFC element using vertex/index ranges from the worker.
+  // Slicing per element costs O(N) memory but gives clean raycasting (one hit
+  // = one element), per-element bounds, and userData for INSPECT display.
+  for (const range of result.elementRanges) {
+    if (range.vertexCount === 0 || range.indexCount === 0) continue;
+    const v0 = range.vertexStart * 3;
+    const v1 = (range.vertexStart + range.vertexCount) * 3;
+    const positions = result.vertices.slice(v0, v1);
+    const normals = result.normals.length > 0 ? result.normals.slice(v0, v1) : null;
+    const colors = useColors ? result.colors!.slice(v0, v1) : null;
+    // Remap indices into element-local vertex space.
+    const localIndices = new Uint32Array(range.indexCount);
+    for (let k = 0; k < range.indexCount; k++) {
+      localIndices[k] = result.indices[range.indexStart + k] - range.vertexStart;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    if (normals) geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+    if (colors) geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.setIndex(new THREE.BufferAttribute(localIndices, 1));
+    if (!normals) geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, sharedMaterial);
+    const hier = hierByExpressID.get(range.expressID);
+    mesh.name = hier?.name || `#${range.expressID}`;
+    mesh.userData = {
+      expressID: range.expressID,
+      ifcClass: hier?.ifcClass ?? "",
+      guid: hier?.guid ?? "",
+      storeyName: hier?.storeyName ?? "",
+      storeyElevation: hier?.storeyElevation ?? 0,
+    };
+    root.add(mesh);
+  }
+
   // IFC spec is Z-up, but web-ifc emits geometry rotated to Y-up to match
   // three.js's internal convention (empirical: Schultz Residence loaded with
   // building-up axis along world Y, observed 2026-05-02 with the labeled

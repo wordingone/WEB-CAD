@@ -101,6 +101,14 @@ type ReadyMsg = { type: "ready" };
 
 // File-load: IFC.
 type LoadIfcRequest = { type: "load-ifc"; id: number; bytes: ArrayBuffer };
+export type IfcElementRange = {
+  expressID: number;
+  vertexStart: number;
+  vertexCount: number;
+  indexStart: number;
+  indexCount: number;
+};
+
 type LoadIfcSuccess = {
   type: "load-ifc-ok";
   id: number;
@@ -112,6 +120,7 @@ type LoadIfcSuccess = {
   schema: string;
   entityCount: number;
   hierarchy: IfcHierarchyElement[];
+  elementRanges: IfcElementRange[];
 };
 type LoadIfcError = { type: "load-ifc-error"; id: number; error: string };
 
@@ -264,12 +273,15 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
     let entityCount = 0;
     const elementExpressIDs: number[] = [];
 
+    const elementRanges: IfcElementRange[] = [];
     const meshCount = flatMeshes.size();
     for (let i = 0; i < meshCount; i++) {
       const flatMesh = flatMeshes.get(i);
       elementExpressIDs.push(flatMesh.expressID);
       const placedCount = flatMesh.geometries.size();
       entityCount += placedCount;
+      const elemVertStart = positions.length / 3;
+      const elemIdxStart = indices.length;
       for (let j = 0; j < placedCount; j++) {
         const placed = flatMesh.geometries.get(j);
         const geom = api.GetGeometry(modelID, placed.geometryExpressID);
@@ -303,6 +315,13 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
           indices.push(idx[k] + baseIndex);
         }
       }
+      elementRanges.push({
+        expressID: flatMesh.expressID,
+        vertexStart: elemVertStart,
+        vertexCount: positions.length / 3 - elemVertStart,
+        indexStart: elemIdxStart,
+        indexCount: indices.length - elemIdxStart,
+      });
     }
 
     // Build reverse type-number → IFC class name map.
@@ -394,6 +413,7 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
       schema,
       entityCount,
       hierarchy,
+      elementRanges,
     };
   } catch (e) {
     if (modelID >= 0) {

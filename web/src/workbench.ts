@@ -229,26 +229,40 @@ function buildInspectTab(): HTMLElement {
       return;
     }
     const obj = sel.object as THREE.Object3D;
+    const ud = (obj.userData ?? {}) as {
+      ifcClass?: string;
+      guid?: string;
+      storeyName?: string;
+    };
     if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
-    if (subtitle) subtitle.textContent = sel.topology;
+    if (subtitle) subtitle.textContent = ud.ifcClass || sel.topology;
     const nameEl = wrap.querySelector<HTMLElement>('[data-field="name"]');
     if (nameEl) nameEl.textContent = obj.name || "—";
     const typeEl = wrap.querySelector<HTMLElement>('[data-field="type"]');
-    if (typeEl) typeEl.textContent = sel.topology;
+    if (typeEl) typeEl.textContent = ud.ifcClass || sel.topology;
     const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
-    if (guidEl) guidEl.textContent = sel.uuid.slice(0, 16) + "…";
-    // Storey: not available from merged-mesh selection; placeholder until per-element meshes land
+    if (guidEl) guidEl.textContent = ud.guid || (sel.uuid.slice(0, 16) + "…");
     const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');
-    if (storeyEl) storeyEl.textContent = "—";
-    // Position
-    const pos = new THREE.Vector3();
-    obj.getWorldPosition(pos);
-    const posAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(1) .axis');
-    if (posAxes[0]) posAxes[0].textContent = pos.x.toFixed(3);
-    if (posAxes[1]) posAxes[1].textContent = pos.y.toFixed(3);
-    if (posAxes[2]) posAxes[2].textContent = pos.z.toFixed(3);
-    // Bounds
+    if (storeyEl) storeyEl.textContent = ud.storeyName || "—";
+    // Position: prefer bounding-box center for IFC (vertices are world-space
+    // baked, so getWorldPosition returns 0,0,0). For non-IFC objects with a
+    // real local origin, the center of the bbox still reads sensibly.
     const box = new THREE.Box3().setFromObject(obj);
+    const posAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(1) .axis');
+    if (isFinite(box.min.x)) {
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      if (posAxes[0]) posAxes[0].textContent = center.x.toFixed(3);
+      if (posAxes[1]) posAxes[1].textContent = center.y.toFixed(3);
+      if (posAxes[2]) posAxes[2].textContent = center.z.toFixed(3);
+    } else {
+      const pos = new THREE.Vector3();
+      obj.getWorldPosition(pos);
+      if (posAxes[0]) posAxes[0].textContent = pos.x.toFixed(3);
+      if (posAxes[1]) posAxes[1].textContent = pos.y.toFixed(3);
+      if (posAxes[2]) posAxes[2].textContent = pos.z.toFixed(3);
+    }
+    // Bounds
     const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
     if (isFinite(box.min.x)) {
       const sz = new THREE.Vector3();
