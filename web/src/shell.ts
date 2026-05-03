@@ -15,6 +15,7 @@
 import { iconSVG } from "./icons";
 import { openExportDrawer } from "./export-drawer";
 import { openCmdK } from "./cmdk";
+import { getCreateSequence } from "./create-mode";
 import {
   getState,
   setState,
@@ -131,19 +132,35 @@ function resetLayout(): void {
   app?.style.setProperty("--dock-h", "340px");
 }
 
+// Download the current construction sequence as a .gemma.json project file.
+// This is the "Save" / "Save As…" fallback until T6 adds File System Access.
+function saveProjectJson(): void {
+  const seq = getCreateSequence();
+  const payload = { version: 1, sequence: seq };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "project.gemma.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // MENU_DATA mirrors app.jsx 216–302. Every action callback is real, no
 // console.debug stubs. Where an action depends on app-state (theme toggle,
 // active tool, layout, dock tab), it goes through setState/getState/click
 // so subscribers across the rest of the app see the change.
 const MENU_DATA: MenuItem[] = [
   { label: "File", items: [
-    { label: "New project",          kbd: "⌘N",   action: () => { /* defer to T6 dispatch */ } },
+    { label: "New project",          kbd: "⌘N",   action: () => { location.reload(); } },
     { label: "Open…",                kbd: "⌘O",   action: () => {
       const btn = document.getElementById("file-pick-btn") as HTMLElement | null;
       btn?.click();
     } },
-    { label: "Save",                 kbd: "⌘S",   action: () => { /* defer to T6 dispatch */ } },
-    { label: "Save As…",             kbd: "⇧⌘S", action: () => { /* defer to T6 dispatch */ } },
+    { label: "Save",                 kbd: "⌘S",   action: () => saveProjectJson() },
+    { label: "Save As…",             kbd: "⇧⌘S", action: () => saveProjectJson() },
     "---",
     { label: "Import IFC / STEP / OBJ…", action: () => {
       const btn = document.getElementById("file-pick-btn") as HTMLElement | null;
