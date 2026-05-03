@@ -662,6 +662,159 @@ html[data-mode="night"] .snap-dock::after {
   font-weight: 700;
 }
 
+/* Layout-mode (T15) — controller flips paper-mode into a stack:
+   toolbar → stage → sheet (free panels via absolute positioning). */
+.paper-mode > .paper-toolbar {
+  position: absolute;
+  top: 8px; left: 0; right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--paper-2);
+  border-bottom: var(--lw-edge) solid var(--ink-edge);
+  font-size: 11px;
+  color: var(--ink);
+  flex-wrap: wrap;
+}
+.paper-tool-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.paper-tool-k {
+  color: var(--ink-faint);
+}
+.paper-tool {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  font: inherit;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+.paper-tool-num {
+  width: 60px;
+}
+.paper-tool-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.paper-tool-export:hover { background: var(--paper-2); }
+.paper-tool-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paper-mode > .paper-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 24px 24px;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+}
+
+/* When the controller drives the sheet, override the legacy grid template:
+   panels are absolutely positioned children of .paper-sheet. */
+.paper-mode > .paper-stage > .paper-sheet {
+  display: block;
+  position: relative;
+  aspect-ratio: auto;
+  width: auto;
+  max-width: none;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-cell {
+  /* Layout-mode panels are positioned absolutely by the controller. */
+  margin: 0;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-cell.selected {
+  outline: 1.5px solid var(--gemma);
+  outline-offset: -1.5px;
+}
+.paper-cell-toolbar {
+  position: absolute;
+  top: 4px; left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  padding: 2px 4px;
+  font-size: 9px;
+  z-index: 3;
+}
+.paper-cell:hover .paper-cell-toolbar,
+.paper-cell.selected .paper-cell-toolbar {
+  display: inline-flex;
+}
+.paper-cell-toolbar select {
+  background: var(--paper);
+  border: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink);
+}
+.paper-cell-render {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.paper-cell-render svg { width: 100%; height: 100%; }
+.paper-cell-scalebar {
+  position: absolute;
+  bottom: 4px; right: 6px;
+  pointer-events: none;
+}
+.paper-cell-close {
+  position: absolute;
+  top: 2px; right: 2px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-faint);
+  padding: 2px;
+  display: none;
+}
+.paper-cell:hover .paper-cell-close,
+.paper-cell.selected .paper-cell-close {
+  display: inline-flex;
+}
+.paper-cell-close:hover { color: var(--gemma); }
+.paper-cell-ghost {
+  position: absolute;
+  border: 1px dashed var(--gemma);
+  background: oklch(0.95 0.030 230 / 0.20);
+  pointer-events: none;
+  z-index: 1;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-titleblock {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  height: 60px;
+  background: var(--paper);
+  border-top: var(--lw-cut) solid var(--ink-cut);
+}
+.paper-titleblock .tb-cell .v[contenteditable="true"]:focus {
+  outline: 1px solid var(--gemma);
+}
+
 /* ============================================================
    RESEARCH MODE
    ============================================================ */
