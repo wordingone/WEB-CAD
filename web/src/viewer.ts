@@ -609,11 +609,13 @@ export class Viewer {
             const m = c as THREE.Mesh;
             if (m.isMesh) m.geometry?.dispose();
           });
-          if (h.edgeLines !== this.currentEdges) {
-            this.scene.remove(h.edgeLines);
-            h.edgeLines.geometry.dispose();
-            (h.edgeLines.material as THREE.Material).dispose();
-          }
+          // Always remove edgeLines — ghost wireframe stays if skipped.
+          // If edgeLines IS currentEdges, clear that reference too so
+          // the next setMesh/setObject doesn't reuse a dead reference.
+          this.scene.remove(h.edgeLines);
+          h.edgeLines.geometry.dispose();
+          (h.edgeLines.material as THREE.Material).dispose();
+          if (h.edgeLines === this.currentEdges) this.currentEdges = null;
           this.helpers.splice(idx, 1);
         }
         mesh.geometry?.dispose();
