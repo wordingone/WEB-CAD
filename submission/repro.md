@@ -170,13 +170,13 @@ bun run web:dev
 
 ```bash
 bun run web:build
-# Output: web/dist/  (sizes verified 2026-05-03 against current master)
-#   index.html                         12.30 kB / gzip    2.96 kB
+# Output: web/dist/  (sizes verified 2026-05-03 against master HEAD d14c6ea, build 6.02s)
+#   index.html                          8.71 kB / gzip    2.60 kB
 #   assets/worker-*.js              3,844.81 kB
 #   assets/web-ifc-*.wasm           1,303.94 kB / gzip  483.17 kB
 #   assets/replicad_single-*.wasm  10,800.30 kB / gzip 4,575.06 kB
 #   assets/index-*.css                 61.30 kB / gzip   11.61 kB
-#   assets/index-*.js               4,238.41 kB / gzip  576.57 kB
+#   assets/index-*.js               4,252.76 kB / gzip  582.53 kB
 ```
 
 The CSS chunk grew from 3 kB → 61 kB after the bundle design-system port
