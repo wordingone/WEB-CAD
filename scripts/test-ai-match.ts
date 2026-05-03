@@ -1,13 +1,14 @@
 // Quick smoke test for the cache matching logic at scripts time (no DOM).
 // Validates the similarity function picks reasonable matches against the
-// 41-row cache for representative user prompts.
+// bundled cache for representative user prompts. Path resolves relative to
+// THIS script so it works in worktrees and the main repo identically.
 
 import { readFile } from "node:fs/promises";
 
 type CacheRow = { prompt: string; js: string; source: string };
 
 const cache: CacheRow[] = JSON.parse(
-  await readFile("B:/M/gemma-architect/web/public/ai-cache.json", "utf8"),
+  await readFile(new URL("../web/public/ai-cache.json", import.meta.url), "utf8"),
 );
 
 function tokens(s: string): string[] {
@@ -71,6 +72,12 @@ const queries = [
   "L-shaped walls 6m and 4m long",
   "completely unrelated query about vegetables",
   "footings 10m long",
+  // queries targeting the new DSL-corpus rows in the cache:
+  "U-shape with three walls 8m and two 6m sides",
+  "closed 6 by 6 room with 0.3m thick walls 3m tall",
+  "2x2 column grid at 5m bay corners",
+  "wall 5m long with a window opening centered",
+  "concrete slab on grade with perimeter footing",
 ];
 
 console.log(`cache: ${cache.length} rows\n`);
