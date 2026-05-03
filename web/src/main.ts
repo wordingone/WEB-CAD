@@ -25,6 +25,8 @@ import {
   setSelected,
   type Selection,
 } from "./selection-state";
+import { TransformBinder, deleteSelected } from "./transforms";
+import { initCreateMode } from "./create-mode";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
 import { buildIfc, ifcRoundTrip } from "./ifc";
 import {
@@ -110,13 +112,52 @@ subscribeFilters((f) => {
   viewer.setVertexHelpersVisible(f.Points);
 });
 
-// Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
-// keyboards without a numpad. Captured at window level but ignored if the
-// user is typing in any input/textarea/contenteditable.
+// T4 — transform gizmos (translate / rotate / scale) bound to current selection.
+const transformBinder = new TransformBinder(viewer);
+(window as unknown as { __transforms: TransformBinder }).__transforms = transformBinder;
+
+// Create-mode click-to-place pipeline (Phase 3).
+initCreateMode(viewer);
+
+// Navigation + transform hotkeys. Captured at window level but ignored if
+// the user is typing in any input/textarea/contenteditable. Transform
+// hotkeys (g/t/r/s/Delete) only fire when something is selected, so an
+// unselected "g" still falls through.
 window.addEventListener("keydown", (e) => {
   const tgt = e.target as HTMLElement | null;
   if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+
+  // Delete first — works regardless of modifier state. Backspace mirrors
+  // Delete for laptops without a dedicated Del key.
+  if ((e.key === "Delete" || e.key === "Backspace") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (getSelected()) {
+      deleteSelected(viewer);
+      e.preventDefault();
+      return;
+    }
+  }
+
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  // Transform hotkeys when there's an active selection.
+  if (getSelected()) {
+    if (e.key === "g" || e.key === "G" || e.key === "t" || e.key === "T") {
+      transformBinder.setMode("translate");
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "r" || e.key === "R") {
+      transformBinder.setMode("rotate");
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "s" || e.key === "S") {
+      transformBinder.setMode("scale");
+      e.preventDefault();
+      return;
+    }
+  }
+
   // Numpad first; falls through to letter keys for laptops.
   switch (e.key) {
     case "1": case "Numpad1": viewer.setView("front"); break;
