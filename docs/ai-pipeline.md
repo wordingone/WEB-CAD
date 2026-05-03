@@ -5,10 +5,13 @@ JS construction sequence. Two paths back the textbox.
 
 ## Path A — bundled cache (default)
 
-41 prompt → JS pairs ship with the web bundle:
+60 prompt → JS pairs ship with the web bundle:
 - 40 rows from `outputs/cad-lora-v2-4b-it-eval.jsonl` (100% round-trip on the
   v2 LoRA eval set — every row's `pred` parses, runs, and produces a non-
   empty solid through Tier 1 `execute()`).
+- 19 rows from `data/dsl-demo-corpus.jsonl` compiled to JS via
+  `web/src/dsl-eval.ts` (`compileDsl()` — same path the CONSOLE tab uses
+  at runtime; broader parametric coverage than the 4b-it eval alone).
 - 1 row for the Schultz Residence (uses `gold` since the 4b-it pred has
   translate/cut bugs on the 14-element multi-fuse).
 
@@ -16,7 +19,7 @@ Build the cache from the eval corpora:
 
 ```
 bun scripts/build-ai-cache.ts
-# wrote web/public/ai-cache.json (41 rows)
+# wrote web/public/ai-cache.json (60 rows)
 ```
 
 The frontend's `web/src/ai-generate.ts` fetches `ai-cache.json` lazily on the
@@ -75,7 +78,7 @@ ai-generate.generateGeometry(prompt)
     │
     └─ tryCache(prompt)
             │
-            └─ F1 fuzzy match against ai-cache.json (41 rows)
+            └─ F1 fuzzy match against ai-cache.json (60 rows)
                     │
                     └─ best ≥ 0.30 → JS
                     └─ no match  → throw GenerateError
