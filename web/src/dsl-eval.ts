@@ -19,6 +19,18 @@
 //   - `polyline-footprint slabs` are accepted but only when rectangular
 //     (axis-aligned 4-corner). Curved or N>4-vertex footprints emit a
 //     compile error rather than approximating silently.
+//
+// Verb cheat sheet (v0):
+//   wall   (x0 y0) (x1 y1) height=H thickness=T   — vertical wall solid
+//   slab   [(x y) ...] thickness=T offset=Z       — polyline-footprint slab
+//   column (x y) height=H profile=square(S)|circle(R)
+//   box    (cx cy) width=W depth=D height=H [offset=Z]   — axis-aligned solid
+//   cut    a b                                    — boolean diff, consumes a+b
+//
+// box vs slab: same lowering (drawRectangle.extrude.translate) but different
+// syntax. slab is polyline-first (designed for floor/roof footprints from
+// polylines); box is center+dims-first (cleaner for stair-step / parametric
+// solids where dims are the natural parameters).
 
 export type Vec2 = [number, number];
 
@@ -53,8 +65,17 @@ interface Cut {
   a: string;
   b: string;
 }
+interface Box {
+  kind: "box";
+  cx: number;
+  cy: number;
+  width: number;
+  depth: number;
+  height: number;
+  offset: number;
+}
 
-type Stmt = (Wall | Slab | Column | Cut) & { binding: string };
+type Stmt = (Wall | Slab | Column | Cut | Box) & { binding: string };
 
 const NUM = /-?\d+(?:\.\d+)?(?:e-?\d+)?/;
 
@@ -203,6 +224,15 @@ function emitSlab(s: Slab, name: string): string {
   ].join("\n");
 }
 
+function emitBox(s: Box, name: string): string {
+  return [
+    `const ${name} = drawRectangle(${s.width.toFixed(4)}, ${s.depth.toFixed(4)})`,
+    `  .sketchOnPlane("XY")`,
+    `  .extrude(${s.height.toFixed(4)})`,
+    `  .translate([${s.cx.toFixed(4)}, ${s.cy.toFixed(4)}, ${s.offset.toFixed(4)}]);`,
+  ].join("\n");
+}
+
 function emitColumn(s: Column, name: string): string {
   if (s.profile.kind === "circle") {
     return [
@@ -320,6 +350,33 @@ export function compileDsl(source: string): CompileResult {
       continue;
     }
 
+    if (verb === "box") {
+      // box (cx cy) width=W depth=D height=H [offset=Z]
+      if (positional.length < 1) {
+        return { ok: false, line: i + 1, message: `box: expected center (cx cy)` };
+      }
+      const center = parseTuple(positional[0]);
+      if (!center || center.length !== 2) {
+        return { ok: false, line: i + 1, message: `box: center must be (cx cy)` };
+      }
+      const wStr = getNamed(named, "width");
+      const dStr = getNamed(named, "depth");
+      const hStr = getNamed(named, "height");
+      if (!wStr || !dStr || !hStr) {
+        return { ok: false, line: i + 1, message: `box: requires width=, depth=, height=` };
+      }
+      const width = parseNumber(wStr);
+      const depth = parseNumber(dStr);
+      const height = parseNumber(hStr);
+      if (width === null || depth === null || height === null) {
+        return { ok: false, line: i + 1, message: `box: width/depth/height not a number` };
+      }
+      const offsetStr = getNamed(named, "offset");
+      const offset = offsetStr ? parseNumber(offsetStr) ?? 0 : 0;
+      stmts.push({ kind: "box", cx: center[0], cy: center[1], width, depth, height, offset, binding: name });
+      continue;
+    }
+
     if (verb === "cut") {
       // cut <a> <b> → const result = a.cut(b);
       // Operands must be names of previously-bound solids.
@@ -340,7 +397,7 @@ export function compileDsl(source: string): CompileResult {
       continue;
     }
 
-    return { ok: false, line: i + 1, message: `unknown verb: '${verb}' (v0 supports: wall, slab, column, cut)` };
+    return { ok: false, line: i + 1, message: `unknown verb: '${verb}' (v0 supports: wall, slab, column, box, cut)` };
   }
 
   // Emit replicad. Each statement → one binding; final value is fused
@@ -356,6 +413,7 @@ export function compileDsl(source: string): CompileResult {
     if (s.kind === "wall") body.push(emitWall(s, s.binding));
     else if (s.kind === "slab") body.push(emitSlab(s, s.binding));
     else if (s.kind === "column") body.push(emitColumn(s, s.binding));
+    else if (s.kind === "box") body.push(emitBox(s, s.binding));
     else if (s.kind === "cut") {
       body.push(`const ${s.binding} = ${s.a}.cut(${s.b});`);
       consumed.add(s.a);
