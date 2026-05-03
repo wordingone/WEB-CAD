@@ -1,0 +1,823 @@
+# Spatial Dictionary — gemma-architect canonical vocabulary
+#
+# Hybrid schema: IFC4 entity classes as canonical names + generic CAD verbs
+# as synonyms + Gemma-NL phrasings as additional synonyms. Per the project's
+# copyright-safe alias strategy (see spatial-dictionary.LICENSE.md), all
+# synonyms are unprotectable functional verbs (Lotus v. Borland, scènes à
+# faire, merger doctrine). No vendor-trademarked compound tokens.
+#
+# Schema per row:
+#   canonical_name : string  — IFC4 entity OR an SD-defined kernel verb
+#   ifc4_class     : string? — buildingSMART IFC4 entity name when applicable
+#   kernel_op      : string  — internal SD-defined op name (used by dispatch)
+#   args           : list    — { name, type, required, unit?, default? }
+#   topology_role  : enum    — host | hosted | void | face | edge | solid |
+#                              compound | curve | surface | annotation |
+#                              transform | view | selection | system
+#   kg_predicates  : list    — predicate names this verb writes to the KG
+#   synonyms       : list    — generic CAD verbs + NL phrasings (NO BRANDS)
+#   hotkey         : string? — single keystroke binding
+#   kernel         : enum    — replicad | nurbs-webgpu  (T17 dual-kernel)
+#   alias_source   : string  — must be "generic_cad_vocabulary"
+#
+# Categories (ordered):
+#   §1 Sketch primitives        (line, arc, circle, polygon, polyline, rect, ellipse, spline)
+#   §2 Solid primitives         (box, cylinder, sphere, cone, prism)
+#   §3 Solid creation           (extrude, revolve, sweep, loft)
+#   §4 Boolean ops              (union, difference, intersection)
+#   §5 Edge / surface ops       (fillet, chamfer, offset, trim, extend, split, shell)
+#   §6 Transform                (move, rotate, scale, mirror, array)
+#   §7 Architectural            (wall, slab, column, beam, stair, door, window, roof, space)
+#   §8 Annotation               (dimension, leader, text)
+#   §9 Group / layer            (group, ungroup, layer, lock, hide)
+#   §10 Selection               (select, selectAll, deselect, isolate)
+#   §11 View / navigation       (zoomExtents, zoomSelected, ortho, perspective)
+#   §12 Analysis                (measure, area, volume)
+#   §13 IO                      (import, export, save, open)
+
+# ============================================================
+# §1 Sketch primitives
+# ============================================================
+
+- canonical_name: SdLine
+  kernel_op: drawLine
+  args:
+    - {name: start, type: point2, required: true}
+    - {name: end,   type: point2, required: true}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [line, drawline, l, segment]
+  hotkey: L
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdArc
+  kernel_op: drawArc
+  args:
+    - {name: center, type: point2, required: true}
+    - {name: radius, type: number, required: true, unit: m}
+    - {name: angleStart, type: number, required: true, unit: deg}
+    - {name: angleEnd,   type: number, required: true, unit: deg}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [arc]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdCircle
+  kernel_op: drawCircle
+  args:
+    - {name: center, type: point2, required: true}
+    - {name: radius, type: number, required: true, unit: m}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [circle, c]
+  hotkey: C
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdPolygon
+  kernel_op: drawPolygon
+  args:
+    - {name: center, type: point2, required: true}
+    - {name: radius, type: number, required: true, unit: m}
+    - {name: sides,  type: integer, required: true, default: 6}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [polygon, ngon]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdPolyline
+  kernel_op: drawPolyline
+  args:
+    - {name: points, type: list_point2, required: true}
+    - {name: closed, type: boolean, required: false, default: true}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [polyline, pline]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdRectangle
+  kernel_op: drawRectangle
+  args:
+    - {name: width,  type: number, required: true, unit: m}
+    - {name: depth,  type: number, required: true, unit: m}
+    - {name: center, type: point2, required: false, default: [0, 0]}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [rectangle, rect, r]
+  hotkey: R
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdEllipse
+  kernel_op: drawEllipse
+  args:
+    - {name: center, type: point2, required: true}
+    - {name: rx,     type: number, required: true, unit: m}
+    - {name: ry,     type: number, required: true, unit: m}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [ellipse, oval]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSpline
+  kernel_op: drawSpline
+  args:
+    - {name: points, type: list_point2, required: true}
+    - {name: degree, type: integer, required: false, default: 3}
+  topology_role: curve
+  kg_predicates: []
+  synonyms: [spline, curve, bspline]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §2 Solid primitives
+# ============================================================
+
+- canonical_name: SdBox
+  kernel_op: makeBox
+  args:
+    - {name: width,  type: number, required: true, unit: m}
+    - {name: depth,  type: number, required: true, unit: m}
+    - {name: height, type: number, required: true, unit: m}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [box, cube, cuboid, makebox]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdCylinder
+  kernel_op: makeCylinder
+  args:
+    - {name: radius, type: number, required: true, unit: m}
+    - {name: height, type: number, required: true, unit: m}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [cylinder, cyl, makecylinder]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSphere
+  kernel_op: makeSphere
+  args:
+    - {name: radius, type: number, required: true, unit: m}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [sphere, ball]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdCone
+  kernel_op: makeCone
+  args:
+    - {name: radius1, type: number, required: true, unit: m}
+    - {name: radius2, type: number, required: true, unit: m, default: 0}
+    - {name: height,  type: number, required: true, unit: m}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [cone]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdPrism
+  kernel_op: makePrism
+  args:
+    - {name: profile, type: polyline, required: true}
+    - {name: height,  type: number, required: true, unit: m}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [prism]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §3 Solid creation
+# ============================================================
+
+- canonical_name: SdExtrude
+  ifc4_class: IfcExtrudedAreaSolid
+  kernel_op: extrude
+  args:
+    - {name: profile,  type: edge_or_surface, required: true}
+    - {name: distance, type: number,          required: true, unit: m}
+    - {name: direction, type: vector3,        required: false, default: [0, 0, 1]}
+  topology_role: solid
+  kg_predicates: [aggregatedBy]
+  synonyms: [extrude, e, push]
+  hotkey: E
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdRevolve
+  ifc4_class: IfcRevolvedAreaSolid
+  kernel_op: revolve
+  args:
+    - {name: profile, type: edge_or_surface, required: true}
+    - {name: axis,    type: line3,           required: true}
+    - {name: angle,   type: number,          required: false, default: 360, unit: deg}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [revolve, lathe]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSweep
+  ifc4_class: IfcSweptDiskSolid
+  kernel_op: sweep
+  args:
+    - {name: profile, type: edge_or_surface, required: true}
+    - {name: path,    type: curve,           required: true}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [sweep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdLoft
+  kernel_op: loft
+  args:
+    - {name: sections, type: list_edge_or_surface, required: true}
+    - {name: closed,   type: boolean, required: false, default: false}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [loft, blend]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §4 Boolean ops
+# ============================================================
+
+- canonical_name: SdBooleanUnion
+  kernel_op: fuse
+  args:
+    - {name: a, type: solid, required: true}
+    - {name: b, type: solid, required: true}
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [union, fuse, booleanunion, "boolean union", merge, add]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdBooleanDifference
+  kernel_op: cut
+  args:
+    - {name: outer, type: solid, required: true}
+    - {name: inner, type: solid, required: true}
+  topology_role: solid
+  kg_predicates: [hosts]
+  synonyms: [difference, cut, subtract, "boolean cut", booleandiff]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdBooleanIntersection
+  kernel_op: intersect
+  args:
+    - {name: a, type: solid, required: true}
+    - {name: b, type: solid, required: true}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [intersection, intersect, common]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §5 Edge / surface ops
+# ============================================================
+
+- canonical_name: SdFillet
+  kernel_op: fillet
+  args:
+    - {name: edges,  type: list_edge, required: true}
+    - {name: radius, type: number,    required: true, unit: m}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [fillet, round]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdChamfer
+  kernel_op: chamfer
+  args:
+    - {name: edges,    type: list_edge, required: true}
+    - {name: distance, type: number,    required: true, unit: m}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [chamfer, bevel]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdOffset
+  kernel_op: offset
+  args:
+    - {name: source,   type: edge_or_surface, required: true}
+    - {name: distance, type: number,          required: true, unit: m}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [offset]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdTrim
+  kernel_op: trim
+  args:
+    - {name: source, type: edge,   required: true}
+    - {name: cutter, type: edge,   required: true}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [trim]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdExtend
+  kernel_op: extend
+  args:
+    - {name: source, type: edge,   required: true}
+    - {name: target, type: edge,   required: true}
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [extend]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSplit
+  kernel_op: split
+  args:
+    - {name: source, type: solid_or_edge, required: true}
+    - {name: cutter, type: solid_or_edge, required: true}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [split, divide]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdShell
+  kernel_op: shell
+  args:
+    - {name: source,    type: solid, required: true}
+    - {name: thickness, type: number, required: true, unit: m}
+    - {name: openFaces, type: list_face, required: false}
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [shell, hollow, thicken]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §6 Transform
+# ============================================================
+
+- canonical_name: SdMove
+  kernel_op: translate
+  args:
+    - {name: target, type: any,     required: true}
+    - {name: vector, type: vector3, required: true}
+  topology_role: transform
+  kg_predicates: []
+  synonyms: [move, translate, m, shift]
+  hotkey: M
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdRotate
+  kernel_op: rotate
+  args:
+    - {name: target, type: any,     required: true}
+    - {name: angle,  type: number,  required: true, unit: deg}
+    - {name: axis,   type: vector3, required: false, default: [0, 0, 1]}
+    - {name: pivot,  type: point3,  required: false, default: [0, 0, 0]}
+  topology_role: transform
+  kg_predicates: []
+  synonyms: [rotate, turn, spin]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdScale
+  kernel_op: scale
+  args:
+    - {name: target, type: any,     required: true}
+    - {name: factor, type: number_or_vector3, required: true}
+    - {name: pivot,  type: point3,  required: false, default: [0, 0, 0]}
+  topology_role: transform
+  kg_predicates: []
+  synonyms: [scale, resize]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdMirror
+  kernel_op: mirror
+  args:
+    - {name: target, type: any,    required: true}
+    - {name: plane,  type: plane3, required: true}
+  topology_role: transform
+  kg_predicates: []
+  synonyms: [mirror, reflect, flip]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdArray
+  kernel_op: array
+  args:
+    - {name: target,  type: any,     required: true}
+    - {name: count,   type: integer, required: true}
+    - {name: spacing, type: vector3, required: true}
+  topology_role: transform
+  kg_predicates: [groupedWith]
+  synonyms: [array, repeat, pattern]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §7 Architectural (IFC4-canonical)
+# ============================================================
+
+- canonical_name: IfcWall
+  ifc4_class: IfcWall
+  kernel_op: makeWall
+  args:
+    - {name: profile,   type: polyline, required: true}
+    - {name: thickness, type: number,   required: true, unit: m, default: 0.2}
+    - {name: height,    type: number,   required: true, unit: m, default: 3.0}
+  topology_role: host
+  kg_predicates: [hosts, containedIn, bounds]
+  synonyms: [wall, makewall, drawwall, w]
+  hotkey: W
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcSlab
+  ifc4_class: IfcSlab
+  kernel_op: makeSlab
+  args:
+    - {name: profile,   type: polyline, required: true}
+    - {name: thickness, type: number,   required: true, unit: m, default: 0.2}
+  topology_role: host
+  kg_predicates: [containedIn, bounds]
+  synonyms: [slab, floor, plate, s]
+  hotkey: S
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcColumn
+  ifc4_class: IfcColumn
+  kernel_op: makeColumn
+  args:
+    - {name: position, type: point3, required: true}
+    - {name: profile,  type: polyline_or_circle, required: true}
+    - {name: height,   type: number, required: true, unit: m, default: 4.0}
+  topology_role: host
+  kg_predicates: [supports, containedIn]
+  synonyms: [column, post, pillar]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcBeam
+  ifc4_class: IfcBeam
+  kernel_op: makeBeam
+  args:
+    - {name: start,    type: point3, required: true}
+    - {name: end,      type: point3, required: true}
+    - {name: profile,  type: polyline, required: true}
+  topology_role: host
+  kg_predicates: [supports, connectedTo]
+  synonyms: [beam, joist, girder]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcStair
+  ifc4_class: IfcStair
+  kernel_op: makeStair
+  args:
+    - {name: start,      type: point3,  required: true}
+    - {name: end,        type: point3,  required: true}
+    - {name: width,      type: number,  required: true, unit: m, default: 1.0}
+    - {name: riser,      type: number,  required: false, unit: m, default: 0.18}
+    - {name: tread,      type: number,  required: false, unit: m, default: 0.27}
+  topology_role: host
+  kg_predicates: [containedIn, connectedTo]
+  synonyms: [stair, stairs, steps, staircase]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcDoor
+  ifc4_class: IfcDoor
+  kernel_op: makeDoor
+  args:
+    - {name: hostWall, type: solid,  required: true}
+    - {name: position, type: point3, required: true}
+    - {name: width,    type: number, required: true, unit: m, default: 0.9}
+    - {name: height,   type: number, required: true, unit: m, default: 2.1}
+  topology_role: hosted
+  kg_predicates: [hosts, containedIn]
+  synonyms: [door, doorway, opening]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcWindow
+  ifc4_class: IfcWindow
+  kernel_op: makeWindow
+  args:
+    - {name: hostWall, type: solid,  required: true}
+    - {name: position, type: point3, required: true}
+    - {name: width,    type: number, required: true, unit: m, default: 1.2}
+    - {name: height,   type: number, required: true, unit: m, default: 1.4}
+    - {name: sillH,    type: number, required: false, unit: m, default: 0.9}
+  topology_role: hosted
+  kg_predicates: [hosts, containedIn]
+  synonyms: [window]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcRoof
+  ifc4_class: IfcRoof
+  kernel_op: makeRoof
+  args:
+    - {name: footprint,  type: polyline, required: true}
+    - {name: pitchDeg,   type: number,   required: false, default: 30, unit: deg}
+    - {name: ridgeHeight,type: number,   required: false, unit: m}
+  topology_role: host
+  kg_predicates: [containedIn, bounds]
+  synonyms: [roof, gable, hip]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: IfcSpace
+  ifc4_class: IfcSpace
+  kernel_op: makeSpace
+  args:
+    - {name: footprint, type: polyline, required: true}
+    - {name: height,    type: number,   required: true, unit: m}
+    - {name: name,      type: string,   required: false}
+  topology_role: host
+  kg_predicates: [containedIn, bounds]
+  synonyms: [space, room, zone]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §8 Annotation (IFC4 IfcAnnotation)
+# ============================================================
+
+- canonical_name: IfcAnnotationDimension
+  ifc4_class: IfcAnnotation
+  kernel_op: makeDimension
+  args:
+    - {name: from,  type: point3,  required: true}
+    - {name: to,    type: point3,  required: true}
+    - {name: label, type: string,  required: false}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [dimension, dim, measure]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdLeader
+  kernel_op: makeLeader
+  args:
+    - {name: from, type: point3, required: true}
+    - {name: to,   type: point3, required: true}
+    - {name: text, type: string, required: true}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [leader, callout, note]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdText
+  kernel_op: makeText
+  args:
+    - {name: position, type: point3, required: true}
+    - {name: content,  type: string, required: true}
+    - {name: size,     type: number, required: false, default: 12}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [text, label]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §9 Group / layer
+# ============================================================
+
+- canonical_name: SdGroup
+  ifc4_class: IfcGroup
+  kernel_op: makeGroup
+  args:
+    - {name: members, type: list_any, required: true}
+    - {name: name,    type: string,   required: false}
+  topology_role: system
+  kg_predicates: [groupedWith]
+  synonyms: [group, block]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdUngroup
+  kernel_op: ungroup
+  args:
+    - {name: target, type: any, required: true}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [ungroup, explode]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdLayer
+  kernel_op: setLayer
+  args:
+    - {name: target, type: any,    required: true}
+    - {name: layer,  type: string, required: true}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [layer, setlayer]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdLock
+  kernel_op: lock
+  args:
+    - {name: target, type: any, required: true}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [lock, freeze]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdHide
+  kernel_op: hide
+  args:
+    - {name: target, type: any, required: true}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [hide, conceal]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §10 Selection
+# ============================================================
+
+- canonical_name: SdSelect
+  kernel_op: select
+  args:
+    - {name: target, type: any, required: true}
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [select, pick]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSelectAll
+  kernel_op: selectAll
+  args: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [selectall, "select all"]
+  hotkey: A
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdDeselect
+  kernel_op: deselect
+  args: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [deselect, none]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdIsolate
+  kernel_op: isolate
+  args:
+    - {name: target, type: any, required: true}
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [isolate, solo]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §11 View / navigation
+# ============================================================
+
+- canonical_name: SdZoomExtents
+  kernel_op: zoomExtents
+  args: []
+  topology_role: view
+  kg_predicates: []
+  synonyms: [zoomextents, "zoom extents", fit, "fit all"]
+  hotkey: F
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdZoomSelected
+  kernel_op: zoomSelected
+  args: []
+  topology_role: view
+  kg_predicates: []
+  synonyms: [zoomselected, "zoom selected"]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSetViewOrtho
+  kernel_op: setViewOrtho
+  args: []
+  topology_role: view
+  kg_predicates: []
+  synonyms: [ortho, orthographic, parallel]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSetViewPerspective
+  kernel_op: setViewPerspective
+  args: []
+  topology_role: view
+  kg_predicates: []
+  synonyms: [perspective, persp]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §12 Analysis
+# ============================================================
+
+- canonical_name: SdMeasure
+  kernel_op: measure
+  args:
+    - {name: from, type: point3, required: true}
+    - {name: to,   type: point3, required: true}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [measure, distance]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdArea
+  kernel_op: area
+  args:
+    - {name: target, type: surface_or_face, required: true}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [area]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdVolume
+  kernel_op: volume
+  args:
+    - {name: target, type: solid, required: true}
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [volume]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §13 IO
+# ============================================================
+
+- canonical_name: SdImport
+  kernel_op: importFile
+  args:
+    - {name: format, type: enum_format, required: true}
+    - {name: bytes,  type: arraybuffer, required: true}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [import, open, load]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdExport
+  kernel_op: exportFile
+  args:
+    - {name: format, type: enum_format, required: true}
+    - {name: target, type: any,         required: false}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export, save, write]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdSave
+  kernel_op: saveProject
+  args:
+    - {name: filename, type: string, required: false}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [save]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdOpen
+  kernel_op: openProject
+  args:
+    - {name: filename, type: string, required: false}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [open]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary

@@ -15,6 +15,7 @@
 import { iconSVG, axesGizmoSVG } from "./icons";
 import { generateGeometry, GenerateError } from "./ai-generate";
 import { compileDsl } from "./dsl-eval";
+import { setState } from "./app-state";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -113,17 +114,18 @@ function buildPalette(host: HTMLElement) {
       const btn = el("button", "palette-btn", { type: "button", title: tool.label, "data-tool": tool.id });
       btn.innerHTML = iconSVG(tool.icon, 18) +
         `<span class="palette-tooltip">${tool.label}</span><span class="corner"></span>`;
-      btn.addEventListener("click", () => {
-        host.querySelectorAll(".palette-btn.active").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        // Wire to ribbon-tool change later (#172). For now: just a visual selection.
-      });
+      // Palette button click drives app-state, which fans out to ribbon
+      // tool-btns and statusbar Tool cell via subscriptions in shell.ts.
+      // syncToolActiveClass (in app-state) drives the .active class on every
+      // [data-tool] element, including this palette-btn — no local toggling
+      // needed.
+      btn.addEventListener("click", () => setState("activeTool", tool.id));
       sec.appendChild(btn);
     }
     host.appendChild(sec);
   }
-  // Default activate Select.
-  (host.querySelector('[data-tool="select"]') as HTMLElement | null)?.classList.add("active");
+  // Initial active class is driven by syncToolActiveClass in shell.ts via
+  // the activeTool subscription firing once on attach (default "select").
 }
 
 function buildSnapDock(): HTMLElement {
@@ -675,7 +677,8 @@ function wireDockResize() {
     dragging = true;
     startY = e.clientY;
     const cur = getComputedStyle(app).getPropertyValue("--dock-h").trim();
-    startH = parseInt(cur || "260", 10);
+    // Default fallback matches app.jsx initial dockH=340. T1 .zip parity.
+    startH = parseInt(cur || "340", 10);
     document.body.style.userSelect = "none";
   });
   window.addEventListener("mousemove", (e: MouseEvent) => {

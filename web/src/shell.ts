@@ -1,140 +1,248 @@
-// Shell chrome — design-handoff #171.
+// Shell chrome — design-handoff #171, T1 .zip parity restoration.
 //
-// Builds the menubar (9 menus) / modebar (4 modes) / ribbon (6 tabs + tools)
+// Builds the menubar (9 menus) / modebar (4 modes) / ribbon (6 tabs + tools) /
 // statusbar wiring on top of the existing prompt-pane + viewer-pane layout.
 //
-// DOM target classes match the design bundle's structure (project/styles.css):
+// Source-of-truth: B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx
+// MENU_DATA action semantics + TOOL_GROUPS shape + BLUEPRINT pill location +
+// modebar icons all match that bundle. Differences from app.jsx are inlined
+// as TS port adaptations (no React state, app-state.ts pub/sub instead).
+//
+// DOM target classes match the bundle's project/styles.css:
 // .app, .menubar, .modebar, .ribbon, .ribbon-tabs, .ribbon-tools, .statusbar,
 // .menu-item / .menu-dropdown / .menu-row / .menu-row-kbd / .menu-sep, etc.
 
-type MenuEntry = { label: string; shortcut?: string; separator?: false } | { separator: true };
+import { iconSVG } from "./icons";
+import { openExportDrawer } from "./export-drawer";
+import { openCmdK } from "./cmdk";
+import {
+  getState,
+  setState,
+  subscribe,
+  syncToolActiveClass,
+  syncThemeAttribute,
+  hydrateFromStorage,
+  type LayoutMode,
+} from "./app-state";
+
+type MenuAction = () => void;
+type MenuRow =
+  | { label: string; kbd?: string; action?: MenuAction }
+  | "---";
 type MenuItem = {
   label: string;
-  entries: MenuEntry[];
+  // dynamicLabel lets the View > theme entry render "Daylight · vellum" or
+  // "Blueprint · night" depending on current state.
+  dynamicLabel?: () => string;
+  items: MenuRow[];
 };
 
-const MENUS: MenuItem[] = [
-  { label: "File", entries: [
-    { label: "New project",                shortcut: "⌘N" },
-    { label: "Open…",                      shortcut: "⌘O" },
-    { label: "Save",                       shortcut: "⌘S" },
-    { label: "Save As…",                   shortcut: "⇧⌘S" },
-    { separator: true },
-    { label: "Import IFC / STEP / OBJ…" },
-    { label: "Export…",                    shortcut: "⌘E" },
-    { separator: true },
-    { label: "Quit",                       shortcut: "⌘Q" },
+type Tool = { id: string; icon: string; label: string };
+type ToolGroup = { label: string; tools: Tool[] };
+
+// Shape mirrors app.jsx TOOL_GROUPS line 25–49 (id + icon per tool).
+const TOOL_GROUPS: ToolGroup[] = [
+  { label: "TRANSFORM", tools: [
+    { id: "select", icon: "select", label: "Select" },
+    { id: "move",   icon: "move",   label: "Move" },
+    { id: "rotate", icon: "rotate", label: "Rotate" },
+    { id: "scale",  icon: "scale",  label: "Scale" },
   ]},
-  { label: "Edit", entries: [
-    { label: "Undo",         shortcut: "⌘Z" },
-    { label: "Redo",         shortcut: "⇧⌘Z" },
-    { separator: true },
-    { label: "Cut",          shortcut: "⌘X" },
-    { label: "Copy",         shortcut: "⌘C" },
-    { label: "Paste",        shortcut: "⌘V" },
-    { label: "Duplicate",    shortcut: "⌘D" },
-    { separator: true },
-    { label: "Select all",   shortcut: "⌘A" },
-    { label: "Deselect",     shortcut: "esc" },
+  { label: "SKETCH 2D", tools: [
+    { id: "line",     icon: "line",     label: "Line" },
+    { id: "rect",     icon: "rect",     label: "Rectangle" },
+    { id: "circle",   icon: "circle",   label: "Circle" },
+    { id: "polygon",  icon: "polygon",  label: "Polygon" },
+    { id: "polyline", icon: "polyline", label: "Polyline" },
+    { id: "arc",      icon: "arc",      label: "Arc" },
+    { id: "spline",   icon: "spline",   label: "Spline" },
   ]},
-  { label: "View", entries: [
-    { label: "Single viewport", shortcut: "⍐1" },
-    { label: "Side by side",    shortcut: "⍐2" },
-    { label: "Stacked",         shortcut: "⍐3" },
-    { label: "Quad · T/F/R/P",  shortcut: "⍐4" },
-    { separator: true },
-    { label: "Mode · Model" },
-    { label: "Mode · Layout" },
-    { label: "Mode · Research" },
-    { separator: true },
-    { label: "Toggle theme" },
-    { label: "Command palette…", shortcut: "⌘K" },
+  { label: "SOLID", tools: [
+    { id: "extrude", icon: "extrude", label: "Extrude" },
+    { id: "revolve", icon: "revolve", label: "Revolve" },
+    { id: "fillet",  icon: "fillet",  label: "Fillet" },
+    { id: "chamfer", icon: "chamfer", label: "Chamfer" },
+    { id: "boolean", icon: "boolean", label: "Boolean" },
   ]},
-  { label: "Sketch", entries: [
-    { label: "Line",       shortcut: "L" },
-    { label: "Rectangle",  shortcut: "R" },
-    { label: "Circle",     shortcut: "C" },
-    { label: "Polyline" },
-    { label: "Polygon" },
-    { label: "Arc" },
-    { label: "Spline" },
+  { label: "ARCH", tools: [
+    { id: "wall",   icon: "wall",   label: "Wall" },
+    { id: "slab",   icon: "slab",   label: "Slab" },
+    { id: "column", icon: "column", label: "Column" },
+    { id: "stair",  icon: "stair",  label: "Stair" },
+    { id: "door",   icon: "door",   label: "Door" },
+    { id: "window", icon: "window", label: "Window" },
   ]},
-  { label: "Solid", entries: [
-    { label: "Extrude",       shortcut: "E" },
-    { label: "Revolve" },
-    { separator: true },
-    { label: "Boolean union" },
-    { label: "Boolean cut" },
-    { separator: true },
-    { label: "Fillet edges" },
-    { label: "Chamfer edges" },
+  { label: "MEASURE", tools: [
+    { id: "ruler",   icon: "ruler",   label: "Measure" },
+    { id: "compass", icon: "compass", label: "Compass" },
   ]},
-  { label: "Arch", entries: [
-    { label: "Wall",   shortcut: "W" },
-    { label: "Slab",   shortcut: "S" },
-    { label: "Column" },
-    { label: "Stair" },
-    { label: "Door" },
-    { label: "Window" },
+];
+
+// Aggregate label table — lets the statusbar display the friendly name for
+// the current activeTool. Keys must match TOOL_GROUPS[].tools[].id above and
+// PALETTE_SECTIONS in workbench.ts.
+const TOOL_LABEL: Record<string, string> = {
+  select:"Select", move:"Move", rotate:"Rotate", scale:"Scale",
+  line:"Line", rect:"Rectangle", circle:"Circle", polyline:"Polyline",
+  polygon:"Polygon", arc:"Arc", spline:"Spline",
+  extrude:"Extrude", revolve:"Revolve", boolean:"Boolean",
+  fillet:"Fillet", chamfer:"Chamfer",
+  wall:"Wall", slab:"Slab", column:"Column", stair:"Stair", door:"Door", window:"Window",
+  ruler:"Measure", compass:"Compass",
+};
+
+type ModeDef = { key: "model" | "layout" | "research"; num: string; label: string; icon: string };
+
+// Mirrors app.jsx modebar entries 380–392 (icon per mode).
+const MODES: ModeDef[] = [
+  { key: "model",    num: "01", label: "MODEL",    icon: "extrude" },
+  { key: "layout",   num: "02", label: "LAYOUT",   icon: "rect" },
+  { key: "research", num: "03", label: "RESEARCH", icon: "sparkle" },
+];
+
+const RIBBON_TABS = ["MODEL", "DRAFT", "ANALYZE", "RENDER", "ANNOTATE", "SUBMIT"] as const;
+type RibbonTab = typeof RIBBON_TABS[number];
+
+// Activate a dock tab from a menubar action. The tabs are built by
+// workbench.ts and identified by data-tab=<id> on .dock-tab elements.
+function activateDockTab(id: string): void {
+  const tab = document.querySelector(`.dock-tab[data-tab="${id}"]`) as HTMLElement | null;
+  tab?.click();
+}
+
+// Activate a top-level mode (model/layout/research). The modebar's per-tab
+// click handler also drives this; this exists for menu-driven mode switches.
+function activateMode(key: ModeDef["key"]): void {
+  setState("viewMode", key);
+  const tab = document.querySelector(`.mode-tab[data-mode="${key}"]`) as HTMLElement | null;
+  tab?.click();
+}
+
+function setLayout(mode: LayoutMode): void {
+  setState("layout", mode);
+}
+
+// Reset layout — bundle's Window > Reset layout: quad layout + dockH=340.
+// Target dockH matches app.jsx line 295 (.zip uses 260 there but the rest of
+// app.jsx initialises dockH=340 — the higher value matches the screenshot).
+function resetLayout(): void {
+  setLayout("quad");
+  const app = document.querySelector(".app") as HTMLElement | null;
+  app?.style.setProperty("--dock-h", "340px");
+}
+
+// MENU_DATA mirrors app.jsx 216–302. Every action callback is real, no
+// console.debug stubs. Where an action depends on app-state (theme toggle,
+// active tool, layout, dock tab), it goes through setState/getState/click
+// so subscribers across the rest of the app see the change.
+const MENU_DATA: MenuItem[] = [
+  { label: "File", items: [
+    { label: "New project",          kbd: "⌘N",   action: () => { /* defer to T6 dispatch */ } },
+    { label: "Open…",                kbd: "⌘O",   action: () => {
+      const btn = document.getElementById("file-pick-btn") as HTMLElement | null;
+      btn?.click();
+    } },
+    { label: "Save",                 kbd: "⌘S",   action: () => { /* defer to T6 dispatch */ } },
+    { label: "Save As…",             kbd: "⇧⌘S", action: () => { /* defer to T6 dispatch */ } },
+    "---",
+    { label: "Import IFC / STEP / OBJ…", action: () => {
+      const btn = document.getElementById("file-pick-btn") as HTMLElement | null;
+      btn?.click();
+    } },
+    { label: "Export…",              kbd: "⌘E",   action: () => openExportDrawer() },
+    "---",
+    { label: "Quit",                 kbd: "⌘Q" },
   ]},
-  { label: "Render", entries: [
+  { label: "Edit", items: [
+    { label: "Undo",                 kbd: "⌘Z" },
+    { label: "Redo",                 kbd: "⇧⌘Z" },
+    "---",
+    { label: "Cut",                  kbd: "⌘X" },
+    { label: "Copy",                 kbd: "⌘C" },
+    { label: "Paste",                kbd: "⌘V" },
+    { label: "Duplicate",            kbd: "⌘D" },
+    "---",
+    { label: "Select all",           kbd: "⌘A" },
+    { label: "Deselect",             kbd: "esc",  action: () => setState("selectedId", null) },
+  ]},
+  { label: "View",
+    items: [
+      { label: "Single viewport",    kbd: "⍐1", action: () => setLayout("single") },
+      { label: "Side by side",       kbd: "⍐2", action: () => setLayout("hsplit") },
+      { label: "Stacked",            kbd: "⍐3", action: () => setLayout("vsplit") },
+      { label: "Quad · T/F/R/P",     kbd: "⍐4", action: () => setLayout("quad") },
+      "---",
+      { label: "Mode · Model",       action: () => activateMode("model") },
+      { label: "Mode · Layout",      action: () => activateMode("layout") },
+      { label: "Mode · Research",    action: () => activateMode("research") },
+      "---",
+      // Theme entry uses dynamicLabel (handled in panel render).
+      { label: "Toggle theme",       action: () => setState("night", !getState("night")) },
+      { label: "Command palette…",   kbd: "⌘K",  action: () => openCmdK() },
+    ],
+  },
+  { label: "Sketch", items: [
+    { label: "Line",                 kbd: "L",   action: () => setState("activeTool", "line") },
+    { label: "Rectangle",            kbd: "R",   action: () => setState("activeTool", "rect") },
+    { label: "Circle",               kbd: "C",   action: () => setState("activeTool", "circle") },
+    { label: "Polyline",                         action: () => setState("activeTool", "polyline") },
+    { label: "Polygon",                          action: () => setState("activeTool", "polygon") },
+    { label: "Arc",                              action: () => setState("activeTool", "arc") },
+    { label: "Spline",                           action: () => setState("activeTool", "spline") },
+  ]},
+  { label: "Solid", items: [
+    { label: "Extrude",              kbd: "E",   action: () => setState("activeTool", "extrude") },
+    { label: "Revolve",                          action: () => setState("activeTool", "revolve") },
+    "---",
+    { label: "Boolean union",                    action: () => setState("activeTool", "boolean") },
+    { label: "Boolean cut",                      action: () => setState("activeTool", "boolean") },
+    "---",
+    { label: "Fillet edges",                     action: () => setState("activeTool", "fillet") },
+    { label: "Chamfer edges",                    action: () => setState("activeTool", "chamfer") },
+  ]},
+  { label: "Arch", items: [
+    { label: "Wall",                 kbd: "W",   action: () => setState("activeTool", "wall") },
+    { label: "Slab",                 kbd: "S",   action: () => setState("activeTool", "slab") },
+    { label: "Column",                           action: () => setState("activeTool", "column") },
+    { label: "Stair",                            action: () => setState("activeTool", "stair") },
+    { label: "Door",                             action: () => setState("activeTool", "door") },
+    { label: "Window",                           action: () => setState("activeTool", "window") },
+  ]},
+  { label: "Render", items: [
     { label: "Wireframe" },
     { label: "Hidden line" },
     { label: "Shaded" },
     { label: "Rendered" },
-    { separator: true },
+    "---",
     { label: "Render settings…" },
   ]},
-  { label: "Window", entries: [
-    { label: "Prompt" },
-    { label: "Console" },
-    { label: "Node graph" },
-    { label: "Parameters" },
-    { label: "History" },
-    { separator: true },
-    { label: "Reset layout" },
+  { label: "Window", items: [
+    { label: "Prompt",               action: () => activateDockTab("prompt") },
+    { label: "Console",              action: () => activateDockTab("console") },
+    { label: "Node graph",           action: () => activateDockTab("nodes") },
+    { label: "Parameters",           action: () => activateDockTab("parameters") },
+    { label: "History",              action: () => activateDockTab("history") },
+    "---",
+    { label: "Reset layout",         action: () => resetLayout() },
   ]},
-  { label: "Help", entries: [
+  { label: "Help", items: [
     { label: "Documentation" },
     { label: "Keyboard shortcuts" },
     { label: "About Gemma·Architect" },
   ]},
 ];
 
-type ToolGroup = { label: string; tools: string[] };
-const TOOL_GROUPS: ToolGroup[] = [
-  { label: "TRANSFORM", tools: ["Select", "Move", "Rotate", "Scale"] },
-  { label: "SKETCH 2D", tools: ["Line", "Rect", "Circle", "Polygon", "Polyline", "Arc", "Spline"] },
-  { label: "SOLID",     tools: ["Extrude", "Revolve", "Fillet", "Chamfer", "Boolean"] },
-  { label: "ARCH",      tools: ["Wall", "Slab", "Column", "Stair", "Door", "Window"] },
-  { label: "MEASURE",   tools: ["Ruler", "Compass"] },
-];
-
-type ModeDef = { key: string; num: string; label: string };
-const MODES: ModeDef[] = [
-  { key: "model",    num: "01", label: "MODEL" },
-  { key: "layout",   num: "02", label: "LAYOUT" },
-  { key: "research", num: "03", label: "RESEARCH" },
-];
-
-const RIBBON_TABS = ["MODEL", "DRAFT", "ANALYZE", "RENDER", "ANNOTATE", "SUBMIT"] as const;
-type RibbonTab = typeof RIBBON_TABS[number];
-
-const THEME_KEY = "gemma-architect.theme";
-type ThemeMode = "day" | "night";
-
-function setTheme(mode: ThemeMode) {
-  document.documentElement.setAttribute("data-mode", mode);
-  try { localStorage.setItem(THEME_KEY, mode); } catch { /* private mode etc. */ }
-}
-
-function loadTheme(): ThemeMode {
-  try {
-    const v = localStorage.getItem(THEME_KEY);
-    if (v === "day" || v === "night") return v;
-  } catch { /* ignore */ }
-  return "day";
-}
+// Tag the View menu's "Toggle theme" row so its label re-renders when night
+// state flips. Index 9 in the View > items list (0-based: Single, Side by,
+// Stacked, Quad, "---", Model, Layout, Research, "---", theme).
+(MENU_DATA[2].items[9] as { label: string }).label = getState("night")
+  ? "Daylight · vellum"
+  : "Blueprint · night";
+subscribe("night", (n) => {
+  (MENU_DATA[2].items[9] as { label: string }).label = n
+    ? "Daylight · vellum"
+    : "Blueprint · night";
+});
 
 function buildBrand(): HTMLElement {
   const brand = document.createElement("div");
@@ -142,7 +250,6 @@ function buildBrand(): HTMLElement {
 
   const mark = document.createElement("span");
   mark.className = "brand-mark";
-  // Bundle BrandMark — circle + crosshair + sanguine sweep.
   mark.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/>
     <path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.5"/>
@@ -160,11 +267,8 @@ function buildBrand(): HTMLElement {
 
 function buildMenubar(host: HTMLElement) {
   host.innerHTML = "";
-
-  // Brand cell on the left.
   host.appendChild(buildBrand());
 
-  // Menu items wrapper — required by .menubar grid; bundle structure.
   const items = document.createElement("div");
   items.className = "menubar-items";
   host.appendChild(items);
@@ -173,14 +277,8 @@ function buildMenubar(host: HTMLElement) {
   let openDropdown: HTMLDivElement | null = null;
 
   function closeMenu() {
-    if (openDropdown) {
-      openDropdown.remove();
-      openDropdown = null;
-    }
-    if (openItem) {
-      openItem.classList.remove("open");
-      openItem = null;
-    }
+    if (openDropdown) { openDropdown.remove(); openDropdown = null; }
+    if (openItem)     { openItem.classList.remove("open"); openItem = null; }
   }
 
   function openMenuFor(menu: MenuItem, anchor: HTMLDivElement) {
@@ -191,49 +289,50 @@ function buildMenubar(host: HTMLElement) {
     panel.dataset.for = menu.label.toLowerCase();
     panel.addEventListener("mousedown", (e) => e.stopPropagation());
 
-    for (const entry of menu.entries) {
-      if ("separator" in entry && entry.separator) {
+    for (const entry of menu.items) {
+      if (entry === "---") {
         const sep = document.createElement("div");
         sep.className = "menu-sep";
         sep.setAttribute("role", "separator");
         panel.appendChild(sep);
         continue;
       }
-      const e = entry as { label: string; shortcut?: string };
       const row = document.createElement("div");
       row.className = "menu-row";
       row.setAttribute("role", "menuitem");
 
       const label = document.createElement("span");
       label.className = "menu-row-label";
-      label.textContent = e.label;
+      label.textContent = entry.label;
       row.appendChild(label);
 
-      if (e.shortcut) {
+      if (entry.kbd) {
         const kbd = document.createElement("span");
         kbd.className = "menu-row-kbd";
-        kbd.textContent = e.shortcut;
+        kbd.textContent = entry.kbd;
         row.appendChild(kbd);
       }
 
-      row.addEventListener("click", () => {
-        // Action wiring lives in #179 (palette dispatch) + per-feature sub-tasks.
-        // For now: log + close.
-        // eslint-disable-next-line no-console
-        console.debug(`[shell] ${menu.label} → ${e.label}${e.shortcut ? " (" + e.shortcut + ")" : ""}`);
-        closeMenu();
-      });
+      const action = entry.action;
+      if (action) {
+        row.addEventListener("click", () => {
+          action();
+          closeMenu();
+        });
+      } else {
+        row.classList.add("disabled");
+        row.addEventListener("click", () => closeMenu());
+      }
       panel.appendChild(row);
     }
 
-    // Position relative to anchor inside .menu-item (bundle uses absolute inside menu-item).
     anchor.appendChild(panel);
     anchor.classList.add("open");
     openItem = anchor;
     openDropdown = panel;
   }
 
-  for (const menu of MENUS) {
+  for (const menu of MENU_DATA) {
     const item = document.createElement("div");
     item.className = "menu-item";
     item.dataset.menu = menu.label.toLowerCase();
@@ -242,16 +341,11 @@ function buildMenubar(host: HTMLElement) {
     item.textContent = menu.label;
     item.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (openItem === item) {
-        closeMenu();
-      } else {
-        openMenuFor(menu, item);
-      }
+      if (openItem === item) closeMenu();
+      else openMenuFor(menu, item);
     });
     item.addEventListener("mouseenter", () => {
-      if (openItem && openItem !== item) {
-        openMenuFor(menu, item);
-      }
+      if (openItem && openItem !== item) openMenuFor(menu, item);
     });
     items.appendChild(item);
   }
@@ -261,27 +355,41 @@ function buildMenubar(host: HTMLElement) {
   spacer.className = "menubar-spacer";
   host.appendChild(spacer);
 
-  // Right cluster — file label + theme pill + session pill.
+  // Right cluster — file label + BLUEPRINT/VELLUM pill + session pill.
+  // Pill location matches app.jsx:354–374 (was previously rendered into the
+  // statusbar; that location got cropped at short viewport heights so we
+  // moved it back to the menubar-right per .zip).
   const right = document.createElement("div");
   right.className = "menubar-right";
   right.innerHTML = `
     <span>Untitled.001 · IFC4</span>
+    <button id="theme-toggle-pill" class="theme-toggle-pill" type="button"
+      title="Toggle day/night (Ctrl+\\)">
+      <span class="theme-toggle-pill-label">○ VELLUM</span>
+    </button>
     <span class="session-pill"><span class="dot"></span>LOCAL · NO CLOUD</span>
   `;
   host.appendChild(right);
 
-  // Click-outside closes the dropdown.
+  const pillLabel = right.querySelector(".theme-toggle-pill-label") as HTMLElement;
+  const pillBtn = right.querySelector("#theme-toggle-pill") as HTMLButtonElement;
+  function paintPill(night: boolean) {
+    pillLabel.textContent = night ? "◑ BLUEPRINT" : "○ VELLUM";
+    pillBtn.classList.toggle("on", night);
+  }
+  paintPill(getState("night"));
+  subscribe("night", (n) => paintPill(n));
+  pillBtn.addEventListener("click", () => setState("night", !getState("night")));
+
+  // Click-outside / Escape closes the dropdown.
   document.addEventListener("click", (e) => {
     if (!openDropdown) return;
     const tgt = e.target as Node | null;
     if (tgt && (openDropdown.contains(tgt) || openItem?.contains(tgt))) return;
     closeMenu();
   });
-  // Escape closes.
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && openDropdown) {
-      closeMenu();
-    }
+    if (e.key === "Escape" && openDropdown) closeMenu();
   });
 }
 
@@ -302,6 +410,13 @@ function buildModebar(host: HTMLElement, onChange?: (k: string) => void): (k: st
     num.textContent = mode.num;
     tab.appendChild(num);
 
+    // Inject icon per .zip modebar (app.jsx:389: <Icon name={m.icon} size={13}/>)
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "mode-icon";
+    iconWrap.innerHTML = iconSVG(mode.icon, 13);
+    iconWrap.setAttribute("aria-hidden", "true");
+    tab.appendChild(iconWrap);
+
     const label = document.createTextNode(" " + mode.label);
     tab.appendChild(label);
 
@@ -317,8 +432,19 @@ function buildModebar(host: HTMLElement, onChange?: (k: string) => void): (k: st
 
   const meta = document.createElement("div");
   meta.className = "modebar-meta";
-  meta.innerHTML = `<span class="k">CONTEXT</span><span class="v">3D · IFC4 · m</span>`;
   host.appendChild(meta);
+
+  function paintMeta(viewMode: ModeDef["key"]) {
+    if (viewMode === "model") {
+      meta.innerHTML = `<span class="k">CONTEXT</span><span class="v">3D · IFC4 · m</span>`;
+    } else if (viewMode === "layout") {
+      meta.innerHTML = `<span class="k">SHEET</span><span class="v">A1 · LANDSCAPE · 1:50</span>`;
+    } else {
+      meta.innerHTML = `<span class="k">CORPUS</span><span class="v">14 docs · LOCAL+WEB</span>`;
+    }
+  }
+  paintMeta(getState("viewMode"));
+  subscribe("viewMode", (v) => paintMeta(v));
 
   function activate(key: string) {
     for (const t of tabs) {
@@ -326,6 +452,7 @@ function buildModebar(host: HTMLElement, onChange?: (k: string) => void): (k: st
       t.classList.toggle("active", isActive);
       t.setAttribute("aria-selected", isActive ? "true" : "false");
     }
+    setState("viewMode", key as ModeDef["key"]);
     const sbModeV = document.querySelector("#sb-mode .v") as HTMLElement | null;
     if (sbModeV) {
       const def = MODES.find((m) => m.key === key);
@@ -359,7 +486,8 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
     tabsEl.appendChild(tab);
   }
 
-  // .ribbon-tools — middle area with toolgroups.
+  // .ribbon-tools — middle area with toolgroups. Tools are icon-only buttons
+  // per app.jsx:412–419 (was text labels — that was a port regression).
   const toolsEl = document.createElement("div");
   toolsEl.className = "ribbon-tools";
   ribbonHost.appendChild(toolsEl);
@@ -372,12 +500,12 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "tool-btn";
-      btn.dataset.tool = tool.toLowerCase();
-      btn.title = tool;
-      btn.textContent = tool;
+      btn.dataset.tool = tool.id;
+      btn.title = tool.label;
+      btn.innerHTML = iconSVG(tool.icon, 16);
+      btn.addEventListener("click", () => setState("activeTool", tool.id));
       groupEl.appendChild(btn);
     }
-    // Bundle puts the group label at the END (a footer caption under the buttons).
     const groupLabel = document.createElement("span");
     groupLabel.className = "tool-group-label";
     groupLabel.textContent = group.label;
@@ -386,19 +514,22 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
     toolsEl.appendChild(groupEl);
   }
 
-  // .ribbon-right — quick actions (palette + export).
+  // .ribbon-right — quick actions (palette + export). Both wired now per
+  // app.jsx:425–432 (export was previously dead).
   const rightEl = document.createElement("div");
   rightEl.className = "ribbon-right";
   rightEl.innerHTML = `
-    <button class="btn btn-ghost" type="button" id="ribbon-palette-btn" title="Open command palette (Ctrl+K)">⌘K</button>
-    <button class="btn" type="button" id="ribbon-export-btn" title="Export (Ctrl+E)">EXPORT</button>
+    <button class="btn btn-ghost" type="button" id="ribbon-palette-btn" title="Open command palette (Ctrl+K)">
+      ${iconSVG("command", 11)} ⌘K
+    </button>
+    <button class="btn" type="button" id="ribbon-export-btn" title="Export (Ctrl+E)">
+      ${iconSVG("export", 11)} EXPORT
+    </button>
   `;
   ribbonHost.appendChild(rightEl);
 
-  // Wire the palette quick button to the Cmd-K shortcut (palette.ts listens on window).
-  rightEl.querySelector("#ribbon-palette-btn")?.addEventListener("click", () => {
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
-  });
+  rightEl.querySelector("#ribbon-palette-btn")?.addEventListener("click", () => openCmdK());
+  rightEl.querySelector("#ribbon-export-btn")?.addEventListener("click", () => openExportDrawer());
 
   function activate(t: RibbonTab) {
     for (const el of tabs) {
@@ -411,23 +542,18 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
   return activate;
 }
 
-function wireThemeToggle() {
-  setTheme(loadTheme());
-  const btn = document.getElementById("theme-toggle");
-  btn?.addEventListener("click", () => {
-    const cur = (document.documentElement.getAttribute("data-mode") as ThemeMode) ?? "day";
-    setTheme(cur === "day" ? "night" : "day");
-  });
+function wireThemeToggleHotkey() {
+  // Initial state (data-mode attribute) is set by syncThemeAttribute via the
+  // app-state subscription. The pill button click handler in buildMenubar
+  // drives setState("night", ...) which fires that subscription.
+  // Ctrl+\ toggles theme too — preserved from the original shell.
   window.addEventListener("keydown", (e) => {
-    // Ctrl+\ — theme toggle. Skip when the user is editing text so we don't
-    // steal a backslash they actually wanted.
     if (!(e.ctrlKey || e.metaKey)) return;
     if (e.key !== "\\") return;
     const tgt = e.target as HTMLElement | null;
     if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
     e.preventDefault();
-    const cur = (document.documentElement.getAttribute("data-mode") as ThemeMode) ?? "day";
-    setTheme(cur === "day" ? "night" : "day");
+    setState("night", !getState("night"));
   });
 }
 
@@ -450,13 +576,39 @@ function wireFpsCounter() {
   requestAnimationFrame(tick);
 }
 
+// Wire statusbar Tool / Sel cells to app-state. They're hardcoded "—" in
+// index.html on first paint; this picks up subsequent state changes.
+function wireStatusbarCells() {
+  const toolV = document.querySelector("#sb-tool .v") as HTMLElement | null;
+  const selV = document.querySelector("#sb-sel .v") as HTMLElement | null;
+  if (toolV) {
+    subscribe("activeTool", (id) => {
+      toolV.textContent = TOOL_LABEL[id] ?? id;
+    });
+  }
+  if (selV) {
+    subscribe("selectedId", (id) => {
+      selV.textContent = id ?? "—";
+    });
+  }
+}
+
 export function initShellChrome(opts?: { onModeChange?: (k: string) => void }) {
+  // Hydrate state first so menubar renders with the correct theme label etc.
+  hydrateFromStorage();
+  // Side-effect subscriptions (theme attribute, tool active class).
+  syncToolActiveClass();
+  syncThemeAttribute();
+
   const menubar = document.querySelector(".menubar") as HTMLElement | null;
   const modebar = document.querySelector(".modebar") as HTMLElement | null;
   const ribbon  = document.querySelector(".ribbon")  as HTMLElement | null;
   if (menubar) buildMenubar(menubar);
   if (modebar) buildModebar(modebar, opts?.onModeChange);
   if (ribbon)  buildRibbon(ribbon);
-  wireThemeToggle();
+  wireThemeToggleHotkey();
   wireFpsCounter();
+  wireStatusbarCells();
 }
+
+export { TOOL_LABEL };

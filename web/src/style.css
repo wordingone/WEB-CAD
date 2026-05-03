@@ -296,13 +296,28 @@ html[data-mode="night"] .snap-dock::after {
   display: grid;
   grid-template-rows: 24px 30px 38px 1fr 22px;
   grid-template-columns: 100%;
-  height: 100vh;
+  /* min-height instead of fixed height: short viewports (e.g. 768px laptop
+     screens with browser chrome) were cropping the statusbar. 100dvh
+     respects mobile dynamic viewport height too. T1+T2. */
+  min-height: 100dvh;
+  height: 100dvh;
   width: 100vw;
   background: transparent;
   /* SILHOUETTE — single hairline, the page edge */
   border: var(--lw-silhouette) solid var(--ink-silhouette);
   /* No position/z-index here — would create a stacking context that
      hides body::before from descendants' backdrop-filter. */
+}
+
+/* Compaction at very-short viewports — hides modebar (least-load-bearing
+   chrome row) and tightens ribbon padding so the dock + statusbar still
+   fit. T2 cropping fix. */
+@media (max-height: 700px) {
+  .app {
+    grid-template-rows: 24px 0 32px 1fr 22px;
+  }
+  .modebar { display: none; }
+  .ribbon { padding-block: 2px; }
 }
 
 /* ============================================================
@@ -647,6 +662,159 @@ html[data-mode="night"] .snap-dock::after {
   font-weight: 700;
 }
 
+/* Layout-mode (T15) — controller flips paper-mode into a stack:
+   toolbar → stage → sheet (free panels via absolute positioning). */
+.paper-mode > .paper-toolbar {
+  position: absolute;
+  top: 8px; left: 0; right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--paper-2);
+  border-bottom: var(--lw-edge) solid var(--ink-edge);
+  font-size: 11px;
+  color: var(--ink);
+  flex-wrap: wrap;
+}
+.paper-tool-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.paper-tool-k {
+  color: var(--ink-faint);
+}
+.paper-tool {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  color: var(--ink);
+  font: inherit;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+.paper-tool-num {
+  width: 60px;
+}
+.paper-tool-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.paper-tool-export:hover { background: var(--paper-2); }
+.paper-tool-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paper-mode > .paper-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 24px 24px;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+}
+
+/* When the controller drives the sheet, override the legacy grid template:
+   panels are absolutely positioned children of .paper-sheet. */
+.paper-mode > .paper-stage > .paper-sheet {
+  display: block;
+  position: relative;
+  aspect-ratio: auto;
+  width: auto;
+  max-width: none;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-cell {
+  /* Layout-mode panels are positioned absolutely by the controller. */
+  margin: 0;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-cell.selected {
+  outline: 1.5px solid var(--gemma);
+  outline-offset: -1.5px;
+}
+.paper-cell-toolbar {
+  position: absolute;
+  top: 4px; left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  gap: 4px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  padding: 2px 4px;
+  font-size: 9px;
+  z-index: 3;
+}
+.paper-cell:hover .paper-cell-toolbar,
+.paper-cell.selected .paper-cell-toolbar {
+  display: inline-flex;
+}
+.paper-cell-toolbar select {
+  background: var(--paper);
+  border: none;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink);
+}
+.paper-cell-render {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.paper-cell-render svg { width: 100%; height: 100%; }
+.paper-cell-scalebar {
+  position: absolute;
+  bottom: 4px; right: 6px;
+  pointer-events: none;
+}
+.paper-cell-close {
+  position: absolute;
+  top: 2px; right: 2px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-faint);
+  padding: 2px;
+  display: none;
+}
+.paper-cell:hover .paper-cell-close,
+.paper-cell.selected .paper-cell-close {
+  display: inline-flex;
+}
+.paper-cell-close:hover { color: var(--gemma); }
+.paper-cell-ghost {
+  position: absolute;
+  border: 1px dashed var(--gemma);
+  background: oklch(0.95 0.030 230 / 0.20);
+  pointer-events: none;
+  z-index: 1;
+}
+.paper-mode > .paper-stage > .paper-sheet > .paper-titleblock {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  height: 60px;
+  background: var(--paper);
+  border-top: var(--lw-cut) solid var(--ink-cut);
+}
+.paper-titleblock .tb-cell .v[contenteditable="true"]:focus {
+  outline: 1px solid var(--gemma);
+}
+
 /* ============================================================
    RESEARCH MODE
    ============================================================ */
@@ -908,6 +1076,96 @@ html[data-mode="night"] .snap-dock::after {
   border-color: var(--gemma);
 }
 
+/* T16 — search input on the corpus column */
+.research-search {
+  padding: 6px 12px;
+  background: var(--paper-2);
+  border-bottom: var(--lw-edge) solid var(--ink-edge);
+}
+.research-search input {
+  width: 100%;
+  background: var(--paper);
+  border: var(--lw-edge) solid var(--ink-edge);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  padding: 4px 8px;
+  border-radius: 2px;
+  color: var(--ink);
+  outline: none;
+}
+.research-search input:focus { border-color: var(--gemma); }
+
+/* T16 — markdown body inside the doc viewer */
+.rdv-page.rdv-md h1, .rdv-page.rdv-md h2, .rdv-page.rdv-md h3, .rdv-page.rdv-md h4 {
+  margin: 12px 0 6px; font-weight: 700; color: var(--ink);
+}
+.rdv-page.rdv-md h1 { font-size: 17px; }
+.rdv-page.rdv-md h2 { font-size: 14px; }
+.rdv-page.rdv-md h3 { font-size: 12.5px; }
+.rdv-page.rdv-md h4 { font-size: 12px; letter-spacing: 0.04em; }
+.rdv-page.rdv-md p { margin: 0 0 10px; }
+.rdv-page.rdv-md ul, .rdv-page.rdv-md ol { margin: 0 0 10px; padding-left: 20px; }
+.rdv-page.rdv-md li { margin: 2px 0; }
+.rdv-page.rdv-md code {
+  font-family: var(--mono); font-size: 10.5px;
+  background: var(--paper-3); padding: 0 3px; border-radius: 2px;
+}
+.rdv-page.rdv-md pre {
+  background: var(--paper-3); border: var(--lw-edge) solid var(--ink-edge);
+  padding: 8px 10px; overflow-x: auto; margin: 0 0 10px;
+}
+.rdv-page.rdv-md pre code { background: none; padding: 0; font-size: 10.5px; }
+.rdv-page.rdv-md a { color: var(--gemma-2); text-decoration: underline; }
+.rdv-page.rdv-md hr { border: 0; border-top: var(--lw-edge) solid var(--ink-edge); margin: 12px 0; }
+.rdv-page.rdv-md mark {
+  background: oklch(0.92 0.045 30 / 0.5);
+  border-bottom: 1.5px solid var(--sanguine);
+  padding: 0 1px;
+  color: inherit;
+}
+
+/* T16 — finding action buttons */
+.finding .f-actions {
+  display: flex; gap: 6px; margin-top: 6px;
+}
+.finding button {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: var(--lw-edge) solid var(--ink-edge);
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  border-radius: 2px;
+}
+.finding button:hover {
+  border-color: var(--gemma);
+  color: var(--gemma);
+}
+.finding-empty { background: transparent; border-left-color: var(--ink-edge); }
+.finding-cited { border-left-color: var(--ok); background: oklch(0.95 0.018 160 / 0.4); }
+.cite-divider {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 12px 0 4px;
+  border-bottom: var(--lw-edge) solid var(--ink-edge);
+  padding-bottom: 2px;
+}
+.rp-export {
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 9px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.rp-export:hover { color: var(--gemma); }
+.rp-export svg { width: 11px; height: 11px; }
+
 .session-pill {
   display: inline-flex;
   align-items: center;
@@ -1016,18 +1274,12 @@ html[data-mode="night"] .snap-dock::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Bundle uses 24x24 icon-only buttons. Until ribbon switches to SVG icons,
-     size buttons to fit their text label and add a tiny gap so they don't
-     run together ("SelectMoveRotateScale"). */
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
+  /* Bundle ships icon-only 28x28 square buttons. T1+T7. */
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
   margin: 0 1px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
   border: var(--lw-construction) solid transparent;
   background: transparent;
   color: var(--ink-soft);
@@ -1045,12 +1297,34 @@ html[data-mode="night"] .snap-dock::after {
   color: var(--gemma);
   border-color: var(--gemma);
 }
-.tool-btn svg { width: 14px; height: 14px; stroke-width: 1.25; }
-/* When a tool-btn contains an svg only (no text), keep it tight 24x24. */
-.tool-btn:has(> svg:only-child) {
-  width: 24px;
-  min-width: 24px;
-  padding: 0;
+.tool-btn svg { width: 16px; height: 16px; stroke-width: 1.25; }
+
+/* BLUEPRINT/VELLUM pill in menubar-right. Mirror app.jsx:354–370 inline
+   style as a class so the menubar markup stays declarative. */
+.theme-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--ink-dim);
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 1px;
+  font-weight: 600;
+}
+.theme-toggle-pill:hover {
+  border-color: var(--ink-construction);
+  color: var(--ink);
+}
+.theme-toggle-pill.on {
+  background: var(--gemma-tint);
+  color: var(--gemma);
+  border-color: var(--gemma);
 }
 
 .ribbon-right {
@@ -1209,7 +1483,9 @@ html[data-mode="night"] .snap-dock::after {
 
 .center-col {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto minmax(0, var(--dock-h, 220px));
+  /* Default --dock-h is set inline on .app to min(340px, 35vh) to match the
+     bundle's initial dockH=340 while staying viewport-responsive. */
+  grid-template-rows: minmax(0, 1fr) auto minmax(0, var(--dock-h, 340px));
   min-width: 0;
   min-height: 0;
 }
@@ -1328,12 +1604,51 @@ html[data-mode="night"] .snap-dock::after {
 }
 /* When the viewport is in single-pane mode (only one .viewport visible),
    hide the CSS grid entirely so the THREE.js scene gets a clean canvas.
-   Quad-split mode keeps the per-pane grid (visual frame for each scissor). */
+   Quad-split mode keeps the per-pane grid only for the perspective pane —
+   ortho panes (top/front/right/etc.) hide the CSS overlay so just the dark
+   THREE.js drafting grid shows (T14 — was creating a duplicate "white"
+   grid over the ortho cameras). */
 .viewport-area.split-single .vp-grid { display: none; }
+/* T14: ortho cameras (top / front / right / etc.) hide the light "graph
+   paper" CSS overlay that would otherwise read as a duplicate white grid
+   over the dark THREE.js drafting grid. Perspective panes keep the bundle
+   look (CSS overlay + soft tan THREE grid). */
+.viewport.vp-pane-ortho .vp-grid { display: none; }
 .vp-grid.persp {
   background-image: none;
   background:
     radial-gradient(ellipse at 50% 60%, transparent 30%, oklch(0.93 0.014 80 / 0.5) 100%);
+}
+
+/* Per-pane view-switch dropdown (T14). Upper-left, minimal chrome so it
+   reads as a small affordance, not as an input form element. */
+.vp-view-select {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px 4px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  /* Tiny — fits in the chrome of the pane without hiding canvas content. */
+  max-width: 110px;
+}
+.vp-view-select:hover {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.vp-view-select:focus {
+  border-color: var(--ink-soft);
 }
 
 /* viewport gizmo (axes corner) */

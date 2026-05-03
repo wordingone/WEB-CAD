@@ -3,9 +3,23 @@
 // Receives a flat-array mesh from the worker, builds a BufferGeometry,
 // and frames the camera on the result. OrbitControls let the user
 // orbit / pan / zoom. Grid + axes for spatial reference.
+//
+// T3 (selection) additions:
+//   - Per-mesh helper graph: vertex sprites + edge tubes for raycast hits
+//   - 7-topology raycaster: vertex / edge / face / mesh / brep / compound
+//   - Selection-filter gating + Ctrl+Shift drill-down for sub-objects
+//   - Selection outline material for the active selection
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+  getSelected,
+  setSelected,
+  clearSelected,
+  topologyAllowed,
+  type Selection,
+  type Topology,
+} from "./selection-state";
 
 export type MeshIn = {
   vertices: Float32Array;
@@ -18,12 +32,65 @@ export type Bounds = {
   max: [number, number, number];
 };
 
+// Build a thin invisible cylinder along a line segment. Used as a raycast
+// proxy for edges — Three.js LineSegments are unreliable to pick at typical
+// architectural-zoom levels (the threshold is in screen-pixels, not world
+// units, and tunes poorly across zoom).
+function makeEdgeTube(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  radius: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const start = new THREE.Vector3(ax, ay, az);
+  const end = new THREE.Vector3(bx, by, bz);
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const length = dir.length();
+  if (length === 0) {
+    // Degenerate segment — return a tiny no-op mesh that won't intersect.
+    const g = new THREE.BufferGeometry();
+    return new THREE.Mesh(g, material);
+  }
+  const geom = new THREE.CylinderGeometry(radius, radius, length, 6, 1, true);
+  // CylinderGeometry's axis is +Y; align it with `dir`.
+  geom.translate(0, length / 2, 0);
+  const mid = start;
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.position.copy(mid);
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    dir.clone().normalize(),
+  );
+  return mesh;
+}
+
+// Helper graph attached to each picking-eligible mesh. Built once on mesh
+// load (or per-source-object on file load). Re-used for raycaster picking
+// without per-frame cost.
+type SelectionHelper = {
+  // Owning Mesh that the helpers were derived from.
+  owner: THREE.Mesh;
+  // The "kind" of the owner — drives whether ctrl+shift drilldown returns a
+  // brep face vs a mesh face. brep: replicad-emitted (has provenance).
+  ownerKind: "brep" | "compound" | "mesh";
+  // Vertex sprite group — THREE.Points where each point is one mesh corner.
+  // Hidden by default; rendered only while Points filter is on AND the
+  // viewport is in select mode.
+  vertices: THREE.Points;
+  // Per-edge tube colliders, invisible. These are the actual raycast targets
+  // for edges (LineSegments are not reliably hittable at typical zooms).
+  // Each tube's userData carries its segmentIndex.
+  edgeTubes: THREE.Group;
+  // Visible edge overlay (the existing EdgesGeometry → LineSegments).
+  edgeLines: THREE.LineSegments;
+};
+
 export class Viewer {
   private canvas: HTMLCanvasElement;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
-  private controls: OrbitControls;
+  public controls: OrbitControls;
   private currentMesh: THREE.Mesh | null = null;
   private currentEdges: THREE.LineSegments | null = null;
   private currentObject: THREE.Object3D | null = null;
@@ -31,6 +98,12 @@ export class Viewer {
   private axes: THREE.AxesHelper;
   private axisLabels: THREE.Sprite[] = [];
   private currentBounds: Bounds | null = null;
+
+  // Selection raycaster + helper graphs. Built lazily from setMesh / setObject.
+  private raycaster: THREE.Raycaster;
+  private helpers: SelectionHelper[] = [];
+  private selectionOutline: THREE.LineSegments | null = null;
+  private selectionVertexMarker: THREE.Points | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -78,10 +151,396 @@ export class Viewer {
     this.scene.add(this.axes);
     this.createAxisLabels();
 
+    this.raycaster = new THREE.Raycaster();
+    // Larger threshold for Points (vertex sprites) so corner picks are
+    // forgiving at architectural-scale zoom levels.
+    if (this.raycaster.params.Points) this.raycaster.params.Points.threshold = 0.15;
+    if (this.raycaster.params.Line) this.raycaster.params.Line.threshold = 0.05;
+
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
 
+    // Click handler — wires viewport picks to selection state. Pre-empts
+    // OrbitControls only when a real hit occurs; rotate/pan continues to work
+    // through empty space.
+    this.canvas.addEventListener("pointerdown", this.onPointerDown);
+
     this.animate();
+  }
+
+  // ---------- Selection (T3) ----------
+
+  // Cursor-relative NDC for raycasting.
+  private toNdc(clientX: number, clientY: number): THREE.Vector2 {
+    const rect = this.canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    return new THREE.Vector2(x, y);
+  }
+
+  private onPointerDown = (ev: PointerEvent): void => {
+    // Left button only. Right/middle remain orbit/pan.
+    if (ev.button !== 0) return;
+    // Skip when a TransformControls gizmo is being interacted with — the
+    // gizmo eats the event upstream via its own listeners.
+    if ((this.controls as any).__suspended) return;
+    const drilldown = ev.ctrlKey && ev.shiftKey;
+    const ndc = this.toNdc(ev.clientX, ev.clientY);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const sel = this.pick(drilldown);
+    if (sel) {
+      setSelected(sel);
+      this.applySelectionVisual(sel);
+    } else {
+      // Empty-space click — clear selection.
+      clearSelected();
+      this.applySelectionVisual(null);
+    }
+  };
+
+  // Programmatic pick for tests + Ctrl+Shift behavior. Returns the topmost
+  // selection that respects current filter state.
+  pick(drilldown: boolean): Selection | null {
+    // 1) Try vertex sprites first (closest to the camera in screen space).
+    if (topologyAllowed("vertex")) {
+      for (const h of this.helpers) {
+        const intersects = this.raycaster.intersectObject(h.vertices, false);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          return {
+            topology: "vertex",
+            uuid: h.vertices.uuid,
+            object: h.vertices,
+            parent: h.owner,
+            parentUuid: h.owner.uuid,
+            vertexIndex: hit.index ?? 0,
+            transformTarget: h.owner,
+          };
+        }
+      }
+    }
+
+    // 2) Edge tubes.
+    if (topologyAllowed("edge")) {
+      for (const h of this.helpers) {
+        const intersects = this.raycaster.intersectObjects(h.edgeTubes.children, false);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          const tube = hit.object as THREE.Mesh;
+          const segIdx = (tube.userData?.segmentIndex as number) ?? 0;
+          return {
+            topology: "edge",
+            uuid: tube.uuid,
+            object: tube,
+            parent: h.owner,
+            parentUuid: h.owner.uuid,
+            edgeIndex: segIdx,
+            transformTarget: h.owner,
+          };
+        }
+      }
+    }
+
+    // 3) Face / mesh / brep / compound — raycast against the owning meshes.
+    const meshes = this.helpers.map((h) => h.owner);
+    if (meshes.length === 0) return null;
+    const hits = this.raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0) return null;
+    const hit = hits[0];
+    const helper = this.helpers.find((h) => h.owner === hit.object);
+    if (!helper) return null;
+    const owner = helper.owner;
+
+    // Drilldown: ctrl+shift on a brep/compound returns the face sub-object.
+    if (drilldown && (helper.ownerKind === "brep" || helper.ownerKind === "compound")) {
+      if (topologyAllowed("face")) {
+        return {
+          topology: "face",
+          uuid: owner.uuid,
+          object: owner,
+          parent: owner,
+          parentUuid: owner.uuid,
+          faceIndex: hit.faceIndex ?? 0,
+          transformTarget: owner,
+        };
+      }
+    }
+
+    // Default: top-level brep / compound / mesh hit.
+    let topology: Topology;
+    if (helper.ownerKind === "brep") topology = "brep";
+    else if (helper.ownerKind === "compound") topology = "compound";
+    else topology = "mesh";
+
+    if (!topologyAllowed(topology)) {
+      // Filter for this topology is OFF — fall through to whatever sub-object
+      // type is allowed. Per spec: a clicked brep with Polysurfaces=OFF should
+      // hit the underlying face if Surfaces is on.
+      if (topologyAllowed("face")) {
+        return {
+          topology: "face",
+          uuid: owner.uuid,
+          object: owner,
+          parent: owner,
+          parentUuid: owner.uuid,
+          faceIndex: hit.faceIndex ?? 0,
+          transformTarget: owner,
+        };
+      }
+      if (topologyAllowed("mesh")) {
+        return {
+          topology: "mesh",
+          uuid: owner.uuid,
+          object: owner,
+          transformTarget: owner,
+        };
+      }
+      return null;
+    }
+
+    return {
+      topology,
+      uuid: owner.uuid,
+      object: owner,
+      transformTarget: owner,
+    };
+  }
+
+  // Test/programmatic hook: simulate a click at canvas-space (px) coords.
+  // Returns the resulting Selection (or null).
+  pickAtCanvasCoord(x: number, y: number, opts?: { drilldown?: boolean }): Selection | null {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      (x / Math.max(1, rect.width)) * 2 - 1,
+      -(y / Math.max(1, rect.height)) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const sel = this.pick(opts?.drilldown ?? false);
+    if (sel) setSelected(sel);
+    else clearSelected();
+    this.applySelectionVisual(sel);
+    return sel;
+  }
+
+  // Test hook: cast a world-space ray (origin + direction) directly. Bypasses
+  // the camera projection, so tests don't have to find a canvas pixel that
+  // happens to project onto a corner.
+  pickRay(origin: THREE.Vector3, direction: THREE.Vector3, opts?: { drilldown?: boolean }): Selection | null {
+    this.raycaster.set(origin, direction.clone().normalize());
+    const sel = this.pick(opts?.drilldown ?? false);
+    if (sel) setSelected(sel);
+    else clearSelected();
+    this.applySelectionVisual(sel);
+    return sel;
+  }
+
+  getScene(): THREE.Scene { return this.scene; }
+  getCamera(): THREE.Camera { return this.camera; }
+  getCanvas(): HTMLCanvasElement { return this.canvas; }
+  getHelpers(): SelectionHelper[] { return this.helpers; }
+
+  // Build helper graph for a single Mesh — vertex sprites + edge tubes.
+  // Re-used for both setMesh (worker output) and walking setObject children.
+  private buildHelpersForMesh(
+    mesh: THREE.Mesh,
+    kind: "brep" | "compound" | "mesh",
+    diag: number,
+  ): SelectionHelper {
+    const g = mesh.geometry as THREE.BufferGeometry;
+    const pos = g.attributes.position?.array as Float32Array | undefined;
+
+    // 1) Vertex sprites — sample unique corner positions. We compute the
+    // EdgesGeometry endpoints as the corner set (deduped) so a 1m box has
+    // 8 vertex sprites, not the hundreds of mesh-tessellation vertices.
+    const edgesGeom = new THREE.EdgesGeometry(g, 25);
+    const edgePos = edgesGeom.attributes.position?.array as Float32Array | undefined;
+
+    const vertexMap = new Map<string, [number, number, number]>();
+    const segments: Array<[number, number, number, number, number, number]> = [];
+    if (edgePos) {
+      const round = (v: number) => Math.round(v * 1e4) / 1e4;
+      for (let i = 0; i < edgePos.length; i += 6) {
+        const ax = edgePos[i + 0], ay = edgePos[i + 1], az = edgePos[i + 2];
+        const bx = edgePos[i + 3], by = edgePos[i + 4], bz = edgePos[i + 5];
+        const ka = `${round(ax)},${round(ay)},${round(az)}`;
+        const kb = `${round(bx)},${round(by)},${round(bz)}`;
+        if (!vertexMap.has(ka)) vertexMap.set(ka, [ax, ay, az]);
+        if (!vertexMap.has(kb)) vertexMap.set(kb, [bx, by, bz]);
+        segments.push([ax, ay, az, bx, by, bz]);
+      }
+    } else if (pos) {
+      // No edges info; fall back to the position array.
+      for (let i = 0; i < pos.length; i += 3) {
+        const k = `${pos[i]},${pos[i + 1]},${pos[i + 2]}`;
+        if (!vertexMap.has(k)) vertexMap.set(k, [pos[i], pos[i + 1], pos[i + 2]]);
+      }
+    }
+
+    const vertexPositions = new Float32Array(vertexMap.size * 3);
+    let vi = 0;
+    for (const [, p] of vertexMap) {
+      vertexPositions[vi++] = p[0];
+      vertexPositions[vi++] = p[1];
+      vertexPositions[vi++] = p[2];
+    }
+    const vGeom = new THREE.BufferGeometry();
+    vGeom.setAttribute("position", new THREE.BufferAttribute(vertexPositions, 3));
+
+    // Sprite-style points texture so the markers read as discs, not pixels.
+    const vMat = new THREE.PointsMaterial({
+      color: 0xff8a5b,
+      size: Math.max(0.03, diag * 0.012),
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.0, // hidden by default; revealed when filter is on + select mode
+      depthTest: true,
+      depthWrite: false,
+    });
+    const vertices = new THREE.Points(vGeom, vMat);
+    vertices.userData.helperFor = mesh.uuid;
+    this.scene.add(vertices);
+
+    // 2) Edge tubes — invisible cylinders along each segment for reliable
+    // raycasting. Cap count to avoid huge meshes for IFC scenes; degrade to
+    // line-only for >2000 segments.
+    const edgeTubes = new THREE.Group();
+    edgeTubes.visible = false;
+    const tubeRadius = Math.max(0.01, diag * 0.004);
+    const tubeMat = new THREE.MeshBasicMaterial({ visible: false, transparent: true, opacity: 0 });
+    const maxSegments = 2000;
+    const tubeCount = Math.min(segments.length, maxSegments);
+    for (let i = 0; i < tubeCount; i++) {
+      const [ax, ay, az, bx, by, bz] = segments[i];
+      const tube = makeEdgeTube(ax, ay, az, bx, by, bz, tubeRadius, tubeMat);
+      tube.userData.segmentIndex = i;
+      tube.userData.helperFor = mesh.uuid;
+      edgeTubes.add(tube);
+    }
+    this.scene.add(edgeTubes);
+
+    // 3) Visible edge overlay — same EdgesGeometry, LineSegments. Already
+    // present in setMesh's existing path; for setObject we add it here.
+    let edgeLines: THREE.LineSegments;
+    const existing = this.currentEdges;
+    if (existing && kind === "brep") {
+      edgeLines = existing;
+    } else {
+      const edgeMat = new THREE.LineBasicMaterial({
+        color: 0x0e0e10,
+        linewidth: 1,
+        opacity: 0.55,
+        transparent: true,
+      });
+      edgeLines = new THREE.LineSegments(edgesGeom, edgeMat);
+      this.scene.add(edgeLines);
+    }
+
+    return { owner: mesh, ownerKind: kind, vertices, edgeTubes, edgeLines };
+  }
+
+  private clearHelpers(): void {
+    for (const h of this.helpers) {
+      this.scene.remove(h.vertices);
+      h.vertices.geometry.dispose();
+      (h.vertices.material as THREE.Material).dispose();
+      this.scene.remove(h.edgeTubes);
+      h.edgeTubes.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.isMesh) {
+          m.geometry?.dispose();
+        }
+      });
+      // edgeLines is owned by clearScene for the brep path; setObject path
+      // adds its own and we remove it here.
+      if (h.edgeLines !== this.currentEdges) {
+        this.scene.remove(h.edgeLines);
+        h.edgeLines.geometry.dispose();
+        (h.edgeLines.material as THREE.Material).dispose();
+      }
+    }
+    this.helpers = [];
+    if (this.selectionOutline) {
+      this.scene.remove(this.selectionOutline);
+      this.selectionOutline.geometry.dispose();
+      (this.selectionOutline.material as THREE.Material).dispose();
+      this.selectionOutline = null;
+    }
+    if (this.selectionVertexMarker) {
+      this.scene.remove(this.selectionVertexMarker);
+      this.selectionVertexMarker.geometry.dispose();
+      (this.selectionVertexMarker.material as THREE.Material).dispose();
+      this.selectionVertexMarker = null;
+    }
+    clearSelected();
+  }
+
+  // Show/hide vertex sprites based on filter state. Called by main.ts when
+  // the Points filter toggles. (Edge tubes stay invisible — they're raycast
+  // proxies only.)
+  setVertexHelpersVisible(on: boolean): void {
+    for (const h of this.helpers) {
+      const m = h.vertices.material as THREE.PointsMaterial;
+      m.opacity = on ? 0.9 : 0;
+      m.needsUpdate = true;
+    }
+  }
+
+  private applySelectionVisual(sel: Selection | null): void {
+    if (this.selectionOutline) {
+      this.scene.remove(this.selectionOutline);
+      this.selectionOutline.geometry.dispose();
+      (this.selectionOutline.material as THREE.Material).dispose();
+      this.selectionOutline = null;
+    }
+    if (this.selectionVertexMarker) {
+      this.scene.remove(this.selectionVertexMarker);
+      this.selectionVertexMarker.geometry.dispose();
+      (this.selectionVertexMarker.material as THREE.Material).dispose();
+      this.selectionVertexMarker = null;
+    }
+    if (!sel) return;
+
+    if (sel.topology === "vertex" && sel.parent) {
+      // Highlight the picked corner with a single point.
+      const pts = sel.object as THREE.Points;
+      const idx = sel.vertexIndex ?? 0;
+      const arr = pts.geometry.attributes.position.array as Float32Array;
+      const px = arr[idx * 3 + 0], py = arr[idx * 3 + 1], pz = arr[idx * 3 + 2];
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([px, py, pz]), 3));
+      const mat = new THREE.PointsMaterial({
+        color: 0xffae42,
+        size: (pts.material as THREE.PointsMaterial).size * 1.6,
+        sizeAttenuation: true,
+        depthTest: false,
+        depthWrite: false,
+      });
+      this.selectionVertexMarker = new THREE.Points(g, mat);
+      this.selectionVertexMarker.renderOrder = 1000;
+      this.scene.add(this.selectionVertexMarker);
+      return;
+    }
+
+    // For mesh / brep / face / edge: an EdgesGeometry overlay rendered on top.
+    const target = sel.parent ?? sel.object;
+    if ((target as THREE.Mesh).isMesh) {
+      const mesh = target as THREE.Mesh;
+      const g = new THREE.EdgesGeometry(mesh.geometry, 25);
+      const mat = new THREE.LineBasicMaterial({
+        color: 0xffae42,
+        linewidth: 2,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const ls = new THREE.LineSegments(g, mat);
+      ls.position.copy(mesh.position);
+      ls.quaternion.copy(mesh.quaternion);
+      ls.scale.copy(mesh.scale);
+      ls.renderOrder = 999;
+      this.selectionOutline = ls;
+      this.scene.add(ls);
+    }
   }
 
   private handleResize(): void {
@@ -100,6 +559,9 @@ export class Viewer {
   };
 
   private clearScene(): void {
+    // Drop helpers (vertex sprites + edge tubes + selection outline) first
+    // so we don't try to dereference disposed geometry from the helper graph.
+    this.clearHelpers();
     if (this.currentMesh) {
       this.scene.remove(this.currentMesh);
       this.currentMesh.geometry.dispose();
@@ -127,6 +589,52 @@ export class Viewer {
     }
   }
 
+  // Walk a Group / Mesh tree and remove a single mesh from the scene + the
+  // helper map. Used by the Delete handler. Returns true if a mesh was
+  // dropped. Doesn't update IFC entities — the caller does that side.
+  removeObject(obj: THREE.Object3D): boolean {
+    let dropped = false;
+    obj.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        // Drop helper for this mesh.
+        const idx = this.helpers.findIndex((h) => h.owner === mesh);
+        if (idx >= 0) {
+          const h = this.helpers[idx];
+          this.scene.remove(h.vertices);
+          h.vertices.geometry.dispose();
+          (h.vertices.material as THREE.Material).dispose();
+          this.scene.remove(h.edgeTubes);
+          h.edgeTubes.traverse((c) => {
+            const m = c as THREE.Mesh;
+            if (m.isMesh) m.geometry?.dispose();
+          });
+          if (h.edgeLines !== this.currentEdges) {
+            this.scene.remove(h.edgeLines);
+            h.edgeLines.geometry.dispose();
+            (h.edgeLines.material as THREE.Material).dispose();
+          }
+          this.helpers.splice(idx, 1);
+        }
+        mesh.geometry?.dispose();
+        const mat = mesh.material;
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else if (mat) (mat as THREE.Material).dispose();
+        dropped = true;
+      }
+    });
+    if (obj.parent) obj.parent.remove(obj);
+    else this.scene.remove(obj);
+
+    if (this.currentMesh === obj) this.currentMesh = null;
+    if (this.currentObject === obj) this.currentObject = null;
+
+    // Reset selection visual.
+    this.applySelectionVisual(null);
+    clearSelected();
+    return dropped;
+  }
+
   setMesh(mesh: MeshIn, bounds: Bounds): void {
     this.clearScene();
 
@@ -142,6 +650,7 @@ export class Viewer {
       flatShading: false,
     });
     const m = new THREE.Mesh(geometry, material);
+    m.userData.kind = "brep"; // worker output is replicad/OCC → brep
     this.scene.add(m);
     this.currentMesh = m;
 
@@ -157,6 +666,14 @@ export class Viewer {
     this.scene.add(edgeLines);
     this.currentEdges = edgeLines;
 
+    // Helper graph for picking — vertex sprites + edge tubes.
+    const dx = bounds.max[0] - bounds.min[0];
+    const dy = bounds.max[1] - bounds.min[1];
+    const dz = bounds.max[2] - bounds.min[2];
+    const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    const helper = this.buildHelpersForMesh(m, "brep", diag);
+    this.helpers.push(helper);
+
     this.fitCamera(bounds);
   }
 
@@ -165,7 +682,62 @@ export class Viewer {
     this.clearScene();
     this.scene.add(object);
     this.currentObject = object;
+
+    // Walk the tree and build helper graphs for every mesh found. IFC scenes
+    // can have many meshes; cap the helper-building workload by only going
+    // through meshes with reasonable triangle counts.
+    const dx = bounds.max[0] - bounds.min[0];
+    const dy = bounds.max[1] - bounds.min[1];
+    const dz = bounds.max[2] - bounds.min[2];
+    const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    let helperCount = 0;
+    const HELPER_BUDGET = 50; // cap to avoid 1000-mesh IFC files exploding
+    object.traverse((child) => {
+      if (helperCount >= HELPER_BUDGET) return;
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const k: "brep" | "compound" | "mesh" =
+        (mesh.userData?.kind as any) || "mesh";
+      try {
+        const helper = this.buildHelpersForMesh(mesh, k, diag);
+        this.helpers.push(helper);
+        helperCount++;
+      } catch (e) {
+        // Helper-build failures shouldn't break loading; skip the mesh.
+        console.warn("[viewer] helper build failed:", e);
+      }
+    });
+
     this.fitCamera(bounds);
+  }
+
+  // Add a single mesh to the existing scene without clearing — used by
+  // create-mode to incrementally build geometry. Builds helper graph too.
+  addMesh(mesh: THREE.Mesh, kind: "brep" | "compound" | "mesh" = "brep"): void {
+    mesh.userData.kind = kind;
+    this.scene.add(mesh);
+    if (!this.currentObject) {
+      // First create-mode object: promote it to currentObject so getActiveObject
+      // returns it (and the export pipeline finds it).
+      const wrapper = new THREE.Group();
+      wrapper.name = "create-mode-root";
+      this.scene.remove(mesh);
+      wrapper.add(mesh);
+      this.scene.add(wrapper);
+      this.currentObject = wrapper;
+    } else if ((this.currentObject as THREE.Group).isGroup || this.currentObject.children) {
+      this.scene.remove(mesh);
+      this.currentObject.add(mesh);
+    }
+    // Use scene bounds for diag — close enough for new meshes since fitCamera
+    // hasn't been called yet on this mesh.
+    const b = this.currentBounds ?? { min: [-5, -5, -5] as [number, number, number], max: [5, 5, 5] as [number, number, number] };
+    const dx = b.max[0] - b.min[0];
+    const dy = b.max[1] - b.min[1];
+    const dz = b.max[2] - b.min[2];
+    const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    const helper = this.buildHelpersForMesh(mesh, kind, diag);
+    this.helpers.push(helper);
   }
 
   // Returns the active scene root (mesh OR object), suitable to feed three.js
