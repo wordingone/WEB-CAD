@@ -187,9 +187,10 @@ function buildInspectTab(): HTMLElement {
     </div>
     <div class="prop-section">
       <div class="prop-section-title">IDENTITY</div>
-      <div class="prop-row"><span class="k">Name</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">Name</span><span class="v" data-field="name">—</span></div>
+      <div class="prop-row"><span class="k">Type</span><span class="v" data-field="type">—</span></div>
       <div class="prop-row"><span class="k">GUID</span><span class="v" data-field="guid">—</span></div>
-      <div class="prop-row"><span class="k">Layer</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">Storey</span><span class="v" data-field="storey">—</span></div>
     </div>
     <div class="prop-section">
       <div class="prop-section-title">TRANSFORM</div>
@@ -206,6 +207,15 @@ function buildInspectTab(): HTMLElement {
         <span class="axis" data-axis="Rz">—</span>
       </div>
     </div>
+    <div class="prop-section">
+      <div class="prop-section-title">BOUNDS</div>
+      <div class="prop-vec3">
+        <span class="k">Size</span>
+        <span class="axis" data-axis="dX">—</span>
+        <span class="axis" data-axis="dY">—</span>
+        <span class="axis" data-axis="dZ">—</span>
+      </div>
+    </div>
   `;
 
   function updateInspect(sel: Selection | null): void {
@@ -214,21 +224,41 @@ function buildInspectTab(): HTMLElement {
     if (!sel) {
       if (title) title.textContent = "—";
       if (subtitle) subtitle.textContent = "no selection";
-      wrap.querySelectorAll<HTMLElement>(".prop-row .v").forEach((v) => (v.textContent = "—"));
+      wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
       wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
       return;
     }
     const obj = sel.object as THREE.Object3D;
     if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
     if (subtitle) subtitle.textContent = sel.topology;
+    const nameEl = wrap.querySelector<HTMLElement>('[data-field="name"]');
+    if (nameEl) nameEl.textContent = obj.name || "—";
+    const typeEl = wrap.querySelector<HTMLElement>('[data-field="type"]');
+    if (typeEl) typeEl.textContent = sel.topology;
     const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
     if (guidEl) guidEl.textContent = sel.uuid.slice(0, 16) + "…";
+    // Storey: not available from merged-mesh selection; placeholder until per-element meshes land
+    const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');
+    if (storeyEl) storeyEl.textContent = "—";
+    // Position
     const pos = new THREE.Vector3();
     obj.getWorldPosition(pos);
     const posAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(1) .axis');
     if (posAxes[0]) posAxes[0].textContent = pos.x.toFixed(3);
     if (posAxes[1]) posAxes[1].textContent = pos.y.toFixed(3);
     if (posAxes[2]) posAxes[2].textContent = pos.z.toFixed(3);
+    // Bounds
+    const box = new THREE.Box3().setFromObject(obj);
+    const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
+    if (isFinite(box.min.x)) {
+      const sz = new THREE.Vector3();
+      box.getSize(sz);
+      if (sizeAxes[0]) sizeAxes[0].textContent = sz.x.toFixed(3);
+      if (sizeAxes[1]) sizeAxes[1].textContent = sz.y.toFixed(3);
+      if (sizeAxes[2]) sizeAxes[2].textContent = sz.z.toFixed(3);
+    } else {
+      sizeAxes.forEach((a) => (a.textContent = "—"));
+    }
   }
 
   subscribe(updateInspect);

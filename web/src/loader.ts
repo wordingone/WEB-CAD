@@ -207,7 +207,9 @@ export async function buildIfcMesh(
     material = DEFAULT_MAT();
   }
   const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = filename;
   const root = new THREE.Group();
+  root.name = filename;
   root.add(mesh);
   // IFC spec is Z-up, but web-ifc emits geometry rotated to Y-up to match
   // three.js's internal convention (empirical: Schultz Residence loaded with
