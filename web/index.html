@@ -25,20 +25,95 @@
       <!-- Center column: viewport area + dock-divider + dock -->
       <div class="center-col">
         <div class="viewport-area split-single" id="viewport-area-host">
-          <div class="viewport" id="viewport-1">
-            <canvas id="viewer-canvas"></canvas>
-            <div id="drop-overlay" class="hidden">
-              <div class="drop-card">
-                <div class="drop-icon">&#8615;</div>
-                <div class="drop-title">Drop file to load</div>
-                <div class="drop-hint">.ifc · .glb · .gltf · .obj · .stl · .step</div>
+          <canvas id="viewer-canvas" class="vp-canvas" style="position:absolute;inset:0;z-index:0;pointer-events:none;"></canvas>
+
+          <div id="drop-overlay" class="hidden">
+            <div class="drop-card">
+              <div class="drop-icon">&#8615;</div>
+              <div class="drop-title">Drop file to load</div>
+              <div class="drop-hint">.ifc · .glb · .gltf · .obj · .stl · .step</div>
+            </div>
+          </div>
+
+          <div class="title-block" aria-hidden="true">
+            GEMMA·ARCHITECT — UNTITLED.001<br />
+            SCALE 1:50 · IFC4 · METRIC · DRAWN 2026·05·02
+          </div>
+
+          <div class="viewport" id="viewport-1" data-view="top">
+            <div class="vp-header">
+              <div class="vp-title">
+                <span class="vp-tag top"></span>
+                TOP
+              </div>
+              <div class="vp-controls">
+                <button class="vp-icon-btn" title="Frame">!</button>
+                <button class="vp-icon-btn" title="Lock">🔒</button>
               </div>
             </div>
-            <div class="title-block" aria-hidden="true">
-              GEMMA·ARCHITECT — UNTITLED.001<br />
-              SCALE 1:50 · IFC4 · METRIC · DRAWN 2026·05·02
+            <div class="vp-body" style="pointer-events:auto;">
+              <div class="vp-grid top"></div>
+              <div class="vp-axes" id="vp-axes-1" aria-hidden="true"></div>
+              <div class="vp-coords" id="vp-coords-1" aria-hidden="true">x 0.00<br/>y 0.00<br/>z 0.00</div>
+              <div class="vp-scale" id="vp-scale-1" aria-hidden="true"><div class="vp-scale-bar"></div>1:50</div>
             </div>
-            <div class="vp-axes" id="vp-axes-host" aria-hidden="true"></div>
+          </div>
+
+          <div class="viewport" id="viewport-2" data-view="persp">
+            <div class="vp-header">
+              <div class="vp-title">
+                <span class="vp-tag persp"></span>
+                PERSPECTIVE
+              </div>
+              <div class="vp-controls">
+                <button class="vp-icon-btn" title="Frame">!</button>
+                <button class="vp-icon-btn" title="Lock">🔒</button>
+              </div>
+            </div>
+            <div class="vp-body" style="pointer-events:auto;">
+              <div class="vp-grid persp"></div>
+              <div class="vp-axes" id="vp-axes-2" aria-hidden="true"></div>
+              <div class="vp-coords" id="vp-coords-2" aria-hidden="true">x 0.00<br/>y 0.00<br/>z 0.00</div>
+              <div class="vp-scale" id="vp-scale-2" aria-hidden="true"><div class="vp-scale-bar"></div>1:50</div>
+            </div>
+          </div>
+
+          <div class="viewport" id="viewport-3" data-view="front">
+            <div class="vp-header">
+              <div class="vp-title">
+                <span class="vp-tag front"></span>
+                FRONT
+              </div>
+              <div class="vp-controls">
+                <button class="vp-icon-btn" title="Frame">!</button>
+                <button class="vp-icon-btn" title="Lock">🔒</button>
+              </div>
+            </div>
+            <div class="vp-body" style="pointer-events:auto;">
+              <div class="vp-grid front"></div>
+              <div class="vp-axes" id="vp-axes-3" aria-hidden="true"></div>
+              <div class="vp-coords" id="vp-coords-3" aria-hidden="true">x 0.00<br/>y 0.00<br/>z 0.00</div>
+              <div class="vp-scale" id="vp-scale-3" aria-hidden="true"><div class="vp-scale-bar"></div>1:50</div>
+            </div>
+          </div>
+
+          <div class="viewport" id="viewport-4" data-view="right">
+            <div class="vp-header">
+              <div class="vp-title">
+                <span class="vp-tag right"></span>
+                RIGHT
+              </div>
+              <div class="vp-controls">
+                <button class="vp-icon-btn" title="Frame">!</button>
+                <button class="vp-icon-btn" title="Lock">🔒</button>
+              </div>
+            </div>
+            <div class="vp-body" style="pointer-events:auto;">
+              <div class="vp-grid right"></div>
+              <div class="vp-axes" id="vp-axes-4" aria-hidden="true"></div>
+              <div class="vp-coords" id="vp-coords-4" aria-hidden="true">x 0.00<br/>y 0.00<br/>z 0.00</div>
+              <div class="vp-scale" id="vp-scale-4" aria-hidden="true"><div class="vp-scale-bar"></div>1:50</div>
+            </div>
           </div>
         </div>
 
