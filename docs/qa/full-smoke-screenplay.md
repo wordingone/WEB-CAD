@@ -2060,54 +2060,85 @@ the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
    track the remaining fields (Rotation/Layer/BOUNDS/storey/IFC-class/
    multi-select).
 
-#### Beat 231: GAP — bbox not surfaced in INSPECT
-1. **Do:** Inspect INSPECT pane DOM and selected mesh's bounding box.
-2. **See:** No bbox section. Reconstruction tables already include
-   bbox dx/dy/dz per element (e.g. wall id 316472 has dx=1.151,
-   dy=0.594, dz=0.046 per `storey-05-1st-floor.md`).
-3. **Verify:** `.prop-section-title` does not include "BOUNDS" or
-   "DIMENSIONS".
-4. **Gap (file):** Add BOUNDS section to INSPECT — required for
-   parity-checking against reconstruction tables.
+#### Beat 231: BOUNDS section wired (RESOLVED at 4d5573f) — per-element value pending
+1. **Do:** Load Schultz. Click anywhere on the merged mesh. INSPECT.
+2. **See:** BOUNDS section visible (per workbench.ts:210-218 added by
+   4d5573f). dX/dY/dZ axes show the WHOLE-FILE bounding box (~30m+
+   for Schultz) computed via `THREE.Box3().setFromObject(obj)` +
+   `box.getSize()` (workbench.ts:251-260).
+3. **Verify:** `.prop-section-title` includes "BOUNDS". `.axis
+   [data-axis="dX"]` populated with finite number when selection has
+   a valid bbox; "—" otherwise (isFinite check at workbench.ts:253).
+4. **Pending (next sub-issue):** Per-element bounds — `setFromObject`
+   on the merged-IFC root returns the whole-file bbox, NOT the picked
+   wall's. Resolves when IFC loader emits a Group of per-element meshes
+   instead of one merged mesh; raycast hit then returns the specific
+   element. Beat 235's wall-316472 bounds (dx=1.151/dy=0.594/dz=0.046)
+   only smokes after that refactor.
 
-#### Beat 232: GAP — storey not surfaced in INSPECT
-1. **Do:** Click a wall. INSPECT.
-2. **See:** No storey field shown.
-3. **Verify:** No "Storey" or "Level" prop-row in DOM.
-4. **Gap (file):** Schultz has 11 named storeys; placing in the wrong
-   storey is the most common reconstruction error. INSPECT must show
-   the storey of the selected element.
+#### Beat 232: Storey row wired (RESOLVED at 4d5573f) — value placeholder
+1. **Do:** Click any wall. INSPECT.
+2. **See:** IDENTITY > Storey row present (per workbench.ts:192 added
+   by 4d5573f). Value is "—" placeholder because storey-per-element
+   needs per-element-mesh + `userData.storeyName` plumbing.
+3. **Verify:** `.prop-row [data-field="storey"]` exists. Placeholder
+   set explicitly at workbench.ts:241 with comment acknowledging the
+   defer.
+4. **Pending (next sub-issue):** Once per-element meshes land with
+   `userData.storeyName`, `updateInspect()` reads it directly. Then
+   wall 316472 → "1st Floor" per Schultz reconstruction tables.
 
-#### Beat 233: GAP — IFC entity class not surfaced in INSPECT
-1. **Do:** Click a wall. INSPECT.
-2. **See:** No "Class: IfcWallStandardCase" or similar field.
-3. **Verify:** No prop-row labeled "Class" or "IFC Class".
-4. **Gap (file):** Reconstruction parity requires entity-class match;
-   INSPECT must show this.
+#### Beat 233: Type row wired (4d5573f); IFC entity class still pending
+1. **Do:** Click any wall. INSPECT.
+2. **See:** IDENTITY > Type row present (per workbench.ts:190 added
+   by 4d5573f), populated from `sel.topology` (e.g. "mesh" or "brep").
+3. **Verify:** `.prop-row [data-field="type"]` populated with topology
+   string at workbench.ts:236.
+4. **Distinction:** "Type" here is THREE.js topology level
+   (Mesh/Group/Object3D), NOT IFC entity class. The IFC class
+   (e.g. "IfcWallStandardCase") still requires per-element meshes
+   with `userData.ifcClass` from hierarchy[].
+5. **Pending:** Add a separate "IFC Class" row OR repurpose "Type" to
+   show IFC class when available, falling back to topology otherwise.
+   Decision can wait until per-element-mesh refactor lands.
 
-#### Beat 234: GAP — multi-select state in INSPECT
+#### Beat 234: Multi-select header (deferred-per-design at 4d5573f)
 1. **Do:** Click wall A. Ctrl+click wall B. INSPECT.
-2. **See:** Header should read "(2 items)" or similar. Currently shows
-   "—" / "no selection" because INSPECT is non-reactive.
-3. **Verify:** Header text after multi-select.
-4. **Gap (file):** INSPECT must handle 0 / 1 / N selection cases.
+2. **See:** Currently shows wall B's data only (last selected wins).
+   `selection-state.ts` only models single-selection.
+3. **Verify:** Header text reflects only one item.
+4. **Deferred (separate task):** selection-state extension to support
+   multi-select is its own deliverable; INSPECT's "(N items)" header
+   waits on that. Not blocking §25 reconstruction (Schultz is built
+   element-by-element, single-select per beat).
 
-#### Beat 235: INSPECT full reconstruction-parity smoke
-1. **Do:** ASSETS → Schultz Resid. → click wall id 316472 in SCENE
-   tree (1st Floor, "Basic Wall:2x4 stud:431027").
-2. **See (current build, post-e382d93):** Title shows the wall's
-   `obj.name` if loader.ts wires hierarchy.name → mesh.name (verify),
-   else uuid-prefix. Subtitle = topology. GUID populated. Position
-   x≈-0.283, y≈-1.150, z≈0.039 (within numeric tolerance vs
-   reconstruction table entry).
-3. **See (post-#148-completion):** Also shows Layer, IFC class
-   "IfcWallStandardCase", Rotation xyz, BOUNDS dx=1.151 / dy=0.594 /
-   dz=0.046, Storey="1st Floor".
+#### Beat 235: INSPECT full reconstruction-parity smoke (terminal beat)
+1. **Do:** ASSETS → Schultz Resid. → click anywhere on the merged
+   IFC mesh (current single-merged-mesh build).
+2. **See (current build, post-4d5573f):** Title = "Schultz_Residence.ifc"
+   (filename, per loader.ts:209-210). Type = "mesh". GUID = first 16
+   chars of three.js uuid. Position = (0,0,0) or whole-mesh world
+   transform. BOUNDS = whole-Schultz bbox (~30m × 30m × 8m or so).
+   Storey = "—" placeholder.
+3. **See (terminal target — requires per-element-mesh refactor):**
+   Click wall id 316472 in viewport → Title="Basic Wall:2x4
+   stud:431027", Type="IfcWallStandardCase", Storey="1st Floor",
+   Position x=-0.283/y=-1.150/z=0.039, BOUNDS dx=1.151/dy=0.594/
+   dz=0.046 — all matching `docs/qa/schultz-reconstruction-tables/
+   storey-05-1st-floor.md` row 316472.
 4. **Verify:** Each prop-row's `.v` matches the reconstruction-tables
    entry for that element id. Bidirectional smoke: select element id
    316472 → INSPECT shows x=-0.283, y=-1.150, z=0.039, dx=1.151,
    dy=0.594, dz=0.046, storey="1st Floor". File a beat-failure if
    numeric Position differs from table by > 0.001m.
+5. **Architecture gate:** Beat 235 "current build" smokes whenever
+   loader's mesh-name binding is intact (4d5573f). Terminal-target
+   smokes only after the IFC loader is refactored from
+   single-merged-mesh to a Group of per-element meshes carrying
+   `userData.{ifcClass, guid, storeyName, storeyElevation}` from
+   the hierarchy[] array (already plumbed through worker.ts +
+   loader.ts → SceneSummary at e382d93). That refactor is the
+   per-element-mesh sub-issue under #148.
 
 ### Beats 236-247: ASSETS tab (12 beats)
 
