@@ -15,13 +15,14 @@ const EXPECTED_NAMES = [
   "mirror-across-axis",
   "place-doors",
   "replicate-from-video",
+  "research-from-prompt",
   "room-from-prompt",
   "stair-from-points",
 ];
 
-test("all 8 skills load with valid frontmatter", async () => {
+test("all 9 skills load with valid frontmatter", async () => {
   const skills = await loadSkills(SKILLS_DIR);
-  expect(skills.length).toBe(8);
+  expect(skills.length).toBe(9);
   // loadSkills sorts by name — the asserted order matches.
   expect(skills.map((s) => s.name)).toEqual(EXPECTED_NAMES);
   for (const s of skills) {
@@ -83,7 +84,7 @@ test("skill.json files validate against schema", async () => {
     if (!e.isDirectory()) continue;
     sidecars.push(join(SKILLS_DIR, e.name, "skill.json"));
   }
-  expect(sidecars.length).toBe(8);
+  expect(sidecars.length).toBe(9);
 
   for (const sidecarPath of sidecars) {
     const raw = await readFile(sidecarPath, "utf8");

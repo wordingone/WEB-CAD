@@ -1,21 +1,26 @@
 // Paper Mode (#02 LAYOUT) + Research Mode (#03 RESEARCH).
 //
-// Paper Mode is the bundle's static SVG mockup; functional research mode
-// is wired below.
+// Both modes render full-area replacements inside .workbench. The workbench
+// children (palette / center-col / sidebar) are hidden via [data-mode] on
+// .workbench when mode != "model", and the matching .paper-mode / .research-mode
+// container shows.
 //
-// RESEARCH MODE — three columns:
+// PaperMode (T15) uses the layout.ts controller — sheet sizes, click-drag
+// panel creation, viewport pickers, scale bars, editable title block, and
+// PDF/SVG/AI/DWG export. Existing viewports (top/front/right/perspective)
+// ARE the cameras; panels just choose which one to render at a given scale.
+//
+// ResearchMode (T16) is three columns:
 //   - left  : corpus listing + search input. Filter pills (LOCAL / WEB /
 //             CITE) restrict the corpus before the query scores.
 //   - middle: rendered markdown of the active doc with `<mark>`-tag
 //             highlighting on query terms.
 //   - right : findings (top-N ranked snippets with citation buttons) +
 //             session citation log + JSON download.
-//
 // All scoring is in `research-index.ts` (TF-IDF + cosine, hand-rolled).
-// The default corpus is loaded from `research-corpus-loader.ts` which
-// pulls *.md files via Vite's `?raw` import.
 
 import { iconSVG } from "./icons";
+import { buildLayoutMode, addPanel } from "./layout";
 import {
   buildResearchIndex,
   queryResearch,
@@ -28,83 +33,27 @@ import {
 import { defaultCorpus } from "./research-corpus-loader";
 import { renderMarkdown } from "./research-md";
 
-// ---------------- Paper mode (unchanged static mockup) ----------------
-
-const PAPER_MODE_HTML = `
-<div class="paper-sheet">
-  <div class="paper-cell">
-    <span class="paper-cell-label">A · PLAN · LEVEL 00</span>
-    <span class="paper-cell-scale">1:50</span>
-    <svg viewBox="0 0 220 140" preserveAspectRatio="xMidYMid meet">
-      <g fill="none" stroke="oklch(0.18 0.018 250)">
-        <path d="M 30 30 L 130 30 L 130 70 L 190 70 L 190 110 L 30 110 Z" stroke-width="1.6"/>
-        <path d="M 34 34 L 126 34 L 126 74 L 186 74 L 186 106 L 34 106 Z" stroke-width="0.6"/>
-        <path d="M 70 30 L 70 36 M 80 30 L 80 36 M 70 36 A 10 10 0 0 1 80 30" stroke-width="0.5"/>
-        <g stroke="oklch(0.55 0.02 250)" stroke-width="0.35">
-          <line x1="30" y1="22" x2="130" y2="22"/>
-          <line x1="30" y1="20" x2="30" y2="24"/>
-          <line x1="130" y1="20" x2="130" y2="24"/>
-        </g>
-        <text x="80" y="19" font-size="5" fill="oklch(0.40 0.015 250)" text-anchor="middle" font-family="monospace">8000</text>
-      </g>
-    </svg>
-  </div>
-  <div class="paper-cell">
-    <span class="paper-cell-label">B · ELEVATION · NORTH</span>
-    <span class="paper-cell-scale">1:50</span>
-    <svg viewBox="0 0 220 140">
-      <g fill="none" stroke="oklch(0.18 0.018 250)">
-        <path d="M 30 100 L 30 50 L 110 50 L 110 75 L 190 75 L 190 100 Z" stroke-width="1.6"/>
-        <line x1="20" y1="100" x2="200" y2="100" stroke-width="0.6"/>
-        <g stroke-width="0.3">
-          ${Array.from({ length: 18 }).map((_, i) => `<line x1="${20 + i * 10}" y1="100" x2="${28 + i * 10}" y2="108"/>`).join("")}
-        </g>
-        <rect x="42" y="62" width="14" height="20" stroke-width="0.5"/>
-        <rect x="62" y="62" width="14" height="20" stroke-width="0.5"/>
-        <rect x="82" y="62" width="14" height="20" stroke-width="0.5"/>
-      </g>
-    </svg>
-  </div>
-  <div class="paper-cell">
-    <span class="paper-cell-label">C · SECTION · A-A</span>
-    <span class="paper-cell-scale">1:50</span>
-    <svg viewBox="0 0 220 140">
-      <g stroke="oklch(0.18 0.018 250)" fill="none">
-        <path d="M 30 100 L 30 50 L 190 50 L 190 100 Z" stroke-width="1.6"/>
-        <path d="M 30 100 L 190 100" stroke-width="2.2"/>
-        <line x1="30" y1="74" x2="190" y2="74" stroke-width="0.5" stroke-dasharray="2 1.5"/>
-        <text x="36" y="71" font-size="4.5" fill="oklch(0.4 0.015 250)" font-family="monospace">+1.40 SLAB</text>
-      </g>
-    </svg>
-  </div>
-  <div class="paper-cell">
-    <span class="paper-cell-label">D · AXONOMETRIC</span>
-    <span class="paper-cell-scale">NTS</span>
-    <svg viewBox="0 0 220 140">
-      <g stroke="oklch(0.18 0.018 250)" fill="none">
-        <path d="M 60 100 L 130 70 L 170 90 L 170 50 L 130 30 L 60 60 Z" stroke-width="1.6"/>
-        <path d="M 60 60 L 60 100 M 130 30 L 130 70 M 170 50 L 170 90" stroke-width="0.8"/>
-        <path d="M 60 100 L 130 70 L 170 90" stroke-width="2.2"/>
-        <path d="M 130 70 L 60 60 M 130 70 L 170 50" stroke-width="0.5" stroke-dasharray="2 1.5"/>
-      </g>
-    </svg>
-  </div>
-  <div class="paper-titleblock">
-    <div class="tb-cell brand"><span class="k">PROJECT</span><span class="v">UNTITLED · 001</span></div>
-    <div class="tb-cell"><span class="k">Sheet</span><span class="v">A-101</span></div>
-    <div class="tb-cell"><span class="k">Scale</span><span class="v">1:50 / NTS</span></div>
-    <div class="tb-cell"><span class="k">Drawn</span><span class="v">GEMMA·AI</span></div>
-    <div class="tb-cell"><span class="k">Date</span><span class="v">2026·05·02</span></div>
-  </div>
-</div>
-`;
-
 function buildPaperMode(): HTMLElement {
   const el = document.createElement("div");
   el.className = "paper-mode mode-pane";
   el.dataset.modePane = "layout";
   el.style.display = "none";
-  el.innerHTML = PAPER_MODE_HTML;
+  // Build the layout controller into the host. It will inject .paper-toolbar,
+  // .paper-stage > .paper-sheet, and the editable title block. Seed with
+  // four panels so the first paint mirrors the original 4-cell mockup.
+  buildLayoutMode(el, {
+    size: "A1",
+    orientation: "landscape",
+    initialPanels: [
+      { x: 60,  y: 60,  w: 380, h: 240, viewport: "top",         scale: "1:100", title: "A · PLAN" },
+      { x: 470, y: 60,  w: 380, h: 240, viewport: "front",       scale: "1:100", title: "B · ELEVATION" },
+      { x: 60,  y: 320, w: 380, h: 240, viewport: "right",       scale: "1:100", title: "C · SECTION" },
+      { x: 470, y: 320, w: 380, h: 240, viewport: "axonometric", scale: "NTS",   title: "D · AXONOMETRIC" },
+    ],
+  });
+  // Suppress the "unused" warning on addPanel without removing it from the
+  // public surface — modes.ts re-exports it for any consumer that wants it.
+  void addPanel;
   return el;
 }
 

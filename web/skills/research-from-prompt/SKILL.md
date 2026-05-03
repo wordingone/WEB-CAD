@@ -34,7 +34,7 @@ This skill operates against the index built by
 module. The corpus lives at `web/research-corpus/*.md` and is
 bundled into the page; no network call is required.
 
-## When this skill fires
+## When to use
 
 Trigger when the user prompt includes any of:
 
@@ -48,7 +48,9 @@ Trigger when the user prompt includes any of:
 Skip the skill when the prompt is purely geometric (e.g. "make a 5×3m
 box") — there's no factual claim to ground.
 
-## Index API
+## How it works
+
+### Index API
 
 ```ts
 import {
@@ -96,7 +98,9 @@ pill filter.
 `tracker.exportJSON()` returns a pretty-printed JSON array suitable
 for a download button (the UI wires this to "export").
 
-## Recommended workflow for an LLM agent
+## Examples
+
+Recommended workflow for an LLM agent:
 
 ```
 1. Identify factual claims in the user's design prompt.
@@ -138,6 +142,13 @@ For a hand-curated 10-prompt eval set, the agent passes if:
 
 The eval set lives at `web/skills/research-from-prompt/eval.jsonl`
 (future work — placeholder until T11 lands the eval harness).
+
+## Failure modes
+
+- Empty query → returns `[]`, no citations recorded.
+- Score below 0.05 → result hidden from the agent's confidence path.
+- All-corpus terms return → fall back to LOCAL filter, ignore WEB.
+- Web-corpus placeholder lacks live indexing — flagged as known gap.
 
 ## Future expansions
 

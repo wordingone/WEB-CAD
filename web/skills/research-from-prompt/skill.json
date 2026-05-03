@@ -1,7 +1,7 @@
 {
   "name": "research-from-prompt",
   "version": "0.1.0",
-  "description": "Query the gemma-architect research corpus (TF-IDF over markdown fixtures) and produce ranked snippets with citations. Use when an architectural design conversation needs grounded references before the model emits geometry.",
+  "schema_version": 1,
   "keywords": [
     "research",
     "corpus",
@@ -14,14 +14,6 @@
     "wall-thickness",
     "daylight"
   ],
-  "examples": [
-    "What's the minimum thickness for a partition wall?",
-    "How do I emit a gable roof in tier-1 DSL?",
-    "What's the SHGC limit for north-facing glazing in climate zone 4A?",
-    "Are there code restrictions on bedroom egress windows I should account for?"
-  ],
-  "eval_id": "research-from-prompt-v0",
-  "entry_point": "../../src/research-index.ts",
-  "corpus_dir": "../../research-corpus/",
-  "filter_pills": ["LOCAL", "WEB", "CITE"]
+  "examples_count": 4,
+  "eval_id": "research-from-prompt-v0"
 }
