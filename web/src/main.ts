@@ -17,6 +17,14 @@ import { initExportDrawer, openExportDrawer } from "./export-drawer";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { applyDrafting, removeDrafting, isDrafting } from "./drafting";
+import {
+  subscribeFilters,
+  getFilters,
+  getSelected,
+  clearSelected,
+  setSelected,
+  type Selection,
+} from "./selection-state";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
 import { buildIfc, ifcRoundTrip } from "./ifc";
 import {
@@ -93,6 +101,14 @@ const viewer = new Viewer(canvas);
 // Expose for in-browser debug + DevTools poking — read-only handle to scene state.
 (window as unknown as { __viewer: Viewer }).__viewer = viewer;
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
+
+// T3 — keep vertex sprite visibility synced with the Points filter. The
+// scene-panel toggles the filter; the viewer renders the markers visible
+// when the filter is on. Initial sync covers the default (Points=true).
+viewer.setVertexHelpersVisible(getFilters().Points);
+subscribeFilters((f) => {
+  viewer.setVertexHelpersVisible(f.Points);
+});
 
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
 // keyboards without a numpad. Captured at window level but ignored if the

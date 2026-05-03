@@ -13,6 +13,11 @@
 import * as THREE from "three";
 import type { Viewer } from "./viewer";
 import { iconSVG } from "./icons";
+import {
+  getFilters,
+  setFilter,
+  type SelectionFilters,
+} from "./selection-state";
 
 type IfcClass = "ARCHITECTURE" | "STRUCTURE" | "OPENINGS" | "CIRCULATION" | "MESHES";
 function classifyByName(name: string): IfcClass {
@@ -117,7 +122,9 @@ export class ScenePanel {
       <div class="sp-meta-row" style="padding:6px 10px; font-family:var(--mono); font-size:10px; color:var(--ink-faint); border-bottom:1px solid var(--hairline-soft);">
         no scene loaded — drop a file or pick a sample
       </div>
+      ${buildSelectionFilterHtml()}
     `;
+    this.wireSelectionFilters();
   }
 
   private render(summary: SceneSummary): void {
@@ -169,8 +176,25 @@ export class ScenePanel {
     outlinerHtml += `</div>`;
 
     const metaRow = `<div class="sp-meta-row" style="padding:6px 10px; font-family:var(--mono); font-size:10px; color:var(--ink-faint); border-bottom:1px solid var(--hairline-soft);">${fmtStr}${filenameStr}${entityStr}${schemaStr} &middot; ${this.nodes.length} mesh${this.nodes.length === 1 ? "" : "es"} &middot; ${totalTris.toLocaleString()} tri</div>`;
-    this.root.innerHTML = metaRow + outlinerHtml;
+    this.root.innerHTML = metaRow + buildSelectionFilterHtml() + outlinerHtml;
     this.wireRowActions();
+    this.wireSelectionFilters();
+  }
+
+  private wireSelectionFilters(): void {
+    const filters = getFilters();
+    this.root.querySelectorAll<HTMLInputElement>("input[data-filter]").forEach((input) => {
+      const key = input.dataset.filter as keyof SelectionFilters;
+      input.checked = filters[key];
+      input.addEventListener("change", () => {
+        setFilter(key, input.checked);
+        // Vertex sprite visibility tracks the Points filter — drive it from
+        // here so toggling Points shows/hides the corner markers immediately.
+        if (key === "Points" && (this.viewer as any).setVertexHelpersVisible) {
+          (this.viewer as any).setVertexHelpersVisible(input.checked);
+        }
+      });
+    });
   }
 
   private wireRowActions(): void {
@@ -213,4 +237,37 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// Selection-filter checkbox bank (Rhino-style). Eight entries; defaults match
+// selection-state.ts. Wired in wireSelectionFilters.
+const SELECTION_FILTER_KEYS: Array<{ key: keyof SelectionFilters; label: string }> = [
+  { key: "Points",        label: "Points" },
+  { key: "Curves",        label: "Curves" },
+  { key: "Surfaces",      label: "Surfaces" },
+  { key: "Polysurfaces",  label: "Polysurfaces" },
+  { key: "Meshes",        label: "Meshes" },
+  { key: "Annotations",   label: "Annotations" },
+  { key: "Lights",        label: "Lights" },
+  { key: "Blocks",        label: "Blocks" },
+];
+
+function buildSelectionFilterHtml(): string {
+  const filters = getFilters();
+  const rows = SELECTION_FILTER_KEYS.map(({ key, label }) => {
+    const checked = filters[key] ? "checked" : "";
+    return `<label class="sf-row" style="display:flex; align-items:center; gap:6px; padding:2px 0; font-size:11px; cursor:pointer;">
+      <input type="checkbox" data-filter="${key}" ${checked} style="margin:0;"/>
+      <span style="color:var(--ink-soft);">${label}</span>
+    </label>`;
+  }).join("");
+  return `
+    <div class="selection-filters" style="padding:6px 10px; border-bottom:1px solid var(--hairline-soft);">
+      <div style="font-family:var(--mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.08em; padding-bottom:4px;">SELECTION FILTERS</div>
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px;">
+        ${rows}
+      </div>
+      <div style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); padding-top:4px;">Ctrl+Shift+click to drill into sub-objects</div>
+    </div>
+  `;
 }
