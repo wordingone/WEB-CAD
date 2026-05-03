@@ -3548,6 +3548,25 @@ footer span { margin: 0 0.55rem; color: var(--border); }
   overflow: hidden;
 }
 
+/* When embedded in the sidebar, reset floating-overlay styles so the panel
+   inherits the sidebar's theme-aware background instead of the hardcoded dark. */
+#scene-panel.scene-panel-embed {
+  position: static;
+  top: auto;
+  left: auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  width: auto;
+  max-height: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  transition: none;
+  overflow: visible;
+}
+
 #scene-panel.collapsed {
   width: auto;
   max-height: none;
