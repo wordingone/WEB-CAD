@@ -1887,18 +1887,378 @@ Cross-refs:
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §7-§24 — TODO (subsequent ticks)
+## §7 — Right sidebar (40 beats)
 
-Sections 7 (right sidebar full, 40 beats), 8 (snap dock, 16 beats),
-9 (dock tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats), 11
-(viewport interactions, 18 beats), 12 (selection 7-topology × filters
-× Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15 (boolean +
-edge ops, 16 beats), 16 (layout mode full, 28 beats), 17 (research
-full, 14 beats), 18 (every export format, 26 beats), 19 (console DSL
-every keyword, 30 beats), 20 (Gemma 4 E2B agent — full loop with KG
-state assertions per turn, 40 beats), 21 (skills, 16 beats),
-22 (NURBS, 12 beats), 23 (persistence, 10 beats), 24 (edge cases,
-16 beats).
+The right sidebar is the always-visible inspector + asset pane. Source:
+`web/src/workbench.ts` `buildSidebar` (lines 249-293) + helpers in
+the same file + `web/src/scene-panel.ts` `buildSelectionFiltersPanel`
+(lines 256-285).
+
+**Structure (top to bottom):**
+1. `.sb-tabs` — strip with 3 tabs: SCENE / INSPECT / ASSETS
+2. `.sb-body` — single-pane container; only the active tab's pane is
+   appended here at any time
+3. `.selection-filters` — 8-checkbox filter panel (Issue 5 always-visible
+   fix landed at `3385f9d`)
+4. `.snap-dock` — covered separately in §8
+
+**Default tab:** SCENE (per `activate("scene")` at workbench.ts:292).
+
+**Cross-refs:**
+- §6 beat 213 noted ribbon-only tools that palette can't sync; INSPECT
+  populates from `selectedId` state — beats 226-235 verify the binding.
+- §8 covers Snap dock (`buildSnapDock()` at workbench.ts:133-163).
+- §12 covers selection filter behavior (raycast pick filtering).
+  §7 here verifies surface presence + a11y only.
+
+### Beats 214-217: Sidebar shell (4 beats)
+
+#### Beat 214: Three sb-tabs render
+1. **Do:** Inspect `.sb-tabs` strip at top of sidebar.
+2. **See:** Three tab elements with text "SCENE", "INSPECT", "ASSETS"
+   (per `SIDEBAR_TABS` at workbench.ts:87-91).
+3. **Verify:** `document.querySelectorAll('.sb-tabs .sb-tab').length === 3`.
+   Tabs in DOM order match SIDEBAR_TABS order.
+
+#### Beat 215: SCENE is default-active on load
+1. **Do:** Page load. Inspect `.sb-tabs`.
+2. **See:** SCENE tab has `.active` class. INSPECT and ASSETS do not.
+   `.sb-body` contains a `.scene-tab` body.
+3. **Verify:** `document.querySelector('.sb-tab.active').dataset.tab
+   === "scene"`. `.sb-body > .scene-tab` exists.
+
+#### Beat 216: Tab switch swaps body content
+1. **Do:** Click INSPECT tab.
+2. **See:** Active class moves SCENE → INSPECT. `.sb-body` content
+   swaps from `.scene-tab` to `.props` (per `buildInspectTab`).
+3. **Verify:** `.sb-tab.active` is INSPECT. `.sb-body.firstElementChild
+   .className.includes("props")`. SCENE pane is no longer in DOM (per
+   `body.innerHTML = ""` at workbench.ts:282).
+
+#### Beat 217: Tab a11y minimal — focusable + click target
+1. **Do:** Tab through page until SCENE/INSPECT/ASSETS receive focus.
+2. **See:** Focus ring visible. Enter/Space activates the tab.
+3. **Verify:** `tabIndex >= 0` on `.sb-tab` elements. (If the bundle
+   omits `role="tab"` / `aria-selected`, file as a11y gap — currently
+   there's no role/aria attribute set per workbench.ts:271.)
+
+### Beats 218-225: SCENE tab (8 beats)
+
+#### Beat 218: SCENE empty-state hint
+1. **Do:** Page load with NO scene loaded (or click "New" to clear).
+2. **See:** SCENE pane shows hint text "No scene loaded — drop an
+   IFC/GLB or pick a sample." (per workbench.ts:172).
+3. **Verify:** `.scene-tab .empty-hint` visible AND its textContent
+   matches that string. No `.scene-panel-embed` present.
+
+#### Beat 219: SCENE populated after sample load
+1. **Do:** ASSETS tab → click Schultz Resid. → wait for load.
+2. **See:** SCENE pane updates: scene-panel embedded with `.scene-panel-embed`
+   class. List of placed elements appears.
+3. **Verify:** `.scene-tab > .scene-panel-embed` exists. List has at
+   least one entry.
+
+#### Beat 220: SCENE storey grouping (Issue 5 collapsible sections)
+1. **Do:** Schultz loaded. Inspect SCENE list.
+2. **See:** Entries grouped by storey (Basement / 1st Floor / 2nd Floor /
+   3rd Floor / Roof / etc., per Schultz's 11 named storeys + Unassigned).
+   Each storey heading is collapsible (chevron toggle).
+3. **Verify:** Issue 5 fix landed at `3385f9d`. Click a storey heading;
+   that storey's children hide/show. Expanded/collapsed state persists
+   per session.
+
+#### Beat 221: SCENE click selects mesh in viewport
+1. **Do:** Click any SCENE entry (e.g. a wall in 1st Floor).
+2. **See:** That mesh highlights in viewport (selection outline / color
+   pop). Statusbar Sel cell updates with element id.
+3. **Verify:** `getState("selectedId")` matches the clicked entry's
+   element id. Viewer's selection outline mesh exists with the right
+   target.
+
+#### Beat 222: SCENE element count matches scene
+1. **Do:** Schultz loaded. Count visible entries in SCENE (across all
+   expanded storeys).
+2. **See:** Count matches Schultz's reconstruction inventory: **549
+   architectural elements** (4 IfcWall + 101 IfcWallStandardCase + 12
+   IfcSlab + 17 IfcDoor + 25 IfcWindow + 10 IfcStair + 2 IfcStairFlight
+   + 25 IfcColumn + 83 IfcBeam + 253 IfcRailing + 3 IfcRoof + 3 IfcSpace
+   + 11 IfcBuildingStorey).
+3. **Verify:** Reading `docs/qa/schultz-reconstruction-tables/README.md`
+   gives the same totals; SCENE list count must equal that within
+   ±0 (placed elements only — exclude Storey containers if SCENE shows
+   contained-only). Allowed delta: 549 vs 538 (placed-only) is OK iff
+   SCENE excludes IfcBuildingStorey containers — verify which.
+
+#### Beat 223: SCENE selection sync — viewport pick highlights SCENE entry
+1. **Do:** Click any wall in viewport (not in SCENE list).
+2. **See:** Corresponding SCENE entry gains `.selected` styling (color /
+   bg). Storey containing it auto-expands if collapsed.
+3. **Verify:** `.scene-panel .scene-row.selected` exists. Its element id
+   matches `getState("selectedId")`.
+
+#### Beat 224: SCENE Del key removes entry + mesh + KG triple
+1. **Do:** Click any wall (selection visible). Press Del.
+2. **See:** Mesh disappears from viewport. SCENE entry removed. Statusbar
+   Sel reverts to "—".
+3. **Verify:** `getCreateSequence()` length decreased by 1. KG triples
+   for that element are gone (`queryKG({s: <uuid>})` returns empty).
+   `.scene-panel .scene-row[data-id="<uuid>"]` is gone.
+
+#### Beat 225: SCENE persistence across reload
+1. **Do:** Place a wall via click pipeline. Reload page.
+2. **See:** Wall persists (if persistence #155 / #176 wired) OR scene
+   is empty per session-only behavior.
+3. **Verify:** Either `getCreateSequence().length === 1` post-reload
+   (persistent) OR === 0 (session-only). File gap if neither and
+   behavior is unclear/inconsistent.
+
+### Beats 226-235: INSPECT tab (10 beats)
+
+#### Beat 226: INSPECT empty-state — "no selection" subtitle
+1. **Do:** No selection. Open INSPECT tab.
+2. **See:** Header reads title="—" subtitle="no selection" (per
+   workbench.ts:184-185).
+3. **Verify:** `.props-title` text === "—". `.props-subtitle` text ===
+   "no selection".
+
+#### Beat 227: INSPECT IDENTITY section structure
+1. **Do:** Inspect INSPECT pane DOM.
+2. **See:** Three sub-sections: IDENTITY, TRANSFORM, STATUS (per
+   workbench.ts:188-213). IDENTITY has 3 rows: Name, GUID, Layer (all "—"
+   stub values).
+3. **Verify:** `.prop-section-title` x3 with text matching ["IDENTITY",
+   "TRANSFORM", "STATUS"]. IDENTITY has 3 `.prop-row` children.
+
+#### Beat 228: INSPECT TRANSFORM section structure
+1. **Do:** Same DOM inspect.
+2. **See:** TRANSFORM has two `.prop-vec3` rows (Position + Rotation),
+   each with three `.axis` spans labeled X/Y/Z. Initial values:
+   Position 0.000/0.000/0.000, Rotation 0°/0°/0°.
+3. **Verify:** `.prop-vec3` x2. Each has 3 `.axis[data-axis]` children
+   matching X / Y / Z.
+
+#### Beat 229: INSPECT STATUS message
+1. **Do:** Same DOM inspect.
+2. **See:** STATUS section reads "Mode: live · object inspector populates
+   after #176 wires geometry → IFC4 round-trip" (per workbench.ts:211).
+3. **Verify:** `.prop-section:nth-child(...)` STATUS row text matches.
+   This message acknowledges the stub status.
+
+#### Beat 230: GAP — INSPECT does NOT populate on selection (current build)
+1. **Do:** Click any wall. Open INSPECT tab.
+2. **See:** Header still "—" / "no selection". TRANSFORM still 0/0/0.
+   IDENTITY still "—". The pane is read-only static HTML — no
+   subscription to `selectedId` is wired.
+3. **Verify:** No `.prop-row .v` content changed from default. No
+   subscription to `app-state.selectedId` exists in `buildInspectTab`
+   (it returns static markup).
+4. **Gap (file):** **#148 — hero-tier UX pass — INSPECT must populate
+   on selection (Name, GUID, Layer, Position, Rotation, bbox, storey,
+   IFC class).** This blocks §25 reconstruction usability — architect
+   needs INSPECT to verify they placed each element correctly.
+
+#### Beat 231: GAP — bbox not surfaced in INSPECT
+1. **Do:** Inspect INSPECT pane DOM and selected mesh's bounding box.
+2. **See:** No bbox section. Reconstruction tables already include
+   bbox dx/dy/dz per element (e.g. wall id 316472 has dx=1.151,
+   dy=0.594, dz=0.046 per `storey-05-1st-floor.md`).
+3. **Verify:** `.prop-section-title` does not include "BOUNDS" or
+   "DIMENSIONS".
+4. **Gap (file):** Add BOUNDS section to INSPECT — required for
+   parity-checking against reconstruction tables.
+
+#### Beat 232: GAP — storey not surfaced in INSPECT
+1. **Do:** Click a wall. INSPECT.
+2. **See:** No storey field shown.
+3. **Verify:** No "Storey" or "Level" prop-row in DOM.
+4. **Gap (file):** Schultz has 11 named storeys; placing in the wrong
+   storey is the most common reconstruction error. INSPECT must show
+   the storey of the selected element.
+
+#### Beat 233: GAP — IFC entity class not surfaced in INSPECT
+1. **Do:** Click a wall. INSPECT.
+2. **See:** No "Class: IfcWallStandardCase" or similar field.
+3. **Verify:** No prop-row labeled "Class" or "IFC Class".
+4. **Gap (file):** Reconstruction parity requires entity-class match;
+   INSPECT must show this.
+
+#### Beat 234: GAP — multi-select state in INSPECT
+1. **Do:** Click wall A. Ctrl+click wall B. INSPECT.
+2. **See:** Header should read "(2 items)" or similar. Currently shows
+   "—" / "no selection" because INSPECT is non-reactive.
+3. **Verify:** Header text after multi-select.
+4. **Gap (file):** INSPECT must handle 0 / 1 / N selection cases.
+
+#### Beat 235: INSPECT smoke after #148 lands
+1. **Do (after #148 ships):** Click any wall in viewport.
+2. **See:** INSPECT populates: Name (e.g. "Basic Wall:2x4 stud:431027"
+   per Schultz reconstruction tables), GUID, Layer, IFC class
+   (IfcWallStandardCase), Position xyz (matching reconstruction table),
+   Rotation xyz, BOUNDS dx/dy/dz, Storey ("1st Floor").
+3. **Verify:** Each prop-row's `.v` matches the reconstruction-tables
+   entry for that element id. Bidirectional smoke: select element id
+   316472 → INSPECT shows x=-0.283, y=-1.150, z=0.039, dx=1.151,
+   dy=0.594, dz=0.046, storey="1st Floor".
+
+### Beats 236-247: ASSETS tab (12 beats)
+
+#### Beat 236: ASSETS search input renders
+1. **Do:** Click ASSETS tab. Inspect top of pane.
+2. **See:** Search row with magnifying-glass icon + input with
+   placeholder "search samples, primitives, blocks..." (per
+   workbench.ts:220).
+3. **Verify:** `.assets-search input[placeholder*="search samples"]`
+   exists.
+
+#### Beat 237: ASSETS "SAMPLE FILES" section divider
+1. **Do:** Same DOM inspect.
+2. **See:** Centered "SAMPLE FILES" label flanked by hairlines (per
+   workbench.ts:225).
+3. **Verify:** Section label text === "SAMPLE FILES" (case-sensitive).
+
+#### Beat 238: ASSETS — 8 sample cards render
+1. **Do:** Same DOM inspect.
+2. **See:** 8 `.asset-card` entries: Schultz Resid., FZK-Haus,
+   Institute v2, Bonsai openings, Wall+Window, Sweep · simple,
+   Triangle (OBJ), Triangle (STL) — per `SAMPLE_ASSETS` at
+   workbench.ts:93-102.
+3. **Verify:** `document.querySelectorAll('.asset-grid .asset-card')
+   .length === 8`. Each has unique `data-sample` attr.
+
+#### Beat 239: ASSETS — Schultz card click loads sample
+1. **Do:** Click `.asset-card[data-sample="schultz-residence"]`.
+2. **See:** Card gains `.selected` class. `#sample-select` dropdown's
+   value updates to "schultz-residence". Sample loader fires `change`
+   event. Loading indicator appears; eventually scene populates.
+3. **Verify:** `.asset-card.selected` is the Schultz card. After load:
+   `getCreateSequence().length > 0`.
+
+#### Beat 240: ASSETS — single-select behavior (.selected exclusivity)
+1. **Do:** Click Schultz card. Then click FZK-Haus card.
+2. **See:** Schultz loses `.selected`; FZK-Haus gains it (per
+   workbench.ts:239 — querySelectorAll removal pattern).
+3. **Verify:** Exactly one `.asset-card.selected` exists at any time.
+
+#### Beat 241: ASSETS — change event dispatch path
+1. **Do:** Spy on `#sample-select` change event. Click any asset card.
+2. **See:** `change` event fires on `#sample-select` with the card's
+   `data-sample` value (per workbench.ts:264-266 — `sel.dispatchEvent`).
+3. **Verify:** Spy called once per click with correct value.
+
+#### Beat 242: ASSETS — card has thumb + meta children
+1. **Do:** Inspect any `.asset-card`.
+2. **See:** Two children: `.asset-thumb` (visual placeholder) +
+   `.asset-meta` (with `.name` and `.sub` lines).
+3. **Verify:** Both children exist on every card.
+
+#### Beat 243: ASSETS — name + sub fields populated
+1. **Do:** Inspect Schultz card.
+2. **See:** name="Schultz Resid." sub="IFC · 2.4 MB" (per
+   workbench.ts:94).
+3. **Verify:** Card name + sub text matches.
+
+#### Beat 244: GAP — Schultz file size LIES
+1. **Do:** `ls -la web/public/samples/Schultz_Residence.ifc` (or any
+   equivalent).
+2. **See:** Real file size is **22.9 MB** per docs/qa/full-smoke-screenplay.md
+   §25.0 ground truth. Asset card claims "IFC · 2.4 MB" — off by ~10×.
+3. **Verify:** Compare card text vs `fs.statSync` size.
+4. **Gap (file):** workbench.ts:94 SAMPLE_ASSETS schultz `sub` field is
+   stale/wrong. Either originally referenced a smaller subset or never
+   updated when #155 landed the real file. Fix to "IFC · 22.9 MB" with
+   a CI guard that diffs claimed-size vs actual-size at build time.
+
+#### Beat 245: ASSETS — search input filters cards (verify in build)
+1. **Do:** Type "schultz" in `.assets-search input`.
+2. **See:** Either (a) only Schultz card visible (filter wired), or
+   (b) all 8 cards still visible (filter inert).
+3. **Verify (a):** 7 cards have `display:none` or are removed from DOM.
+   **Verify (b):** All 8 cards still visible — search is decorative.
+4. **Gap (file if b):** "ASSETS search input is inert; no `input` event
+   listener wired to filter `.asset-grid` children."
+
+#### Beat 246: ASSETS — scroll on overflow
+1. **Do:** With 8 cards rendered, narrow the sidebar viewport so cards
+   stack vertically and exceed the pane height.
+2. **See:** ASSETS pane scrolls vertically. Last card (Triangle STL)
+   reachable via scroll.
+3. **Verify:** `.tab-body.assets` `scrollHeight > clientHeight`. All 8
+   cards still hit-testable after scrolling.
+
+#### Beat 247: ASSETS — drop external IFC/GLB/OBJ/STL on viewport
+1. **Do:** Drag-drop an external IFC file (e.g. another Schultz copy
+   or `web/public/samples/wall-with-opening.ifc` from disk) onto the
+   viewport canvas.
+2. **See:** Loader picks up the file; scene replaces; SCENE tab
+   updates. ASSETS card selection clears (no card matches dropped
+   file).
+3. **Verify:** Viewport reads the file via `loader.ts` import path.
+   `getCreateSequence()` repopulates.
+4. **Cross-ref:** §18 covers every export format (and #149 multi-format
+   import is closed). This beat is the import smoke.
+
+### Beats 248-253: Selection filters panel (6 beats — at sidebar bottom)
+
+#### Beat 248: Filters panel always-visible (Issue 5 fix)
+1. **Do:** Switch between SCENE / INSPECT / ASSETS tabs.
+2. **See:** `.selection-filters` panel stays visible at sidebar bottom
+   on every tab switch (per workbench.ts:286-290 — appended once,
+   independent of tab body).
+3. **Verify:** `.selection-filters` parentNode is `host` (sidebar root),
+   NOT `.sb-body`. After tab switch, panel still in DOM.
+
+#### Beat 249: 8 filter checkboxes render with correct labels
+1. **Do:** Inspect `.selection-filters` panel.
+2. **See:** 8 `.sf-row` children with checkboxes labeled: Points,
+   Curves, Surfaces, Polysurfaces, Meshes, Annotations, Lights, Blocks
+   (per scene-panel.ts:245-254). Layout: 2-column grid.
+3. **Verify:** `[...querySelectorAll('input[data-filter]')].map(i =>
+   i.dataset.filter)` returns exactly those 8 keys in order.
+
+#### Beat 250: Default filter state (Lights off by default per Rhino)
+1. **Do:** Page load. Inspect filter checkboxes.
+2. **See:** Per `selection-state.ts` defaults — verify in build.
+   Rhino convention: all on except Lights.
+3. **Verify:** Each checkbox's `checked` matches `getFilters()[key]`.
+   File gap if defaults differ from Rhino convention without rationale.
+
+#### Beat 251: Filter toggle persists across reload
+1. **Do:** Uncheck "Surfaces". Reload page.
+2. **See:** Surfaces checkbox stays unchecked.
+3. **Verify:** localStorage entry for selection-filters preserves the
+   change. Default Rhino conventions are the new baseline overlaid by
+   user prefs.
+4. **Gap (file if missing):** "Selection filters do not persist across
+   reload — user must re-toggle every session."
+
+#### Beat 252: Footer hint visible
+1. **Do:** Inspect filters panel footer.
+2. **See:** Text "Ctrl+Shift+click to drill into sub-objects" (per
+   scene-panel.ts:274).
+3. **Verify:** Footer text matches. Cross-ref to §12 sub-object beats.
+
+#### Beat 253: Sidebar Issue 3 — scrollbar gutter does not crop right edge
+1. **Do:** Populate sidebar with full Schultz scene (overflowing SCENE
+   list). Inspect right edge.
+2. **See:** Scrollbar inside `.sb-body` does NOT eat sidebar's right
+   border / inner padding (Issue 3 fix at `4f2526b`).
+3. **Verify:** `.sb-body` style `overflow-y:auto; overflow-x:hidden`
+   present (workbench.ts:254). Sidebar inner content not clipped at
+   right edge by scrollbar gutter.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §8-§24 — TODO (subsequent ticks)
+
+Sections 8 (snap dock, 16 beats), 9 (dock tabs, 30 beats), 10 (Cmd+K
+full coverage, 28 beats), 11 (viewport interactions, 18 beats), 12
+(selection 7-topology × filters × Ctrl+Shift, 36 beats), 13 (transforms,
+18 beats), 15 (boolean + edge ops, 16 beats), 16 (layout mode full,
+28 beats), 17 (research full, 14 beats), 18 (every export format,
+26 beats), 19 (console DSL every keyword, 30 beats), 20 (Gemma 4 E2B
+agent — full loop with KG state assertions per turn, 40 beats),
+21 (skills, 16 beats), 22 (NURBS, 12 beats), 23 (persistence, 10 beats),
+24 (edge cases, 16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
 ~5-7 ticks remaining to full coverage.
