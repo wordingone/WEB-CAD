@@ -16,6 +16,7 @@ import { iconSVG, axesGizmoSVG } from "./icons";
 import { generateGeometry, GenerateError } from "./ai-generate";
 import { compileDsl } from "./dsl-eval";
 import { setState } from "./app-state";
+import { setGridOn } from "./snap-state";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -151,7 +152,11 @@ function buildSnapDock(): HTMLElement {
   `;
   // Toggle handlers.
   root.querySelectorAll(".snap-btn").forEach((b) => {
-    b.addEventListener("click", () => b.classList.toggle("on"));
+    const btn = b as HTMLElement;
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("on");
+      if (btn.textContent?.trim() === "GRID") setGridOn(btn.classList.contains("on"));
+    });
   });
   return root;
 }

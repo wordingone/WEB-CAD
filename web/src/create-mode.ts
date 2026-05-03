@@ -9,19 +9,20 @@
 // sequence.
 //
 // What is fully wired (working):
-//   - Wall, Rect, Circle, Line, Door, Window
+//   - Wall, Rect, Circle, Line, Door, Window, Slab, Column
 //
 // What is stubbed (logs to console, awaits parent task to wire kernel call):
-//   - Polyline, Polygon, Arc, Spline, Slab, Column, Stair, Extrude, Revolve
+//   - Polyline, Polygon, Arc, Spline, Stair, Extrude, Revolve
 
 import * as THREE from "three";
 import type { Viewer } from "./viewer";
+import { setState } from "./app-state";
+import { snapPoint } from "./snap-state";
 
 // Default heights / sizes from tier1-conventions.
 const DEFAULT_WALL_HEIGHT = 3;
 const DEFAULT_WALL_THICKNESS = 0.2;
 const DEFAULT_SLAB_THICKNESS = 0.2;
-const DEFAULT_SLAB_HEIGHT = 0.2;
 const DEFAULT_COLUMN_HEIGHT = 4;
 const DEFAULT_RECT_HEIGHT = 2.8;
 const DEFAULT_DOOR_W = 0.9;
@@ -30,8 +31,7 @@ const DEFAULT_WINDOW_W = 1.2;
 const DEFAULT_WINDOW_H = 1.4;
 const DEFAULT_WINDOW_SILL = 1.0;
 
-// Append-only construction sequence. Same convention as transforms.ts —
-// caller (main.ts → save / re-run) reads this to update #js-source.
+// Append-only construction sequence.
 const _createSequence: string[] = [];
 
 export function getCreateSequence(): string[] {
@@ -42,14 +42,14 @@ export function clearCreateSequence(): void {
   _createSequence.length = 0;
 }
 
-// Active tool tracker — populated by the palette button click in
-// workbench.ts (existing wiring uses `data-tool` + .active class).
-let _activeTool: string | null = null;
-// Pending click buffer — for tools that take 2 clicks (wall, line, rect, circle).
+// Pending click buffer
 let _pending: Array<{ x: number; y: number }> = [];
+// Temporary scene objects — removed when the tool completes or is cancelled.
+let _previewMesh: THREE.Mesh | null = null;
+let _markerMesh: THREE.Mesh | null = null;
+// Viewer reference set once by initCreateMode — used by resetPending.
+let _viewer: Viewer | null = null;
 
-// Resolve current active tool from DOM. Reads .palette-btn.active's
-// data-tool attribute. Returns null if "select" is active (the default).
 function readActiveTool(): string | null {
   const btn = document.querySelector<HTMLElement>(".palette-btn.active");
   const id = btn?.dataset.tool ?? null;
@@ -58,7 +58,6 @@ function readActiveTool(): string | null {
 }
 
 // Unproject canvas-space (px) to world coords on the XY plane (z=0).
-// Plane intersection via raycaster — picks where the ray crosses z=0.
 function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.Vector3 | null {
   const canvas = viewer.getCanvas();
   const rect = canvas.getBoundingClientRect();
@@ -69,7 +68,7 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
   const camera = viewer.getCamera();
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(ndc, camera as THREE.PerspectiveCamera);
-  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0); // z=0
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const point = new THREE.Vector3();
   const hit = raycaster.ray.intersectPlane(plane, point);
   return hit ? point : null;
@@ -77,9 +76,6 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
 
 // --- Tool handlers ---
 
-// Build a wall mesh from two endpoints. Per tier1-conventions: rectangle
-// (length × thickness) extruded along Z, rotated to wall axis, translated
-// to midpoint. base-at-origin in Z.
 function buildWall(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -90,7 +86,7 @@ function buildWall(a: { x: number; y: number }, b: { x: number; y: number }): { 
   const t = DEFAULT_WALL_THICKNESS;
   const h = DEFAULT_WALL_HEIGHT;
   const geom = new THREE.BoxGeometry(length, t, h);
-  geom.translate(0, 0, h / 2); // base-at-origin
+  geom.translate(0, 0, h / 2);
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.55, metalness: 0.05 });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(midX, midY, 0);
@@ -101,7 +97,6 @@ function buildWall(a: { x: number; y: number }, b: { x: number; y: number }): { 
   return { mesh, chain };
 }
 
-// Rect-extrude — 2 corner clicks produce a slab-thickness brick.
 function buildRect(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const w = Math.abs(b.x - a.x);
   const d = Math.abs(b.y - a.y);
@@ -119,14 +114,13 @@ function buildRect(a: { x: number; y: number }, b: { x: number; y: number }): { 
   return { mesh, chain };
 }
 
-// Circle → cylinder. First click = center, second click = radius point.
 function buildCircle(center: { x: number; y: number }, radial: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const dx = radial.x - center.x;
   const dy = radial.y - center.y;
   const r = Math.max(0.05, Math.sqrt(dx * dx + dy * dy));
   const h = DEFAULT_RECT_HEIGHT;
   const geom = new THREE.CylinderGeometry(r, r, h, 32);
-  geom.rotateX(Math.PI / 2); // align +Y axis to +Z
+  geom.rotateX(Math.PI / 2);
   geom.translate(0, 0, h / 2);
   const mat = new THREE.MeshStandardMaterial({ color: 0xb6d59a, roughness: 0.55, metalness: 0.05 });
   const mesh = new THREE.Mesh(geom, mat);
@@ -137,9 +131,6 @@ function buildCircle(center: { x: number; y: number }, radial: { x: number; y: n
   return { mesh, chain };
 }
 
-// Line — 2 clicks. Build a thin polyline-extruded slab so it shows up in
-// the viewer (a true 3D line is rarely useful in CAD; "polyline.sketchOnPlane.extrude(0.001)"
-// is the conventional way to keep a curve in the construction tree).
 function buildLine(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -162,10 +153,6 @@ function buildLine(a: { x: number; y: number }, b: { x: number; y: number }): { 
   return { mesh, chain };
 }
 
-// Door — click on existing wall, place door cutout. We mirror the spec:
-// `door_w × wall_t × door_h` cut at click position with sill at z=0. Without
-// a hosting wall in the test setup, we simply emit the chain + place a
-// visualization box at the click position so the user can see it.
 function buildDoor(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const w = DEFAULT_DOOR_W;
   const t = DEFAULT_WALL_THICKNESS;
@@ -181,7 +168,6 @@ function buildDoor(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: stri
   return { mesh, chain };
 }
 
-// Window — click on existing wall, place window cutout. Sill at z=sill_h.
 function buildWindow(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const w = DEFAULT_WINDOW_W;
   const t = DEFAULT_WALL_THICKNESS;
@@ -198,7 +184,6 @@ function buildWindow(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: st
   return { mesh, chain };
 }
 
-// Slab — 2-click rectangular footprint (matches DSL `slab` semantics).
 function buildSlab(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const w = Math.abs(b.x - a.x);
   const d = Math.abs(b.y - a.y);
@@ -216,7 +201,6 @@ function buildSlab(a: { x: number; y: number }, b: { x: number; y: number }): { 
   return { mesh, chain };
 }
 
-// Column — single click placement (default profile = square 0.3m).
 function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
   const s = 0.3;
   const h = DEFAULT_COLUMN_HEIGHT;
@@ -231,8 +215,12 @@ function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: st
   return { mesh, chain };
 }
 
-// Tool descriptors — click count + handler.
-const TOOL_HANDLERS: Record<string, { clicks: number; handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Mesh; chain: string } }> = {
+type ToolHandler = {
+  clicks: number;
+  handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Mesh; chain: string };
+};
+
+const TOOL_HANDLERS: Record<string, ToolHandler> = {
   wall:   { clicks: 2, handler: ([a, b]) => buildWall(a, b) },
   rect:   { clicks: 2, handler: ([a, b]) => buildRect(a, b) },
   circle: { clicks: 2, handler: ([a, b]) => buildCircle(a, b) },
@@ -243,9 +231,6 @@ const TOOL_HANDLERS: Record<string, { clicks: number; handler: (pts: Array<{ x: 
   column: { clicks: 1, handler: ([p]) => buildColumn(p) },
 };
 
-// TODO map for unhandled tools — log to console + future hook for kernel
-// call. Mapping: tool-id → "what it should compile to" so model + future
-// implementation has a place to start.
 const TOOL_TODOS: Record<string, string> = {
   polyline:  "drawPolyline(pts).sketchOnPlane('XY').extrude(thickness)",
   polygon:   "drawPolyline(N-vertex regular polygon).sketchOnPlane('XY').extrude(h)",
@@ -261,6 +246,74 @@ const TOOL_TODOS: Record<string, string> = {
   scale:     "select then drag — already covered by transform gizmo",
 };
 
+// --- Temporary scene object management ---
+
+function setMarker(viewer: Viewer, pt: { x: number; y: number }): void {
+  clearMarker(viewer);
+  const geom = new THREE.SphereGeometry(0.06, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff8800, depthTest: false });
+  _markerMesh = new THREE.Mesh(geom, mat);
+  _markerMesh.position.set(pt.x, pt.y, 0.05);
+  _markerMesh.renderOrder = 999;
+  viewer.getScene().add(_markerMesh);
+}
+
+function clearMarker(viewer: Viewer): void {
+  if (!_markerMesh) return;
+  viewer.getScene().remove(_markerMesh);
+  _markerMesh.geometry.dispose();
+  (_markerMesh.material as THREE.Material).dispose();
+  _markerMesh = null;
+}
+
+function clearPreview(viewer: Viewer): void {
+  if (!_previewMesh) return;
+  viewer.getScene().remove(_previewMesh);
+  _previewMesh.geometry.dispose();
+  const mat = _previewMesh.material;
+  if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+  else (mat as THREE.Material).dispose();
+  _previewMesh = null;
+}
+
+function clearTemporary(viewer: Viewer): void {
+  clearPreview(viewer);
+  clearMarker(viewer);
+}
+
+function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: number; y: number }): void {
+  clearPreview(viewer);
+  if (_pending.length !== 1) return;
+
+  // Skip degenerate preview (cursor on top of first click).
+  const dx = livePoint.x - _pending[0].x;
+  const dy = livePoint.y - _pending[0].y;
+  if (dx * dx + dy * dy < 1e-4) return;
+
+  try {
+    const out = handler.handler([_pending[0], livePoint]);
+    const preview = out.mesh;
+    // Replace material with translucent preview version.
+    const origMat = Array.isArray(preview.material) ? preview.material[0] : preview.material;
+    const previewMat = new THREE.MeshStandardMaterial({
+      color: (origMat as THREE.MeshStandardMaterial).color?.clone() ?? new THREE.Color(0x888888),
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
+    });
+    if (Array.isArray(preview.material)) {
+      preview.material.forEach((m) => m.dispose());
+    } else {
+      (preview.material as THREE.Material).dispose();
+    }
+    preview.material = previewMat;
+    _previewMesh = preview;
+    viewer.getScene().add(preview);
+  } catch {
+    // Degenerate geometry — skip preview
+  }
+}
+
 // Test hook — emit a click programmatically given world-space coords.
 export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, opts?: { tool?: string }): { mesh: THREE.Mesh; chain: string } | null {
   const tool = opts?.tool ?? readActiveTool();
@@ -272,10 +325,16 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
     return null;
   }
   _pending.push(world);
+  // Show point marker on first click of a multi-click tool.
+  if (_pending.length === 1 && handler.clicks > 1) {
+    setMarker(viewer, world);
+  }
   if (_pending.length < handler.clicks) return null;
+
+  // All clicks collected — build final mesh.
+  clearTemporary(viewer);
   const out = handler.handler(_pending);
   _pending = [];
-  // Add to viewer scene + helper graph.
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep");
   _createSequence.push(out.chain);
   return out;
@@ -283,6 +342,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
 
 // Reset pending click buffer — used when switching tools.
 export function resetPending(): void {
+  if (_viewer) clearTemporary(_viewer);
   _pending = [];
 }
 
@@ -290,20 +350,45 @@ export function resetPending(): void {
 // selection raycaster — when no create-tool is active, mousedown just falls
 // through to viewer.onPointerDown for selection.
 export function initCreateMode(viewer: Viewer): void {
+  _viewer = viewer;
   const canvas = viewer.getCanvas();
+
   // Capture-phase listener — runs before the viewer's own pointerdown so we
   // can swallow the event when a create-tool is active.
   canvas.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0) return;
     const tool = readActiveTool();
-    if (!tool) return; // select-mode → fall through
+    if (!tool) return;
     const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
     if (!world) return;
     ev.stopImmediatePropagation();
-    emitClickWorld(viewer, { x: round(world.x), y: round(world.y) }, { tool });
+    const snapped = snapPoint(world.x, world.y);
+    emitClickWorld(viewer, snapped, { tool });
   }, { capture: true });
 
-  // Reset pending buffer when palette tool changes (click on any palette btn).
+  // Rubber-band preview: update preview mesh as cursor moves between clicks.
+  canvas.addEventListener("pointermove", (ev) => {
+    if (_pending.length === 0) return;
+    const tool = readActiveTool();
+    if (!tool) return;
+    const handler = TOOL_HANDLERS[tool];
+    if (!handler || handler.clicks < 2) return;
+    const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
+    if (!world) return;
+    const snapped = snapPoint(world.x, world.y);
+    updateRubberBand(viewer, handler, snapped);
+  });
+
+  // Esc cancels the in-progress placement.
+  window.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && _pending.length > 0) {
+      clearTemporary(viewer);
+      _pending = [];
+      setState("activeTool", "select");
+    }
+  });
+
+  // Reset pending buffer when palette tool changes.
   document.addEventListener("click", (ev) => {
     const t = ev.target as HTMLElement | null;
     if (!t) return;
