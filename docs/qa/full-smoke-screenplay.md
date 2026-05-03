@@ -58,7 +58,7 @@ Setup is implicit — don't skip beats.
 | 1 | Critical path / demo flow | 50 | DRAFT (this commit) |
 | 2 | Menubar — File / Edit / View / Mode / Window / Help | 42 | DRAFT (this commit) |
 | 3 | Modebar — MODEL / LAYOUT / RESEARCH transitions | 18 | DRAFT (this commit) |
-| 4 | Theme — BLUEPRINT ↔ VELLUM (every surface flips) | 22 | TODO |
+| 4 | Theme — BLUEPRINT ↔ VELLUM (every surface flips) | 22 | DRAFT (this commit) |
 | 5 | Ribbon — 24 tool buttons + tab switcher | 50 | TODO |
 | 6 | Left palette — collapsed/expanded, every entry | 24 | TODO |
 | 7 | Right sidebar — SCENE tree / INSPECT / ASSETS / Selection Filters | 40 | TODO |
@@ -1058,19 +1058,220 @@ sidebar and dock persist.
 
 ═══════════════════════════════════════════════════════════════════════════
 
-## §4-§24 — TODO (subsequent ticks)
+## §4 — Theme audit (BLUEPRINT ↔ VELLUM, every surface)
 
-Sections 4 (theme audit — every surface flips BLUEPRINT ↔ VELLUM),
-5 (every ribbon tool), 6 (left palette), 7 (right sidebar full),
-8 (snap dock), 9 (dock tabs), 10 (Cmd+K full coverage), 11 (viewport
-interactions), 12 (selection 7-topology × filters × Ctrl+Shift),
-13 (transforms), 15 (boolean + edge ops), 16 (layout mode full),
-17 (research full), 18 (every export format), 19 (console DSL every
-keyword), 20 (Gemma 4 E2B agent — full loop with KG state assertions
-per turn), 21 (skills), 22 (NURBS), 23 (persistence), 24 (edge cases).
+22 beats. Theme switch flips dark `night=true` BLUEPRINT chrome to
+warm `night=false` VELLUM. Persisted in `localStorage[gemma-architect.theme]`
+(`"night"` or `"day"`). Three entry points must agree: menubar pill,
+View > Toggle theme menu item, Cmd+K "Toggle theme" command. Issue 4
+fix verified: scene-panel theme-aware in sidebar embed.
+
+### Beat 118: Cold-load default
+
+1. **Do:** Clear `localStorage["gemma-architect.theme"]`. Reload.
+2. **See:** Page paints in BLUEPRINT (dark, night=true). Menubar pill
+   says `○ VELLUM` (off-state, indicates click switches to VELLUM).
+3. **Verify:** `getState("night") === true`. Pill text matches.
+   `<body>` carries no `.day-mode` class (or whatever the BLUEPRINT
+   default state is; verify against style.css).
+
+### Beat 119: Pill toggle BLUEPRINT → VELLUM
+
+1. **Do:** Click `#theme-toggle-pill` in menubar-right.
+2. **See:** Whole UI flips to VELLUM (warm beige paper backdrop,
+   graphite ink). Pill label flips to `◑ BLUEPRINT` (now indicates
+   click returns to BLUEPRINT). Statusbar, sidebar, ribbon, dock,
+   modebar, viewports — all flipped within one frame.
+3. **Verify:** `getState("night") === false`. `localStorage["gemma-architect.theme"]
+   === "day"`. CSS `--paper-base` resolves to a light oklch value
+   (~0.965). No element has hardcoded dark colour leaking through.
+   Issue 4 fix intact: scene-panel uses `var(--glass-bg)`, not
+   hardcoded `rgba(13, 14, 18, 0.78)`.
+
+### Beat 120: Pill toggle VELLUM → BLUEPRINT
+
+1. **Do:** Click pill again.
+2. **See:** UI flips back to BLUEPRINT. Pill label `○ VELLUM`.
+3. **Verify:** `localStorage["gemma-architect.theme"] === "night"`.
+   Round-trip is lossless — no UI element is "stuck" in the wrong theme.
+
+### Beat 121: Menubar entry toggle
+
+1. **Do:** Open View menu. Click "Toggle theme" row.
+2. **See:** Theme flips. Menu closes. Same effect as pill.
+3. **Verify:** Same `getState` + localStorage as pill path.
+
+### Beat 122: View menu label is dynamic
+
+1. **Do:** Open View menu in BLUEPRINT.
+2. **See:** Toggle row label is `Daylight · vellum` (suggesting the
+   action: switch to vellum).
+3. **Verify:** `shell.ts:256` dynamicLabel logic — label text reflects
+   the OPPOSITE of current state. After toggling to VELLUM, the label
+   becomes `Night · blueprint`.
+
+### Beat 123: Cmd+K toggle command
+
+1. **Do:** Cmd+K → type `theme` → Enter on "Toggle theme" command.
+2. **See:** Theme flips. Same effect as pill / menu.
+3. **Verify:** `palette.ts:86` keyword match works for `theme` /
+   `dark` / `light` / `vellum` / `blueprint`. localStorage updated
+   via the palette path (`palette.ts:127`).
+
+### Beat 124: Reload persists VELLUM
+
+1. **Do:** Set theme to VELLUM. Hard-reload (Ctrl+F5).
+2. **See:** Page paints directly in VELLUM (no BLUEPRINT flash).
+3. **Verify:** Hydration in `app-state.ts:85` reads localStorage on
+   first paint. No flash of unstyled / wrong-themed content (FOUC).
+
+### Beat 125: Reload persists BLUEPRINT
+
+1. **Do:** Set theme to BLUEPRINT. Hard-reload.
+2. **See:** Page paints in BLUEPRINT.
+3. **Verify:** Same hydration path; symmetric.
+
+### Beat 126: localStorage manual override
+
+1. **Do:** With page open, in devtools run
+   `localStorage.setItem("gemma-architect.theme", "day")`. Reload.
+2. **See:** Page paints in VELLUM after reload.
+3. **Verify:** External writes to localStorage are honoured at next
+   hydration.
+
+### Beat 127: Private mode tolerance
+
+1. **Do:** Open the app in a private/incognito window. Toggle theme.
+   Reload.
+2. **See:** Theme flips on toggle but does NOT persist across reload
+   (private mode blocks localStorage). No console error.
+3. **Verify:** `app-state.ts:78` swallows the localStorage `setItem`
+   error in `try/catch`. No "Storage failed" red banner.
+
+### Beat 128: Menubar surface in both themes
+
+1. **Do:** Inspect `.menubar` background + text colour in each theme.
+2. **See:** BLUEPRINT: dark glass with light text. VELLUM: warm paper
+   with graphite text. Hover state in both is readable.
+3. **Verify:** Contrast ratio ≥ 4.5:1 for body text in each theme
+   (WCAG AA). Pill label readable in both.
+
+### Beat 129: Modebar surface
+
+1. **Do:** Inspect `.modebar` and each `.mode-tab` background +
+   numeric prefix text in each theme.
+2. **See:** Active tab visually distinct from inactive tabs in both
+   themes. Numeric prefix (01/02/03) readable.
+3. **Verify:** No theme-only colour leak (e.g. inactive tab going
+   invisible against VELLUM background).
+
+### Beat 130: Ribbon + tool buttons
+
+1. **Do:** Inspect `.ribbon` row and each `.tool-btn` icon (per Issue 1
+   fix — square 28×28 with stroke colour). Toggle theme.
+2. **See:** Tool icons re-stroke in the theme's accent colour. Active
+   tool's `.active` state visually distinct in both themes.
+3. **Verify:** SVG icons use `currentColor` or theme-aware fill — no
+   hardcoded `#fff` / `#000` strokes. Issue 1 fix intact: padding/
+   icon visibility doesn't regress in either theme.
+
+### Beat 131: Sidebar surfaces (every tab)
+
+1. **Do:** Open SCENE / INSPECT / ASSETS in BLUEPRINT, then VELLUM.
+2. **See:** Every tab body surface flips: SCENE tree backdrop, INSPECT
+   metadata table, ASSETS thumbnails. Selection-filter checkboxes
+   readable in both. Issue 4 fix intact: `#scene-panel` uses
+   `var(--glass-bg)` post-fix, no hardcoded dark.
+3. **Verify:** No tab carries the previous theme's chrome through the
+   transition (no half-themed mid-state).
+
+### Beat 132: Snap dock surface
+
+1. **Do:** Toggle theme with snap dock visible.
+2. **See:** Snap dock surface, GRID / ORTHO / END / MID / CEN / INT /
+   TRACK pill backgrounds, label text — all flipped.
+3. **Verify:** Active pill state distinguishable in both themes.
+
+### Beat 133: Dock surface — every tab
+
+1. **Do:** With each dock tab active in turn (PROMPT / CONSOLE /
+   NODES / PARAMETERS / HISTORY), toggle theme.
+2. **See:** Tab-strip background, active tab indicator, tab body
+   content, input field placeholders — all flipped.
+3. **Verify:** Console-tab DSL output / PROMPT input styling /
+   PARAMETERS field labels are all theme-aware.
+
+### Beat 134: Statusbar surface
+
+1. **Do:** Toggle theme.
+2. **See:** Status cells (Mode / Tool / Sel / Coord / Zoom)
+   backgrounds + text colour swap. Statusbar separator lines visible
+   in both themes.
+3. **Verify:** Critical info readable in both themes (no low-contrast
+   regression).
+
+### Beat 135: Viewport background flips
+
+1. **Do:** Toggle theme.
+2. **See:** Viewport area background swaps to vellum-paper texture
+   (VELLUM) or dark glass (BLUEPRINT). Grid lines re-tint to match
+   (`viewer.ts:144` grid-color tuning).
+3. **Verify:** Geometry remains visible in both themes. Selection
+   highlights use the accent colour, not a theme-leaking base.
+
+### Beat 136: Viewport rendering — geometry contrast
+
+1. **Do:** Load Schultz_Residence.ifc, toggle to VELLUM.
+2. **See:** Wall / slab / door / window meshes still visible against
+   the parchment backdrop. No mesh becomes the same colour as the
+   background.
+3. **Verify:** Material defaults provide enough contrast in both
+   themes. T3 edge helpers (wireframe overlay) re-tint correctly.
+
+### Beat 137: Theme survives mode round-trip
+
+1. **Do:** VELLUM in MODEL → switch to LAYOUT → switch to RESEARCH →
+   back to MODEL.
+2. **See:** Theme stays VELLUM across all four states.
+3. **Verify:** Cross-ref §3 Beat 108 — same assertion, included here
+   for §4 completeness (theme orthogonal to mode).
+
+### Beat 138: Toggle inside an input field is suppressed
+
+1. **Do:** Open Cmd+K palette. Type `t` (just the letter, NOT the full
+   `theme` command).
+2. **See:** Letter `t` is captured by the input. Theme does NOT flip.
+3. **Verify:** No accidental hotkey hits. If a future hotkey for
+   theme-toggle is added (e.g. `Ctrl+T`), it must short-circuit when
+   `document.activeElement` is an input/textarea. **If hotkey is not
+   yet wired, file as #166 follow-up.**
+
+### Beat 139: Pill aria + keyboard
+
+1. **Do:** Tab through menubar-right until pill receives focus. Press
+   Space.
+2. **See:** Theme flips. Focus ring visible on pill in both themes.
+3. **Verify:** `<button id="theme-toggle-pill">` is focusable. Space/
+   Enter activates. ARIA label or visible label communicates the
+   action ("Toggle theme") to screen readers.
+
+═══════════════════════════════════════════════════════════════════════════
+
+## §5-§24 — TODO (subsequent ticks)
+
+Sections 5 (every ribbon tool, 50 beats), 6 (left palette, 24 beats),
+7 (right sidebar full, 40 beats), 8 (snap dock, 16 beats), 9 (dock
+tabs, 30 beats), 10 (Cmd+K full coverage, 28 beats), 11 (viewport
+interactions, 18 beats), 12 (selection 7-topology × filters ×
+Ctrl+Shift, 36 beats), 13 (transforms, 18 beats), 15 (boolean + edge
+ops, 16 beats), 16 (layout mode full, 28 beats), 17 (research full,
+14 beats), 18 (every export format, 26 beats), 19 (console DSL every
+keyword, 30 beats), 20 (Gemma 4 E2B agent — full loop with KG state
+assertions per turn, 40 beats), 21 (skills, 16 beats), 22 (NURBS,
+12 beats), 23 (persistence, 10 beats), 24 (edge cases, 16 beats).
 
 Authoring cadence: ~18-50 beats per tick depending on section size.
-~8-10 ticks to full coverage.
+~7-9 ticks to full coverage.
 
 ═══════════════════════════════════════════════════════════════════════════
 
