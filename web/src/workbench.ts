@@ -245,7 +245,7 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
 
   const tabs = el("div", "sb-tabs");
   const body = el("div", "sb-body");
-  body.style.cssText = "flex:1; min-height:0; overflow:auto;";
+  body.style.cssText = "flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;";
   const snap = buildSnapDock();
 
   const panes: Record<string, HTMLElement> = {
