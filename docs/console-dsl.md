@@ -6,9 +6,34 @@ follow-up belongs to forge once the lexicon is frozen.
 ## Purpose
 
 Define a small, copyright-safe lexicon for the **CONSOLE tab** that is
-expressive enough to reconstruct an IFC building from a viewport image
-(per Jun directive 2026-05-03), and small enough that the gemma-3n-E2B
-LoRA-fine-tune can produce it reliably.
+expressive enough to reconstruct a building from any of:
+
+- a viewport image (TOP / FRONT / RIGHT / PERSPECTIVE)
+- a natural-language description (`"a 6×4m kitchen with a doorway south
+  and one window north"`)
+- a hybrid input (image + text refining it)
+
+…and small enough that the gemma-3n-E2B LoRA-fine-tune can produce it
+reliably.
+
+The DSL is the **intermediate representation**. The model writes DSL;
+the pipeline lowers DSL → replicad solid graph → any of the export
+formats the app already supports (IFC4, STEP, OBJ, STL, GLB, glTF,
+USDZ, SVG, DXF, PDF). IFC is one target among many — the DSL doesn't
+favor it. Per Jun 2026-05-03: input modality (image / text / both) and
+output modality (any export format) are both open dimensions. The DSL
+is the narrow waist between them.
+
+```
+                ┌──────────────┐
+   image  ──────┤              │
+                │   gemma-3n   │           ┌─────────────────┐
+                │   E2B-it     │── DSL ──▶ │ replicad solid  │── IFC / STEP /
+                │   + LoRA     │           │ graph           │   OBJ / STL /
+   text   ──────┤              │           └─────────────────┘   GLB / glTF /
+                └──────────────┘                                  USDZ / SVG /
+                                                                  DXF / PDF
+```
 
 This DSL is **not** a clone of Rhino/RhinoCommon, Grasshopper, OpenSCAD,
 CadQuery, or any product's API. It's a purpose-built command surface for
@@ -228,12 +253,24 @@ IFC export (`export ifc …`) re-runs the existing
 
 ## Train-data follow-up (forge owns)
 
-Once this lexicon is frozen (Jun-approved), forge generates a new
-training jsonl pairing:
+Once this lexicon is frozen (Jun-approved), forge generates a multi-modal
+training corpus. Each sample is a `(input, dsl-script)` pair where
+`input` is one of three modalities, sampled in roughly equal proportions:
 
-- **input** = a rendered TOP/PERSPECTIVE/FRONT/RIGHT viewport image of
-  the building (Three.js → png, 512×512, drafting-style stroke).
-- **target** = the DSL script that reproduces it.
+- **image-only**: rendered TOP/PERSPECTIVE/FRONT/RIGHT viewport image of
+  the building (Three.js → png, 512×512, drafting-style stroke). The
+  model writes DSL that reconstructs the geometry.
+- **text-only**: natural-language description (e.g. `"a 6×4m room with
+  a 0.9m-wide door on the south wall and a window centered on the
+  north wall"`). The model writes DSL that satisfies the description.
+- **image + text**: viewport image plus a refining text instruction
+  (e.g. *image of an L-shape* + `"add a 1.2m-wide door at the inside
+  corner"`). The model writes DSL that produces the modified building.
+
+Targets are always the DSL — never the final export format. The
+pipeline runs DSL → replicad → user-selected export format
+(IFC/STEP/OBJ/STL/GLB/glTF/USDZ/SVG/DXF/PDF) at inference time, so the
+model learns one output language and stays format-agnostic.
 
 The 4b-it variant should be retrained on this new lexicon (current
 training is on a `drawRectangle/cut/fuse/extrude` raw replicad surface;
@@ -242,8 +279,11 @@ spec). The e2b variant currently training (#102) should also pick up
 this lexicon in its next round.
 
 Phase-1 corpus: 200 building variants generated procedurally (vary
-footprint, openings, story count). Phase-2 ablate by removing the IFC
-target and only providing the image (per Jun directive).
+footprint, openings, story count, levels). Phase-2 ablation: drop one
+modality at a time to measure how much each contributes
+(image-only vs text-only vs hybrid). Phase-3: open the DSL to
+multi-step refinement chains (initial DSL → user text correction →
+revised DSL).
 
 ## What's deliberately out of scope (v0)
 
