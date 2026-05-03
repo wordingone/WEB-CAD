@@ -69,6 +69,7 @@ const fileNameLabel = $<HTMLSpanElement>("file-name");
 // Shared UI
 const status = $<HTMLDivElement>("status");
 const canvas = $<HTMLCanvasElement>("viewer-canvas");
+const viewportAreaEl = document.getElementById("viewport-area-host") as HTMLElement;
 const paramPanel = $<HTMLDivElement>("param-panel");
 const paramSliders = $<HTMLDivElement>("param-sliders");
 const paramCollapseBtn = $<HTMLButtonElement>("param-collapse-btn");
@@ -89,7 +90,9 @@ paramCollapseBtn.addEventListener("click", () => {
   );
 });
 
-const viewer = new Viewer(canvas);
+const viewer = new Viewer(canvas, viewportAreaEl);
+// Expose for in-browser debug + DevTools poking — read-only handle to scene state.
+(window as unknown as { __viewer: Viewer }).__viewer = viewer;
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
 
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
@@ -639,6 +642,7 @@ function downloadBlob(blob: Blob, filename: string) {
 const workbenchEl = document.querySelector(".workbench") as HTMLElement | null;
 initShellChrome({
   onModeChange: (k) => activateMode(k, workbenchEl),
+  onSplitMode: (mode) => viewer.splitMode(mode),
 });
 initPalette();
 buildWorkbench();

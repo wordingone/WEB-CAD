@@ -1,11 +1,22 @@
 // Three.js viewer for replicad meshes.
 //
 // Receives a flat-array mesh from the worker, builds a BufferGeometry,
-// and frames the camera on the result. OrbitControls let the user
-// orbit / pan / zoom. Grid + axes for spatial reference.
+// and frames the camera on the result. Scissor-per-pane render loop
+// supports single and quad viewport layouts. OrbitControls are per-pane.
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { axesGizmoSVG } from "./icons.js";
+
+type ViewName = "top" | "persp" | "front" | "right";
+type Pane = {
+  id: string;
+  view: ViewName;
+  el: HTMLElement;
+  body: HTMLElement;
+  camera: THREE.Camera;
+  controls: OrbitControls;
+};
 
 export type MeshIn = {
   vertices: Float32Array;
@@ -23,7 +34,8 @@ export class Viewer {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
-  private controls: OrbitControls;
+  private controls: OrbitControls | null = null;
+  private panes: Pane[] = [];
   private currentMesh: THREE.Mesh | null = null;
   private currentEdges: THREE.LineSegments | null = null;
   private currentObject: THREE.Object3D | null = null;
@@ -32,7 +44,7 @@ export class Viewer {
   private axisLabels: THREE.Sprite[] = [];
   private currentBounds: Bounds | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, viewportAreaEl: HTMLElement) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -40,21 +52,15 @@ export class Viewer {
       alpha: true,
     });
     this.renderer.setPixelRatio(window.devicePixelRatio);
-    // Transparent clear — bundle's .viewport-area::before (vellum paper)
-    // shows through. See styles.css line 288-293 (#171/#172/#173).
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.shadowMap.enabled = false;
+    this.renderer.autoClear = false;
 
     this.scene = new THREE.Scene();
-    // No scene.background — let CSS paper layer through.
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
     this.camera.position.set(8, 8, 8);
-    this.camera.up.set(0, 0, 1); // Z-up to match replicad / IFC convention.
-
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.1;
+    this.camera.up.set(0, 0, 1);
 
     // Lights — keyfill + rim for shape readability without shadows.
     const ambient = new THREE.AmbientLight(0xffffff, 0.45);
@@ -66,17 +72,45 @@ export class Viewer {
     fill.position.set(-8, -6, 4);
     this.scene.add(fill);
 
-    // Reference grid + axes. 20m × 20m grid, 1m subdivisions; matches the
-    // architectural-scale demo prompts (3-15m primitives).
-    // Grid colors tuned for the bundle's vellum paper background — major
-    // lines at ink-soft, subdivisions at hairline-strong. (#173)
+    // Reference grid + axes.
     this.grid = new THREE.GridHelper(20, 20, 0x6f6f78, 0xc8c2b4);
-    this.grid.rotation.x = Math.PI / 2; // grid in XY plane (replicad uses Z-up).
+    this.grid.rotation.x = Math.PI / 2;
     this.scene.add(this.grid);
 
     this.axes = new THREE.AxesHelper(2);
     this.scene.add(this.axes);
     this.createAxisLabels();
+
+    // Build per-pane cameras and controls from DOM.
+    viewportAreaEl.querySelectorAll<HTMLElement>(".viewport[data-view]").forEach((el, idx) => {
+      const view = el.dataset.view as ViewName;
+      const body = el.querySelector<HTMLElement>(".vp-body") ?? el;
+      let camera: THREE.Camera;
+      if (view === "persp") {
+        camera = this.camera;
+      } else {
+        const half = 5;
+        camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.01, 1000);
+      }
+      switch (view) {
+        case "top":   camera.position.set(0, 0, 50);  camera.up.set(0, 1, 0); break;
+        case "front": camera.position.set(0, -50, 0); camera.up.set(0, 0, 1); break;
+        case "right": camera.position.set(50, 0, 0);  camera.up.set(0, 0, 1); break;
+        case "persp": break;
+      }
+      camera.lookAt(0, 0, 0);
+      const controls = new OrbitControls(camera, body);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.1;
+      this.panes.push({ id: el.id, view, el, body, camera, controls });
+
+      const axesDiv = document.getElementById(`vp-axes-${idx + 1}`);
+      if (axesDiv) axesDiv.innerHTML = axesGizmoSVG();
+    });
+
+    // Keep backward-compat controls reference pointing at persp pane.
+    const perspPane = this.panes.find(p => p.view === "persp");
+    if (perspPane) this.controls = perspPane.controls;
 
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
@@ -89,14 +123,50 @@ export class Viewer {
     const w = Math.max(1, Math.floor(rect.width));
     const h = Math.max(1, Math.floor(rect.height));
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    for (const pane of this.panes) {
+      if (pane.camera instanceof THREE.OrthographicCamera) {
+        const pr = pane.el.getBoundingClientRect();
+        const aspect = pr.width > 0 && pr.height > 0 ? pr.width / pr.height : 1;
+        const half = 5;
+        pane.camera.left = -half * aspect;
+        pane.camera.right = half * aspect;
+        pane.camera.top = half;
+        pane.camera.bottom = -half;
+        pane.camera.updateProjectionMatrix();
+      } else if (pane.camera instanceof THREE.PerspectiveCamera) {
+        const pr = pane.el.getBoundingClientRect();
+        if (pr.width > 0 && pr.height > 0) {
+          (pane.camera as THREE.PerspectiveCamera).aspect = pr.width / pr.height;
+          pane.camera.updateProjectionMatrix();
+        }
+      }
+    }
   }
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const canvasH = this.canvas.clientHeight;
+
+    this.renderer.clear();
+
+    for (const pane of this.panes) {
+      const rect = pane.el.getBoundingClientRect();
+      const x = Math.floor(rect.left - canvasRect.left);
+      // Y-flip: WebGL origin is bottom-left, DOM origin is top-left.
+      const gl_y = Math.floor(canvasH - (rect.top - canvasRect.top) - rect.height);
+      const w = Math.floor(rect.width);
+      const h = Math.floor(rect.height);
+      if (w <= 0 || h <= 0) continue;
+
+      this.renderer.setScissor(x, gl_y, w, h);
+      this.renderer.setScissorTest(true);
+      this.renderer.setViewport(x, gl_y, w, h);
+      this.renderer.clearDepth();
+      pane.controls.update();
+      this.renderer.render(this.scene, pane.camera);
+    }
+    this.renderer.setScissorTest(false);
   };
 
   private clearScene(): void {
@@ -145,7 +215,6 @@ export class Viewer {
     this.scene.add(m);
     this.currentMesh = m;
 
-    // Edge overlay for CAD readability.
     const edges = new THREE.EdgesGeometry(geometry, 25);
     const edgeMat = new THREE.LineBasicMaterial({
       color: 0x0e0e10,
@@ -160,7 +229,6 @@ export class Viewer {
     this.fitCamera(bounds);
   }
 
-  // Generalized entry-point for loaded files (THREE.Group / THREE.Mesh).
   setObject(object: THREE.Object3D, bounds: Bounds): void {
     this.clearScene();
     this.scene.add(object);
@@ -168,17 +236,12 @@ export class Viewer {
     this.fitCamera(bounds);
   }
 
-  // Returns the active scene root (mesh OR object), suitable to feed three.js
-  // exporters (OBJ / glTF / GLB / USDZ). Returns null if nothing is loaded.
   getActiveObject(): THREE.Object3D | null {
     if (this.currentMesh) return this.currentMesh;
     if (this.currentObject) return this.currentObject;
     return null;
   }
 
-  // Get the active mesh data — used by the IFC export path so a loaded file
-  // can be re-emitted as IFC4. Walks the live object graph, since either
-  // setMesh (from worker) or setObject (from file) might be active.
   getActiveMeshData(): { vertices: Float32Array; indices: Uint32Array } | null {
     if (this.currentMesh) {
       const g = this.currentMesh.geometry;
@@ -188,9 +251,6 @@ export class Viewer {
       return { vertices: new Float32Array(pos), indices: new Uint32Array(idx) };
     }
     if (this.currentObject) {
-      // Walk meshes and concatenate. Apply each mesh's world transform so the
-      // re-emitted IFC carries already-positioned geometry (since IFC pipeline
-      // here only writes one IfcBuildingElementProxy with raw triangles).
       const verts: number[] = [];
       const idx: number[] = [];
       const tmp = new THREE.Vector3();
@@ -214,7 +274,6 @@ export class Viewer {
           const a = indexAttr.array;
           for (let i = 0; i < a.length; i++) idx.push(a[i] + baseIndex);
         } else {
-          // Non-indexed: treat consecutive triples as triangles.
           const triCount = (pos.length / 3) | 0;
           for (let i = 0; i < triCount; i++) idx.push(baseIndex + i);
         }
@@ -238,18 +297,39 @@ export class Viewer {
     const dz = bounds.max[2] - bounds.min[2];
     const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
 
-    // Pull back along a higher-tilt architectural-ish direction. Z=1.5 lifts
-    // the camera enough that walls/slabs read as 3D rather than as a squashed
-    // top-down silhouette. Framing fudge factor 1.7 keeps the grid visible
-    // around tall objects.
+    // Persp camera — architectural direction, 1.7× for grid visibility.
     const dist = diag * 1.7;
     const dir = new THREE.Vector3(1, 1, 1.5).normalize();
     this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
-    this.controls.target.set(cx, cy, cz);
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+    const perspPane = this.panes.find(p => p.view === "persp");
+    if (perspPane) {
+      perspPane.controls.target.set(cx, cy, cz);
+      perspPane.controls.update();
+    }
 
-    // Re-scale grid so it always brackets the object.
+    // Ortho panes — position along view axis, scale frustum to fit scene.
+    const half = diag * 0.55;
+    for (const pane of this.panes) {
+      if (!(pane.camera instanceof THREE.OrthographicCamera)) continue;
+      switch (pane.view) {
+        case "top":   pane.camera.position.set(cx, cy, cz + diag * 2); break;
+        case "front": pane.camera.position.set(cx, cy - diag * 2, cz); break;
+        case "right": pane.camera.position.set(cx + diag * 2, cy, cz); break;
+      }
+      pane.camera.lookAt(cx, cy, cz);
+      const pr = pane.el.getBoundingClientRect();
+      const aspect = pr.width > 0 && pr.height > 0 ? pr.width / pr.height : 1;
+      pane.camera.left = -half * aspect;
+      pane.camera.right = half * aspect;
+      pane.camera.top = half;
+      pane.camera.bottom = -half;
+      pane.camera.updateProjectionMatrix();
+      pane.controls.target.set(cx, cy, cz);
+      pane.controls.update();
+    }
+
+    // Re-scale grid so it brackets the object.
     const gridSize = Math.max(20, Math.ceil(Math.max(dx, dy) * 2));
     if ((this.grid as any).__lastSize !== gridSize) {
       this.scene.remove(this.grid);
@@ -260,7 +340,7 @@ export class Viewer {
       this.scene.add(this.grid);
     }
 
-    // Re-scale axis triad + labels to match scene size.
+    // Re-scale axis triad + labels.
     const triadLen = Math.max(2, Math.min(dx, dy, dz) * 0.5);
     this.scene.remove(this.axes);
     this.axes.dispose();
@@ -269,8 +349,6 @@ export class Viewer {
     this.createAxisLabels(triadLen);
   }
 
-  // Sprite-based axis tip labels (X red, Y green, Z blue) — three.js AxesHelper
-  // is unlabeled by default, leaving users guessing which colored line is which.
   private createAxisLabels(length = 2): void {
     for (const s of this.axisLabels) {
       this.scene.remove(s);
@@ -307,9 +385,6 @@ export class Viewer {
     for (const s of this.axisLabels) this.scene.add(s);
   }
 
-  // Frame the camera on a single child object (subset of full scene). Does not
-  // touch the grid or axis-triad scaling — those still follow the full scene.
-  // Used by the scene panel's "zoom to mesh" interaction.
   frameObjectOnly(obj: THREE.Object3D): void {
     obj.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(obj);
@@ -324,13 +399,14 @@ export class Viewer {
     const dist = diag * 1.7;
     const dir = new THREE.Vector3(1, 1, 1.5).normalize();
     this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
-    this.controls.target.set(cx, cy, cz);
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+    const perspPane = this.panes.find(p => p.view === "persp");
+    if (perspPane) {
+      perspPane.controls.target.set(cx, cy, cz);
+      perspPane.controls.update();
+    }
   }
 
-  // Snap camera to a named view, framed on current scene bounds.
-  // Names match AutoCAD/Revit/Blender conventions in Z-up world.
   setView(name: "top" | "bottom" | "front" | "back" | "left" | "right" | "iso" | "extents"): void {
     const b = this.currentBounds ?? { min: [-5, -5, -5] as [number, number, number], max: [5, 5, 5] as [number, number, number] };
     const cx = (b.min[0] + b.max[0]) / 2;
@@ -353,8 +429,19 @@ export class Viewer {
       case "extents": dir = new THREE.Vector3(1, 1, 1.5).normalize(); break;
     }
     this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
-    this.controls.target.set(cx, cy, cz);
     this.camera.updateProjectionMatrix();
-    this.controls.update();
+    const perspPane = this.panes.find(p => p.view === "persp");
+    if (perspPane) {
+      perspPane.controls.target.set(cx, cy, cz);
+      perspPane.controls.update();
+    }
+  }
+
+  splitMode(mode: "single" | "quad"): void {
+    const area = this.canvas.parentElement;
+    if (!area) return;
+    area.classList.toggle("split-quad", mode === "quad");
+    area.classList.toggle("split-single", mode === "single");
+    this.handleResize();
   }
 }

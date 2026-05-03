@@ -336,7 +336,7 @@ function buildModebar(host: HTMLElement, onChange?: (k: string) => void): (k: st
   return activate;
 }
 
-function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void): (t: RibbonTab) => void {
+function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void, onSplitMode?: (mode: "single" | "quad") => void): (t: RibbonTab) => void {
   ribbonHost.innerHTML = "";
 
   // .ribbon-tabs — top strip with 6 tab labels.
@@ -386,14 +386,23 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
     toolsEl.appendChild(groupEl);
   }
 
-  // .ribbon-right — quick actions (palette + export).
+  // .ribbon-right — quick actions (palette + export + viewport split).
   const rightEl = document.createElement("div");
   rightEl.className = "ribbon-right";
   rightEl.innerHTML = `
+    <button class="btn btn-ghost" type="button" id="ribbon-split-single-btn" title="Single viewport (1)">&#x2b1c;</button>
+    <button class="btn btn-ghost" type="button" id="ribbon-split-quad-btn" title="Quad split (4)">&#x229e;</button>
     <button class="btn btn-ghost" type="button" id="ribbon-palette-btn" title="Open command palette (Ctrl+K)">⌘K</button>
     <button class="btn" type="button" id="ribbon-export-btn" title="Export (Ctrl+E)">EXPORT</button>
   `;
   ribbonHost.appendChild(rightEl);
+
+  rightEl.querySelector("#ribbon-split-single-btn")?.addEventListener("click", () => {
+    onSplitMode?.("single");
+  });
+  rightEl.querySelector("#ribbon-split-quad-btn")?.addEventListener("click", () => {
+    onSplitMode?.("quad");
+  });
 
   // Wire the palette quick button to the Cmd-K shortcut (palette.ts listens on window).
   rightEl.querySelector("#ribbon-palette-btn")?.addEventListener("click", () => {
@@ -450,13 +459,13 @@ function wireFpsCounter() {
   requestAnimationFrame(tick);
 }
 
-export function initShellChrome(opts?: { onModeChange?: (k: string) => void }) {
+export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onSplitMode?: (mode: "single" | "quad") => void }) {
   const menubar = document.querySelector(".menubar") as HTMLElement | null;
   const modebar = document.querySelector(".modebar") as HTMLElement | null;
   const ribbon  = document.querySelector(".ribbon")  as HTMLElement | null;
   if (menubar) buildMenubar(menubar);
   if (modebar) buildModebar(modebar, opts?.onModeChange);
-  if (ribbon)  buildRibbon(ribbon);
+  if (ribbon)  buildRibbon(ribbon, undefined, opts?.onSplitMode);
   wireThemeToggle();
   wireFpsCounter();
 }
