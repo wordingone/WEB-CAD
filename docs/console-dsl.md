@@ -234,8 +234,11 @@ matters when the model has to also receive a viewport image as input.
 
 The web frontend's runtime already exposes a small replicad surface
 (`drawRectangle`, `drawCircle`, `sketchOnPlane`, `extrude`, `cut`,
-`fuse`, `translate`). The DSL's evaluator (`web/src/console-dsl.ts` —
-not yet written; spec only) will lower verbs as follows:
+`fuse`, `translate`). The DSL's evaluator (`web/src/dsl-eval.ts`,
+`compileDsl()`) lowers a v0 subset of verbs today — `wall`, `slab`,
+`column`, `cut`, and `box` parse and execute end-to-end and are wired
+to the CONSOLE tab. The full v1 lowering surface is sketched here as
+the design target:
 
 | DSL verb                                  | replicad equivalent                                     |
 |-------------------------------------------|---------------------------------------------------------|
