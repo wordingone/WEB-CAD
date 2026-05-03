@@ -1305,7 +1305,13 @@ html[data-mode="night"] .snap-dock::after {
   inset: 0;
   display: block;
   width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
 }
+
+/* Single-pane mode: show only #viewport-2 (PERSPECTIVE) filling the grid cell. */
+.viewport-area.split-single .viewport { display: none; }
+.viewport-area.split-single #viewport-2 { display: flex; }
 
 /* drafting grid background per viewport.
    Pre-quad-split: a heavy CSS grid in the single visible pane drowns the
