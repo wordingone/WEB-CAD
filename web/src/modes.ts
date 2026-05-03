@@ -20,7 +20,7 @@
 // All scoring is in `research-index.ts` (TF-IDF + cosine, hand-rolled).
 
 import { iconSVG } from "./icons";
-import { buildLayoutMode, addPanel } from "./layout";
+import { buildLayoutMode, addPanel, type SceneBounds } from "./layout";
 import {
   buildResearchIndex,
   queryResearch,
@@ -33,7 +33,7 @@ import {
 import { defaultCorpus } from "./research-corpus-loader";
 import { renderMarkdown } from "./research-md";
 
-function buildPaperMode(): HTMLElement {
+function buildPaperMode(boundsProvider?: () => SceneBounds | null): HTMLElement {
   const el = document.createElement("div");
   el.className = "paper-mode mode-pane";
   el.dataset.modePane = "layout";
@@ -50,6 +50,9 @@ function buildPaperMode(): HTMLElement {
       { x: 60,  y: 320, w: 380, h: 240, viewport: "right",       scale: "1:100", title: "C · SECTION" },
       { x: 470, y: 320, w: 380, h: 240, viewport: "axonometric", scale: "NTS",   title: "D · AXONOMETRIC" },
     ],
+    bounds: boundsProvider
+      ? () => { const b = boundsProvider(); return b ?? ({ min: [-1, -1, -1], max: [1, 1, 1] } as SceneBounds); }
+      : undefined,
   });
   // Suppress the "unused" warning on addPanel without removing it from the
   // public surface — modes.ts re-exports it for any consumer that wants it.
@@ -418,8 +421,8 @@ function escAttr(s: string): string {
 let paperEl: HTMLElement | null = null;
 let researchEl: HTMLElement | null = null;
 
-export function buildModes(workbench: HTMLElement) {
-  paperEl = buildPaperMode();
+export function buildModes(workbench: HTMLElement, boundsProvider?: () => SceneBounds | null) {
+  paperEl = buildPaperMode(boundsProvider);
   researchEl = buildResearchMode();
   workbench.appendChild(paperEl);
   workbench.appendChild(researchEl);

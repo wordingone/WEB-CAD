@@ -714,7 +714,7 @@ initShellChrome({
 });
 initPalette();
 buildWorkbench();
-if (workbenchEl) buildModes(workbenchEl);
+if (workbenchEl) buildModes(workbenchEl, () => viewer.getCurrentBounds());
 initCmdK();
 initExportDrawer();
 

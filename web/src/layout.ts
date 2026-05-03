@@ -103,6 +103,14 @@ export type SceneBoundsProvider = () => SceneBounds;
 const DEFAULT_BOUNDS: SceneBounds = { min: [-1, -1, -1], max: [1, 1, 1] };
 const DEFAULT_PROVIDER: SceneBoundsProvider = () => DEFAULT_BOUNDS;
 
+// Returns true when the bounds are the unit-cube stub (no real scene loaded).
+function isStubBounds(b: SceneBounds): boolean {
+  return (
+    Math.abs(b.min[0] + 1) < 0.001 && Math.abs(b.min[1] + 1) < 0.001 && Math.abs(b.min[2] + 1) < 0.001 &&
+    Math.abs(b.max[0] - 1) < 0.001 && Math.abs(b.max[1] - 1) < 0.001 && Math.abs(b.max[2] - 1) < 0.001
+  );
+}
+
 // --- Panel state ----------------------------------------------------------
 
 export interface PanelInit {
@@ -632,18 +640,24 @@ function renderViewportSvg(p: PanelState, b: SceneBounds): string {
   const isOrtho = p.viewport !== "axonometric" && p.viewport !== "perspective";
 
   if (isOrtho) {
-    // Draw the 2D rectangle (front face of the AABB in the picked plane) +
-    // a few diagonal lines so the placeholder is visually distinguishable.
+    // Draw the 2D rectangle (front face of the AABB in the picked plane).
+    // Diagonal dashes only shown for the stub/empty-scene placeholder so
+    // the user can tell no real geometry is loaded yet. When a real scene
+    // is present the rectangle alone shows the meaningful projection.
     const pts = [xy[0], xy[1], xy[2], xy[3]];
     const path = `M ${pts[0][0].toFixed(2)} ${pts[0][1].toFixed(2)} ` +
                  `L ${pts[1][0].toFixed(2)} ${pts[1][1].toFixed(2)} ` +
                  `L ${pts[2][0].toFixed(2)} ${pts[2][1].toFixed(2)} ` +
                  `L ${pts[3][0].toFixed(2)} ${pts[3][1].toFixed(2)} Z`;
+    const isStub = isStubBounds(b);
+    const diagonals = isStub
+      ? `<line x1="${pts[0][0].toFixed(2)}" y1="${pts[0][1].toFixed(2)}" x2="${pts[2][0].toFixed(2)}" y2="${pts[2][1].toFixed(2)}" stroke-width="0.4" stroke-dasharray="2 2"/>
+        <line x1="${pts[1][0].toFixed(2)}" y1="${pts[1][1].toFixed(2)}" x2="${pts[3][0].toFixed(2)}" y2="${pts[3][1].toFixed(2)}" stroke-width="0.4" stroke-dasharray="2 2"/>`
+      : "";
     return `<svg viewBox="0 0 ${w.toFixed(2)} ${h.toFixed(2)}" preserveAspectRatio="xMidYMid meet">
       <g fill="none" stroke="#1a1a22" stroke-width="1">
         <path d="${path}" stroke-width="1.4"/>
-        <line x1="${pts[0][0].toFixed(2)}" y1="${pts[0][1].toFixed(2)}" x2="${pts[2][0].toFixed(2)}" y2="${pts[2][1].toFixed(2)}" stroke-width="0.4" stroke-dasharray="2 2"/>
-        <line x1="${pts[1][0].toFixed(2)}" y1="${pts[1][1].toFixed(2)}" x2="${pts[3][0].toFixed(2)}" y2="${pts[3][1].toFixed(2)}" stroke-width="0.4" stroke-dasharray="2 2"/>
+        ${diagonals}
       </g>
     </svg>`;
   }

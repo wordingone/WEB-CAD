@@ -338,6 +338,7 @@ export class Viewer {
   getCamera(): THREE.Camera { return this.camera; }
   getCanvas(): HTMLCanvasElement { return this.canvas; }
   getHelpers(): SelectionHelper[] { return this.helpers; }
+  getCurrentBounds(): Bounds | null { return this.currentBounds; }
 
   // Build helper graph for a single Mesh — vertex sprites + edge tubes.
   // Re-used for both setMesh (worker output) and walking setObject children.
