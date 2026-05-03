@@ -197,7 +197,85 @@ The COOP+COEP headers (`Cross-Origin-Opener-Policy: same-origin`,
 WASM modules for SharedArrayBuffer-backed multithreaded paths. They are
 configured in `web/vite.config.ts` for both `server` and `preview`.
 
-## 7. Self-harness (no browser)
+## 7. AI prompt → geometry pipeline
+
+The PROMPT tab (`web/src/ai-generate.ts`) turns a natural-language
+description into replicad JS. Two paths back the textbox: a bundled
+59-row cache (default) and a live LoRA server (opt-in). See
+`docs/ai-pipeline.md` for the full architecture.
+
+### Build the bundled cache
+
+```bash
+bun scripts/build-ai-cache.ts
+# wrote web/public/ai-cache.json (59 rows)
+```
+
+The cache is sourced from three corpora that the build script merges:
+- `outputs/cad-lora-v2-4b-it-eval.jsonl` — 40 prompts × 100% round-trip
+  on the v2 LoRA eval (each row's `pred` parses, executes, and produces
+  a non-empty solid through Tier 1)
+- `data/dsl-demo-corpus.jsonl` — 18 DSL prompts compiled to JS via
+  `web/src/dsl-eval.ts` (`compileDsl()`, the same path the CONSOLE tab
+  uses at runtime — broader coverage on parametric scenarios than the
+  4b-it eval alone)
+- `outputs/cad-lora-v2-4b-it-schultz-eval.jsonl` — 1 row for the
+  Schultz Residence using `gold` (the 4b-it `pred` has translate/cut
+  bugs on the 14-element multi-fuse — gold is shipped as the
+  user-facing artifact)
+
+### Smoke-test the matcher
+
+```bash
+bun scripts/test-ai-match.ts
+```
+
+F1-weighted similarity (numeric tokens count 2x, stop-words filtered).
+F1 ≥ 0.30 returns the cached row; below threshold the path falls
+through to live LoRA or surfaces a `no-match` error to the user.
+
+### IFC viewer + DSL corpus regressions
+
+```bash
+bun scripts/test-ifc-bounds.ts        # 6 bundled IFC samples; verifies
+                                       # the column-major matrix fix in
+                                       # web/src/worker.ts:283-289
+bun scripts/verify-dsl-corpus.ts      # 18-row DSL corpus, all compile
+```
+
+### Live LoRA server (opt-in)
+
+For users who want the real model in the loop instead of the cache:
+
+```bash
+pip install fastapi uvicorn pydantic
+python src/serve/serve_lora.py
+# adapter loads in ~30s on a 4090; listens on http://127.0.0.1:8088
+```
+
+Endpoints:
+- `GET /health` → `{"status":"ok","adapter":"<path>"}`
+- `POST /v1/chat/completions` → OpenAI-compat chat response
+
+### Wire the frontend at the live server
+
+Build-time:
+
+```bash
+VITE_LORA_URL=http://localhost:8088/v1/chat/completions bun run web:build
+```
+
+Or runtime (DevTools console):
+
+```js
+window.__loraUrl = "http://localhost:8088/v1/chat/completions";
+```
+
+When set, `generateGeometry()` tries the LoRA endpoint first and falls
+back to the cache on network/HTTP errors. Without it, the cache is the
+sole path — what judges see by default.
+
+## 8. Self-harness (no browser)
 
 Validates the same data path the worker takes — useful for CI or
 catching regressions in the geometry kernel without a browser.
@@ -232,7 +310,7 @@ The harness:
 The browser-side **Export IFC** button additionally round-trips the bytes
 through web-ifc.OpenModel — that's a WASM-only path (see `web/src/ifc.ts`).
 
-## 8. Browser smoke test (manual)
+## 9. Browser smoke test (manual)
 
 After `bun run web:preview`:
 
@@ -277,6 +355,10 @@ After `bun run web:preview`:
 | `inference_eval_v2.py`            | 5 min    |
 | `publish_v2.py` (with HF_TOKEN)   | 1 min    |
 | `bun run web:build`               | 5 s      |
+| `bun scripts/build-ai-cache.ts`   | 5 s      |
+| `bun scripts/test-ai-match.ts`    | 2 s      |
+| `bun scripts/test-ifc-bounds.ts`  | 5 s      |
+| `bun scripts/verify-dsl-corpus.ts`| 5 s      |
 | `bun scripts/web-self-harness.ts` | 30 s     |
 | Browser smoke test                | 2 min    |
 | **Total**                         | **~70 min** |
