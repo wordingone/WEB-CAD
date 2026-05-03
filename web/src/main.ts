@@ -12,6 +12,7 @@ import { initShellChrome } from "./shell";
 import { initPalette } from "./palette";
 import { buildWorkbench } from "./workbench";
 import { buildModes, activateMode } from "./modes";
+import { initCmdK } from "./cmdk";
 import { Viewer } from "./viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -627,6 +628,7 @@ initShellChrome({
 initPalette();
 buildWorkbench();
 if (workbenchEl) buildModes(workbenchEl);
+initCmdK();
 loadDemo(0);
 setStatus("Loading OpenCascade WebAssembly...", "info");
 runBtn.disabled = true;
