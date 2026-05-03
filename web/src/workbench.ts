@@ -91,7 +91,7 @@ const SIDEBAR_TABS: SidebarTab[] = [
 ];
 
 const SAMPLE_ASSETS = [
-  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 2.4 MB",  v: "schultz-residence" },
+  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 22 MB",   v: "schultz-residence" },
   { id: "haus",    name: "FZK-Haus",        sub: "IFC · 412 KB",  v: "kit-fzk-haus" },
   { id: "inst",    name: "Institute v2",    sub: "IFC · 1.2 MB",  v: "kit-office" },
   { id: "bonsai",  name: "Bonsai openings", sub: "IFC · 88 KB",   v: "bonsai-openings" },
