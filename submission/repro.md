@@ -201,21 +201,21 @@ configured in `web/vite.config.ts` for both `server` and `preview`.
 
 The PROMPT tab (`web/src/ai-generate.ts`) turns a natural-language
 description into replicad JS. Two paths back the textbox: a bundled
-59-row cache (default) and a live LoRA server (opt-in). See
+60-row cache (default) and a live LoRA server (opt-in). See
 `docs/ai-pipeline.md` for the full architecture.
 
 ### Build the bundled cache
 
 ```bash
 bun scripts/build-ai-cache.ts
-# wrote web/public/ai-cache.json (59 rows)
+# wrote web/public/ai-cache.json (60 rows)
 ```
 
 The cache is sourced from three corpora that the build script merges:
 - `outputs/cad-lora-v2-4b-it-eval.jsonl` — 40 prompts × 100% round-trip
   on the v2 LoRA eval (each row's `pred` parses, executes, and produces
   a non-empty solid through Tier 1)
-- `data/dsl-demo-corpus.jsonl` — 18 DSL prompts compiled to JS via
+- `data/dsl-demo-corpus.jsonl` — 19 DSL prompts compiled to JS via
   `web/src/dsl-eval.ts` (`compileDsl()`, the same path the CONSOLE tab
   uses at runtime — broader coverage on parametric scenarios than the
   4b-it eval alone)
@@ -240,7 +240,7 @@ through to live LoRA or surfaces a `no-match` error to the user.
 bun scripts/test-ifc-bounds.ts        # 6 bundled IFC samples; verifies
                                        # the column-major matrix fix in
                                        # web/src/worker.ts:283-289
-bun scripts/verify-dsl-corpus.ts      # 18-row DSL corpus, all compile
+bun scripts/verify-dsl-corpus.ts      # 19-row DSL corpus, all compile
 ```
 
 ### Live LoRA server (opt-in)

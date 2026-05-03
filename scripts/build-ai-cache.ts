@@ -4,7 +4,7 @@
 // Sourced from:
 //   outputs/cad-lora-v2-4b-it-eval.jsonl       (40 rows, 100% round-trip on the v2 LoRA eval)
 //   outputs/cad-lora-v2-4b-it-schultz-eval.jsonl (1 row, gold — pred is structurally broken)
-//   data/dsl-demo-corpus.jsonl                 (18 rows, DSL → JS via compileDsl)
+//   data/dsl-demo-corpus.jsonl                 (19 rows, DSL → JS via compileDsl)
 //
 // The web frontend fetches this JSON on first prompt and does fuzzy match
 // against `prompt` to pick a JS construction sequence — no live model call.
