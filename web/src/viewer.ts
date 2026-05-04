@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { axesGizmoSVG } from "./icons.js";
-import { setSelected, clearSelected, subscribe, type Selection } from "./selection-state.js";
+import { setSelected, clearSelected, subscribe, addToMultiSelected, clearMultiSelected, type Selection } from "./selection-state.js";
 
 type ViewName = "top" | "persp" | "front" | "right";
 type Pane = {
@@ -187,7 +187,9 @@ export class Viewer {
     if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return; // it was an orbit drag
     const pane = start.pane ?? this.paneAtClient(e.clientX, e.clientY);
     if (!pane) return;
-    this.pickAt(e.clientX, e.clientY, pane);
+    // Ctrl/Cmd+click: toggle the picked element in the multi-select set
+    // without clearing prior multi-selection. Plain click resets multi.
+    this.pickAt(e.clientX, e.clientY, pane, e.ctrlKey || e.metaKey);
   };
 
   // Hit-test the active scene content against the given pane's camera. Click
@@ -199,7 +201,12 @@ export class Viewer {
   // emit) are pickable too. Helpers (grid, axes, sprite labels) and lights
   // are excluded — Mesh / Group / Object3D children of the scene that aren't
   // helpers count as pickable geometry.
-  private pickAt(clientX: number, clientY: number, pane: Pane): void {
+  //
+  // multiAdditive=true (Ctrl/Cmd held) toggles the hit element in the
+  // multi-select set without clearing prior multi-state — Rhino-style.
+  // INSPECT (workbench.ts updateInspect) reads getMultiSelected() and
+  // shows "N elements selected" + union bbox when length > 1.
+  private pickAt(clientX: number, clientY: number, pane: Pane, multiAdditive: boolean = false): void {
     const exclude = new Set<THREE.Object3D>([this.grid, this.axes, ...this.axisLabels]);
     if (this.currentEdges) exclude.add(this.currentEdges);
     const targets: THREE.Object3D[] = [];
@@ -209,6 +216,7 @@ export class Viewer {
       targets.push(child);
     }
     if (targets.length === 0) {
+      if (!multiAdditive) clearMultiSelected();
       clearSelected();
       return;
     }
@@ -221,6 +229,7 @@ export class Viewer {
     this.raycaster.setFromCamera(ndc, pane.camera);
     const hits = this.raycaster.intersectObjects(targets, true);
     if (hits.length === 0) {
+      if (!multiAdditive) clearMultiSelected();
       clearSelected();
       return;
     }
@@ -245,6 +254,11 @@ export class Viewer {
       sel.parentUuid = target.uuid;
     }
     if (typeof hits[0].faceIndex === "number") sel.faceIndex = hits[0].faceIndex;
+    if (multiAdditive) {
+      addToMultiSelected(sel);
+    } else {
+      clearMultiSelected();
+    }
     setSelected(sel);
   }
 
