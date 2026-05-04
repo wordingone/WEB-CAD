@@ -16,6 +16,8 @@ import {
   getSelected,
   setSelected,
   clearSelected,
+  addToMultiSelected,
+  clearMultiSelected,
   topologyAllowed,
   type Selection,
   type Topology,
@@ -185,16 +187,23 @@ export class Viewer {
     // gizmo eats the event upstream via its own listeners.
     if ((this.controls as any).__suspended) return;
     const drilldown = ev.ctrlKey && ev.shiftKey;
+    const addToSet = ev.ctrlKey && !ev.shiftKey;
     const ndc = this.toNdc(ev.clientX, ev.clientY);
     this.raycaster.setFromCamera(ndc, this.camera);
     const sel = this.pick(drilldown);
-    if (sel) {
-      setSelected(sel);
-      this.applySelectionVisual(sel);
+    if (addToSet) {
+      // Ctrl+click — toggle into multi-select set without replacing single sel.
+      if (sel) addToMultiSelected(sel);
     } else {
-      // Empty-space click — clear selection.
-      clearSelected();
-      this.applySelectionVisual(null);
+      // Plain click or Ctrl+Shift drilldown — replace selection, clear multi-set.
+      clearMultiSelected();
+      if (sel) {
+        setSelected(sel);
+        this.applySelectionVisual(sel);
+      } else {
+        clearSelected();
+        this.applySelectionVisual(null);
+      }
     }
   };
 

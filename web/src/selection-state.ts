@@ -64,8 +64,10 @@ const DEFAULT_FILTERS: SelectionFilters = {
 };
 
 let _selection: Selection | null = null;
+let _multiSet: Selection[] = [];
 let _filters: SelectionFilters = { ...DEFAULT_FILTERS };
 const _listeners: Array<(s: Selection | null) => void> = [];
+const _multiListeners: Array<(s: Selection[]) => void> = [];
 const _filterListeners: Array<(f: SelectionFilters) => void> = [];
 
 export function getSelected(): Selection | null {
@@ -81,6 +83,40 @@ export function setSelected(sel: Selection | null): void {
 
 export function clearSelected(): void {
   setSelected(null);
+}
+
+// Multi-selection set — populated by Ctrl+click in viewer.ts.
+// Separate from _selection (last single-clicked). INSPECT branches on this.
+
+export function getMultiSelected(): Selection[] {
+  return _multiSet;
+}
+
+export function addToMultiSelected(sel: Selection): void {
+  const already = _multiSet.findIndex((s) => s.uuid === sel.uuid);
+  if (already >= 0) {
+    _multiSet.splice(already, 1);
+  } else {
+    _multiSet.push(sel);
+  }
+  for (const l of _multiListeners) {
+    try { l([..._multiSet]); } catch (e) { console.error("[selection-state] multi listener", e); }
+  }
+}
+
+export function clearMultiSelected(): void {
+  _multiSet = [];
+  for (const l of _multiListeners) {
+    try { l([]); } catch (e) { console.error("[selection-state] multi listener", e); }
+  }
+}
+
+export function subscribeMulti(fn: (s: Selection[]) => void): () => void {
+  _multiListeners.push(fn);
+  return () => {
+    const i = _multiListeners.indexOf(fn);
+    if (i >= 0) _multiListeners.splice(i, 1);
+  };
 }
 
 export function subscribe(fn: (s: Selection | null) => void): () => void {
@@ -139,7 +175,9 @@ export function resetFilters(): void {
 // Reset all state — primarily for tests.
 export function resetSelectionState(): void {
   _selection = null;
+  _multiSet = [];
   _filters = { ...DEFAULT_FILTERS };
   _listeners.length = 0;
+  _multiListeners.length = 0;
   _filterListeners.length = 0;
 }

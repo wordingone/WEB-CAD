@@ -19,7 +19,7 @@ import { setState } from "./app-state";
 import { setGridOn } from "./snap-state";
 import { buildSelectionFiltersPanel } from "./scene-panel";
 import * as THREE from "three";
-import { subscribe, getSelected, type Selection } from "./selection-state";
+import { subscribe, getSelected, subscribeMulti, getMultiSelected, type Selection } from "./selection-state";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -222,6 +222,32 @@ function buildInspectTab(): HTMLElement {
   function updateInspect(sel: Selection | null): void {
     const title = wrap.querySelector<HTMLElement>(".props-title");
     const subtitle = wrap.querySelector<HTMLElement>(".props-subtitle");
+
+    // Multi-select path: Ctrl+click set has > 1 element.
+    const multi = getMultiSelected();
+    if (multi.length > 1) {
+      if (title) title.textContent = `${multi.length} elements selected`;
+      const types = [...new Set(
+        multi.map((s) => (s.object.userData?.ifcClass as string | undefined) || s.topology)
+      )].sort().join(", ");
+      if (subtitle) subtitle.textContent = types;
+      wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
+      // TRANSFORM position: all "—"
+      wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
+      // BOUNDS: union bbox of all selected meshes.
+      const unionBox = new THREE.Box3();
+      for (const s of multi) unionBox.expandByObject(s.object);
+      const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
+      if (isFinite(unionBox.min.x)) {
+        const sz = new THREE.Vector3();
+        unionBox.getSize(sz);
+        if (sizeAxes[0]) sizeAxes[0].textContent = sz.x.toFixed(3);
+        if (sizeAxes[1]) sizeAxes[1].textContent = sz.y.toFixed(3);
+        if (sizeAxes[2]) sizeAxes[2].textContent = sz.z.toFixed(3);
+      }
+      return;
+    }
+
     if (!sel) {
       if (title) title.textContent = "—";
       if (subtitle) subtitle.textContent = "no selection";
@@ -280,6 +306,7 @@ function buildInspectTab(): HTMLElement {
   }
 
   subscribe(updateInspect);
+  subscribeMulti(() => updateInspect(getSelected()));
   updateInspect(getSelected());
   return wrap;
 }
