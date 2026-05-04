@@ -68,7 +68,7 @@ Goal: ship the 3 narratives that judges actually score on.
 
 ### Days 15–17 (May 14 – 16): **Polish + buffer**
 
-- **D15 (5/14)** — `submission/impact.md`: the equity story. Concrete: parametric CAD has a multi-thousand-USD entry barrier (Revit, AutoCAD, ArchiCAD). LLM-driven design lowers that barrier. Estimate target users (small-shop architects, DIY home renovators, students in low-resource regions, makerspace builders). Deployment plan = static page on HuggingFace Spaces or Vercel, free tier. Sub-gate 5 closes.
+- **D15 (5/14)** — `submission/impact.md`: the equity story. Concrete: parametric CAD has a multi-thousand-USD entry barrier (Revit, AutoCAD, ArchiCAD). LLM-driven design lowers that barrier. Estimate target users (small-shop architects, DIY home renovators, students in low-resource regions, makerspace builders). Deployment realized as static page on GitHub Pages (free tier; HuggingFace Spaces and Vercel are COOP+COEP-capable upgrade paths). Sub-gate 5 closes.
 - **D16 (5/15)** — final polish: README pointers, Apache-2.0 license file, model-card on HF, screenshot-grid for the Kaggle post.
 - **D17 (5/16)** — buffer day: whichever sub-gate slipped, fix it. Test the full submission flow end-to-end on a fresh machine.
 
