@@ -126,18 +126,22 @@ Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md)
 - **Model:** Gemma-3-4b-it via Unsloth FastModel (4-bit QLoRA).
   E2B variant deferred (see `submission/repro.md` §3).
 - **Geometry kernel:** [replicad](https://replicad.xyz/) 0.20.0 (MIT) on
-  [replicad-opencascadejs](https://github.com/sgenoud/replicad) 0.20.0
-  (LGPL-2.1 + linking exception).
+  [replicad-opencascadejs](https://github.com/sgenoud/replicad) 0.20.2
+  (MIT wrapper, with the bundled OpenCascade WASM separately under
+  LGPL-2.1 + linking exception).
 - **IFC4 parser:** [web-ifc](https://github.com/ThatOpen/engine_web-ifc)
-  0.0.77 (Apache-2.0) — the page hand-emits STEP-21 text and
-  round-trips it through `IfcAPI.OpenModel` to verify parseability.
-- **Viewer:** three.js 0.162.0 + OrbitControls.
+  0.0.77 (MPL-2.0) — the page hand-emits STEP-21 text and round-trips
+  it through `IfcAPI.OpenModel` to verify parseability.
+- **Viewer:** three.js 0.162.0 (MIT) + OrbitControls.
 - **Build:** Vite 8 + TypeScript 5.3 + vite-plugin-wasm + vite-plugin-top-level-await.
 - **Runtime:** ES-module web worker for the geometry kernel; main thread
-  never blocks. COOP+COEP headers configured for SharedArrayBuffer.
+  never blocks. COOP+COEP headers configured for SharedArrayBuffer
+  (deployed Vercel build); GitHub Pages mirror falls back to single-thread WASM.
 
-License chain is fully Apache-2.0/MIT/LGPL-with-linking-exception
-compatible — commercial deployment unblocked.
+License chain (Apache-2.0 / MIT / MPL-2.0 / LGPL-2.1-with-linking-exception)
+is fully compatible with commercial deployment. MPL-2.0 on web-ifc is
+weakly copyleft per file (modifications to its source must stay MPL),
+but our app code that *uses* web-ifc has no copyleft obligation.
 
 ---
 
