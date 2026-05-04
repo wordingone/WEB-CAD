@@ -113,11 +113,22 @@ magick montage \
 
 Then `pngquant grid.png --quality=70-85` to fit Kaggle's upload size.
 
-## Status
+## Status — captured 2026-05-04 from https://wordingone.github.io/gemma-architect/
 
-Stub directory committed to make the README reference resolve. The
-PNGs already in this directory (e.g. `four-walled-room-rendered.png`,
-`v2-four-walled-room-1920x1080.png`) are pre-bundle-port artifacts
-from May 1 — kept for historical reference; not the day-of-shoot
-captures. Final PNGs filled in per `submission/demo-script.md` shoot
-plan.
+Nine screenshots captured via Playwright at 1920×1080 from the live
+deployed page (commit 9c7c0be). Filenames reflect actual content:
+
+| File | What it shows |
+|------|--------------|
+| `01-prompt-wall.png` | PROMPT tab + wall loaded, ready to generate |
+| `02-wall-rendered.png` | Wall (12 tri) rendered in solid mode |
+| `03-console-cache.png` | CONSOLE tab — init sequence, DSL ready |
+| `04-schultz-solid.png` | Schultz Residence 14-element hero, solid shading |
+| `05-schultz-drafting.png` | Same, `D` key toggled to drafting / flat-white mode |
+| `06-export-drawer.png` | EXPORT drawer: IFC/STEP/OBJ/STL/SVG/DXF tiles visible |
+| `07-cmdk-palette.png` | ⌘K palette open, full command list (GENERATE/MODEL/VIEW) |
+| `08-cmdk-schultz.png` | ⌘K with "Schultz" typed — filtered to single result |
+| `09-parameters-sliders.png` | PARAMETERS tab — wall sliders (5.5/0.2/2.8m) |
+
+BlenderBIM column (`*-bim.png`) pending manual capture at submission time.
+Grid composite and pngquant step follow after all 9 BIM shots are ready.
