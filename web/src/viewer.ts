@@ -20,9 +20,15 @@ type Pane = {
 };
 
 // Distinguish a click from an orbit-drag: if the pointer moves more than this
-// many CSS pixels between mousedown and mouseup, treat as drag and skip
+// many CSS pixels between pointerdown and pointerup, treat as drag and skip
 // raycasting. 4px matches OrbitControls' damping threshold so a deliberate
 // click on a wall registers but a rotate-then-release does not.
+//
+// Pointer events (not mouse events) are required: OrbitControls calls
+// event.preventDefault() inside its pointerdown handler when state becomes
+// ROTATE/PAN/DOLLY, which suppresses the corresponding compatibility
+// mousedown event entirely. Listening on pointerdown side-steps that — the
+// preventDefault on the pointer event doesn't stop other pointer listeners.
 const CLICK_DRAG_THRESHOLD_PX = 4;
 
 export type MeshIn = {
@@ -137,10 +143,14 @@ export class Viewer {
     // Selection picking — Rhino-style click-to-select. Bind on the parent
     // viewport-area-host instead of the canvas so the ortho panes (which sit
     // above the canvas in DOM but render via scissor) still receive clicks.
-    // Pane disambiguation by bounding-rect hit-test runs at mouseup time.
+    // Pane disambiguation by bounding-rect hit-test runs at pointerup time.
+    //
+    // Use pointer events, not mouse events: OrbitControls' pointerdown handler
+    // calls preventDefault when a drag-state begins, which suppresses the
+    // compatibility mousedown event. pointerdown is not affected.
     const clickRoot = viewportAreaEl;
-    clickRoot.addEventListener("mousedown", this.onMouseDown);
-    clickRoot.addEventListener("mouseup", this.onMouseUp);
+    clickRoot.addEventListener("pointerdown", this.onPointerDown);
+    clickRoot.addEventListener("pointerup", this.onPointerUp);
 
     // Mirror selection changes into the viewport as a visual highlight. The
     // store is the source of truth — Inspect tab, gizmos, Delete handler all
@@ -162,13 +172,13 @@ export class Viewer {
     return null;
   }
 
-  private onMouseDown = (e: MouseEvent): void => {
+  private onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return; // left-click only
     const pane = this.paneAtClient(e.clientX, e.clientY);
     this.clickStart = { x: e.clientX, y: e.clientY, pane };
   };
 
-  private onMouseUp = (e: MouseEvent): void => {
+  private onPointerUp = (e: PointerEvent): void => {
     const start = this.clickStart;
     this.clickStart = null;
     if (!start || e.button !== 0) return;
@@ -182,10 +192,22 @@ export class Viewer {
 
   // Hit-test the active scene content against the given pane's camera. Click
   // on geometry → setSelected; click on empty space → clearSelected.
+  //
+  // Targets are derived from this.scene.children rather than a private
+  // currentMesh/currentObject pair so that meshes added via addMesh() (the
+  // create-mode draw pipeline, the multi-fuse Schultz path, future agent
+  // emit) are pickable too. Helpers (grid, axes, sprite labels) and lights
+  // are excluded — Mesh / Group / Object3D children of the scene that aren't
+  // helpers count as pickable geometry.
   private pickAt(clientX: number, clientY: number, pane: Pane): void {
+    const exclude = new Set<THREE.Object3D>([this.grid, this.axes, ...this.axisLabels]);
+    if (this.currentEdges) exclude.add(this.currentEdges);
     const targets: THREE.Object3D[] = [];
-    if (this.currentMesh) targets.push(this.currentMesh);
-    if (this.currentObject) targets.push(this.currentObject);
+    for (const child of this.scene.children) {
+      if (exclude.has(child)) continue;
+      if ((child as THREE.Light).isLight) continue;
+      targets.push(child);
+    }
     if (targets.length === 0) {
       clearSelected();
       return;
@@ -203,11 +225,11 @@ export class Viewer {
       return;
     }
 
-    // Walk up to the top-level scene member (currentMesh or currentObject root)
-    // so the user sees a "select the wall" semantic, not "select the third
-    // sub-mesh of the wall's compound." Sub-object picking (Ctrl+Shift) is
-    // T3 future-work; this commit ships the coarse-mesh-level selection that
-    // unblocks T4 transforms + T6 delete.
+    // Walk up to the top-level scene member (the entry from `targets` whose
+    // subtree contains the hit) so the user sees a "select the wall" semantic,
+    // not "select the third sub-mesh of the wall's compound." Sub-object
+    // picking (Ctrl+Shift) is T3 future-work; this commit ships the
+    // coarse-mesh-level selection that unblocks T4 transforms + T6 delete.
     const rootSet = new Set<THREE.Object3D>(targets);
     let target: THREE.Object3D = hits[0].object;
     while (target.parent && !rootSet.has(target)) target = target.parent;
