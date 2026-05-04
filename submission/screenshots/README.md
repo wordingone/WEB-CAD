@@ -15,7 +15,7 @@ Cmd-K palette, PARAMETERS tab).
 | `03-console-cache.png`      | 9c7c0be | CONSOLE tab — init sequence + DSL ready prompt |
 | `04-schultz-solid.png`      | 725b56a | Schultz Residence (14-element multi-fuse) — south 3/4 angle, doorway cut visible, solid shading |
 | `05-schultz-drafting.png`   | 725b56a | Same angle, `D`-key toggled — flat-white drafting render with edge lines, doorway cut prominent |
-| `06-export-drawer.png`      | 9c7c0be | EXPORT drawer open — 12 tiles (IFC/STEP/DXF / OBJ/STL/GLB/gLTF/USDZ / SVG/DXF/PDF) |
+| `06-export-drawer.png`      | 9c7c0be | EXPORT drawer open — 12 tiles in 3 sections: BIM·ARCHITECTURAL (IFC/STEP/DWG) · 3D·MESH (OBJ/STL/GLB/glTF/USDZ/FBX) · 2D·DRAWING (SVG/DXF/PDF) |
 | `07-cmdk-palette.png`       | 9c7c0be | ⌘K palette open — full command list (GENERATE / MODEL / VIEW groups, kbd shortcuts) |
 | `08-cmdk-schultz.png`       | 9c7c0be | ⌘K with "Schultz" typed — filtered to single "Schultz Residence (14 elements)" entry |
 | `09-parameters-sliders.png` | 9c7c0be | PARAMETERS tab — wall sliders (5.5 / 0.2 / 2.8m values visible) |
