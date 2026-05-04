@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { axesGizmoSVG } from "./icons.js";
+import { setSelected, clearSelected, subscribe, type Selection } from "./selection-state.js";
 
 type ViewName = "top" | "persp" | "front" | "right";
 type Pane = {
@@ -17,6 +18,12 @@ type Pane = {
   camera: THREE.Camera;
   controls: OrbitControls;
 };
+
+// Distinguish a click from an orbit-drag: if the pointer moves more than this
+// many CSS pixels between mousedown and mouseup, treat as drag and skip
+// raycasting. 4px matches OrbitControls' damping threshold so a deliberate
+// click on a wall registers but a rotate-then-release does not.
+const CLICK_DRAG_THRESHOLD_PX = 4;
 
 export type MeshIn = {
   vertices: Float32Array;
@@ -43,6 +50,18 @@ export class Viewer {
   private axes: THREE.AxesHelper;
   private axisLabels: THREE.Sprite[] = [];
   private currentBounds: Bounds | null = null;
+
+  // Selection picking (T3). Single Raycaster reused per click; per-pane camera
+  // determined at click time by hit-testing against pane bounding rects so the
+  // ortho panes pick correctly even when the persp pane is the visual focus.
+  private raycaster = new THREE.Raycaster();
+  private clickStart: { x: number; y: number; pane: Pane | null } | null = null;
+  // Cache the pre-highlight emissive color so deselect can restore it. We only
+  // tweak emissive on the picked mesh — geometry, vertex colors, and base
+  // diffuse are untouched, so the highlight is reversible without re-uploading
+  // attributes.
+  private prevHighlight: { mat: THREE.MeshStandardMaterial; color: THREE.Color } | null = null;
+  private unsubscribeSelection: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement, viewportAreaEl: HTMLElement) {
     this.canvas = canvas;
@@ -115,7 +134,119 @@ export class Viewer {
     this.handleResize();
     window.addEventListener("resize", () => this.handleResize());
 
+    // Selection picking — Rhino-style click-to-select. Bind on the parent
+    // viewport-area-host instead of the canvas so the ortho panes (which sit
+    // above the canvas in DOM but render via scissor) still receive clicks.
+    // Pane disambiguation by bounding-rect hit-test runs at mouseup time.
+    const clickRoot = viewportAreaEl;
+    clickRoot.addEventListener("mousedown", this.onMouseDown);
+    clickRoot.addEventListener("mouseup", this.onMouseUp);
+
+    // Mirror selection changes into the viewport as a visual highlight. The
+    // store is the source of truth — Inspect tab, gizmos, Delete handler all
+    // read getSelected(); the viewer just paints the result.
+    this.unsubscribeSelection = subscribe((sel) => this.applyHighlight(sel));
+
     this.animate();
+  }
+
+  // --- Selection picking -----------------------------------------------------
+
+  private paneAtClient(clientX: number, clientY: number): Pane | null {
+    for (const p of this.panes) {
+      const r = p.el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  private onMouseDown = (e: MouseEvent): void => {
+    if (e.button !== 0) return; // left-click only
+    const pane = this.paneAtClient(e.clientX, e.clientY);
+    this.clickStart = { x: e.clientX, y: e.clientY, pane };
+  };
+
+  private onMouseUp = (e: MouseEvent): void => {
+    const start = this.clickStart;
+    this.clickStart = null;
+    if (!start || e.button !== 0) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.hypot(dx, dy) > CLICK_DRAG_THRESHOLD_PX) return; // it was an orbit drag
+    const pane = start.pane ?? this.paneAtClient(e.clientX, e.clientY);
+    if (!pane) return;
+    this.pickAt(e.clientX, e.clientY, pane);
+  };
+
+  // Hit-test the active scene content against the given pane's camera. Click
+  // on geometry → setSelected; click on empty space → clearSelected.
+  private pickAt(clientX: number, clientY: number, pane: Pane): void {
+    const targets: THREE.Object3D[] = [];
+    if (this.currentMesh) targets.push(this.currentMesh);
+    if (this.currentObject) targets.push(this.currentObject);
+    if (targets.length === 0) {
+      clearSelected();
+      return;
+    }
+
+    const r = pane.el.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - r.left) / r.width) * 2 - 1,
+      -(((clientY - r.top) / r.height) * 2 - 1),
+    );
+    this.raycaster.setFromCamera(ndc, pane.camera);
+    const hits = this.raycaster.intersectObjects(targets, true);
+    if (hits.length === 0) {
+      clearSelected();
+      return;
+    }
+
+    // Walk up to the top-level scene member (currentMesh or currentObject root)
+    // so the user sees a "select the wall" semantic, not "select the third
+    // sub-mesh of the wall's compound." Sub-object picking (Ctrl+Shift) is
+    // T3 future-work; this commit ships the coarse-mesh-level selection that
+    // unblocks T4 transforms + T6 delete.
+    const rootSet = new Set<THREE.Object3D>(targets);
+    let target: THREE.Object3D = hits[0].object;
+    while (target.parent && !rootSet.has(target)) target = target.parent;
+
+    const sel: Selection = {
+      topology: "mesh",
+      uuid: target.uuid,
+      object: hits[0].object,
+      transformTarget: target,
+    };
+    if (target !== hits[0].object) {
+      sel.parent = target;
+      sel.parentUuid = target.uuid;
+    }
+    if (typeof hits[0].faceIndex === "number") sel.faceIndex = hits[0].faceIndex;
+    setSelected(sel);
+  }
+
+  // Visual highlight on selection change. Tweak the first MeshStandardMaterial
+  // we find under the selected root; restore the prior emissive on deselect.
+  // Materials shared across multiple meshes will see the highlight on every
+  // mesh that shares them — acceptable for v1 since current scenes assign
+  // distinct materials per object.
+  private applyHighlight(sel: Selection | null): void {
+    if (this.prevHighlight) {
+      this.prevHighlight.mat.emissive.copy(this.prevHighlight.color);
+      this.prevHighlight = null;
+    }
+    if (!sel) return;
+    let captured = false;
+    sel.transformTarget.traverse((c) => {
+      if (captured) return;
+      const m = c as THREE.Mesh;
+      if (m.isMesh && m.material instanceof THREE.MeshStandardMaterial) {
+        this.prevHighlight = { mat: m.material, color: m.material.emissive.clone() };
+        m.material.emissive.setHex(0xffaa00);
+        captured = true;
+      }
+    });
   }
 
   private handleResize(): void {
@@ -170,6 +301,12 @@ export class Viewer {
   };
 
   private clearScene(): void {
+    // Drop any selection pointing at the about-to-be-disposed objects.
+    // Subscribers (Inspect panel, gizmos, this viewer's highlight) read
+    // getSelected() — leaving a dangling Object3D reference there causes
+    // disposed-material accesses in the next interactive frame.
+    clearSelected();
+
     if (this.currentMesh) {
       this.scene.remove(this.currentMesh);
       this.currentMesh.geometry.dispose();
