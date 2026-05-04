@@ -24,26 +24,30 @@ Each section gets its own page in this directory near the deadline:
 - `submission/repro.md` — step-by-step training + inference reproduction.
 - `submission/impact.md` — equity story: barrier-to-entry for parametric CAD, target users, deployment plan.
 
-## Status (2026-05-03)
+## Status (2026-05-04)
 
 - ✅ Spike B (IFC mining pipeline) — 12 pairs mined from open IFC corpus, retrospective at `docs/spike-b-retrospective.md`.
 - ✅ Spike A (LoRA training) — 76 train + 8 eval pairs, Gemma-3-4b-it QLoRA r=16, eval_loss 0.144 @ epoch 3, **8/8 parse_ok | 8/8 api_clean | 8/8 has_extrude** on held-out set. Adapter at `outputs/spike-a-lora/`. Retrospective at `docs/spike-a-retrospective.md`.
 - ✅ 18-day plan — `docs/plan-18-day.md` (5 sub-gates: model artifact, browser inference, render+export, demo video, Kaggle writeup).
 - ✅ **Dataset v2** — 400 base rows, 5 buckets (50+50+200+50+50), **round-trip 100%**, 932 augmented training rows, 40-row stratified holdout. See `dataset/v2-results.md`.
 - ✅ **4b-it LoRA shipped 2026-05-01** — 53 min on a 4090, train_loss 0.244 @ epoch 3, **40/40 (100%) full round-trip** on the held-out eval. Adapter at `outputs/cad-lora-v2-4b-it/`. Publish plan staged at `outputs/cad-lora-v2-publish-plan.json` (HF push pending HF_TOKEN).
-- ⏳ E2B variant — deferred per `dataset/v2-results.md`; will ship once 4b-it submission cycle closes.
-- ✅ **Browser runtime running** — Vite + TypeScript + three.js + replicad + web-ifc 0.0.77 all wired, 9 canned demos shipping (8 dropdown + Schultz hero via Cmd-K), IFC4 export round-trip-verified, drag-drop loader for IFC/STEP/GLB/GLTF/OBJ/STL, sample IFC files (Schultz Residence + KIT FZK-Haus + Bonsai openings) bundled. Self-harness: 9/9 demos pass.
-- ✅ **Bundle design handoff (#170 umbrella) mostly shipped** — `#171` chrome shell + theme system, `#173` drafting-style viewport (top/front/right/persp + ink-wobble), `#176` AI prompt → geometry pipeline (cache + live LoRA), `#177` Layout/paper + Research modes, `#178` EXPORT drawer (12 formats), `#179` Cmd-K palette + console parser, `#181` copyright-safe Rhino/GH-style DSL, `#183` Schultz Residence demo all merged. `#172` quad-split scaffold (Eli, in flight on `forge/180-quad-split`), `#174` sidebar + Snap dock, `#175` 5-tab dock surface still pending.
-- ✅ **AI prompt → geometry pipeline (#176) live** — cache-first with 60-row prompt → JS bundle (40 v2 LoRA eval + 19 DSL corpus + 1 Schultz gold), F1-weighted similarity matcher, opt-in live LoRA via FastAPI/`src/serve/serve_lora.py` (OpenAI-compat). See [`docs/ai-pipeline.md`](../docs/ai-pipeline.md).
-- 🟡 **Kaggle writeup drafted** — `submission/writeup.md` (270+ lines), `submission/impact.md`, `submission/repro.md`, `submission/demo-script.md` all drafted and aligned with the current demo flow + AI pipeline. Outstanding: HF adapter URL (HF_TOKEN), GitHub repo URL (no public remote yet), Spaces/Vercel demo URL, and the 3-min video.
-- ⏳ Demo recording — D11-D12 in plan.
-- ⏳ Public hosting — public GitHub remote + HF Spaces + LoRA on HF Hub still pending external auth.
+- ⏳ E2B-LoRA variant — deferred per `dataset/v2-results.md`; will ship once 4b-it submission cycle closes. (Distinct from the image→IFC E2B agent #182 which uses Gemma 4 multimodal native and DID ship — see `submission/repro.md` §3.)
+- ✅ **Browser runtime running** — Vite + TypeScript + three.js + replicad + web-ifc 0.0.77 all wired, 9 canned demos shipping (8 dropdown + Schultz hero via Cmd-K), IFC4 export round-trip-verified, drag-drop loader for IFC/STEP/GLB/GLTF/OBJ/STL, sample IFC files (Schultz Residence real + KIT FZK-Haus / Institute-Var-2 synthetic test fixtures + Bonsai openings) bundled. Self-harness: 9/9 demos pass; leo-as-architect 8/8; verify-dsl-corpus 19/19.
+- ✅ **Bundle design handoff (#170 umbrella) shipped** — `#171/#173/#176/#177/#178/#179/#181/#183` all merged plus `#172` quad-split, `#174` sidebar + Snap dock, `#175` 5-tab dock surface, `#168` 2D→3D agent, `#182` image→IFC agent, `#151` Bonsai MCP via subagent worktree integration onto bridge → master.
+- ✅ **AI prompt → geometry pipeline (#176) live** — cache-first with **60-row** prompt → JS bundle (40 v2 LoRA eval + 19 DSL corpus + 1 Schultz gold; verified live as of 2026-05-04 a59a8a3), F1-weighted similarity matcher, opt-in live LoRA via FastAPI/`src/serve/serve_lora.py` (OpenAI-compat). See [`docs/ai-pipeline.md`](../docs/ai-pipeline.md).
+- ✅ **Kaggle writeup + judges-facing docs aligned** — `submission/writeup.md` updated with the three-input-paths section + screenshot-grid embed marker, `submission/impact.md` corrected for sketch-to-BIM-shipped scope, `submission/repro.md` with E2B naming disambiguation, `submission/demo-script.md` rewritten to the post-#170 bundle UI; README.md has the "For judges (60 seconds)" walkthrough.
+- ✅ **Public GitHub repo live** — github.com/wordingone/gemma-architect (visibility: PUBLIC, Apache-2.0).
+- ✅ **Live demo URL serving** — https://wordingone.github.io/gemma-architect/ (GH Pages, single-thread WASM — COOP+COEP gap; Vercel deploy via `vercel.json` would lift to multi-threaded). Bundle: 4.24 MB main JS + 3.84 MB worker + 10.8 MB OpenCascade WASM + 1.3 MB web-ifc WASM.
+- ✅ **Performance verified live** — cache hit ~7ms; wall full cycle ~21ms; Schultz 14-element ~210ms (single-thread WASM, GH Pages).
+- ✅ **Screenshot grid 9/9 captured** — `submission/screenshots/01-09*.png` from production URL via Playwright at 1920×1080 (commit ab8d9cf, Schultz hero re-shot at 725b56a).
+- ⏳ HF Hub LoRA — `gemma-architect/cad-lora-v2` not pushed (HF_TOKEN absent).
+- ⏳ Demo video — manual recording per `submission/demo-script.md`.
+- ⏳ BlenderBIM column for screenshot grid (3 shots) — manual capture pre-composite.
+- ⚠️ **CI gates pending** — `bun scripts/audit-zip-parity.ts` reports 67 deviations (lean shell.ts dropped most app.jsx menubar items intentionally); `bun run web:typecheck` fails 3 errors in transforms.ts (lean Viewer missing getScene/removeObject methods that T3-T4 gizmo code expects). CI gap: `.github/workflows/ci.yml` runs only root typecheck. Mail #6630 to Eli proposes 2 mechanical fixes + CI workflow addition.
 
 ## Outstanding blockers (judge-visible)
 
-These four lines in `writeup.md` are placeholders — without them, the submission isn't externally verifiable:
+Two placeholders remain in `writeup.md` — without them the submission isn't externally verifiable:
 
-- `https://github.com/wordingone/gemma-architect` — no public git remote yet (`git remote -v` is empty).
-- `https://huggingface.co/gemma-architect/cad-lora-v2` — adapter not pushed (HF_TOKEN absent).
-- Live demo URL (Spaces / Vercel) — TBD. **`vercel.json` shipped at repo root with COOP+COEP headers + WASM cache config; `vercel deploy` is one command after a public GitHub remote exists.**
-- Demo video URL (YouTube) — TBD.
+- `https://huggingface.co/gemma-architect/cad-lora-v2` — adapter not pushed (HF_TOKEN absent; `outputs/cad-lora-v2-publish-plan.json` is staged).
+- Demo video URL (YouTube) — TBD. Recording path is unblocked: cache fix landed (a59a8a3), Schultz hero re-shot (725b56a), `submission/demo-script.md` is the canonical 173-line cut plan.
