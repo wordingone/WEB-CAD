@@ -583,9 +583,11 @@ TODO labels visible to the user.
 ### Beat 58: File → Export
 
 1. **Do:** Click "Export…" (or Ctrl+E).
-2. **See:** Export drawer opens. 12 format options (IFC4, STEP, GLB, GLTF,
-   OBJ, STL, USDZ, PLY, COLLADA, X3D, 3MF, plus the layout-mode-specific
-   PDF/SVG/AI/DWG when applicable).
+2. **See:** Export drawer opens. 12 tiles in 3 sections per
+   `web/src/export-drawer.ts:11-42`: BIM·ARCHITECTURAL (IFC, STEP, DWG)
+   · 3D·MESH (OBJ, STL, GLB, glTF, USDZ, FBX) · 2D·DRAWING (SVG, DXF,
+   PDF). DWG and FBX render as visible tiles but are not implemented
+   yet (inline `// not implemented yet` in source).
 3. **Verify:** Each format radio works. Click Export → file downloads.
 
 ### Beat 59: File → Recent
