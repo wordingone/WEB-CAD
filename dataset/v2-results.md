@@ -65,7 +65,7 @@ Per `dataset/v2-spec.md` §Acceptance: round-trip pass rate target is implicit i
 
 `src/train/publish_v2.py` selects the highest-round-trip adapter and uploads to `gemma-architect/cad-lora-v2`. Requires `HF_TOKEN`; absent the token, it dumps a publish plan to `outputs/cad-lora-v2-publish-plan.json` for the next session to execute.
 
-**2026-05-01 status: HF_TOKEN absent** — publish_v2.py produced `outputs/cad-lora-v2-publish-plan.json` (best=4b-it, round-trip=100%) and exited 0. Upload deferred until a session with `HF_TOKEN` set; rerun `python src/train/publish_v2.py` to execute the staged plan.
+**2026-05-01 status: HF_TOKEN absent** — publish_v2.py produced `outputs/cad-lora-v2-publish-plan.json` (best=4b-it, round-trip=100%) on the training machine and exited 0. Note that `outputs/` is gitignored, so this file is not in a fresh clone — rerun publish_v2.py locally (with HF_TOKEN set, to execute upload; without, to regenerate the plan).
 
 ## Acceptance
 
@@ -77,7 +77,7 @@ Per `dataset/v2-spec.md` §Acceptance: round-trip pass rate target is implicit i
 | Tier 1 vocabulary coverage | 12/13 ops covered (drawLine has zero rows; soft gap, no impact on round-trip pass rate) |
 | Augmentation 2-3 paraphrases per base | ✓ (mean 2.6×, total 932) |
 | LoRA train both E2B + 4b-it | partial — 4b-it shipped 2026-05-01, E2B deferred to a later session (GPU contention with avir-cli probe queue) |
-| Publish best to HF Hub | publish plan staged at `outputs/cad-lora-v2-publish-plan.json`; upload pending HF_TOKEN |
+| Publish best to HF Hub | publish plan generated at `outputs/cad-lora-v2-publish-plan.json` on the training machine (outputs/ gitignored); upload pending HF_TOKEN |
 | Eval round-trip ≥ 90% (4b-it) | ✓ (40/40 = 100%) |
 
 ## Pipeline reproduction

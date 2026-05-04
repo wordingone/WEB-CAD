@@ -31,7 +31,7 @@ Each section gets its own page in this directory near the deadline:
 - ✅ Spike A (LoRA training) — 76 train + 8 eval pairs, Gemma-3-4b-it QLoRA r=16, eval_loss 0.144 @ epoch 3, **8/8 parse_ok | 8/8 api_clean | 8/8 has_extrude** on held-out set. Adapter at `outputs/spike-a-lora/`. Retrospective at `docs/spike-a-retrospective.md`.
 - ✅ 18-day plan — `docs/plan-18-day.md` (5 sub-gates: model artifact, browser inference, render+export, demo video, Kaggle writeup).
 - ✅ **Dataset v2** — 400 base rows, 5 buckets (50+50+200+50+50), **round-trip 100%**, 932 augmented training rows, 40-row stratified holdout. See `dataset/v2-results.md`.
-- ✅ **4b-it LoRA shipped 2026-05-01** — 53 min on a 4090, train_loss 0.244 @ epoch 3, **40/40 (100%) full round-trip** on the held-out eval. Adapter at `outputs/cad-lora-v2-4b-it/`. Publish plan staged at `outputs/cad-lora-v2-publish-plan.json` (HF push pending HF_TOKEN).
+- ✅ **4b-it LoRA shipped 2026-05-01** — 53 min on a 4090, train_loss 0.244 @ epoch 3, **40/40 (100%) full round-trip** on the held-out eval. Adapter at `outputs/cad-lora-v2-4b-it/` (gitignored — produced by training, not committed). Publish plan generated at `outputs/cad-lora-v2-publish-plan.json` on the training machine when publish_v2.py ran without HF_TOKEN; on a fresh clone, regenerate by re-running publish_v2.py.
 - ⏳ E2B-LoRA variant — deferred per `dataset/v2-results.md`; will ship once 4b-it submission cycle closes. (Distinct from the image→IFC E2B agent #182 which uses Gemma 4 multimodal native and DID ship — see `submission/repro.md` §3.)
 - ✅ **Browser runtime running** — Vite + TypeScript + three.js + replicad + web-ifc 0.0.77 all wired, 9 canned demos shipping (8 dropdown + Schultz hero via Cmd-K), IFC4 export round-trip-verified, drag-drop loader for IFC/STEP/GLB/GLTF/OBJ/STL, sample IFC files (Schultz Residence real + KIT FZK-Haus / Institute-Var-2 synthetic test fixtures + Bonsai openings) bundled. Self-harness: 9/9 demos pass; leo-as-architect 8/8; verify-dsl-corpus 19/19.
 - ✅ **Bundle design handoff (#170 umbrella) shipped** — `#171/#173/#176/#177/#178/#179/#181/#183` all merged plus `#172` quad-split, `#174` sidebar + Snap dock, `#175` 5-tab dock surface, `#168` 2D→3D agent, `#182` image→IFC agent, `#151` Bonsai MCP via subagent worktree integration onto bridge → master.
@@ -50,5 +50,5 @@ Each section gets its own page in this directory near the deadline:
 
 Two placeholders remain in `writeup.md` — without them the submission isn't externally verifiable:
 
-- `https://huggingface.co/gemma-architect/cad-lora-v2` — adapter not pushed (HF_TOKEN absent; `outputs/cad-lora-v2-publish-plan.json` is staged).
+- `https://huggingface.co/gemma-architect/cad-lora-v2` — adapter not pushed (HF_TOKEN absent; `outputs/cad-lora-v2-publish-plan.json` is produced by `publish_v2.py` when run without the token, but `outputs/` is gitignored — regenerate locally rather than expecting the file in a fresh clone).
 - Demo video URL (YouTube) — TBD. Recording path is unblocked: cache fix landed (a59a8a3), Schultz hero re-shot (725b56a), `submission/demo-script.md` is the canonical 173-line cut plan.
