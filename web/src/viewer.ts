@@ -242,6 +242,31 @@ export class Viewer {
     return null;
   }
 
+  getScene(): THREE.Scene {
+    return this.scene;
+  }
+
+  getCanvas(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
+  getCamera(): THREE.PerspectiveCamera {
+    return this.camera;
+  }
+
+  addMesh(mesh: THREE.Mesh, _kind?: string): void {
+    this.scene.add(mesh);
+  }
+
+  removeObject(obj: THREE.Object3D): boolean {
+    if (!this.scene.children.includes(obj)) return false;
+    this.scene.remove(obj);
+    if (this.currentMesh === obj) this.currentMesh = null;
+    if (this.currentEdges === obj) this.currentEdges = null;
+    if (this.currentObject === obj) this.currentObject = null;
+    return true;
+  }
+
   getActiveMeshData(): { vertices: Float32Array; indices: Uint32Array } | null {
     if (this.currentMesh) {
       const g = this.currentMesh.geometry;
