@@ -312,5 +312,11 @@
     "js": "const outer = drawRectangle(10.0000, 6.0000)\n  .sketchOnPlane(\"XY\")\n  .extrude(0.2000)\n  .translate([5.0000, 3.0000, 0.0000]);\nconst hole1 = drawRectangle(1.5000, 2.0000)\n  .sketchOnPlane(\"XY\")\n  .extrude(0.2000)\n  .translate([2.7500, 3.0000, 0.0000]);\nconst hole2 = drawRectangle(1.5000, 2.0000)\n  .sketchOnPlane(\"XY\")\n  .extrude(0.2000)\n  .translate([7.2500, 3.0000, 0.0000]);\nconst step1 = outer.cut(hole1);\nconst result = step1.cut(hole2);",
     "source": "dsl-corpus",
     "notes": "compiled from data/dsl-demo-corpus.jsonl id=slab-two-holes"
+  },
+  {
+    "prompt": "Build a square column 0.3m by 0.3m, 3m tall.",
+    "js": "const e0 = drawRectangle(0.3000, 0.3000)\n  .sketchOnPlane(\"XY\")\n  .extrude(3.0000)\n  .translate([0.0000, 0.0000, 0]);",
+    "source": "dsl-corpus",
+    "notes": "compiled from data/dsl-demo-corpus.jsonl id=column-square-3m"
   }
 ]
