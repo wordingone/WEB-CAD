@@ -23,6 +23,7 @@ Each section gets its own page in this directory near the deadline:
 - `submission/demo-script.md` — exact demo path + voiceover.
 - `submission/repro.md` — step-by-step training + inference reproduction.
 - `submission/impact.md` — equity story: barrier-to-entry for parametric CAD, target users, deployment plan.
+- `submission/SAMPLES.md` — bundled IFC sample provenance (real vs synthetic vs smoke test) + per-file licenses.
 
 ## Status (2026-05-03)
 
