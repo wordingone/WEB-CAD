@@ -1,136 +1,67 @@
 # Screenshot grid for the Kaggle post
 
-The Kaggle write-up (`submission/writeup.md`) embeds a 3×3 screenshot
-grid showing each of the three featured demos in three columns:
-prompt → in-browser render → exported IFC opened in BlenderBIM.
+Captured 2026-05-04 from the live deployed page
+(https://wordingone.github.io/gemma-architect/) via Playwright at
+1920×1080. The shots cover the demo-script.md narrative arc — wall
+demo + Schultz Residence hero + chrome surfaces (EXPORT drawer,
+Cmd-K palette, PARAMETERS tab).
 
-Captured day-of from the production page (`bun run web:preview`) and
-BlenderBIM (free, https://blenderbim.org/) using the IFC files the
-**EXPORT → IFC4** drawer writes.
+## Files captured
 
-The three demos mirror `submission/demo-script.md` cuts 2/3/4:
+| File | Commit | What it shows |
+|------|--------|--------------|
+| `01-prompt-wall.png`        | 9c7c0be | PROMPT tab — wall chip loaded, demo sentence filled, GENERATE ready |
+| `02-wall-rendered.png`      | 9c7c0be | Wall (12 tri) rendered solid — title block + SCENE panel visible |
+| `03-console-cache.png`      | 9c7c0be | CONSOLE tab — init sequence + DSL ready prompt |
+| `04-schultz-solid.png`      | 725b56a | Schultz Residence (14-element multi-fuse) — south 3/4 angle, doorway cut visible, solid shading |
+| `05-schultz-drafting.png`   | 725b56a | Same angle, `D`-key toggled — flat-white drafting render with edge lines, doorway cut prominent |
+| `06-export-drawer.png`      | 9c7c0be | EXPORT drawer open — 12 tiles (IFC/STEP/DXF / OBJ/STL/GLB/gLTF/USDZ / SVG/DXF/PDF) |
+| `07-cmdk-palette.png`       | 9c7c0be | ⌘K palette open — full command list (GENERATE / MODEL / VIEW groups, kbd shortcuts) |
+| `08-cmdk-schultz.png`       | 9c7c0be | ⌘K with "Schultz" typed — filtered to single "Schultz Residence (14 elements)" entry |
+| `09-parameters-sliders.png` | 9c7c0be | PARAMETERS tab — wall sliders (5.5 / 0.2 / 2.8m values visible) |
 
-1. **Wall** — cache hit on the chip-strip default, parametric sliders
-   exercised live.
-2. **Typed-from-scratch square column 3m** — judge types
-   `Build a square column 0.3m by 0.3m, 3m tall.` into the PROMPT tab,
-   `⌘⏎` fires; cache returns the exact match (F1 = 1.000 vs the
-   `column-square-3m` corpus row, see `data/dsl-demo-corpus.jsonl`).
-3. **Schultz Residence** — Cmd-K palette → "Schultz" → GENERATE.
-   14-element multi-fuse + cuts; drafting-style toggle (`D`) flips
-   solid → ink-wobble.
+`live-demo-2026-05-04.png` is a wider initial capture kept for reference;
+the 9 numbered shots are the canonical embed set.
 
-## Layout
+ai-cache.json verified live at 60 rows as of `a59a8a3` (the
+`column-square-3m` corpus row that demo-script.md cut 2 depends on
+for an exact F1=1.000 cache hit is restored).
 
-```
-┌──────────────────────┬──────────────────────┬──────────────────────┐
-│ wall-prompt.png      │ wall-render.png      │ wall-bim.png         │
-│ PROMPT tab + JS src  │ three.js viewer      │ wall.ifc in          │
-│ + status `Ready ...` │ (Day mode, default)  │ BlenderBIM           │
-├──────────────────────┼──────────────────────┼──────────────────────┤
-│ column-3m-prompt.png │ column-3m-render.png │ column-3m-bim.png    │
-│ PROMPT tab + emitted │ three.js viewer      │ column.ifc in        │
-│ JS for column 3m     │ (Day mode, oblique)  │ BlenderBIM           │
-├──────────────────────┼──────────────────────┼──────────────────────┤
-│ schultz-prompt.png   │ schultz-drafting.png │ schultz-bim.png      │
-│ PROMPT tab + 14-elem │ drafting-style       │ schultz.ifc in       │
-│ Schultz JS           │ render (`D` toggle)  │ BlenderBIM           │
-└──────────────────────┴──────────────────────┴──────────────────────┘
-```
+## Pending (manual capture pre-grid-composite)
 
-## Files (filled at submission time)
+BlenderBIM column (3 shots) — judges-facing proof that exported IFC4
+files load cleanly in a real BIM tool:
 
-Filename convention: `{demo-id}-{stage}.png` where stage ∈ `prompt`,
-`render` (or `drafting` for cut 4), `bim`. All PNGs at 1920×1080, sRGB,
-no alpha.
-
-- [ ] `wall-prompt.png` — page after picking **Wall** chip. PROMPT tab
-      visible with the demo sentence. JS source mirror visible. Status
-      `Ready (12 tris, 4.4 KB IFC).`
-- [ ] `wall-render.png` — same view, three.js viewer in focus, wall
-      rendered with default OrbitControls angle (auto-framed).
 - [ ] `wall-bim.png` — `wall.ifc` opened in BlenderBIM, default
       perspective, no extra UI panels.
-- [ ] `column-3m-prompt.png` — page with the typed-from-scratch prompt
-      `Build a square column 0.3m by 0.3m, 3m tall.` in the PROMPT
-      textarea. Console tab (if visible) shows
-      `[ai-generate] cache · 1.00 match · ~50ms`.
-- [ ] `column-3m-render.png` — three.js viewer of the 3m column,
-      oblique perspective.
-- [ ] `column-3m-bim.png` — `column.ifc` in BlenderBIM, oblique view.
-- [ ] `schultz-prompt.png` — page after Cmd-K palette → "Schultz" →
-      GENERATE. PROMPT textarea full of the Schultz sentence; JS source
-      shows the 14 const lines.
-- [ ] `schultz-drafting.png` — viewer flipped to drafting style via
-      the `D` keystroke. Same Schultz geometry rendered as
-      ink-wobble + paper layer.
+- [ ] `column-3m-bim.png` — `column.ifc` (typed-from-scratch column
+      demo's IFC export) in BlenderBIM, oblique view.
 - [ ] `schultz-bim.png` — `schultz.ifc` in BlenderBIM. Floor slab,
-      four walls (with door + window cuts), interior partition, two
-      corner columns, roof slab — all visible as IFC entities.
+      four walls (with doorway + window cuts), interior partition,
+      two corner columns, roof slab — all visible as IFC entities.
 
-## Capture procedure
+Capture procedure: install BlenderBIM
+(https://blenderbim.org/, free), File → Open IFC Project, select
+the IFC the EXPORT drawer wrote, frame oblique, screenshot at
+1920×1080.
 
-For each row:
+## Composition for the Kaggle post
 
-1. Open the page in a clean Chrome profile at 110% zoom on a 1920×1080
-   display. No extensions, no bookmarks bar. Confirm Day mode is on
-   (top-bar mode toggle).
-2. **Cut 1 (Wall):** click the **Wall · 5.5×0.2×2.8m** chip in the
-   PROMPT tab's chip strip. Click **GENERATE** (or `⌘⏎`). Wait for
-   status `Ready (...)`.
-3. **Cut 2 (Column 3m):** click in the PROMPT textarea, select-all +
-   delete, type `Build a square column 0.3m by 0.3m, 3m tall.`,
-   `⌘⏎`. Cache returns the matched row in ~50 ms.
-4. **Cut 3 (Schultz):** `⌘K` → type "Schultz" → Enter. PROMPT fills
-   with the long sentence + JS fills with 14 const lines. Click
-   **GENERATE**. Drafting-render: press `D` (toggles solid →
-   ink-wobble; press `D` again to revert if needed).
-5. Take prompt screenshot: full window, PROMPT tab + JS source mirror
-   + status line all visible.
-6. Hover the viewer pane. OrbitControls auto-frame fires after the
-   first interaction. Take render screenshot.
-7. Click **EXPORT** (or `⌘E`) → **IFC4** tile. File downloads to the
-   profile's Downloads folder.
-8. Open BlenderBIM (any version on the BlenderBIM download page).
-   `File → Open IFC Project → <demo>.ifc`. Wait for parse.
-9. Frame the geometry: oblique for wall + column + Schultz so all
-   pieces are visible.
-10. Take BIM screenshot of the BlenderBIM viewport, full window.
-11. Save with the filename convention above.
-
-## Compositing for the Kaggle post
-
-The 3×3 grid is composited at submission time (single PNG, 5760×3240
-or smaller for upload limits). ImageMagick command:
+Once all 12 shots are ready (9 web + 3 BIM), compose a 3×4 grid
+(3 demos × 4 stages: prompt + web-render + drafting + BIM):
 
 ```bash
 magick montage \
-  wall-prompt.png wall-render.png wall-bim.png \
-  column-3m-prompt.png column-3m-render.png column-3m-bim.png \
-  schultz-prompt.png schultz-drafting.png schultz-bim.png \
-  -tile 3x3 -geometry 1920x1080+8+8 grid.png
+  01-prompt-wall.png 02-wall-rendered.png ANY-DRAFTING-WALL wall-bim.png \
+  PROMPT-COLUMN RENDER-COLUMN DRAFT-COLUMN column-3m-bim.png \
+  04-schultz-solid.png 05-schultz-drafting.png 08-cmdk-schultz.png schultz-bim.png \
+  -tile 4x3 -geometry 1920x1080+8+8 grid.png
 ```
 
 Then `pngquant grid.png --quality=70-85` to fit Kaggle's upload size.
 
-## Status — captured 2026-05-04 from https://wordingone.github.io/gemma-architect/
-
-Nine screenshots captured via Playwright at 1920×1080 from the live
-deployed page. Filenames reflect actual content:
-
-| File | Commit | What it shows |
-|------|--------|--------------|
-| `01-prompt-wall.png` | 9c7c0be | PROMPT tab + wall loaded, ready to generate |
-| `02-wall-rendered.png` | 9c7c0be | Wall (12 tri) rendered in solid mode |
-| `03-console-cache.png` | 9c7c0be | CONSOLE tab — init sequence, DSL ready |
-| `04-schultz-solid.png` | 725b56a | Schultz 3/4 south view — doorway cut visible, solid shading |
-| `05-schultz-drafting.png` | 725b56a | Same angle, `D` toggle — drafting / flat-white + edge lines |
-| `06-export-drawer.png` | 9c7c0be | EXPORT drawer: IFC/STEP/OBJ/STL/SVG/DXF tiles visible |
-| `07-cmdk-palette.png` | 9c7c0be | ⌘K palette open, full command list (GENERATE/MODEL/VIEW) |
-| `08-cmdk-schultz.png` | 9c7c0be | ⌘K with "Schultz" typed — filtered to single result |
-| `09-parameters-sliders.png` | 9c7c0be | PARAMETERS tab — wall sliders (5.5/0.2/2.8m) |
-
-ai-cache.json: 60 rows as of a59a8a3 (column-square-3m row restored). Verified live.
-
-BlenderBIM column (`*-bim.png`) pending manual capture at submission time.
-Grid composite and pngquant step follow after all 9 BIM shots are ready.
+The cut-2 (typed-from-scratch column) prompt+render shots are NOT in
+the current 9-set — they were skipped in the first capture pass per
+the demo-script narrative arc choice. Capture them alongside the
+BlenderBIM column or simplify the grid to a 3×3 wall+Schultz+chrome
+layout.
