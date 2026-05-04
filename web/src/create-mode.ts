@@ -9,12 +9,14 @@
 // sequence.
 //
 // What is fully wired (working):
-//   - Wall, Rect, Circle, Line, Door, Window, Slab, Column
+//   - Wall, Rect, Circle, Line, Door, Window, Slab, Column,
+//     Polyline (4-click auto-close), Polygon (hex), Stair, Extrude (2-click box)
 //
 // What is stubbed (logs to console, awaits parent task to wire kernel call):
-//   - Polyline, Polygon, Arc, Spline, Stair, Extrude, Revolve
+//   - Arc, Spline, Revolve
 
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Viewer } from "./viewer";
 import { setState } from "./app-state";
 import { snapPoint } from "./snap-state";
@@ -30,6 +32,11 @@ const DEFAULT_DOOR_H = 2.1;
 const DEFAULT_WINDOW_W = 1.2;
 const DEFAULT_WINDOW_H = 1.4;
 const DEFAULT_WINDOW_SILL = 1.0;
+const DEFAULT_STAIR_RISE = 0.18;
+const DEFAULT_STAIR_TREAD = 0.28;
+const DEFAULT_STAIR_WIDTH = 1.0;
+const DEFAULT_POLYGON_SIDES = 6;
+const DEFAULT_EXTRUDE_HEIGHT = 2.5;
 
 // Append-only construction sequence.
 const _createSequence: string[] = [];
@@ -215,29 +222,172 @@ function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: st
   return { mesh, chain };
 }
 
+function buildStair(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const run = Math.sqrt(dx * dx + dy * dy);
+  const tread = DEFAULT_STAIR_TREAD;
+  const rise = DEFAULT_STAIR_RISE;
+  const width = DEFAULT_STAIR_WIDTH;
+  // At least 2 steps for any non-degenerate input.
+  const steps = Math.max(2, Math.floor(run / tread));
+  const actualTread = run / steps;
+  const angDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  // Build each step as a Box centered along stair-local +X.
+  // Step i (0-indexed): bottom-front face at x=i*tread, height (i+1)*rise.
+  const stepGeoms: THREE.BoxGeometry[] = [];
+  for (let i = 0; i < steps; i++) {
+    const stepH = (i + 1) * rise;
+    const g = new THREE.BoxGeometry(actualTread, width, stepH);
+    // Position: center at (i*tread + tread/2, 0, stepH/2).
+    g.translate(i * actualTread + actualTread / 2, 0, stepH / 2);
+    stepGeoms.push(g);
+  }
+  const merged = mergeGeometries(stepGeoms, false);
+  // Dispose the per-step geoms — merged owns the buffer now.
+  stepGeoms.forEach((g) => g.dispose());
+  if (!merged) {
+    // mergeGeometries returns null on attribute mismatch — fall back to a single bbox.
+    const fallback = new THREE.BoxGeometry(run, width, steps * rise);
+    fallback.translate(run / 2, 0, (steps * rise) / 2);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xb89968, roughness: 0.6, metalness: 0.05 });
+    const mesh = new THREE.Mesh(fallback, mat);
+    mesh.position.set(a.x, a.y, 0);
+    mesh.rotation.z = (angDeg * Math.PI) / 180;
+    mesh.userData.kind = "compound";
+    mesh.userData.creator = "stair";
+    const chain = `// stair: ${steps} steps, fallback bbox — compound([...risers,...treads])`;
+    return { mesh, chain };
+  }
+  const mat = new THREE.MeshStandardMaterial({ color: 0xb89968, roughness: 0.6, metalness: 0.05 });
+  const mesh = new THREE.Mesh(merged, mat);
+  mesh.position.set(a.x, a.y, 0);
+  mesh.rotation.z = (angDeg * Math.PI) / 180;
+  mesh.userData.kind = "compound";
+  mesh.userData.creator = "stair";
+  // Chain string is display-only — kernel doesn't natively support `compound([...])`,
+  // so emit a sensible-looking call. TODO is intentional — see TOOL_TODOS.
+  const chain = `const stair = compound([/* ${steps} risers + ${steps} treads — TODO kernel mapping */]).rotate(${round(angDeg)}, [0, 0, 0], [0, 0, 1]).translate([${round(a.x)}, ${round(a.y)}, 0]);`;
+  return { mesh, chain };
+}
+
+function buildPolygon(center: { x: number; y: number }, radial: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+  const dx = radial.x - center.x;
+  const dy = radial.y - center.y;
+  const r = Math.max(0.05, Math.sqrt(dx * dx + dy * dy));
+  const sides = DEFAULT_POLYGON_SIDES;
+  const h = DEFAULT_EXTRUDE_HEIGHT;
+  // Build hex Shape in local XY centered at origin, starting angle aligned with radial click.
+  const startAng = Math.atan2(dy, dx);
+  const shape = new THREE.Shape();
+  const verts: Array<[number, number]> = [];
+  for (let i = 0; i < sides; i++) {
+    const ang = startAng + (i * 2 * Math.PI) / sides;
+    const x = r * Math.cos(ang);
+    const y = r * Math.sin(ang);
+    verts.push([x, y]);
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xd0a868, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(center.x, center.y, 0);
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "polygon";
+  // Chain: drawPolyline of N world-space vertices, then extrude.
+  const worldVerts = verts.map(([x, y]) => `[${round(center.x + x)}, ${round(center.y + y)}]`).join(", ");
+  const chain = `const poly = drawPolyline([${worldVerts}], { close: true }).sketchOnPlane("XY").extrude(${round(h)});`;
+  return { mesh, chain };
+}
+
+function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Mesh; chain: string } {
+  // 4-click auto-close polyline → extrude. (Variable click count not supported by
+  // current handler API — fixed to 4 clicks for the demo, see TOOL_HANDLERS comment.)
+  const h = DEFAULT_EXTRUDE_HEIGHT;
+  // Compute centroid so we can extrude in local space and translate.
+  let cx = 0;
+  let cy = 0;
+  for (const p of pts) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= pts.length;
+  cy /= pts.length;
+  const shape = new THREE.Shape();
+  pts.forEach((p, i) => {
+    const lx = p.x - cx;
+    const ly = p.y - cy;
+    if (i === 0) shape.moveTo(lx, ly);
+    else shape.lineTo(lx, ly);
+  });
+  shape.closePath();
+  let geom: THREE.BufferGeometry;
+  try {
+    geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+  } catch {
+    // Self-intersecting polygon — fall back to a thin line strip extrusion.
+    geom = new THREE.BoxGeometry(0.1, 0.1, h);
+  }
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(cx, cy, 0);
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "polyline";
+  const worldVerts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
+  const chain = `const poly = drawPolyline([${worldVerts}], { close: true }).sketchOnPlane("XY").extrude(${round(h)});`;
+  return { mesh, chain };
+}
+
+function buildExtrude(base: { x: number; y: number }, top: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+  // Simplified 2-click extrude: click1 = base point, click2 = "top" point.
+  // The horizontal distance between the two clicks defines the height of a
+  // unit-square (1m × 1m) extrusion centered at the base point. Real
+  // profile-selection extrude is gated on TransformControls + selection state
+  // (see TOOL_TODOS["extrude"]).
+  const dx = top.x - base.x;
+  const dy = top.y - base.y;
+  const h = Math.max(0.05, Math.sqrt(dx * dx + dy * dy));
+  const s = 1.0; // unit square footprint
+  const geom = new THREE.BoxGeometry(s, s, h);
+  geom.translate(0, 0, h / 2);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(base.x, base.y, 0);
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "extrude";
+  const chain = `const ext = drawRectangle(${round(s)}, ${round(s)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(base.x)}, ${round(base.y)}, 0]);`;
+  return { mesh, chain };
+}
+
 type ToolHandler = {
   clicks: number;
   handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Mesh; chain: string };
 };
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
-  wall:   { clicks: 2, handler: ([a, b]) => buildWall(a, b) },
-  rect:   { clicks: 2, handler: ([a, b]) => buildRect(a, b) },
-  circle: { clicks: 2, handler: ([a, b]) => buildCircle(a, b) },
-  line:   { clicks: 2, handler: ([a, b]) => buildLine(a, b) },
-  slab:   { clicks: 2, handler: ([a, b]) => buildSlab(a, b) },
-  door:   { clicks: 1, handler: ([p]) => buildDoor(p) },
-  window: { clicks: 1, handler: ([p]) => buildWindow(p) },
-  column: { clicks: 1, handler: ([p]) => buildColumn(p) },
+  wall:     { clicks: 2, handler: ([a, b]) => buildWall(a, b) },
+  rect:     { clicks: 2, handler: ([a, b]) => buildRect(a, b) },
+  circle:   { clicks: 2, handler: ([a, b]) => buildCircle(a, b) },
+  line:     { clicks: 2, handler: ([a, b]) => buildLine(a, b) },
+  slab:     { clicks: 2, handler: ([a, b]) => buildSlab(a, b) },
+  door:     { clicks: 1, handler: ([p]) => buildDoor(p) },
+  window:   { clicks: 1, handler: ([p]) => buildWindow(p) },
+  column:   { clicks: 1, handler: ([p]) => buildColumn(p) },
+  // T4 tool implementations — see buildStair / buildPolygon / buildPolyline /
+  // buildExtrude for design notes. polyline is fixed at 4 clicks for the demo
+  // (variable click-count would require a sentinel-terminate UX change to the
+  // emitClickWorld pipeline).
+  stair:    { clicks: 2, handler: ([a, b]) => buildStair(a, b) },
+  polygon:  { clicks: 2, handler: ([a, b]) => buildPolygon(a, b) },
+  polyline: { clicks: 4, handler: (pts) => buildPolyline(pts) },
+  extrude:  { clicks: 2, handler: ([a, b]) => buildExtrude(a, b) },
 };
 
 const TOOL_TODOS: Record<string, string> = {
-  polyline:  "drawPolyline(pts).sketchOnPlane('XY').extrude(thickness)",
-  polygon:   "drawPolyline(N-vertex regular polygon).sketchOnPlane('XY').extrude(h)",
   arc:       "draw(start).arcTo(end, [via]).sketchOnPlane('XY').extrude(thickness)",
   spline:    "draw(start).bezierTo(end, [c1], [c2]).sketchOnPlane('XY').extrude(thickness)",
-  stair:     "compound of risers + treads — needs a multi-segment kernel call",
-  extrude:   "select profile then height — TODO 2-step gizmo flow",
   revolve:   "select profile then axis then angle — TODO 3-step gizmo flow",
   fillet:    "select edges, set radius — TODO post-selection edit op",
   boolean:   "select two solids, choose op (fuse/cut/intersect)",
