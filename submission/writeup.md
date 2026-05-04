@@ -66,6 +66,15 @@ below): cache-first for sub-100ms response on prompts close to the eval
 corpus, optional live LoRA inference when the user wants the actual
 model in the loop.
 
+<!--
+At submission time, embed the 3×3 screenshot grid here. The grid is
+composited from `submission/screenshots/{wall,column-3m,schultz}-{prompt,render,bim}.png`
+per `submission/screenshots/README.md`. Once captured + composited:
+  ![Demo grid: prompt → render → IFC in BlenderBIM, three rows](screenshots/grid.png)
+Leave commented out until the PNG exists — Kaggle does not gracefully
+hide broken image refs.
+-->
+
 ### Beyond prompt-to-geometry: three other input paths
 
 A non-CAD user has more than one way to start a building. The same
