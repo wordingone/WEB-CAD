@@ -26,6 +26,7 @@ const SHELL_TS = join(REPO_ROOT, "web/src/shell.ts");
 const WORKBENCH_TS = join(REPO_ROOT, "web/src/workbench.ts");
 const VIEWER_TS = join(REPO_ROOT, "web/src/viewer.ts");
 const INDEX_HTML = join(REPO_ROOT, "web/index.html");
+const STYLE_CSS = join(REPO_ROOT, "web/src/style.css");
 
 type Violation = { file: string; line: number; rule: string; detail: string };
 
@@ -204,12 +205,98 @@ function checkViewerSelection(): Violation[] {
   return violations;
 }
 
+// R4 — viewport cropping. silly-baking-yeti.md T2. Jun 2026-05-04: "the
+// applications bottom part of the ui is cut off." Statusbar gets clipped on
+// short windows (Macbook Air, devtools open, 13" laptop) which makes the
+// dock divider grip and bottom status cells unreachable.
+//
+// R4a — style.css must use min-height: 100dvh, not height: 100vh
+// R4b — index.html --dock-h must clamp to viewport (not literal 260px)
+// R4c — style.css must have a max-height media query for short viewports
+// R4d — workbench.ts dock-drag clamp ceiling must reference innerHeight
+function checkCropping(): Violation[] {
+  const violations: Violation[] = [];
+  const css = readLines(STYLE_CSS);
+  const html = readLines(INDEX_HTML);
+  const wb = readLines(WORKBENCH_TS);
+
+  if (css.length === 0) {
+    violations.push({ file: "web/src/style.css", line: 0, rule: "R4a", detail: "style.css not found" });
+  } else {
+    // R4a: top-level "height: 100vh" on .app or body breaks short windows.
+    for (let i = 0; i < css.length; i++) {
+      if (/^\s*height:\s*100vh\s*;/.test(css[i])) {
+        violations.push({
+          file: "web/src/style.css",
+          line: i + 1,
+          rule: "R4a",
+          detail: "uses height: 100vh; should be min-height: 100dvh (100dvh accounts for browser chrome; min-height lets content extend on short viewports)",
+        });
+      }
+    }
+    // R4c: must have a max-height media query for sub-700px viewports.
+    const sawShortMedia = css.some((l) => /@media\s*\(\s*max-height\s*:/.test(l));
+    if (!sawShortMedia) {
+      violations.push({
+        file: "web/src/style.css",
+        line: 0,
+        rule: "R4c",
+        detail: "no @media (max-height: ...) block — short viewports (<700px) need .modebar/.ribbon compaction per silly-baking-yeti T2",
+      });
+    }
+  }
+
+  // R4b: index.html --dock-h must NOT be a hard pixel literal.
+  for (let i = 0; i < html.length; i++) {
+    const m = html[i].match(/--dock-h:\s*(\d+)px\s*;/);
+    if (m) {
+      violations.push({
+        file: "web/index.html",
+        line: i + 1,
+        rule: "R4b",
+        detail: `--dock-h is hardcoded to ${m[1]}px; should be min(340px, 35vh) so it caps at 35% of viewport on short windows`,
+      });
+    }
+  }
+
+  // R4d: drag-clamp must reference innerHeight (or window.innerHeight) so
+  // the user can't drag the dock past viewport ceiling. Find the dock-drag
+  // mousemove block (the one that reads "startY - e.clientY" + writes
+  // --dock-h) and require innerHeight within ±10 lines.
+  if (wb.length > 0) {
+    let mousemoveIdx = -1;
+    for (let i = 0; i < wb.length; i++) {
+      if (/--dock-h/.test(wb[i]) && /setProperty/.test(wb[i])) {
+        mousemoveIdx = i;
+        break;
+      }
+    }
+    if (mousemoveIdx !== -1) {
+      const start = Math.max(0, mousemoveIdx - 10);
+      const end = Math.min(wb.length, mousemoveIdx + 5);
+      const block = wb.slice(start, end).join("\n");
+      const sawInnerHeight = /innerHeight/.test(block);
+      if (!sawInnerHeight) {
+        violations.push({
+          file: "web/src/workbench.ts",
+          line: mousemoveIdx + 1,
+          rule: "R4d",
+          detail: "dock-drag clamp does not reference window.innerHeight; user can drag dock past viewport ceiling. Bound the upper Math.min to Math.min(560, window.innerHeight * 0.5)",
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
 function main(): void {
   const violations: Violation[] = [
     ...checkRibbonIcons(),
     ...checkThemeToggleLocation(),
     ...checkPaletteDispatch(),
     ...checkViewerSelection(),
+    ...checkCropping(),
   ];
 
   if (violations.length === 0) {
@@ -221,7 +308,7 @@ function main(): void {
     const loc = v.line > 0 ? `${v.file}:${v.line}` : v.file;
     console.log(`${loc} [${v.rule}] ${v.detail}`);
   }
-  console.error(`\n${violations.length} violation${violations.length === 1 ? "" : "s"} — see silly-baking-yeti.md T1/T3/T4/T7 for fix path`);
+  console.error(`\n${violations.length} violation${violations.length === 1 ? "" : "s"} — see silly-baking-yeti.md T1/T2/T3/T4/T7 for fix path`);
   process.exit(1);
 }
 
