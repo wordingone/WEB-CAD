@@ -42,7 +42,7 @@ performance benchmarks alongside the real Schultz Residence.
 | :----- | ---: | -------: | :------ | :--------- |
 | `bonsai-project0-openings.ifc` | 47 KB | 788 | Tutorial-bundled | BlenderBIM tutorial "Project 0" starter — small house with openings authored as the BIM-Onboarding sample. Fast to parse, exercises IfcOpeningElement / IfcDoor / IfcWindow paths. |
 
-## Loader smoke tests (3)
+## Loader smoke tests (4)
 
 Minimal fixtures used to verify the file-load pipeline (IFCLoader,
 OBJLoader, STLLoader) — not representative of real geometry.
