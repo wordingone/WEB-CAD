@@ -50,7 +50,7 @@ OBJLoader, STLLoader) — not representative of real geometry.
 | Sample | Size | Format | Purpose |
 | :----- | ---: | :----- | :------ |
 | `wall-with-opening-and-window.ifc` | 12 KB | IFC4 | Single wall + window void. Sub-second parse, smoke test. |
-| `simple-sweep-1.ifc` | 4 KB | IFC4 | Minimal swept solid. Quickest possible IFC sample. |
+| `simple-sweep-1.ifc` | 4 KB | IFC4X3_ADD2 | Minimal swept solid emitted by IfcOpenShell 0.8.2. Schema-version smoke test — verifies the loader ingests an IFC4X3_ADD2 file (newer civil-infra-extension schema); web-ifc 0.0.77 partial-parses (logs `GetRefArgument` warnings on entities it doesn't fully resolve) but doesn't crash. |
 | `triangle.obj` | 96 B | OBJ | OBJLoader path verification. |
 | `triangle.stl` | 158 B | STL ASCII | STLLoader path verification. |
 
