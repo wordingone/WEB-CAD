@@ -117,6 +117,7 @@ Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md)
 - [`submission/impact.md`](submission/impact.md) — equity story, who benefits, adoption path.
 - [`submission/repro.md`](submission/repro.md) — step-by-step reproduction.
 - [`submission/demo-script.md`](submission/demo-script.md) — 3-min demo video voiceover + cuts.
+- [`submission/SAMPLES.md`](submission/SAMPLES.md) — bundled IFC sample provenance + per-file licenses (separates the real architect-authored Schultz Residence from synthetic KIT schema-validation fixtures).
 - [`submission/screenshots/`](submission/screenshots/) — 9-cell visual sweep from the live deployed page (PROMPT/wall/console/Schultz solid + drafting/EXPORT/Cmd-K/PARAMETERS).
 
 ---

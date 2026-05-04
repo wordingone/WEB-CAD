@@ -126,16 +126,16 @@ title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 
 **Screen:**
 1. Click **EXPORT** in the ribbon (or hit `⌘E`). Drawer slides in from the right.
-2. Click the **IFC4** tile. Browser downloads `schultz.ifc` (~4.5 KB).
+2. Click the **IFC4** tile. Browser downloads `schultz.ifc` (~25 KB, 566 entities).
 3. Optional B-roll: open the file in BlenderBIM. Show same building
    loaded as IFC4 entities (slabs, walls, columns) in a different tool.
 
 **VO (28s budget):**
 
-> "Click EXPORT. IFC4. Four-and-a-half kilobytes. **This is a real
-> building file** — open it in Revit, ArchiCAD, BlenderBIM, anything
-> that reads IFC. The model isn't generating pixels. It's generating
-> a building."
+> "Click EXPORT. IFC4. Twenty-five kilobytes, five hundred entities.
+> **This is a real building file** — open it in Revit, ArchiCAD,
+> BlenderBIM, anything that reads IFC. The model isn't generating
+> pixels. It's generating a building."
 
 > "Less than a thousand sentences in the training set. One LoRA adapter.
 > One web page. Open-source, Apache-2.0. Take it, fine-tune your own,
