@@ -87,6 +87,17 @@ type SelectionHelper = {
   edgeLines: THREE.LineSegments;
 };
 
+// #180 — quad-split multi-pane support.
+type ViewName = "top" | "persp" | "front" | "right";
+type Pane = {
+  id: string;
+  view: ViewName;
+  el: HTMLElement;
+  body: HTMLElement;
+  camera: THREE.Camera;
+  controls: OrbitControls;
+};
+
 export class Viewer {
   private canvas: HTMLCanvasElement;
   private scene: THREE.Scene;
@@ -101,6 +112,9 @@ export class Viewer {
   private axisLabels: THREE.Sprite[] = [];
   private currentBounds: Bounds | null = null;
 
+  // #180 — pane descriptors. Empty = legacy single-pane rendering.
+  private panes: Pane[] = [];
+
   // Selection raycaster + helper graphs. Built lazily from setMesh / setObject.
   private raycaster: THREE.Raycaster;
   private helpers: SelectionHelper[] = [];
@@ -110,7 +124,7 @@ export class Viewer {
   private selectionOutline: THREE.LineSegments | null = null;
   private selectionVertexMarker: THREE.Points | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, viewportAreaEl?: HTMLElement) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -156,6 +170,32 @@ export class Viewer {
     this.axes = new THREE.AxesHelper(2);
     this.scene.add(this.axes);
     this.createAxisLabels();
+
+    // #180 — build pane descriptors from DOM. One Pane per .viewport[data-view]
+    // found inside viewportAreaEl. The persp pane reuses this.camera/controls;
+    // ortho panes get their own OrthographicCamera + OrbitControls.
+    if (viewportAreaEl) {
+      const paneEls = Array.from(viewportAreaEl.querySelectorAll<HTMLElement>(".viewport[data-view]"));
+      for (const el of paneEls) {
+        const view = el.dataset.view as ViewName;
+        const body = el.querySelector<HTMLElement>(".vp-body") ?? el;
+        const id = el.id;
+        let paneCamera: THREE.Camera;
+        let paneControls: OrbitControls;
+        if (view === "persp") {
+          paneCamera = this.camera;
+          paneControls = this.controls;
+        } else {
+          const oc = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.01, 1000);
+          oc.up.set(0, 0, 1);
+          paneCamera = oc;
+          paneControls = new OrbitControls(oc, this.canvas);
+          paneControls.enableDamping = true;
+          paneControls.dampingFactor = 0.1;
+        }
+        this.panes.push({ id, view, el, body, camera: paneCamera, controls: paneControls });
+      }
+    }
 
     // T14 — per-pane view-switch dropdown. Injected into the .viewport element
     // (canvas's parent) so each Viewer instance owns its own selector. Switches
@@ -579,14 +619,53 @@ export class Viewer {
     const w = Math.max(1, Math.floor(rect.width));
     const h = Math.max(1, Math.floor(rect.height));
     this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+
+    if (this.panes.length > 0) {
+      for (const pane of this.panes) {
+        const pr = pane.el.getBoundingClientRect();
+        const pw = Math.max(1, pr.width);
+        const ph = Math.max(1, pr.height);
+        if (pane.camera instanceof THREE.OrthographicCamera) {
+          const half: number = (pane.camera as any).__frustumHalf ?? 10;
+          const aspect = pw / ph;
+          pane.camera.left = -half * aspect;
+          pane.camera.right = half * aspect;
+          pane.camera.top = half;
+          pane.camera.bottom = -half;
+          pane.camera.updateProjectionMatrix();
+        } else if (pane.camera instanceof THREE.PerspectiveCamera) {
+          pane.camera.aspect = pw / ph;
+          pane.camera.updateProjectionMatrix();
+        }
+      }
+    } else {
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   private animate = (): void => {
     requestAnimationFrame(this.animate);
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    if (this.panes.length > 0) {
+      const cr = this.canvas.getBoundingClientRect();
+      this.renderer.setScissorTest(true);
+      for (const pane of this.panes) {
+        const pr = pane.el.getBoundingClientRect();
+        if (pr.width <= 0 || pr.height <= 0) continue;
+        const x = Math.floor(pr.left - cr.left);
+        const y = Math.floor(cr.bottom - pr.bottom); // WebGL Y-up
+        const pw = Math.floor(pr.width);
+        const ph = Math.floor(pr.height);
+        this.renderer.setViewport(x, y, pw, ph);
+        this.renderer.setScissor(x, y, pw, ph);
+        pane.controls.update();
+        this.renderer.render(this.scene, pane.camera);
+      }
+      this.renderer.setScissorTest(false);
+    } else {
+      this.controls.update();
+      this.renderer.render(this.scene, this.camera);
+    }
   };
 
   private clearScene(): void {
@@ -882,6 +961,33 @@ export class Viewer {
     this.axes = new THREE.AxesHelper(triadLen);
     this.scene.add(this.axes);
     this.createAxisLabels(triadLen);
+
+    // #180 — reposition ortho pane cameras to frame the new scene bounds.
+    const od = diag * 1.5;
+    const frustumHalf = diag * 0.75;
+    for (const pane of this.panes) {
+      if (!(pane.camera instanceof THREE.OrthographicCamera)) continue;
+      (pane.camera as any).__frustumHalf = frustumHalf;
+      const pr = pane.el.getBoundingClientRect();
+      const aspect = Math.max(1, pr.width) / Math.max(1, pr.height);
+      pane.camera.left = -frustumHalf * aspect;
+      pane.camera.right = frustumHalf * aspect;
+      pane.camera.top = frustumHalf;
+      pane.camera.bottom = -frustumHalf;
+      pane.camera.updateProjectionMatrix();
+      if (pane.view === "top") {
+        pane.camera.position.set(cx, cy, cz + od);
+        pane.camera.up.set(0, 1, 0);
+      } else if (pane.view === "front") {
+        pane.camera.position.set(cx, cy - od, cz);
+        pane.camera.up.set(0, 0, 1);
+      } else if (pane.view === "right") {
+        pane.camera.position.set(cx + od, cy, cz);
+        pane.camera.up.set(0, 0, 1);
+      }
+      (pane.controls as OrbitControls).target.set(cx, cy, cz);
+      (pane.controls as OrbitControls).update();
+    }
   }
 
   // Sprite-based axis tip labels (X red, Y green, Z blue) — three.js AxesHelper
@@ -979,18 +1085,20 @@ export class Viewer {
     // Mark pane as ortho or perspective so CSS can hide the duplicate "white"
     // grid overlay in ortho panes (top/front/right/back/left/bottom). The
     // perspective and iso views keep the .vp-grid bundle look.
-    const pane = this.canvas.parentElement;
-    if (pane) {
+    // #180: canvas parent is viewport-area-host; find viewport-2 for the class.
+    const area = this.canvas.parentElement;
+    const perspEl = area?.querySelector<HTMLElement>("#viewport-2") ?? area;
+    if (perspEl) {
       const isOrtho = name === "top" || name === "bottom"
         || name === "front" || name === "back"
         || name === "left" || name === "right";
-      pane.classList.toggle("vp-pane-ortho", isOrtho);
+      perspEl.classList.toggle("vp-pane-ortho", isOrtho);
     }
 
     // Keep the dropdown's selected option in sync with programmatic setView
     // calls (numpad shortcuts, fitCamera, etc.) — otherwise the UI drifts from
     // the actual camera state.
-    const sel = this.canvas.parentElement?.querySelector<HTMLSelectElement>(".vp-view-select");
+    const sel = perspEl?.querySelector<HTMLSelectElement>(".vp-view-select");
     if (sel && sel.value !== name) sel.value = name;
   }
 
@@ -999,8 +1107,11 @@ export class Viewer {
   // each Viewer instance owns its own selector. onChange dispatches setView,
   // which updates camera + pane class.
   private installViewSelect(): void {
-    const pane = this.canvas.parentElement;
-    if (!pane) return;
+    // #180: canvas parent is viewport-area-host; install the select in viewport-2.
+    // Legacy single-pane layout: canvas parent IS the viewport div — use directly.
+    const area = this.canvas.parentElement;
+    if (!area) return;
+    const pane = area.querySelector<HTMLElement>("#viewport-2") ?? area;
     // Avoid duplicates if this method is ever invoked twice on the same pane.
     const existing = pane.querySelector(".vp-view-select");
     if (existing) return;

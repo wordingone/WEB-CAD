@@ -106,7 +106,8 @@ paramCollapseBtn.addEventListener("click", () => {
   );
 });
 
-const viewer = new Viewer(canvas);
+const viewportAreaEl = document.getElementById("viewport-area-host") as HTMLElement;
+const viewer = new Viewer(canvas, viewportAreaEl);
 // Expose for in-browser debug + DevTools poking — read-only handle to scene state.
 (window as unknown as { __viewer: Viewer }).__viewer = viewer;
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
