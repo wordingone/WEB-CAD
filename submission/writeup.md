@@ -198,17 +198,20 @@ because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 Two paths back the page's prompt textbox; the user picks via configuration,
 the default is the cache.
 
-**Path 1 — bundled cache.** Forty-one prompt → JS pairs ship with the web
-bundle as `web/public/ai-cache.json`. Forty come from the LoRA eval corpus
-(every row that scored full round-trip — parse + api + runtime). The
-forty-first is the Schultz Residence (gold; the 4b-it pred has structural
-bugs on the 14-element multi-fuse). On a typed prompt, `web/src/ai-generate.ts`
-does weighted-F1 fuzzy match (numeric/dimension tokens count 2x) against
-the cache and returns the closest match's JS. Sub-100ms. No GPU. No network.
+**Path 1 — bundled cache.** Sixty prompt → JS pairs ship with the web bundle
+as `web/public/ai-cache.json`. Forty come from the LoRA eval corpus (every
+held-out row that scored full round-trip — parse + api + runtime). Nineteen
+come from the DSL corpus (the copyright-safe lexicon's reference rows that
+back CONSOLE-tab typed input). The sixtieth is the Schultz Residence (gold;
+the 4b-it pred has structural bugs on the 14-element multi-fuse). On a typed
+prompt, `web/src/ai-generate.ts` does weighted-F1 fuzzy match (numeric and
+dimension tokens count 2x) against the cache and returns the closest match's
+JS. Sub-100ms. No GPU. No network.
 
 This path makes the demo bullet-proof for judges who don't want to set up
-a GPU server. The cache is built deterministically from the eval JSONL —
-if we re-train, regenerating the cache is a one-line `bun scripts/build-ai-cache.ts`.
+a GPU server. The cache is built deterministically from the eval JSONL +
+DSL corpus rows; if we re-train or extend the lexicon, regenerating is a
+one-line `bun scripts/build-ai-cache.ts`.
 
 **Path 2 — live LoRA inference.** A minimal FastAPI wrapper at
 `src/serve/serve_lora.py` loads the v2 adapter through Unsloth FastModel
@@ -328,8 +331,9 @@ bun scripts/web-self-harness.ts
 - **Hugging Face Hub adapter**: `gemma-architect/cad-lora-v2` (LoRA on
   `gemma-3-4b-it-unsloth-bnb-4bit`). Apache-2.0. Model card with eval
   numbers + intended-use + limitations.
-- **Hosted live demo**: HuggingFace Spaces / Vercel — link in the repo
-  README.
+- **Hosted live demo**: GitHub Pages — https://wordingone.github.io/gemma-architect/
+  (single-thread WASM fallback because GH Pages can't serve COOP+COEP; the
+  multi-thread path lights up on any host that can — Spaces, Vercel, etc.).
 - **3-min demo video**: linked from `submission/demo-script.md`.
 
 ---
@@ -375,7 +379,7 @@ format accessible from a free webpage typed into in plain English."
 
 - **Repo**: https://github.com/wordingone/gemma-architect
 - **LoRA adapter**: https://huggingface.co/gemma-architect/cad-lora-v2
-- **Live demo**: (Spaces URL — to be filled at submission time)
+- **Live demo**: https://wordingone.github.io/gemma-architect/
 - **Demo video**: (YouTube URL — to be filled at submission time)
 - **Reproduction guide**: `submission/repro.md`
 - **Impact statement**: `submission/impact.md`
