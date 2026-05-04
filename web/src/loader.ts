@@ -234,6 +234,7 @@ export async function buildIfcMesh(
       guid: hier?.guid ?? "",
       storeyName: hier?.storeyName ?? "",
       storeyElevation: hier?.storeyElevation ?? 0,
+      layer: hier?.ifcClass ?? "",
     };
     root.add(mesh);
   }

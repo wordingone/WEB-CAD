@@ -191,6 +191,7 @@ function buildInspectTab(): HTMLElement {
       <div class="prop-row"><span class="k">Type</span><span class="v" data-field="type">—</span></div>
       <div class="prop-row"><span class="k">GUID</span><span class="v" data-field="guid">—</span></div>
       <div class="prop-row"><span class="k">Storey</span><span class="v" data-field="storey">—</span></div>
+      <div class="prop-row"><span class="k">Layer</span><span class="v" data-field="layer">—</span></div>
     </div>
     <div class="prop-section">
       <div class="prop-section-title">TRANSFORM</div>
@@ -233,6 +234,7 @@ function buildInspectTab(): HTMLElement {
       ifcClass?: string;
       guid?: string;
       storeyName?: string;
+      layer?: string;
     };
     if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
     if (subtitle) subtitle.textContent = ud.ifcClass || sel.topology;
@@ -244,6 +246,8 @@ function buildInspectTab(): HTMLElement {
     if (guidEl) guidEl.textContent = ud.guid || (sel.uuid.slice(0, 16) + "…");
     const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');
     if (storeyEl) storeyEl.textContent = ud.storeyName || "—";
+    const layerEl = wrap.querySelector<HTMLElement>('[data-field="layer"]');
+    if (layerEl) layerEl.textContent = ud.layer || ud.ifcClass || "default";
     // Position: prefer bounding-box center for IFC (vertices are world-space
     // baked, so getWorldPosition returns 0,0,0). For non-IFC objects with a
     // real local origin, the center of the bbox still reads sensibly.
