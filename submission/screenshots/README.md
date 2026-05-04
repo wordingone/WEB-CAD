@@ -116,19 +116,21 @@ Then `pngquant grid.png --quality=70-85` to fit Kaggle's upload size.
 ## Status — captured 2026-05-04 from https://wordingone.github.io/gemma-architect/
 
 Nine screenshots captured via Playwright at 1920×1080 from the live
-deployed page (commit 9c7c0be). Filenames reflect actual content:
+deployed page. Filenames reflect actual content:
 
-| File | What it shows |
-|------|--------------|
-| `01-prompt-wall.png` | PROMPT tab + wall loaded, ready to generate |
-| `02-wall-rendered.png` | Wall (12 tri) rendered in solid mode |
-| `03-console-cache.png` | CONSOLE tab — init sequence, DSL ready |
-| `04-schultz-solid.png` | Schultz Residence 14-element hero, solid shading |
-| `05-schultz-drafting.png` | Same, `D` key toggled to drafting / flat-white mode |
-| `06-export-drawer.png` | EXPORT drawer: IFC/STEP/OBJ/STL/SVG/DXF tiles visible |
-| `07-cmdk-palette.png` | ⌘K palette open, full command list (GENERATE/MODEL/VIEW) |
-| `08-cmdk-schultz.png` | ⌘K with "Schultz" typed — filtered to single result |
-| `09-parameters-sliders.png` | PARAMETERS tab — wall sliders (5.5/0.2/2.8m) |
+| File | Commit | What it shows |
+|------|--------|--------------|
+| `01-prompt-wall.png` | 9c7c0be | PROMPT tab + wall loaded, ready to generate |
+| `02-wall-rendered.png` | 9c7c0be | Wall (12 tri) rendered in solid mode |
+| `03-console-cache.png` | 9c7c0be | CONSOLE tab — init sequence, DSL ready |
+| `04-schultz-solid.png` | 725b56a | Schultz 3/4 south view — doorway cut visible, solid shading |
+| `05-schultz-drafting.png` | 725b56a | Same angle, `D` toggle — drafting / flat-white + edge lines |
+| `06-export-drawer.png` | 9c7c0be | EXPORT drawer: IFC/STEP/OBJ/STL/SVG/DXF tiles visible |
+| `07-cmdk-palette.png` | 9c7c0be | ⌘K palette open, full command list (GENERATE/MODEL/VIEW) |
+| `08-cmdk-schultz.png` | 9c7c0be | ⌘K with "Schultz" typed — filtered to single result |
+| `09-parameters-sliders.png` | 9c7c0be | PARAMETERS tab — wall sliders (5.5/0.2/2.8m) |
+
+ai-cache.json: 60 rows as of a59a8a3 (column-square-3m row restored). Verified live.
 
 BlenderBIM column (`*-bim.png`) pending manual capture at submission time.
 Grid composite and pngquant step follow after all 9 BIM shots are ready.
