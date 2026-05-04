@@ -376,11 +376,11 @@ After `bun run web:preview`:
 | `lora_train_v2.py` (4b-it)        | 53 min   |
 | `inference_eval_v2.py`            | 5 min    |
 | `publish_v2.py` (with HF_TOKEN)   | 1 min    |
-| `bun run web:build`               | 5 s      |
+| `bun run web:build`               | 20 s     |
 | `bun scripts/build-ai-cache.ts`   | 5 s      |
 | `bun scripts/test-ai-match.ts`    | 2 s      |
 | `bun scripts/test-ifc-bounds.ts`  | 5 s      |
 | `bun scripts/verify-dsl-corpus.ts`| 5 s      |
-| `bun scripts/web-self-harness.ts` | 30 s     |
+| `bun scripts/web-self-harness.ts` | 1 s      |
 | Browser smoke test                | 2 min    |
 | **Total**                         | **~70 min** |
