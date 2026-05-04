@@ -15,12 +15,21 @@ JS construction sequence. Two paths back the textbox.
 - 1 row for the Schultz Residence (uses `gold` since the 4b-it pred has
   translate/cut bugs on the 14-element multi-fuse).
 
-Build the cache from the eval corpora:
+The cache itself (`web/public/ai-cache.json`, 60 rows) is checked into the
+repo and ships with the bundle — a fresh clone serves it directly with no
+rebuild step. To regenerate after corpus changes:
 
 ```
 bun scripts/build-ai-cache.ts
 # wrote web/public/ai-cache.json (60 rows)
 ```
+
+Note: the rebuild reads `outputs/cad-lora-v2-4b-it-eval.jsonl` and
+`outputs/cad-lora-v2-4b-it-schultz-eval.jsonl`, both produced by
+`src/train/inference_eval_v2.py` on the training machine. `outputs/` is
+gitignored (per top-level `.gitignore:14`) — those JSONLs are not in a
+fresh clone. To rebuild from scratch, follow `submission/repro.md` §3
+through `inference_eval_v2.py` first, then run the build script.
 
 The frontend's `web/src/ai-generate.ts` fetches `ai-cache.json` lazily on the
 first `generateGeometry()` call and does weighted-F1 fuzzy match (numeric/
