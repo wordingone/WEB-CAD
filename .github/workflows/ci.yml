@@ -19,6 +19,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Typecheck
         run: bun run typecheck
+      - name: Typecheck web
+        run: bun run web:typecheck
       - name: Unit tests
         run: bun test
 
