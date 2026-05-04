@@ -24,8 +24,9 @@ RTX 4090 + ~1h wall-clock is enough; the bulk of the time is LoRA training.
 git clone https://github.com/wordingone/gemma-architect
 cd gemma-architect
 bun install                       # installs replicad, three.js, web-ifc, vite, ...
-PYTHONUTF8=1 pip install -r src/train/requirements.txt   # if a requirements file is shipped
-# or, manual: pip install unsloth==<version-pinned-in-train-stats>
+# Python deps are only needed to retrain (steps 3-5). For the web app +
+# bundled cache + self-harness path (steps 6, 8, 9), bun install is enough.
+PYTHONUTF8=1 pip install unsloth   # version pin in outputs/.../train-stats.json
 ```
 
 ## 2. Build the dataset
@@ -212,7 +213,14 @@ description into replicad JS. Two paths back the textbox: a bundled
 60-row cache (default) and a live LoRA server (opt-in). See
 `docs/ai-pipeline.md` for the full architecture.
 
-### Build the bundled cache
+### Build the bundled cache (optional — ships pre-built)
+
+The cache `web/public/ai-cache.json` ships in the repo (60 rows). Rebuilding
+is only needed if you re-train (step 3) and re-run eval (step 4) — the
+build script reads the eval JSONL written by step 4. Without those outputs
+on disk, this command exits with `ENOENT: outputs/cad-lora-v2-4b-it-eval.jsonl`.
+A judge running the web app + self-harness path (steps 6, 8, 9) does **not**
+need to rebuild the cache — the shipped file is the demo path.
 
 ```bash
 bun scripts/build-ai-cache.ts
