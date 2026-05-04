@@ -215,9 +215,13 @@ To re-train the LoRA on a 4090, see [`submission/repro.md`](submission/repro.md)
 ## What ships with this submission
 
 - **GitHub repo** — this repo. Apache-2.0.
-- **Hugging Face Hub adapter** — `gemma-architect/cad-lora-v2` (LoRA on
-  `gemma-3-4b-it-unsloth-bnb-4bit`). Apache-2.0. Auto-generated model
-  card carries eval numbers + intended use + limitations.
+- **Hugging Face Hub adapter** — `gemma-architect/cad-lora-v2` is the
+  intended path (LoRA on `gemma-3-4b-it-unsloth-bnb-4bit`, Apache-2.0,
+  auto-generated model card with eval + intended-use + limitations).
+  Push is pending HF_TOKEN; until then `src/train/publish_v2.py` writes
+  `outputs/cad-lora-v2-publish-plan.json` on the training machine
+  (`outputs/` is gitignored). See `submission/README.md` outstanding
+  blockers and `dataset/v2-results.md` §Publish.
 - **Hosted live demo** — GitHub Pages: https://wordingone.github.io/gemma-architect/
   (single-thread WASM fallback because GH Pages can't serve COOP+COEP;
   multi-thread path lights up on any host that can — Spaces, Vercel,
