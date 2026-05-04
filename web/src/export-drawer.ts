@@ -4,6 +4,7 @@
 // IFC/GLB/OBJ/STL/STEP export pipelines keep working.
 
 import { iconSVG } from "./icons";
+import { isBonsaiAvailable, validateIFC, type BonsaiValidation } from "./bonsai-client";
 
 type Fmt = { ext: string; sub: string; fmt: string };
 
@@ -41,6 +42,10 @@ const SECTIONS: { num: string; title: string; items: Fmt[] }[] = [
 ];
 
 let drawerEl: HTMLDivElement | null = null;
+// #151 — cached at drawer-open time. Drives whether the
+// "Validate via Bonsai" affordance is visible. False if the server isn't
+// running; in that case the UI surface is hidden entirely (silent fallback).
+let bonsaiAvailable = false;
 
 function getMeshStats() {
   // Read from statusbar (already populated by viewer/scene-panel).
@@ -83,6 +88,17 @@ function build(): HTMLDivElement {
     }
     html += `</div></div>`;
   }
+  // #151 — optional Bonsai validation row. Only rendered when the local
+  // validation server was reachable at drawer-open time; hidden silently
+  // otherwise so users don't see a dead button.
+  if (bonsaiAvailable) {
+    html += `<div class="ed-bonsai-row">
+      <a href="#" class="ed-bonsai-link" id="ed-bonsai-validate">
+        Validate via Bonsai
+      </a>
+      <span class="ed-bonsai-hint">runs against local 127.0.0.1:8765</span>
+    </div>`;
+  }
   html += `</div>
     <div class="ed-footer">
       <span class="ed-foot-meta">round-trip verified · web-ifc 0.0.61</span>
@@ -115,6 +131,51 @@ function build(): HTMLDivElement {
     }
   });
 
+  // #151 — wire the Bonsai validate link if the row was rendered.
+  // Convention: `web/src/ifc.ts` is expected (separately) to publish the
+  // most-recent IFC buffer to `window.__lastIfcBuffer` on each export so
+  // downstream tools can re-use it without re-running web-ifc. If the field
+  // is absent we hint the user to export first; we do NOT toast or log.
+  const bonsaiLink = root.querySelector<HTMLAnchorElement>("#ed-bonsai-validate");
+  if (bonsaiLink) {
+    bonsaiLink.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const buf = (window as { __lastIfcBuffer?: Uint8Array }).__lastIfcBuffer;
+      if (!buf || !(buf instanceof Uint8Array) || buf.byteLength === 0) {
+        renderBonsaiModal({
+          ok: false,
+          headline: "No IFC buffer yet",
+          detail: "Click the IFC export button first, then re-run validation.",
+        });
+        return;
+      }
+      bonsaiLink.classList.add("disabled");
+      bonsaiLink.textContent = "Validating…";
+      try {
+        const result = await validateIFC(buf);
+        renderBonsaiModal({
+          ok: true,
+          headline: result.valid && result.errors.length === 0
+            ? "Bonsai: PASS"
+            : "Bonsai: FAIL",
+          result,
+        });
+      } catch (err) {
+        // Server vanished between availability check and validate call.
+        // Render a soft notice; no console.error per #151 hard constraint.
+        const msg = err instanceof Error ? err.message : "validation failed";
+        renderBonsaiModal({
+          ok: false,
+          headline: "Bonsai unreachable",
+          detail: msg,
+        });
+      } finally {
+        bonsaiLink.classList.remove("disabled");
+        bonsaiLink.textContent = "Validate via Bonsai";
+      }
+    });
+  }
+
   // DOWNLOAD ALL — for now just a stub.
   root.querySelector("#ed-download-all")?.addEventListener("click", () => {
     const enabled = SECTIONS.flatMap((s) => s.items).filter((it) => {
@@ -127,11 +188,14 @@ function build(): HTMLDivElement {
   return root;
 }
 
-function open() {
+async function open() {
   if (drawerEl) {
     // Refresh meta + format-disabled state
     drawerEl.remove();
   }
+  // #151 — probe Bonsai server before rendering. Probe is bounded at 1s by
+  // bonsai-client.ts; if the server is down the link row simply won't render.
+  bonsaiAvailable = await isBonsaiAvailable();
   drawerEl = build();
   document.body.appendChild(drawerEl);
   // Trigger CSS transition by adding .open after insertion.
@@ -145,6 +209,71 @@ function open() {
     }
   };
   window.addEventListener("keydown", onKey);
+}
+
+// #151 — minimal results modal for Bonsai validation. Renders into the
+// same drawer so we don't add a global modal stack. Click outside or X to
+// dismiss. Pure DOM, no external deps.
+type ModalState =
+  | { ok: true; headline: string; result: BonsaiValidation }
+  | { ok: false; headline: string; detail: string };
+
+function renderBonsaiModal(state: ModalState): void {
+  if (!drawerEl) return;
+  // Drop any prior modal first.
+  drawerEl.querySelector(".ed-bonsai-modal")?.remove();
+
+  const modal = document.createElement("div");
+  modal.className = "ed-bonsai-modal";
+
+  let body = "";
+  if (state.ok) {
+    const { errors, warnings } = state.result;
+    body += `<div class="ed-bonsai-counts">
+      <span>errors: ${errors.length}</span>
+      <span>warnings: ${warnings.length}</span>
+    </div>`;
+    if (errors.length > 0) {
+      body += `<div class="ed-bonsai-list ed-bonsai-errors"><h4>Errors</h4><ul>`;
+      for (const e of errors) {
+        body += `<li>${escapeHtml(e)}</li>`;
+      }
+      body += `</ul></div>`;
+    }
+    if (warnings.length > 0) {
+      body += `<div class="ed-bonsai-list ed-bonsai-warnings"><h4>Warnings</h4><ul>`;
+      for (const w of warnings) {
+        body += `<li>${escapeHtml(w)}</li>`;
+      }
+      body += `</ul></div>`;
+    }
+    if (errors.length === 0 && warnings.length === 0) {
+      body += `<div class="ed-bonsai-empty">Clean. No issues reported.</div>`;
+    }
+  } else {
+    body += `<div class="ed-bonsai-empty">${escapeHtml(state.detail)}</div>`;
+  }
+
+  modal.innerHTML = `
+    <div class="ed-bonsai-modal-inner">
+      <div class="ed-bonsai-modal-header">
+        <span class="ed-bonsai-modal-title">${escapeHtml(state.headline)}</span>
+        <button class="ed-bonsai-modal-close" type="button" title="Close">${iconSVG("x", 11)}</button>
+      </div>
+      <div class="ed-bonsai-modal-body">${body}</div>
+    </div>
+  `;
+  modal.querySelector(".ed-bonsai-modal-close")?.addEventListener("click", () => modal.remove());
+  drawerEl.appendChild(modal);
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function close() {
@@ -163,10 +292,10 @@ export function initExportDrawer() {
   if (exportBtn) {
     exportBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      open();
+      void open();
     });
   }
 }
 
-export function openExportDrawer() { open(); }
+export function openExportDrawer() { void open(); }
 export function closeExportDrawer() { close(); }
