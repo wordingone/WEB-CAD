@@ -1,8 +1,10 @@
 # Bonsai IFC Validation — Runbook
 
-Issue: #151. Status: scaffold; the Python server below is a starting point,
-not a shipped binary. The gemma-architect side (web client + CLI) is wired
-to call the server when present and degrade silently when it is not.
+Issue: #151 closed. The gemma-architect side (web client + CLI) ships and
+is wired to call the server when present, degrading silently when it is
+not. The Python validation server is intentionally user-deployed — we
+provide a sample below rather than bundling a binary, because the path
+requires a local Blender + Bonsai install.
 
 ## What this gives you
 
