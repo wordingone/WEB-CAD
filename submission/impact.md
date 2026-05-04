@@ -129,15 +129,19 @@ The submission is not a research artifact; it's a deployable web app.
   the canned demos don't (revolves, gables, T-junctions, octagonal
   columns). Run via `bun scripts/web-self-harness.ts`.
 - **Bundle size** (verified 2026-05-04 against the deployed
-  `wordingone.github.io/gemma-architect/` build): a 4.24 MB main JS
-  chunk (gzip 0.58 MB) + a 3.84 MB worker chunk + replicad's 10.8 MB
-  OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB WASM (gzip 0.48 MB)
-  + a 61 kB CSS chunk (gzip 12 kB). Total wire size on a cold load is
-  dominated by the OpenCascade WASM; both WASMs and the JS chunks gzip
-  well, so an empty-cache load is reasonable on a mid-tier consumer link.
-  COOP+COEP headers are required for the multi-threaded WASM path
-  (SharedArrayBuffer prerequisite); GitHub Pages cannot serve those, so
-  the live page falls back to single-thread WASM gracefully.
+  `wordingone.github.io/gemma-architect/` build via `curl -sI`): an
+  8.22 MB main JS chunk (gzip 0.72 MB) + a 3.88 MB worker chunk +
+  replicad's 10.8 MB OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB
+  WASM (gzip 0.48 MB) + a 61 kB CSS chunk (gzip 12 kB). Lazy-loaded for
+  PDF export (drawer-on-demand, not first-paint): jspdf 823 kB / gzip
+  154 kB, html2canvas 200 kB / gzip 47 kB, dompurify 22 kB / gzip 9 kB.
+  Total cold-load wire size on first paint is still dominated by the
+  OpenCascade WASM (~5.8 MB gzip total first-paint, of which 4.58 MB is
+  OpenCascade); both WASMs gzip well, so an empty-cache load is
+  reasonable on a mid-tier consumer link. COOP+COEP headers are required
+  for the multi-threaded WASM path (SharedArrayBuffer prerequisite);
+  GitHub Pages cannot serve those, so the live page falls back to
+  single-thread WASM gracefully.
 - **Live page latencies** (verified 2026-05-04 against the deployed URL,
   single-thread WASM, no COOP+COEP): cache hit ~7 ms; wall full
   prompt→geometry cycle ~21 ms; 14-element Schultz Residence

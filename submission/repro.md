@@ -179,13 +179,18 @@ bun run web:dev
 
 ```bash
 bun run web:build
-# Output: web/dist/  (sizes verified 2026-05-03 against master HEAD d14c6ea, build 6.02s)
-#   index.html                          8.71 kB / gzip    2.60 kB
-#   assets/worker-*.js              3,844.81 kB
+# Output: web/dist/  (sizes verified 2026-05-04, build ~20s)
+#   index.html                         12.23 kB / gzip    2.93 kB
+#   assets/worker-*.js              3,881.81 kB
 #   assets/web-ifc-*.wasm           1,303.94 kB / gzip  483.17 kB
 #   assets/replicad_single-*.wasm  10,800.30 kB / gzip 4,575.06 kB
-#   assets/index-*.css                 61.30 kB / gzip   11.61 kB
-#   assets/index-*.js               4,252.76 kB / gzip  582.53 kB
+#   assets/index-*.css                 61.43 kB / gzip   11.63 kB
+#   assets/index-*.js               8,216.30 kB / gzip  705.47 kB
+# Lazy chunks (loaded on demand for PDF export drawer):
+#   assets/jspdf.es.min-*.js          823.23 kB / gzip  153.77 kB
+#   assets/html2canvas-*.js           199.56 kB / gzip   46.78 kB
+#   assets/index.es-*.js              151.41 kB / gzip   48.88 kB
+#   assets/purify.es-*.js              22.44 kB / gzip    8.81 kB
 ```
 
 The CSS chunk grew from 3 kB → 61 kB after the bundle design-system port

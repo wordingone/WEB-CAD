@@ -192,9 +192,11 @@ because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 - **replicad 0.20.0** + **replicad-opencascadejs 0.20.0** for the geometry kernel
 - **web-ifc 0.0.77** for IFC4 STEP-21 round-trip verification
 - **three.js 0.162.0** + OrbitControls for the viewer (Z-up to match replicad)
-- Bundle (verified 2026-05-03 against `bun run web:build`): main JS 4.24 MB
-  / gzip 0.58 MB · worker 3.84 MB · replicad OpenCascade WASM 10.8 MB / gzip
-  4.58 MB · web-ifc WASM 1.3 MB / gzip 0.48 MB · CSS 61 kB / gzip 12 kB.
+- Bundle (verified 2026-05-04 against `bun run web:build` + the deployed
+  GH Pages build via curl): main JS 8.22 MB / gzip 0.72 MB · worker 3.88 MB
+  · replicad OpenCascade WASM 10.8 MB / gzip 4.58 MB · web-ifc WASM 1.3 MB
+  / gzip 0.48 MB · CSS 61 kB / gzip 12 kB. Lazy-loaded chunks for PDF export
+  (jspdf, html2canvas, dompurify) total ~1.2 MB / gzip 0.26 MB on demand.
 
 ### AI prompt → geometry pipeline
 
