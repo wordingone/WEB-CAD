@@ -87,7 +87,7 @@ Expected `train-stats.json`:
 Numbers may differ in the 5th decimal place across runs (cuDNN
 non-determinism); the loss should be in the 0.20–0.27 band.
 
-### E2B variant (deferred in the hackathon submission)
+### E2B-LoRA variant (deferred in the hackathon submission)
 
 ```bash
 GEMMA_V2_MODEL=E2B PYTHONUTF8=1 python src/train/lora_train_v2.py
@@ -96,6 +96,14 @@ GEMMA_V2_MODEL=E2B PYTHONUTF8=1 python src/train/lora_train_v2.py
 This trains `unsloth/gemma-3n-E2B-it` (the 2B-effective Gemma 4 variant) with
 the same hyperparameters. Adds ~35 min. Compare eval scores and pick the
 better one for browser deployment if VRAM permits both at runtime.
+
+**Note on naming.** "E2B" in this section refers to the *LoRA-on-Gemma-3n-E2B
+training variant* — NOT the image→IFC agent (the one demo-script.md and
+writeup.md sometimes call the "E2B agent"). The image→IFC path (#182) shipped
+in v1 using Gemma 4 multimodal native function-calling against the same
+dispatch table the typed-prompt path uses; it does NOT depend on this
+LoRA-on-E2B variant. Deferring the E2B-LoRA training does not affect the
+image-input mode in the deployed page.
 
 ## 4. Eval
 
