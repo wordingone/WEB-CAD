@@ -52,9 +52,10 @@ window:
 
 1. **On-device inference path.** Gemma 4 E2B (and 4b-it as a 4B-parameter
    ceiling) fit inside the WebGPU memory window of a mid-tier laptop GPU.
-   No server roundtrip, no per-query API cost, no rate limit. The deployment
-   plan is a single static page on HuggingFace Spaces or Vercel — free tier
-   forever.
+   No server roundtrip, no per-query API cost, no rate limit. The
+   submission ships as a single static page on GitHub Pages today;
+   HuggingFace Spaces and Vercel are drop-in upgrades that light up
+   COOP+COEP multi-thread WASM. Free tier forever in any of the three.
 2. **Strong base instruction-following on small data.** A LoRA on top of
    Gemma-3-4b-it converges to **40/40 round-trip pass on a held-out 40-row
    eval set** with **only 932 augmented training pairs** (3 epochs, ~53 min
@@ -82,9 +83,11 @@ equity-track value prop.
 The submission is not a research artifact; it's a deployable web app.
 
 **Phase 1 (today, hackathon submission)**
-- Static page at HuggingFace Spaces, free tier.
+- Static page at GitHub Pages (https://wordingone.github.io/gemma-architect/),
+  free tier; HF Spaces / Vercel are COOP+COEP-capable upgrade paths.
 - Repo at github.com/wordingone/gemma-architect, Apache-2.0.
-- LoRA adapter at HuggingFace Hub: `gemma-architect/cad-lora-v2`.
+- LoRA adapter intended for HuggingFace Hub at `gemma-architect/cad-lora-v2`;
+  push pending HF_TOKEN per `submission/README.md` outstanding blockers.
 - Vocabulary: Tier 1, 12 ops covering walls, slabs, columns, footings,
   basic openings (cut), L-shape and U-shape footprints. ~85% of the
   building primitives a small-shop architect produces in a typical
