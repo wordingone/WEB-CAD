@@ -66,6 +66,38 @@ below): cache-first for sub-100ms response on prompts close to the eval
 corpus, optional live LoRA inference when the user wants the actual
 model in the loop.
 
+### Beyond prompt-to-geometry: three other input paths
+
+A non-CAD user has more than one way to start a building. The same
+worker → kernel → IFC pipeline accepts three other entry points:
+
+- **Drag a hand-sketched floorplan PNG into the canvas.** A 2D→3D
+  reconstruction agent runs Sobel edge detection + a Hough-lite
+  pixel-run scanner, finds horizontal and vertical wall segments at a
+  default 100 px/m scale, extrudes them at 2.8m, and emits IFC4. A
+  pencil sketch becomes a loadable BIM file in one drop. Zero deps —
+  Sobel and the Hough loop both ship as in-line OffscreenCanvas code.
+- **Reconstruct via Agent (image → IFC) for a JPG of a real
+  floorplan.** Gemma 4 multimodal native — no LoRA on this branch.
+  The image content block is attached directly to a function-calling
+  request; the model emits dispatch calls (`makeWall`, `makeSlab`,
+  `cut`, ...) routed through the same dispatch table the human user
+  types into. One model, two surface types, the multimodal
+  differentiator that justifies "why Gemma 4 specifically."
+- **Type DSL into the CONSOLE tab.** A copyright-safe Rhino-style
+  lexicon (~70 verbs hand-curated against IFC4 entity classes,
+  documented at `web/src/spatial-dictionary.LICENSE.md`) backs the
+  CONSOLE input: `wall(0, 0, 5.5, 0.2, 2.8); slab(0, 0, 5, 6, 0.2);
+  column(2, 3, 0.4, 3); cut(slab, door)`. Direct geometric control
+  for the architect who already speaks CAD.
+
+The implication: gemma-architect treats Gemma 4 not as a single
+prompt-completion endpoint but as a **routing function** over a
+dispatch table that's also exposed to human keystrokes, drag-drop, and
+clicks. Judges who score on tech depth will find this in
+`web/src/dispatch.ts` (single source of truth for ~30 canonical
+operations across human + agent input).
+
 ---
 
 ## Technical approach
