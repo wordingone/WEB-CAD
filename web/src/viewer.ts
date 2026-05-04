@@ -104,6 +104,9 @@ export class Viewer {
   // Selection raycaster + helper graphs. Built lazily from setMesh / setObject.
   private raycaster: THREE.Raycaster;
   private helpers: SelectionHelper[] = [];
+  // All scene meshes — populated by setMesh/setObject/addMesh regardless of
+  // HELPER_BUDGET, so the raycaster can hit every IFC element.
+  private sceneMeshes: THREE.Mesh[] = [];
   private selectionOutline: THREE.LineSegments | null = null;
   private selectionVertexMarker: THREE.Points | null = null;
 
@@ -256,14 +259,25 @@ export class Viewer {
       }
     }
 
-    // 3) Face / mesh / brep / compound — raycast against the owning meshes.
-    const meshes = this.helpers.map((h) => h.owner);
-    if (meshes.length === 0) return null;
-    const hits = this.raycaster.intersectObjects(meshes, false);
+    // 3) Face / mesh / brep / compound — raycast against ALL scene meshes.
+    // sceneMeshes includes every mesh regardless of HELPER_BUDGET so large IFC
+    // imports (847 meshes in Schultz) remain fully clickable.
+    if (this.sceneMeshes.length === 0) return null;
+    const hits = this.raycaster.intersectObjects(this.sceneMeshes, false);
     if (hits.length === 0) return null;
     const hit = hits[0];
     const helper = this.helpers.find((h) => h.owner === hit.object);
-    if (!helper) return null;
+    // Mesh beyond HELPER_BUDGET — no vertex/edge helpers, but still selectable.
+    if (!helper) {
+      const mesh = hit.object as THREE.Mesh;
+      if (!topologyAllowed("mesh")) return null;
+      return {
+        topology: "mesh",
+        uuid: mesh.uuid,
+        object: mesh,
+        transformTarget: mesh,
+      };
+    }
     const owner = helper.owner;
 
     // Drilldown: ctrl+shift on a brep/compound returns the face sub-object.
@@ -475,6 +489,7 @@ export class Viewer {
       }
     }
     this.helpers = [];
+    this.sceneMeshes = [];
     if (this.selectionOutline) {
       this.scene.remove(this.selectionOutline);
       this.selectionOutline.geometry.dispose();
@@ -671,6 +686,7 @@ export class Viewer {
     m.userData.kind = "brep"; // worker output is replicad/OCC → brep
     this.scene.add(m);
     this.currentMesh = m;
+    this.sceneMeshes.push(m);
 
     // Edge overlay for CAD readability.
     const edges = new THREE.EdgesGeometry(geometry, 25);
@@ -709,11 +725,14 @@ export class Viewer {
     const dz = bounds.max[2] - bounds.min[2];
     const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
     let helperCount = 0;
-    const HELPER_BUDGET = 50; // cap to avoid 1000-mesh IFC files exploding
+    const HELPER_BUDGET = 50; // cap vertex/edge helper cost on large IFC files
     object.traverse((child) => {
-      if (helperCount >= HELPER_BUDGET) return;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
+      // ALL meshes go into sceneMeshes so every element is raycast-pickable.
+      this.sceneMeshes.push(mesh);
+      // Only build the expensive vertex/edge helper graph for the first N meshes.
+      if (helperCount >= HELPER_BUDGET) return;
       const k: "brep" | "compound" | "mesh" =
         (mesh.userData?.kind as any) || "mesh";
       try {
@@ -754,6 +773,7 @@ export class Viewer {
     const dy = b.max[1] - b.min[1];
     const dz = b.max[2] - b.min[2];
     const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
+    this.sceneMeshes.push(mesh);
     const helper = this.buildHelpersForMesh(mesh, kind, diag);
     this.helpers.push(helper);
   }
