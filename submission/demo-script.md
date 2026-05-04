@@ -172,3 +172,41 @@ In 3 minutes, they should have seen:
 
 Keep the writeup, the impact statement, and this script aligned. If a
 demo path changes after the recording, update the script, not the page.
+
+---
+
+## Bonus capabilities the 3-minute script can't fit
+
+The 3-min cut focuses on the core narrative (sentence → building → IFC).
+Judges who want depth can also exercise these surfaces in the live page:
+
+- **Drag a hand-sketched floorplan PNG into the canvas.** The 2D→3D
+  reconstruction agent (#168) finds walls via Sobel + Hough, extrudes
+  them at default 2.8m, emits IFC4 — turns a pencil sketch into a
+  loadable BIM file in one drop. Differentiator: judges of equity see
+  the path from "person who can sketch a plan" to "BIM asset."
+- **"Reconstruct via Agent…" with a JPG of a real floorplan.** The
+  image→IFC E2B agent (#182) drives Gemma 4 multimodal natively —
+  no LoRA on the multimodal branch, native function-calling routes
+  to the same dispatch table the user types into. One model, two
+  surface types.
+- **Ctrl-click N elements after Schultz loads.** Multi-select INSPECT
+  shows N elements selected, IFC class breakdown, union BOUNDS
+  rotation. Standard architect workflow surface (Rhino-style).
+- **Quad-split viewport (`split` icon in ribbon).** Top / Front / Right
+  / Perspective panes update live as the model emits geometry.
+  Per-pane camera dropdown switches any pane to top/bottom/iso/etc.
+  This is the working-architect's daily layout, not a demo affordance.
+- **EXPORT drawer → "Validate via Bonsai" (when server is running).**
+  A local Bonsai/Blender server (127.0.0.1:8765) validates the IFC4
+  the page emits against the buildingSMART schema. Graceful silent
+  fallback when offline — bundle still works without it.
+- **REC button (menubar-right).** Records the viewport via
+  getDisplayMedia. Combined with the `replicate-from-video` skill,
+  judges can record their workflow once and watch the agent mimic
+  it on a similar prompt — the long-context multimodal native loop
+  Gemma 4 is built for.
+
+These five surfaces together are the **"why Gemma 4 specifically"**
+answer judges look for. The core 3-min cut tells the impact story;
+this list is the tech-track receipt.
