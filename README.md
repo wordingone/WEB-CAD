@@ -52,7 +52,7 @@ without round-tripping through the model.
 
 ## For judges (60 seconds)
 
-1. Open the [hosted demo](#) (URL filled at submission).
+1. Open the [hosted demo](https://wordingone.github.io/gemma-architect/).
 2. Press `Cmd-K` (or `Ctrl-K`). Type `schultz`. Press Enter.
 3. Watch a 14-element residence emerge in <5 seconds, fully
    IFC4-exportable. Click **Export → IFC4** to download a file that
@@ -117,7 +117,7 @@ Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md)
 - [`submission/impact.md`](submission/impact.md) — equity story, who benefits, adoption path.
 - [`submission/repro.md`](submission/repro.md) — step-by-step reproduction.
 - [`submission/demo-script.md`](submission/demo-script.md) — 3-min demo video voiceover + cuts.
-- [`submission/screenshots/`](submission/screenshots/) — screenshot grid for the Kaggle post (placeholders pending day-of-shoot capture).
+- [`submission/screenshots/`](submission/screenshots/) — 9-cell visual sweep from the live deployed page (PROMPT/wall/console/Schultz solid + drafting/EXPORT/Cmd-K/PARAMETERS).
 
 ---
 
@@ -135,8 +135,10 @@ Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md)
 - **Viewer:** three.js 0.162.0 (MIT) + OrbitControls.
 - **Build:** Vite 8 + TypeScript 5.3 + vite-plugin-wasm + vite-plugin-top-level-await.
 - **Runtime:** ES-module web worker for the geometry kernel; main thread
-  never blocks. COOP+COEP headers configured for SharedArrayBuffer
-  (deployed Vercel build); GitHub Pages mirror falls back to single-thread WASM.
+  never blocks. The deployed build is GitHub Pages, which can't serve
+  COOP+COEP, so it falls back to single-thread WASM gracefully. The
+  multi-thread SharedArrayBuffer path lights up automatically on any
+  host that can serve those headers (Vercel, Spaces, self-hosted nginx).
 
 License chain (Apache-2.0 / MIT / MPL-2.0 / LGPL-2.1-with-linking-exception)
 is fully compatible with commercial deployment. MPL-2.0 on web-ifc is
@@ -216,8 +218,10 @@ To re-train the LoRA on a 4090, see [`submission/repro.md`](submission/repro.md)
 - **Hugging Face Hub adapter** — `gemma-architect/cad-lora-v2` (LoRA on
   `gemma-3-4b-it-unsloth-bnb-4bit`). Apache-2.0. Auto-generated model
   card carries eval numbers + intended use + limitations.
-- **Hosted live demo** — HuggingFace Spaces (Vite static build, COOP+COEP
-  headers configured). URL filled in at submission time.
+- **Hosted live demo** — GitHub Pages: https://wordingone.github.io/gemma-architect/
+  (single-thread WASM fallback because GH Pages can't serve COOP+COEP;
+  multi-thread path lights up on any host that can — Spaces, Vercel,
+  self-hosted nginx).
 - **3-min demo video** — script in [`submission/demo-script.md`](submission/demo-script.md);
   video URL filled in at submission time.
 
