@@ -10,6 +10,8 @@
 //
 // Exits 0 on full pass, 1 on any assertion failure. Prints a summary table.
 
+export {};
+
 const argv = process.argv.slice(2);
 const flagIdx = argv.indexOf("--url");
 const url =
