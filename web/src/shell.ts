@@ -17,6 +17,12 @@ import { openExportDrawer } from "./export-drawer";
 import { openCmdK } from "./cmdk";
 import { getCreateSequence } from "./create-mode";
 import {
+  startRecording,
+  stopRecording,
+  isRecording,
+  subscribeRecordingState,
+} from "./video-recorder";
+import {
   getState,
   setState,
   subscribe,
@@ -536,6 +542,7 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
   const rightEl = document.createElement("div");
   rightEl.className = "ribbon-right";
   rightEl.innerHTML = `
+    <button class="btn" type="button" id="rec-toggle-btn" title="Record viewport (for agent replicate)">◯ REC</button>
     <button class="btn btn-ghost" type="button" id="ribbon-palette-btn" title="Open command palette (Ctrl+K)">
       ${iconSVG("command", 11)} ⌘K
     </button>
@@ -544,6 +551,28 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void)
     </button>
   `;
   ribbonHost.appendChild(rightEl);
+
+  const recBtn = rightEl.querySelector("#rec-toggle-btn") as HTMLButtonElement | null;
+  function syncRecLabel(active: boolean): void {
+    if (!recBtn) return;
+    recBtn.innerHTML = active ? `<span style="color:#e44">●</span> REC` : `◯ REC`;
+  }
+  recBtn?.addEventListener("click", () => {
+    if (isRecording()) {
+      stopRecording();
+    } else {
+      void startRecording().catch((err) => {
+        // Permission denial / unsupported browser — log and resync label so
+        // the button reflects the actual recorder state.
+        console.warn("[video-recorder] startRecording failed:", err);
+        syncRecLabel(false);
+      });
+    }
+  });
+  // Subscribe AFTER click handler is attached so the initial-fire syncs the
+  // label from the recorder's true state. Stored unsubscriber is intentionally
+  // unused — the recorder is module-scoped and lives for the page's lifetime.
+  subscribeRecordingState(syncRecLabel);
 
   rightEl.querySelector("#ribbon-palette-btn")?.addEventListener("click", () => openCmdK());
   rightEl.querySelector("#ribbon-export-btn")?.addEventListener("click", () => openExportDrawer());
