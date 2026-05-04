@@ -459,6 +459,19 @@ function wireFpsCounter() {
   requestAnimationFrame(tick);
 }
 
+export function saveProjectJson(): void {
+  const payload = { version: 1 };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "project.gemma.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onSplitMode?: (mode: "single" | "quad") => void }) {
   const menubar = document.querySelector(".menubar") as HTMLElement | null;
   const modebar = document.querySelector(".modebar") as HTMLElement | null;
