@@ -153,8 +153,9 @@ To re-train the LoRA on a 4090, see [`submission/repro.md`](submission/repro.md)
 - **Hugging Face Hub adapter** — `gemma-architect/cad-lora-v2` (LoRA on
   `gemma-3-4b-it-unsloth-bnb-4bit`). Apache-2.0. Auto-generated model
   card carries eval numbers + intended use + limitations.
-- **Hosted live demo** — HuggingFace Spaces (Vite static build, COOP+COEP
-  headers configured). URL filled in at submission time.
+- **Hosted live demo** — https://wordingone.github.io/gemma-architect/
+  (GitHub Pages; Vite static build, COOP+COEP headers via HF Space at
+  submission time for SharedArrayBuffer support).
 - **3-min demo video** — script in [`submission/demo-script.md`](submission/demo-script.md);
   video URL filled in at submission time.
 

@@ -269,7 +269,7 @@ format accessible from a free webpage typed into in plain English."
 
 - **Repo**: https://github.com/wordingone/gemma-architect
 - **LoRA adapter**: https://huggingface.co/gemma-architect/cad-lora-v2
-- **Live demo**: (Spaces URL — to be filled at submission time)
+- **Live demo**: https://wordingone.github.io/gemma-architect/
 - **Demo video**: (YouTube URL — to be filled at submission time)
 - **Reproduction guide**: `submission/repro.md`
 - **Impact statement**: `submission/impact.md`
