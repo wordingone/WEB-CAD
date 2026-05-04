@@ -24,8 +24,8 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run web:build
-      - name: Copy ai-cache into dist
-        run: cp web/dist/ai-cache.json web/dist/ 2>/dev/null || true
+      - name: Verify ai-cache in dist
+        run: ls web/dist/ai-cache.json && wc -l web/dist/ai-cache.json
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
