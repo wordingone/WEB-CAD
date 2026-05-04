@@ -144,9 +144,15 @@ The submission is not a research artifact; it's a deployable web app.
   multi-fuse+cuts ~210 ms. ai-cache.json CDN first fetch ~116 ms, warm
   ~1 ms. These are the numbers a non-CAD user actually sees on a
   consumer GH Pages link with no header tricks.
-- **License chain**: Apache-2.0 on the LoRA + repo, MIT on replicad, LGPL-2.1
-  with linking exception on replicad-opencascadejs, Apache-2.0 on web-ifc.
-  Commercial deployment unblocked.
+- **License chain** (verified against `node_modules/*/LICENSE` files at
+  the deployed bundle's pinned versions): Apache-2.0 on the repo + LoRA
+  adapter, MIT on replicad 0.20.0, MIT on the replicad-opencascadejs
+  0.20.2 wrapper (the bundled OpenCascade WASM it ships is separately
+  LGPL-2.1 with linking exception), MPL-2.0 on web-ifc 0.0.77, MIT on
+  three.js 0.162.0. All five are compatible with commercial deployment;
+  MPL-2.0 is weakly copyleft per file (modifications to web-ifc files
+  redistributed must stay MPL, but our app code that *uses* web-ifc has
+  no copyleft obligation).
 
 ## What this is not
 
