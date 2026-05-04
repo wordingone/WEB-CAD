@@ -55,7 +55,7 @@ title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 > "Pick a demo from the prompt panel. Read the sentence the model
 > already wrote — _a wall, five and a half meters long, twenty
 > centimeters thick, two meters eighty tall_. Click GENERATE. Gemma 4,
-> four billion parameters, fine-tuned on nine hundred building
+> four billion parameters, fine-tuned on less than a thousand building
 > examples, emits replicad source. A worker executes it.
 > OpenCascade meshes it. three.js renders. **No server.** All in this tab."
 
