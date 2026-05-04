@@ -46,7 +46,9 @@ in the center.
    the PARAMETERS tab. Each change debounces 90ms and re-runs the
    worker — geometry updates live, no model re-inference needed.
 5. They click **EXPORT** (or hit `⌘E`). A drawer slides in offering
-   12 formats (IFC4, STL, OBJ, GLB, STEP, IGES, ...). They pick
+   12 tiles in 3 sections — BIM·ARCHITECTURAL (IFC4, STEP, DWG),
+   3D·MESH (OBJ, STL, GLB, glTF, USDZ, FBX), 2D·DRAWING (SVG, DXF,
+   PDF). DWG and FBX are visible-but-not-yet-implemented. They pick
    IFC4. The page hand-emits an IFC4 STEP-21 file (wrapping the mesh
    in `IfcBuildingElementProxy` → `IfcFacetedBrep` → `IfcClosedShell`),
    round-trips the bytes through web-ifc.OpenModel to verify the file
@@ -189,7 +191,7 @@ because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 - **Vite 8.0.10** + **TypeScript 5.3** + **vite-plugin-wasm** + **vite-plugin-top-level-await**
 - COOP+COEP headers in dev + preview servers (SharedArrayBuffer prerequisite for both WASMs)
 - ES-module worker hosting the geometry kernel — main thread never blocks
-- **replicad 0.20.0** + **replicad-opencascadejs 0.20.0** for the geometry kernel
+- **replicad 0.20.0** (`^0.20` pinned in `package.json`) + **replicad-opencascadejs 0.20.2** for the geometry kernel
 - **web-ifc 0.0.77** for IFC4 STEP-21 round-trip verification
 - **three.js 0.162.0** + OrbitControls for the viewer (Z-up to match replicad)
 - Bundle (verified 2026-05-04 against `bun run web:build` + the deployed
@@ -287,9 +289,11 @@ distinct per-part translations.
 
 - **On-device path.** Gemma 4 E2B (and the 4b-it baseline we shipped) fit
   inside the WebGPU memory budget of a mid-tier laptop GPU. There is no
-  paid API in the deployment, no server we have to host. The whole
-  submission is a static page on HuggingFace Spaces or Vercel — free tier
-  forever.
+  paid API in the deployment, no server we have to host. The submission
+  ships as a static page on GitHub Pages today (single-thread WASM
+  fallback because GH Pages can't serve COOP+COEP); HuggingFace Spaces
+  and Vercel are drop-in upgrades that light up the multi-thread
+  SharedArrayBuffer path. Free tier forever in any of the three.
 - **Strong base instruction-following on small data.** 100% round-trip on a
   held-out eval set with **only 932 augmented training pairs**. The base
   model already reads English; the LoRA only has to teach the 12-op
@@ -333,9 +337,12 @@ bun scripts/web-self-harness.ts
 - **GitHub repo**: `github.com/wordingone/gemma-architect` — Apache-2.0,
   full source, 18-day plan in `docs/plan-18-day.md`, training scripts in
   `src/train/`, web app in `web/`.
-- **Hugging Face Hub adapter**: `gemma-architect/cad-lora-v2` (LoRA on
-  `gemma-3-4b-it-unsloth-bnb-4bit`). Apache-2.0. Model card with eval
-  numbers + intended-use + limitations.
+- **Hugging Face Hub adapter**: `gemma-architect/cad-lora-v2` is the
+  intended path (LoRA on `gemma-3-4b-it-unsloth-bnb-4bit`, Apache-2.0,
+  model card with eval numbers + intended-use + limitations). Push is
+  pending HF_TOKEN; until then `src/train/publish_v2.py` writes
+  `outputs/cad-lora-v2-publish-plan.json` on the training machine
+  (`outputs/` is gitignored).
 - **Hosted live demo**: GitHub Pages — https://wordingone.github.io/gemma-architect/
   (single-thread WASM fallback because GH Pages can't serve COOP+COEP; the
   multi-thread path lights up on any host that can — Spaces, Vercel, etc.).
