@@ -117,19 +117,33 @@ The submission is not a research artifact; it's a deployable web app.
 - **Held-out eval**: 40/40 parse_ok, 40/40 api_clean, 40/40 has_solid_op,
   40/40 runtime_pass = **100% round-trip**
   (`outputs/cad-lora-v2-4b-it-eval.jsonl`).
-- **Self-harness**: 8 demo prompts span single-element, parametric variation,
-  multi-element fuse, boolean cut. Each produces a valid IFC4 STEP-21 file
-  with structurally-validated face counts, single IfcBuildingElementProxy,
-  IfcFacetedBrep, and IfcClosedShell. Run via
-  `bun scripts/web-self-harness.ts`.
-- **Bundle size** (verified 2026-05-03 against `bun run web:build`): a
-  4.24 MB main JS chunk (gzip 0.58 MB) + a 3.84 MB worker chunk + replicad's
-  10.8 MB OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB WASM (gzip
-  0.48 MB) + a 61 kB CSS chunk (gzip 12 kB). Total wire size on a cold load
-  is dominated by the OpenCascade WASM; both WASMs and the JS chunks gzip
+- **Self-harness**: 9 demo prompts span single-element (wall, column,
+  raised slab), parametric variation, multi-element fuse + boolean cut
+  (slab-with-hole, wall-with-door, four-walled-room, stair-step,
+  l-walls), and the 14-element Schultz Residence hero. Each produces a
+  valid IFC4 STEP-21 file that round-trips through `web-ifc.OpenModel`.
+  Single-element demos emit one `IfcBuildingElementProxy` /
+  `IfcFacetedBrep` / `IfcClosedShell`; the Schultz hero emits 566 IFC
+  entities across the multi-element compound. A hand-written companion
+  harness (`bun scripts/leo-as-architect.ts`, 8/8) exercises Tier 2 ops
+  the canned demos don't (revolves, gables, T-junctions, octagonal
+  columns). Run via `bun scripts/web-self-harness.ts`.
+- **Bundle size** (verified 2026-05-04 against the deployed
+  `wordingone.github.io/gemma-architect/` build): a 4.24 MB main JS
+  chunk (gzip 0.58 MB) + a 3.84 MB worker chunk + replicad's 10.8 MB
+  OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB WASM (gzip 0.48 MB)
+  + a 61 kB CSS chunk (gzip 12 kB). Total wire size on a cold load is
+  dominated by the OpenCascade WASM; both WASMs and the JS chunks gzip
   well, so an empty-cache load is reasonable on a mid-tier consumer link.
-  COOP+COEP headers are required (SharedArrayBuffer prerequisite for
-  multithreaded WASM paths).
+  COOP+COEP headers are required for the multi-threaded WASM path
+  (SharedArrayBuffer prerequisite); GitHub Pages cannot serve those, so
+  the live page falls back to single-thread WASM gracefully.
+- **Live page latencies** (verified 2026-05-04 against the deployed URL,
+  single-thread WASM, no COOP+COEP): cache hit ~7 ms; wall full
+  prompt→geometry cycle ~21 ms; 14-element Schultz Residence
+  multi-fuse+cuts ~210 ms. ai-cache.json CDN first fetch ~116 ms, warm
+  ~1 ms. These are the numbers a non-CAD user actually sees on a
+  consumer GH Pages link with no header tricks.
 - **License chain**: Apache-2.0 on the LoRA + repo, MIT on replicad, LGPL-2.1
   with linking exception on replicad-opencascadejs, Apache-2.0 on web-ifc.
   Commercial deployment unblocked.
