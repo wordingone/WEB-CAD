@@ -218,7 +218,6 @@ export class ScenePanel {
                 <span class="name" data-action="zoom" data-id="${n.id}" title="Click to zoom · ${tris} tri">${escapeHtml(n.name)}</span>
                 <span class="swatch" style="background:${n.color}; border-color:${n.color};" aria-hidden="true"></span>
                 <button class="vis-btn" data-action="toggle" data-id="${n.id}" title="Toggle visibility" type="button" aria-label="Toggle visibility for ${escapeHtml(n.name)}">${iconSVG("eye", 11)}</button>
-                <button class="vis-btn" data-action="lock" data-id="${n.id}" title="Lock (stub)" type="button" aria-label="Lock ${escapeHtml(n.name)}">${iconSVG("lock", 11)}</button>
               </div>`;
           }
           outlinerHtml += `</div>`;
@@ -276,8 +275,6 @@ export class ScenePanel {
           const row = (e.currentTarget as HTMLElement).closest<HTMLElement>(".outliner-row");
           row?.classList.add("selected");
           this.viewer.frameObjectOnly(node.mesh);
-        } else if (action === "lock") {
-          // Stub — placeholder for future selection-lock functionality.
         }
       });
     });
