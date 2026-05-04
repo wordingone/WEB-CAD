@@ -6,15 +6,24 @@
 // diff against the canonical app.jsx at lines 216-302.
 //
 // Source: B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx
-// Port:   B:/M/gemma-architect-master/web/src/shell.ts
+// Port:   <repo>/web/src/shell.ts
 //
 // Exits 0 with `parity OK: <N> labels matched` on clean.
 // Exits 1 with `DEVIATION: <label>` per missing entry.
+//
+// SHELL_TS is resolved from this script's own location, so it works from any
+// clone. APP_JSX is the source-of-truth zip Jun extracted to a fixed path —
+// override via APP_JSX_PATH env var when running on a machine where the zip
+// lives elsewhere.
 
 import { readFileSync, existsSync } from "fs";
+import { join, resolve } from "path";
 
-const APP_JSX = "B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx";
-const SHELL_TS = "B:/M/gemma-architect/web/src/shell.ts";
+const REPO_ROOT = resolve(import.meta.dir, "..");
+const APP_JSX =
+  process.env.APP_JSX_PATH ??
+  "B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx";
+const SHELL_TS = join(REPO_ROOT, "web/src/shell.ts");
 
 // Known TS-port adaptations. Each entry maps an app.jsx label to one or more
 // equivalent shell.ts labels (any one match counts as parity).
