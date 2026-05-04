@@ -1,3 +1,5 @@
+import { iconSVG } from "./icons.js";
+
 // Shell chrome — design-handoff #171.
 //
 // Builds the menubar (9 menus) / modebar (4 modes) / ribbon (6 tabs + tools)
@@ -110,6 +112,17 @@ const TOOL_GROUPS: ToolGroup[] = [
   { label: "MEASURE",   tools: ["Ruler", "Compass"] },
 ];
 
+const LAYOUT_RIBBON_TABS = ["COMPOSE", "ANNOTATE", "DRAW", "OUTPUT"] as const;
+type LayoutRibbonTab = typeof LAYOUT_RIBBON_TABS[number];
+
+const LAYOUT_TOOL_GROUPS: ToolGroup[] = [
+  { label: "NAVIGATE",  tools: ["Select", "Pan", "Zoom"] },
+  { label: "VIEWPORT",  tools: ["Frame", "Scale", "Align", "Detail"] },
+  { label: "ANNOTATE",  tools: ["Text", "Leader", "Callout"] },
+  { label: "DRAW",      tools: ["Line", "Rect", "Circle"] },
+  { label: "DIMENSION", tools: ["Ruler", "Compass"] },
+];
+
 type ModeDef = { key: string; num: string; label: string };
 const MODES: ModeDef[] = [
   { key: "model",    num: "01", label: "MODEL" },
@@ -119,6 +132,81 @@ const MODES: ModeDef[] = [
 
 const RIBBON_TABS = ["MODEL", "DRAFT", "ANALYZE", "RENDER", "ANNOTATE", "SUBMIT"] as const;
 type RibbonTab = typeof RIBBON_TABS[number];
+
+// Module-level refs used by setRibbonMode to swap ribbon content in-place.
+let _ribbonTabsEl: HTMLElement | null = null;
+let _ribbonToolsEl: HTMLElement | null = null;
+
+function fillRibbonTabs(tabsEl: HTMLElement, tabs: readonly string[], initialTab: string) {
+  tabsEl.innerHTML = "";
+  for (const t of tabs) {
+    const tab = document.createElement("div");
+    tab.className = "ribbon-tab";
+    tab.dataset.tab = t;
+    tab.setAttribute("role", "tab");
+    const isActive = t === initialTab;
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    if (isActive) tab.classList.add("active");
+    tab.textContent = t;
+    tab.addEventListener("click", () => {
+      tabsEl.querySelectorAll<HTMLElement>(".ribbon-tab").forEach((el) => {
+        const active = el === tab;
+        el.classList.toggle("active", active);
+        el.setAttribute("aria-selected", active ? "true" : "false");
+      });
+    });
+    tabsEl.appendChild(tab);
+  }
+}
+
+function fillRibbonTools(toolsEl: HTMLElement, groups: ToolGroup[]) {
+  toolsEl.innerHTML = "";
+  for (const group of groups) {
+    const groupEl = document.createElement("div");
+    groupEl.className = "tool-group";
+
+    const btnsEl = document.createElement("div");
+    btnsEl.className = "tool-group-btns";
+    for (const tool of group.tools) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "tool-btn";
+      btn.dataset.tool = tool.toLowerCase();
+      btn.title = tool;
+      btn.innerHTML = iconSVG(tool.toLowerCase(), 16);
+      btn.addEventListener("click", () => {
+        const wasActive = btn.classList.contains("active");
+        toolsEl.querySelectorAll<HTMLElement>(".tool-btn").forEach((b) => b.classList.remove("active"));
+        if (!wasActive) {
+          btn.classList.add("active");
+          window.dispatchEvent(new CustomEvent("ribbon:tool-click", { detail: { tool: tool.toLowerCase() } }));
+        } else {
+          window.dispatchEvent(new CustomEvent("ribbon:tool-click", { detail: { tool: null } }));
+        }
+      });
+      btnsEl.appendChild(btn);
+    }
+    groupEl.appendChild(btnsEl);
+
+    const label = document.createElement("span");
+    label.className = "tool-group-label";
+    label.textContent = group.label;
+    groupEl.appendChild(label);
+
+    toolsEl.appendChild(groupEl);
+  }
+}
+
+export function setRibbonMode(mode: "model" | "layout" | "research") {
+  if (!_ribbonTabsEl || !_ribbonToolsEl) return;
+  if (mode === "layout") {
+    fillRibbonTabs(_ribbonTabsEl, LAYOUT_RIBBON_TABS, LAYOUT_RIBBON_TABS[0]);
+    fillRibbonTools(_ribbonToolsEl, LAYOUT_TOOL_GROUPS);
+  } else {
+    fillRibbonTabs(_ribbonTabsEl, RIBBON_TABS, RIBBON_TABS[0]);
+    fillRibbonTools(_ribbonToolsEl, TOOL_GROUPS);
+  }
+}
 
 const THEME_KEY = "gemma-architect.theme";
 type ThemeMode = "day" | "night";
@@ -261,11 +349,12 @@ function buildMenubar(host: HTMLElement) {
   spacer.className = "menubar-spacer";
   host.appendChild(spacer);
 
-  // Right cluster — file label + theme pill + session pill.
+  // Right cluster — file label + BLUEPRINT/VELLUM theme pill + session pill.
   const right = document.createElement("div");
   right.className = "menubar-right";
   right.innerHTML = `
     <span>Untitled.001 · IFC4</span>
+    <button id="blueprint-toggle" class="theme-pill" type="button" title="Toggle day/night (Ctrl+\\)" aria-label="Toggle theme">◑ BLUEPRINT</button>
     <span class="session-pill"><span class="dot"></span>LOCAL · NO CLOUD</span>
   `;
   host.appendChild(right);
@@ -336,55 +425,23 @@ function buildModebar(host: HTMLElement, onChange?: (k: string) => void): (k: st
   return activate;
 }
 
-function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void, onSplitMode?: (mode: "single" | "quad") => void): (t: RibbonTab) => void {
+function buildRibbon(ribbonHost: HTMLElement, onSplitMode?: (mode: "single" | "quad") => void) {
   ribbonHost.innerHTML = "";
 
-  // .ribbon-tabs — top strip with 6 tab labels.
   const tabsEl = document.createElement("div");
   tabsEl.className = "ribbon-tabs";
   tabsEl.setAttribute("role", "tablist");
   ribbonHost.appendChild(tabsEl);
+  _ribbonTabsEl = tabsEl;
 
-  const tabs: HTMLDivElement[] = [];
-  for (const t of RIBBON_TABS) {
-    const tab = document.createElement("div");
-    tab.className = "ribbon-tab";
-    tab.dataset.tab = t;
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", t === RIBBON_TABS[0] ? "true" : "false");
-    if (t === RIBBON_TABS[0]) tab.classList.add("active");
-    tab.textContent = t;
-    tab.addEventListener("click", () => activate(t));
-    tabs.push(tab);
-    tabsEl.appendChild(tab);
-  }
-
-  // .ribbon-tools — middle area with toolgroups.
   const toolsEl = document.createElement("div");
   toolsEl.className = "ribbon-tools";
   ribbonHost.appendChild(toolsEl);
+  _ribbonToolsEl = toolsEl;
 
-  for (const group of TOOL_GROUPS) {
-    const groupEl = document.createElement("div");
-    groupEl.className = "tool-group";
-
-    for (const tool of group.tools) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "tool-btn";
-      btn.dataset.tool = tool.toLowerCase();
-      btn.title = tool;
-      btn.textContent = tool;
-      groupEl.appendChild(btn);
-    }
-    // Bundle puts the group label at the END (a footer caption under the buttons).
-    const groupLabel = document.createElement("span");
-    groupLabel.className = "tool-group-label";
-    groupLabel.textContent = group.label;
-    groupEl.appendChild(groupLabel);
-
-    toolsEl.appendChild(groupEl);
-  }
+  // Fill with model ribbon content initially.
+  fillRibbonTabs(tabsEl, RIBBON_TABS, RIBBON_TABS[0]);
+  fillRibbonTools(toolsEl, TOOL_GROUPS);
 
   // .ribbon-right — quick actions (palette + export + viewport split).
   const rightEl = document.createElement("div");
@@ -404,28 +461,29 @@ function buildRibbon(ribbonHost: HTMLElement, onChange?: (t: RibbonTab) => void,
     onSplitMode?.("quad");
   });
 
-  // Wire the palette quick button to the Cmd-K shortcut (palette.ts listens on window).
   rightEl.querySelector("#ribbon-palette-btn")?.addEventListener("click", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true }));
   });
 
-  function activate(t: RibbonTab) {
-    for (const el of tabs) {
-      const isActive = el.dataset.tab === t;
-      el.classList.toggle("active", isActive);
-      el.setAttribute("aria-selected", isActive ? "true" : "false");
-    }
-    if (onChange) onChange(t);
-  }
-  return activate;
+  // When layout signals tool deactivation, clear active state on ribbon buttons.
+  window.addEventListener("layout:tool-deactivated", () => {
+    _ribbonToolsEl?.querySelectorAll<HTMLElement>(".tool-btn").forEach((b) => b.classList.remove("active"));
+  });
 }
 
 function wireThemeToggle() {
-  setTheme(loadTheme());
-  const btn = document.getElementById("theme-toggle");
+  const initial = loadTheme();
+  setTheme(initial);
+  const btn = document.getElementById("blueprint-toggle");
+  function updatePillLabel(mode: ThemeMode) {
+    if (btn) btn.textContent = mode === "night" ? "○ VELLUM" : "◑ BLUEPRINT";
+  }
+  updatePillLabel(initial);
   btn?.addEventListener("click", () => {
     const cur = (document.documentElement.getAttribute("data-mode") as ThemeMode) ?? "day";
-    setTheme(cur === "day" ? "night" : "day");
+    const next = cur === "day" ? "night" : "day";
+    setTheme(next);
+    updatePillLabel(next);
   });
   window.addEventListener("keydown", (e) => {
     // Ctrl+\ — theme toggle. Skip when the user is editing text so we don't
@@ -436,7 +494,9 @@ function wireThemeToggle() {
     if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
     e.preventDefault();
     const cur = (document.documentElement.getAttribute("data-mode") as ThemeMode) ?? "day";
-    setTheme(cur === "day" ? "night" : "day");
+    const next = cur === "day" ? "night" : "day";
+    setTheme(next);
+    updatePillLabel(next);
   });
 }
 
@@ -478,7 +538,7 @@ export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onS
   const ribbon  = document.querySelector(".ribbon")  as HTMLElement | null;
   if (menubar) buildMenubar(menubar);
   if (modebar) buildModebar(modebar, opts?.onModeChange);
-  if (ribbon)  buildRibbon(ribbon, undefined, opts?.onSplitMode);
+  if (ribbon)  buildRibbon(ribbon, opts?.onSplitMode);
   wireThemeToggle();
   wireFpsCounter();
 }

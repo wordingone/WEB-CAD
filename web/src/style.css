@@ -294,9 +294,9 @@ html[data-mode="night"] .snap-dock::after {
 
 .app {
   display: grid;
-  grid-template-rows: 24px 30px 38px 1fr 22px;
+  grid-template-rows: 24px 30px 50px 1fr 22px;
   grid-template-columns: 100%;
-  height: 100vh;
+  min-height: 100dvh;
   width: 100vw;
   background: transparent;
   /* SILHOUETTE — single hairline, the page edge */
@@ -554,63 +554,287 @@ html[data-mode="night"] .snap-dock::after {
   position: relative;
   width: 100%;
   height: 100%;
-  background:
-    repeating-linear-gradient(45deg,
-      oklch(0.93 0.014 80) 0 1px,
-      transparent 1px 14px),
-    var(--paper-3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Bottom toolbar injected by layout.ts */
+.paper-toolbar {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  background: var(--chrome);
+  border-top: var(--lw-edge) solid var(--hairline-soft);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* Sheet tab strip (left side of toolbar) */
+.sheet-tab-strip {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  min-width: 0;
+  border-right: var(--lw-edge) solid var(--chrome-seam);
+}
+.sheet-tab-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-right: var(--lw-construction) solid var(--ink-construction);
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 7px;
+  padding: 0;
+}
+.sheet-tab-nav:hover { background: var(--paper-2); color: var(--ink); }
+.sheet-tabs {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.sheet-tabs::-webkit-scrollbar { display: none; }
+.sheet-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  font-family: var(--mono);
+  color: var(--ink-dim);
+  cursor: pointer;
+  border: none;
+  border-right: var(--lw-construction) solid var(--ink-construction);
+  border-top: 2px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: transparent;
+  text-transform: uppercase;
+}
+.sheet-tab:hover { background: var(--paper-2); color: var(--ink); }
+.sheet-tab.active {
+  color: var(--ink);
+  background: var(--paper);
+  border-top-color: var(--gemma);
+}
+.sheet-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-right: var(--lw-construction) solid var(--ink-construction);
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.sheet-tab-add:hover { background: var(--paper-2); color: var(--ink); }
+
+/* Right side: size/orient controls */
+.paper-toolbar-settings {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.paper-tool {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--chrome);
+  color: var(--ink-soft);
+  border: var(--lw-edge) solid var(--hairline-soft);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+  height: 22px;
+}
+.paper-tool:hover { background: var(--chrome-hover); }
+.paper-tool-num { width: 60px; text-align: right; }
+.paper-tool-export { background: var(--gemma); color: var(--canvas); border-color: var(--gemma); }
+.paper-tool-export:hover { opacity: 0.85; }
+.paper-tool-custom { display: none; align-items: center; gap: 6px; }
+.paper-tool-custom.visible { display: flex; }
+.paper-tool-label {
+  font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); white-space: nowrap;
+}
+
+/* Stage: centered scrollable area */
+.paper-stage {
+  flex: 1;
+  min-height: 0;   /* prevent stage from expanding beyond its flex share */
+  overflow: auto;
+  background: var(--paper-3);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  overflow: auto;
 }
+html[data-mode="night"] .paper-stage {
+  background: var(--paper-3);
+}
+
 .paper-sheet {
+  --iz: 1; /* inverse zoom — JS sets this in fitToStage() */
   background: var(--paper);
-  width: 1100px;
-  max-width: 100%;
-  aspect-ratio: 1.414 / 1; /* A-series */
   position: relative;
   border: var(--lw-cut) solid var(--ink-cut);
   box-shadow: 4px 4px 0 oklch(0.86 0.014 80), 6px 6px 16px oklch(0.22 0.015 250 / 0.10);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr 60px;
+  /* JS (applySheetDims) sets explicit width/height. No grid — panels are absolute. */
+  overflow: hidden;
 }
-.paper-sheet::before {
-  content: "";
-  position: absolute;
-  inset: 12px;
-  border: var(--lw-edge) solid var(--ink-edge);
-  pointer-events: none;
-}
+/* .paper-sheet::before removed — blank paper, no inset margin border */
 .paper-cell {
   border: var(--lw-edge) solid var(--ink-edge);
   margin: -0.5px;
   position: relative;
-  padding: 22px 18px 14px;
-  display: flex;
-  flex-direction: column;
+  padding: 0;
   background: var(--paper);
+  overflow: hidden;
+}
+.paper-cell.is-navigating {
+  outline: calc(2px * var(--iz, 1)) solid oklch(0.65 0.18 248);
+  outline-offset: calc(-2px * var(--iz, 1));
+}
+.paper-cell.is-navigating .paper-cell-render {
+  cursor: grab;
+}
+.paper-cell.is-navigating .paper-cell-render:active {
+  cursor: grabbing;
+}
+/* Canvas render area fills the entire cell */
+.paper-cell-render {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.paper-cell-render canvas,
+.paper-cell-render svg { display: block; width: 100%; height: 100%; }
+/* Header overlay: label + dropdowns, always visible above the canvas.
+   All sizes use calc(Xpx * var(--iz)) so content stays at screen size
+   regardless of how far the sheet is zoomed out. */
+.paper-cell-header {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--iz, 1));
+  padding: calc(5px * var(--iz, 1)) calc(8px * var(--iz, 1));
+  background: oklch(0.18 0 0 / 0.82);
+  z-index: 4;
+  pointer-events: auto;
 }
 .paper-cell-label {
-  position: absolute;
-  top: 4px; left: 8px;
-  font-size: 9px;
-  letter-spacing: 0.16em;
+  font-size: calc(11px * var(--iz, 1));
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-dim);
+  color: #fff;
   font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
-.paper-cell-scale {
-  position: absolute;
-  top: 4px; right: 8px;
+.paper-cell-select {
   font-family: var(--mono);
-  font-size: 9px;
-  color: var(--ink-faint);
-  letter-spacing: 0.04em;
+  font-size: calc(11px * var(--iz, 1));
+  background: oklch(0.28 0 0 / 0.7);
+  border: 1px solid oklch(1 0 0 / 0.2);
+  color: #e0e0e0;
+  padding: calc(2px * var(--iz, 1)) calc(4px * var(--iz, 1));
+  border-radius: calc(3px * var(--iz, 1));
 }
-.paper-cell svg { flex: 1; width: 100%; height: 100%; }
+/* Scale bar: fixed at bottom-right, out of flow */
+.paper-cell-scalebar {
+  position: absolute;
+  bottom: 5px;
+  right: 8px;
+  line-height: 0;
+  z-index: 4;
+}
+.paper-cell-scalebar svg { display: block; }
+/* Close button: top-right corner, inside the header overlay z-stack */
+.paper-cell-close {
+  position: absolute;
+  top: calc(4px * var(--iz, 1)); right: calc(4px * var(--iz, 1));
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: oklch(1 0 0 / 0.5);
+  padding: calc(2px * var(--iz, 1));
+  border-radius: 2px;
+  line-height: 0;
+  z-index: 5;
+}
+.paper-cell-close:hover { color: #fff; }
+
+/* Panel resize handles */
+.panel-resize-handle {
+  position: absolute;
+  z-index: 6;
+}
+.panel-resize-handle[data-dir="n"]  { top: 0; left: calc(12px * var(--iz,1)); right: calc(12px * var(--iz,1)); height: calc(6px * var(--iz,1)); cursor: n-resize; }
+.panel-resize-handle[data-dir="s"]  { bottom: 0; left: calc(12px * var(--iz,1)); right: calc(12px * var(--iz,1)); height: calc(6px * var(--iz,1)); cursor: s-resize; }
+.panel-resize-handle[data-dir="w"]  { left: 0; top: calc(12px * var(--iz,1)); bottom: calc(12px * var(--iz,1)); width: calc(6px * var(--iz,1)); cursor: w-resize; }
+.panel-resize-handle[data-dir="e"]  { right: 0; top: calc(12px * var(--iz,1)); bottom: calc(12px * var(--iz,1)); width: calc(6px * var(--iz,1)); cursor: e-resize; }
+.panel-resize-handle[data-dir="nw"] { top: 0; left: 0; width: calc(12px * var(--iz,1)); height: calc(12px * var(--iz,1)); cursor: nw-resize; }
+.panel-resize-handle[data-dir="ne"] { top: 0; right: 0; width: calc(12px * var(--iz,1)); height: calc(12px * var(--iz,1)); cursor: ne-resize; }
+.panel-resize-handle[data-dir="se"] { bottom: 0; right: 0; width: calc(12px * var(--iz,1)); height: calc(12px * var(--iz,1)); cursor: se-resize; }
+.panel-resize-handle[data-dir="sw"] { bottom: 0; left: 0; width: calc(12px * var(--iz,1)); height: calc(12px * var(--iz,1)); cursor: sw-resize; }
+
+/* Drag-creation ghost */
+.paper-cell-ghost {
+  position: absolute;
+  border: 1px dashed var(--ink-dim);
+  background: oklch(0.55 0.08 248 / 0.08);
+  pointer-events: none;
+}
+/* Detail region ghost (dragged inside parent panel) */
+.paper-cell-detail-ghost {
+  position: absolute;
+  border: 1.5px dashed var(--sanguine);
+  background: oklch(0.62 0.080 235 / 0.10);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+/* Detail region overlay — shown on the parent panel */
+.paper-cell-detail-region {
+  position: absolute;
+  border: 1.5px dashed var(--sanguine);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.paper-cell-detail-label {
+  position: absolute;
+  top: -1px; right: -1px;
+  background: var(--sanguine);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 0 0 0 2px;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+}
+/* Detail panel — sanguine accent border */
+.paper-cell.detail-panel {
+  border-color: var(--sanguine);
+  border-width: 1.5px;
+}
 .paper-titleblock {
   grid-column: 1 / -1;
   display: grid;
@@ -940,7 +1164,7 @@ html[data-mode="night"] .snap-dock::after {
   /* -webkit-backdrop-filter: var(--glass-blur); */
   box-shadow: inset 0 0.5px 0 0 var(--glass-edge-light);
   position: relative;
-  height: 38px;
+  height: 50px;
 }
 .ribbon::before, .ribbon::after { display: none; }
 
@@ -989,20 +1213,24 @@ html[data-mode="night"] .snap-dock::after {
 
 .tool-group {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   height: 100%;
-  padding: 4px 10px 12px;
+  padding: 4px 8px 0;
   border-right: var(--lw-construction) solid var(--ink-construction);
   position: relative;
-  gap: 2px;
+  gap: 1px;
   flex-shrink: 0;
 }
 .tool-group:last-child { border-right: var(--lw-construction) solid var(--ink-construction); }
+.tool-group-btns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
 .tool-group-label {
-  position: absolute;
-  bottom: 2px;
-  left: 50%;
-  transform: translateX(-50%);
   font-size: 7.5px;
   letter-spacing: 0.18em;
   color: var(--ink-faint);
@@ -1016,18 +1244,11 @@ html[data-mode="night"] .snap-dock::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Bundle uses 24x24 icon-only buttons. Until ribbon switches to SVG icons,
-     size buttons to fit their text label and add a tiny gap so they don't
-     run together ("SelectMoveRotateScale"). */
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
+  width: 20px;
+  height: 20px;
+  min-width: 0;
+  padding: 0;
   margin: 0 1px;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
   border: var(--lw-construction) solid transparent;
   background: transparent;
   color: var(--ink-soft);
@@ -1045,13 +1266,7 @@ html[data-mode="night"] .snap-dock::after {
   color: var(--gemma);
   border-color: var(--gemma);
 }
-.tool-btn svg { width: 14px; height: 14px; stroke-width: 1.25; }
-/* When a tool-btn contains an svg only (no text), keep it tight 24x24. */
-.tool-btn:has(> svg:only-child) {
-  width: 24px;
-  min-width: 24px;
-  padding: 0;
-}
+.tool-btn svg { width: 14px; height: 14px; min-width: 14px; flex-shrink: 0; stroke-width: 1.5; fill: none; stroke: currentColor; }
 
 .ribbon-right {
   display: flex;
@@ -1118,6 +1333,8 @@ html[data-mode="night"] .snap-dock::after {
 .workbench[data-mode="layout"],
 .workbench[data-mode="research"] {
   grid-template-columns: 1fr;
+  grid-template-rows: 1fr;   /* constrain row to workbench height */
+  overflow: hidden;
 }
 .workbench[data-mode="layout"] > .palette,
 .workbench[data-mode="layout"] > .center-col,
@@ -1869,6 +2086,50 @@ html[data-mode="night"] .snap-dock::after {
 }
 .snap-row .k { color: var(--ink-faint); letter-spacing: 0.06em; text-transform: uppercase; font-size: 8.5px; }
 .snap-row .v { color: var(--ink); }
+.snap-row .u { color: var(--ink-faint); margin-left: 4px; font-size: 9px; }
+.snap-row .snap-input {
+  background: var(--paper-2, transparent);
+  border: 1px solid var(--hairline, rgba(0,0,0,0.15));
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 2px 6px;
+  width: 60px;
+  text-align: right;
+  border-radius: var(--r-sm, 2px);
+  outline: none;
+}
+.snap-row .snap-input:focus { border-color: var(--ink); }
+.snap-row .snap-input::-webkit-inner-spin-button,
+.snap-row .snap-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* RELOCATE GUMBALL mode indicator — pinned to the top of the viewport
+   area when active. Hidden by default; viewer.ts toggles display:flex
+   via updateRelocateBadge(). Sanguine fill so it reads as a temporary
+   modal state, not a persistent UI element. */
+.relocate-badge {
+  position: absolute;
+  top: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--sanguine, #c0392b);
+  color: #fff;
+  padding: 4px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  align-items: center;
+  gap: 6px;
+}
+.relocate-badge::before {
+  content: "◉";
+  font-size: 8px;
+}
 
 /* AI prompt panel */
 .ai-panel {
@@ -3394,3 +3655,8 @@ footer span { margin: 0 0.55rem; color: var(--border); }
    menubar (9 menus) + modebar (4 modes) + ribbon (6 tabs + body) + statusbar
    ──────────────────────────────────────────────────────────────────────── */
 
+
+@media (max-height: 700px) {
+  .modebar { display: none; }
+  .ribbon { padding-block: 2px; }
+}
