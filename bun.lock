@@ -8,6 +8,7 @@
         "jspdf": "^4.2.1",
         "replicad": "^0.20.0",
         "replicad-opencascadejs": "^0.20.0",
+        "rhino3dm": "^8.17.0",
         "three": "^0.162.0",
         "verb-nurbs": "^3.0.3",
         "web-ifc": "^0.0.77",
@@ -323,6 +324,8 @@
     "replicad-opencascadejs": ["replicad-opencascadejs@0.20.2", "", {}, "sha512-scws/tSYeO3CxwRBVK264QbHcGZXQl1mNmRewczSO/Ac9BLDNQ6RAMk5NeB8jK7YQlRU04kwf+Ge0ydFRUO6ig=="],
 
     "rgbcolor": ["rgbcolor@1.0.1", "", {}, "sha512-9aZLIrhRaD97sgVhtJOW6ckOEh6/GnvQtdVNfdZ6s67+3/XwLS9lBcQYzEEhYVeUowN7pRzMLsyGhK2i/xvWbw=="],
+
+    "rhino3dm": ["rhino3dm@8.17.0", "", {}, "sha512-6m3nE/DUwu8vgc4Y7ffmLvV+WvUgjGYAf68q5WAn/CJZvboAPRlU6wTM7PpPU+wxiKfyfkOKKEkXVyPGIQyGeg=="],
 
     "rolldown": ["rolldown@1.0.0-rc.17", "", { "dependencies": { "@oxc-project/types": "=0.127.0", "@rolldown/pluginutils": "1.0.0-rc.17" }, "optionalDependencies": { "@rolldown/binding-android-arm64": "1.0.0-rc.17", "@rolldown/binding-darwin-arm64": "1.0.0-rc.17", "@rolldown/binding-darwin-x64": "1.0.0-rc.17", "@rolldown/binding-freebsd-x64": "1.0.0-rc.17", "@rolldown/binding-linux-arm-gnueabihf": "1.0.0-rc.17", "@rolldown/binding-linux-arm64-gnu": "1.0.0-rc.17", "@rolldown/binding-linux-arm64-musl": "1.0.0-rc.17", "@rolldown/binding-linux-ppc64-gnu": "1.0.0-rc.17", "@rolldown/binding-linux-s390x-gnu": "1.0.0-rc.17", "@rolldown/binding-linux-x64-gnu": "1.0.0-rc.17", "@rolldown/binding-linux-x64-musl": "1.0.0-rc.17", "@rolldown/binding-openharmony-arm64": "1.0.0-rc.17", "@rolldown/binding-wasm32-wasi": "1.0.0-rc.17", "@rolldown/binding-win32-arm64-msvc": "1.0.0-rc.17", "@rolldown/binding-win32-x64-msvc": "1.0.0-rc.17" }, "bin": { "rolldown": "bin/cli.mjs" } }, "sha512-ZrT53oAKrtA4+YtBWPQbtPOxIbVDbxT0orcYERKd63VJTF13zPcgXTvD4843L8pcsI7M6MErt8QtON6lrB9tyA=="],
 

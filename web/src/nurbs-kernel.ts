@@ -864,28 +864,218 @@ export async function importNurbsFromIfc(bytes: Uint8Array): Promise<NurbsSurfac
   };
 }
 
-// ----------------------- STEP / 3DM export stubs -----------------------------
+// ----------------------- STEP / 3DM export -----------------------------------
 
 /**
- * STEP AP242 NURBS surface export — STUB.
- *
- * Follow-up: see issue (filed when this PR lands).
- *   - Emit B_SPLINE_SURFACE_WITH_KNOTS + RATIONAL_B_SPLINE_SURFACE
- *   - Match ISO 10303-42 wire format (STEP AP242 NURBS extension).
+ * Convert a verb-style "open" knot vector (length n+p+1, full multiplicities at
+ * the ends) into the (knots, multiplicities) pair that STEP / IFC schemas use.
+ * STEP B_SPLINE_SURFACE_WITH_KNOTS lists each distinct knot once with its
+ * multiplicity. ISO 10303-42 §6.4.39.
  */
-export function exportNurbsToStep(_surface: NurbsSurface): Uint8Array {
-  throw new Error("exportNurbsToStep: stub — follow-up issue");
+function compressKnots(knots: number[]): { distinct: number[]; mults: number[] } {
+  const distinct: number[] = [];
+  const mults: number[] = [];
+  let i = 0;
+  while (i < knots.length) {
+    const v = knots[i]!;
+    let m = 1;
+    while (i + m < knots.length && knots[i + m] === v) m++;
+    distinct.push(v);
+    mults.push(m);
+    i += m;
+  }
+  return { distinct, mults };
+}
+
+/** Format a JS number as a STEP REAL literal (must contain a `.`). */
+function stepReal(n: number): string {
+  if (!Number.isFinite(n)) {
+    throw new Error(`exportNurbsToStep: non-finite coord/knot/weight: ${n}`);
+  }
+  // STEP requires a decimal point. Use exponential when |x| is huge/tiny;
+  // toString often drops the dot for integers ("1" → must be "1.").
+  if (Number.isInteger(n)) return `${n}.`;
+  let s = n.toString();
+  if (!/[.eE]/.test(s)) s += ".";
+  return s;
 }
 
 /**
- * Rhino .3dm export via rhino3dm.js — STUB.
+ * STEP-21 (ISO 10303-21) NURBS surface export.
  *
- * Follow-up: bun add rhino3dm; instantiate `new RhinoModule.NurbsSurface()`
- * with the same control-net + knot-vector inputs, write to a model, serialize
- * to bytes via `model.toByteArray()`.
+ * Emits a self-contained STEP file containing one
+ * (RATIONAL_)?B_SPLINE_SURFACE_WITH_KNOTS entity. ISO 10303-42 §6.4.39 wire
+ * format. Header complies with ISO 10303-21 §5.1; uses AP242 schema id since
+ * downstream consumers (Rhino, FreeCAD, OpenCascade) accept it for raw NURBS.
+ *
+ * Control-point grid layout: our row-major `cp[i*countV + j]` matches
+ * STEP's `LIST OF LIST OF CARTESIAN_POINT` where the outer dimension is U.
  */
-export function exportNurbsTo3dm(_surface: NurbsSurface): Uint8Array {
-  throw new Error("exportNurbsTo3dm: stub — follow-up issue");
+export function exportNurbsToStep(surface: NurbsSurface): Uint8Array {
+  const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
+
+  if (controlPoints.length !== countU * countV) {
+    throw new Error(`exportNurbsToStep: controlPoints length ${controlPoints.length} != countU*countV ${countU * countV}`);
+  }
+  if (weights.length !== controlPoints.length) {
+    throw new Error(`exportNurbsToStep: weights length ${weights.length} != controlPoints length ${controlPoints.length}`);
+  }
+  if (knotsU.length !== countU + degreeU + 1) {
+    throw new Error(`exportNurbsToStep: knotsU length ${knotsU.length} != countU+degreeU+1 ${countU + degreeU + 1}`);
+  }
+  if (knotsV.length !== countV + degreeV + 1) {
+    throw new Error(`exportNurbsToStep: knotsV length ${knotsV.length} != countV+degreeV+1 ${countV + degreeV + 1}`);
+  }
+
+  const isRational = weights.some((w) => w !== 1);
+
+  // ---- Build entities. Sequential numbering #1, #2, ... ----
+  const lines: string[] = [];
+  let next = 1;
+  const id = () => next++;
+
+  // CARTESIAN_POINTs — one per control point, row-major (i in U, j in V).
+  // We collect row IDs so we can emit the LIST OF LIST in U-major order.
+  const cpIds: number[][] = [];
+  for (let i = 0; i < countU; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < countV; j++) {
+      const p = controlPoints[i * countV + j]!;
+      const cid = id();
+      lines.push(`#${cid}=CARTESIAN_POINT('',(${stepReal(p[0])},${stepReal(p[1])},${stepReal(p[2])}));`);
+      row.push(cid);
+    }
+    cpIds.push(row);
+  }
+
+  const cpListLiteral = "(" + cpIds.map((row) => "(" + row.map((c) => `#${c}`).join(",") + ")").join(",") + ")";
+
+  const u = compressKnots(knotsU);
+  const v = compressKnots(knotsV);
+  const uMultsLit = "(" + u.mults.join(",") + ")";
+  const vMultsLit = "(" + v.mults.join(",") + ")";
+  const uKnotsLit = "(" + u.distinct.map(stepReal).join(",") + ")";
+  const vKnotsLit = "(" + v.distinct.map(stepReal).join(",") + ")";
+
+  // u_closed=.U., v_closed=.U., self_intersect=.U., knot_spec=.UNSPECIFIED.
+  // Per ISO 10303-42, B_SPLINE_SURFACE_WITH_KNOTS is the supertype; the
+  // RATIONAL flavor adds a `weights_data` LIST OF LIST OF REAL.
+  const surfaceId = id();
+  if (!isRational) {
+    lines.push(
+      `#${surfaceId}=B_SPLINE_SURFACE_WITH_KNOTS('avir-nurbs-surface',` +
+        `${degreeU},${degreeV},${cpListLiteral},.UNSPECIFIED.,.U.,.U.,.U.,` +
+        `${uMultsLit},${vMultsLit},${uKnotsLit},${vKnotsLit},.UNSPECIFIED.);`,
+    );
+  } else {
+    // RATIONAL_B_SPLINE_SURFACE: complex entity instance combining
+    // BOUNDED_SURFACE, B_SPLINE_SURFACE, B_SPLINE_SURFACE_WITH_KNOTS,
+    // GEOMETRIC_REPRESENTATION_ITEM, RATIONAL_B_SPLINE_SURFACE,
+    // REPRESENTATION_ITEM, SURFACE. The standard short form per ISO 10303-21
+    // §11.5.2 is the parenthesized "&" complex form below.
+    const wRows: string[] = [];
+    for (let i = 0; i < countU; i++) {
+      const row: number[] = [];
+      for (let j = 0; j < countV; j++) row.push(weights[i * countV + j]!);
+      wRows.push("(" + row.map(stepReal).join(",") + ")");
+    }
+    const wListLit = "(" + wRows.join(",") + ")";
+
+    lines.push(
+      `#${surfaceId}=(` +
+        `BOUNDED_SURFACE()` +
+        `B_SPLINE_SURFACE(${degreeU},${degreeV},${cpListLiteral},.UNSPECIFIED.,.U.,.U.,.U.)` +
+        `B_SPLINE_SURFACE_WITH_KNOTS(${uMultsLit},${vMultsLit},${uKnotsLit},${vKnotsLit},.UNSPECIFIED.)` +
+        `GEOMETRIC_REPRESENTATION_ITEM()` +
+        `RATIONAL_B_SPLINE_SURFACE(${wListLit})` +
+        `REPRESENTATION_ITEM('avir-nurbs-surface')` +
+        `SURFACE()` +
+        `);`,
+    );
+  }
+
+  const ts = new Date().toISOString();
+  const header =
+    `ISO-10303-21;\n` +
+    `HEADER;\n` +
+    `FILE_DESCRIPTION(('AVIR NURBS surface export'),'2;1');\n` +
+    `FILE_NAME('avir-nurbs.step','${ts}',(''),(''),'gemma-architect','nurbs-kernel.ts','');\n` +
+    `FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\n` +
+    `ENDSEC;\n`;
+  const data = `DATA;\n${lines.join("\n")}\nENDSEC;\n`;
+  const footer = `END-ISO-10303-21;\n`;
+
+  return new TextEncoder().encode(header + data + footer);
+}
+
+/**
+ * Rhino .3dm export via rhino3dm.js (mcneel/rhino3dm@^8.17).
+ *
+ * The rhino3dm module is a WASM bundle that requires async init. We hot-load
+ * it on first call to keep the module's startup cost out of the hot path for
+ * users that never export 3DM. OpenNURBS's knot convention drops the boundary
+ * knots that verb-nurbs/STEP/IFC carry (length n+p-1 vs n+p+1) — we slice the
+ * leading/trailing knot off when copying.
+ *
+ * Returns the binary 3DM payload.
+ */
+export async function exportNurbsTo3dm(surface: NurbsSurface): Promise<Uint8Array> {
+  // Lazy-load: rhino3dm is a WASM bundle and we don't want to pay its
+  // load cost for callers that never reach this path.
+  const rhino3dmInit = (await import("rhino3dm")).default;
+  const RhinoModule = await rhino3dmInit();
+
+  const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
+
+  const isRational = weights.some((w) => w !== 1);
+  // OpenNURBS NurbsSurface.create takes ORDER (= degree + 1).
+  const orderU = degreeU + 1;
+  const orderV = degreeV + 1;
+
+  const ns = RhinoModule.NurbsSurface.create(3, isRational, orderU, orderV, countU, countV);
+  if (!ns) {
+    throw new Error("exportNurbsTo3dm: RhinoModule.NurbsSurface.create returned null");
+  }
+
+  // ---- Control points ----
+  // OpenNURBS rational points are 4D (x*w, y*w, z*w, w); non-rational are 3D.
+  const pts = ns.points();
+  for (let i = 0; i < countU; i++) {
+    for (let j = 0; j < countV; j++) {
+      const p = controlPoints[i * countV + j]!;
+      const w = weights[i * countV + j]!;
+      if (isRational) {
+        pts.set(i, j, [p[0] * w, p[1] * w, p[2] * w, w]);
+      } else {
+        pts.set(i, j, [p[0], p[1], p[2]]);
+      }
+    }
+  }
+
+  // ---- Knots ----
+  // OpenNURBS knot vector is length count + degree - 1 (no boundary
+  // duplicates), while verb-nurbs / STEP / IFC use count + degree + 1. We
+  // slice the first and last knot off.
+  const ku = ns.knotsU();
+  const kv = ns.knotsV();
+  const truncU = knotsU.slice(1, knotsU.length - 1);
+  const truncV = knotsV.slice(1, knotsV.length - 1);
+  if (truncU.length !== ku.count) {
+    throw new Error(`exportNurbsTo3dm: U-knot length mismatch ${truncU.length} vs OpenNURBS ${ku.count}`);
+  }
+  if (truncV.length !== kv.count) {
+    throw new Error(`exportNurbsTo3dm: V-knot length mismatch ${truncV.length} vs OpenNURBS ${kv.count}`);
+  }
+  for (let i = 0; i < truncU.length; i++) ku.set(i, truncU[i]!);
+  for (let i = 0; i < truncV.length; i++) kv.set(i, truncV[i]!);
+
+  // ---- File3dm ----
+  const file = new RhinoModule.File3dm();
+  file.applicationName = "gemma-architect";
+  file.applicationDetails = "AVIR NURBS export via rhino3dm";
+  file.objects().addSurface(ns);
+
+  return file.toByteArray();
 }
 
 // ----------------------- verb-nurbs interop ---------------------------------
