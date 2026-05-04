@@ -142,16 +142,22 @@ export class Viewer {
     this.scene.add(fill);
 
     // Reference grid + axes. 20m × 20m grid, 1m subdivisions; matches the
-    // architectural-scale demo prompts (3-15m primitives).
-    // Grid colors tuned for the bundle's vellum paper background — major
-    // lines at ink-soft, subdivisions at hairline-strong. (#173)
-    this.grid = new THREE.GridHelper(20, 20, 0x6f6f78, 0xc8c2b4);
+    // architectural-scale demo prompts (3-15m primitives). T14: dark drafting
+    // palette from the start (was light tan 0x6f6f78/0xc8c2b4, which read as a
+    // "white grid" against the vellum paper layer and stacked with the CSS
+    // .vp-grid overlay to produce a duplicate grid in ortho panes).
+    this.grid = new THREE.GridHelper(20, 20, 0x444444, 0x2c2c34);
     this.grid.rotation.x = Math.PI / 2; // grid in XY plane (replicad uses Z-up).
     this.scene.add(this.grid);
 
     this.axes = new THREE.AxesHelper(2);
     this.scene.add(this.axes);
     this.createAxisLabels();
+
+    // T14 — per-pane view-switch dropdown. Injected into the .viewport element
+    // (canvas's parent) so each Viewer instance owns its own selector. Switches
+    // camera orientation via setView; perspective restores extents framing.
+    this.installViewSelect();
 
     this.raycaster = new THREE.Raycaster();
     // Larger threshold for Points (vertex sprites) so corner picks are
@@ -931,19 +937,80 @@ export class Viewer {
     const diag = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
     const dist = diag * 1.7;
     let dir: THREE.Vector3;
+    let up: THREE.Vector3;
     switch (name) {
-      case "top":     dir = new THREE.Vector3(0, 0, 1); break;
-      case "bottom":  dir = new THREE.Vector3(0, 0, -1); break;
-      case "front":   dir = new THREE.Vector3(0, -1, 0); break;
-      case "back":    dir = new THREE.Vector3(0, 1, 0); break;
-      case "right":   dir = new THREE.Vector3(1, 0, 0); break;
-      case "left":    dir = new THREE.Vector3(-1, 0, 0); break;
-      case "iso":     dir = new THREE.Vector3(1, 1, 1).normalize(); break;
-      case "extents": dir = new THREE.Vector3(1, 1, 1.5).normalize(); break;
+      // Top view looks down -Z; +Y projects up the screen so plan reads N-up.
+      case "top":     dir = new THREE.Vector3(0, 0, 1);  up = new THREE.Vector3(0, 1, 0); break;
+      case "bottom":  dir = new THREE.Vector3(0, 0, -1); up = new THREE.Vector3(0, 1, 0); break;
+      // Side/elevation views keep Z up so the world's vertical reads vertical.
+      case "front":   dir = new THREE.Vector3(0, -1, 0); up = new THREE.Vector3(0, 0, 1); break;
+      case "back":    dir = new THREE.Vector3(0, 1, 0);  up = new THREE.Vector3(0, 0, 1); break;
+      case "right":   dir = new THREE.Vector3(1, 0, 0);  up = new THREE.Vector3(0, 0, 1); break;
+      case "left":    dir = new THREE.Vector3(-1, 0, 0); up = new THREE.Vector3(0, 0, 1); break;
+      case "iso":     dir = new THREE.Vector3(1, 1, 1).normalize();   up = new THREE.Vector3(0, 0, 1); break;
+      case "extents": dir = new THREE.Vector3(1, 1, 1.5).normalize(); up = new THREE.Vector3(0, 0, 1); break;
     }
+    this.camera.up.copy(up);
     this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
     this.controls.target.set(cx, cy, cz);
     this.camera.updateProjectionMatrix();
     this.controls.update();
+
+    // Mark pane as ortho or perspective so CSS can hide the duplicate "white"
+    // grid overlay in ortho panes (top/front/right/back/left/bottom). The
+    // perspective and iso views keep the .vp-grid bundle look.
+    const pane = this.canvas.parentElement;
+    if (pane) {
+      const isOrtho = name === "top" || name === "bottom"
+        || name === "front" || name === "back"
+        || name === "left" || name === "right";
+      pane.classList.toggle("vp-pane-ortho", isOrtho);
+    }
+
+    // Keep the dropdown's selected option in sync with programmatic setView
+    // calls (numpad shortcuts, fitCamera, etc.) — otherwise the UI drifts from
+    // the actual camera state.
+    const sel = this.canvas.parentElement?.querySelector<HTMLSelectElement>(".vp-view-select");
+    if (sel && sel.value !== name) sel.value = name;
+  }
+
+  // T14 — build the per-pane view-switch dropdown and inject it into the
+  // .viewport element (canvas's parent). Self-contained: no external wiring,
+  // each Viewer instance owns its own selector. onChange dispatches setView,
+  // which updates camera + pane class.
+  private installViewSelect(): void {
+    const pane = this.canvas.parentElement;
+    if (!pane) return;
+    // Avoid duplicates if this method is ever invoked twice on the same pane.
+    const existing = pane.querySelector(".vp-view-select");
+    if (existing) return;
+    const select = document.createElement("select");
+    select.className = "vp-view-select";
+    select.setAttribute("aria-label", "Viewport view");
+    const options: Array<{ value: string; label: string }> = [
+      { value: "extents", label: "PERSPECTIVE" },
+      { value: "top",     label: "TOP" },
+      { value: "front",   label: "FRONT" },
+      { value: "right",   label: "RIGHT" },
+      { value: "back",    label: "BACK" },
+      { value: "left",    label: "LEFT" },
+      { value: "bottom",  label: "BOTTOM" },
+      { value: "iso",     label: "ISO" },
+    ];
+    for (const opt of options) {
+      const o = document.createElement("option");
+      o.value = opt.value;
+      o.textContent = opt.label;
+      select.appendChild(o);
+    }
+    select.value = "extents";
+    select.addEventListener("change", () => {
+      const v = select.value as
+        "top" | "bottom" | "front" | "back" | "left" | "right" | "iso" | "extents";
+      this.setView(v);
+    });
+    // Don't let dropdown clicks fall through to OrbitControls / pickers.
+    select.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    pane.appendChild(select);
   }
 }
