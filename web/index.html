@@ -115,10 +115,13 @@
         <label>Or pick from disk</label>
         <div class="row">
           <button id="file-pick-btn" type="button">Choose file&hellip;</button>
+          <button id="agent-pick-btn" type="button" title="Reconstruct via Agent — image (PNG/JPG) only">Reconstruct via Agent&hellip;</button>
           <span id="file-name" class="file-name muted">No file loaded</span>
         </div>
         <input id="file-input" type="file" hidden
           accept=".ifc,.glb,.gltf,.obj,.stl,.step,.stp,.iges,.igs,.brep" />
+        <input id="agent-image-input" type="file" hidden
+          accept="image/png,image/jpeg,image/webp" />
 
         <p class="hint">
           Supported: <code>.ifc</code>, <code>.glb</code>, <code>.gltf</code>,

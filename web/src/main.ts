@@ -75,6 +75,8 @@ const runBtn = $<HTMLButtonElement>("run-btn");
 const sampleSelect = $<HTMLSelectElement>("sample-select");
 const filePickBtn = $<HTMLButtonElement>("file-pick-btn");
 const fileInput = $<HTMLInputElement>("file-input");
+const agentPickBtn = $<HTMLButtonElement>("agent-pick-btn");
+const agentImageInput = $<HTMLInputElement>("agent-image-input");
 const fileNameLabel = $<HTMLSpanElement>("file-name");
 
 // Shared UI
@@ -500,6 +502,28 @@ filePickBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   const f = fileInput.files?.[0];
   if (f) handleFile(f);
+});
+
+// Agent reconstruction (#182) — distinct from #168's deterministic Sobel
+// path. The agent receives the image as a multimodal content block and
+// drives dispatch verbs that accumulate walls + slab in scene-kg.
+agentPickBtn.addEventListener("click", () => agentImageInput.click());
+agentImageInput.addEventListener("change", async () => {
+  const f = agentImageInput.files?.[0];
+  if (!f) return;
+  fileNameLabel.textContent = f.name;
+  fileNameLabel.classList.remove("muted");
+  setStatus(`Running agent reconstruction on ${f.name}...`, "info");
+  try {
+    const { imageToIFCAgent } = await import("./image-to-ifc-agent");
+    const result = await imageToIFCAgent(f);
+    setStatus(
+      `Agent reconstruction OK · ${result.turnCount} turn${result.turnCount === 1 ? "" : "s"} · ${result.dispatchLog.length} dispatches · IFC4 ${(result.ifcBuffer.byteLength / 1024).toFixed(1)} KB`,
+      "ok",
+    );
+  } catch (e) {
+    setStatus(`Agent reconstruction failed: ${(e as Error).message}`, "err");
+  }
 });
 
 // Sample dropdown
