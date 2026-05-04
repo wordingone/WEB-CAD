@@ -27,6 +27,8 @@ const WORKBENCH_TS = join(REPO_ROOT, "web/src/workbench.ts");
 const VIEWER_TS = join(REPO_ROOT, "web/src/viewer.ts");
 const INDEX_HTML = join(REPO_ROOT, "web/index.html");
 const STYLE_CSS = join(REPO_ROOT, "web/src/style.css");
+const DSL_EVAL_TS = join(REPO_ROOT, "web/src/dsl-eval.ts");
+const LAYOUT_TS = join(REPO_ROOT, "web/src/layout.ts");
 
 type Violation = { file: string; line: number; rule: string; detail: string };
 
@@ -290,6 +292,135 @@ function checkCropping(): Violation[] {
   return violations;
 }
 
+// R5 — Console DSL scope reduction. Jun 2026-05-04 localhost review: console
+// emits "unknown verb: 'select' (v0 supports: wall, slab, column, box, cut)"
+// for any verb outside a hardcoded 5-element list. Per silly-baking-yeti.md the
+// console must accept every canonical_name in spatial-dictionary.yaml. The
+// "v0 supports:" literal in the error message is the structural signature of
+// scope reduction — if present in dsl-eval.ts source, the DSL is gated. Per
+// feedback_never_reduce_scope, only Jun reduces scope; this audit blocks the
+// pattern from re-shipping.
+function checkConsoleDslScope(): Violation[] {
+  const lines = readLines(DSL_EVAL_TS);
+  if (lines.length === 0) return [{ file: "web/src/dsl-eval.ts", line: 0, rule: "R5", detail: "dsl-eval.ts not found" }];
+
+  const violations: Violation[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Match any error message that names "v0 supports" — that's the
+    // scope-reduction signature. Look for it in error/return paths,
+    // not just comments.
+    if (/v0\s+supports\s*:/.test(line) && !/^\s*\/\//.test(line) && !/^\s*\*/.test(line)) {
+      violations.push({
+        file: "web/src/dsl-eval.ts",
+        line: i + 1,
+        rule: "R5",
+        detail: "console DSL scope-reduces to 'v0 supports: ...' fallback list; must accept every canonical_name from spatial-dictionary.yaml (silly-baking-yeti T6/T8). Remove the literal + extend compileDsl to dispatch through the spatial-dictionary alias index.",
+      });
+    }
+  }
+  return violations;
+}
+
+// R6 — Layout tab functional. Jun 2026-05-04: "the layout tab is a complete
+// mess." silly-baking-yeti T15 mandates layout = paper sheet + click-to-add
+// panels + viewport-picker + real WebGL panel rendering at scale (Rhino
+// Layout + Detail viewport pattern). Current layout.ts header comment
+// says "Panels render an SVG placeholder per chosen viewport orientation"
+// — the implementation is an SVG mock, not real-viewport rendering.
+//
+// Static signal: layout.ts must integrate with the real rendering pipeline
+// (WebGLRenderer / WebGLRenderTarget / viewer.ts). A pure-SVG-placeholder
+// implementation has zero such imports — that's the failure mode.
+function checkLayoutFunctional(): Violation[] {
+  const lines = readLines(LAYOUT_TS);
+  if (lines.length === 0) return [{ file: "web/src/layout.ts", line: 0, rule: "R6", detail: "layout.ts not found" }];
+
+  const violations: Violation[] = [];
+  const text = lines.join("\n");
+
+  // Detect the placeholder-only signature in header comment. Tight phrase
+  // ("Panels render an SVG placeholder") matches the documented active
+  // implementation, not a "was/previously" remark.
+  for (let i = 0; i < Math.min(40, lines.length); i++) {
+    if (/Panels\s+render\s+an\s+SVG\s+placeholder/i.test(lines[i])) {
+      violations.push({
+        file: "web/src/layout.ts",
+        line: i + 1,
+        rule: "R6",
+        detail: "layout.ts header documents 'Panels render an SVG placeholder' as active implementation; T15 requires real viewport-content rendering at scale. Replace placeholder with WebGL render-target into a per-panel canvas region.",
+      });
+      break; // one violation is enough — the comment itself is the signature.
+    }
+  }
+
+  // Real layout integrates with rendering. Check for any of:
+  // - import from viewer (gets the actual viewport renderer)
+  // - WebGLRenderer / WebGLRenderTarget reference (real Three.js rendering surface)
+  // - kernel/worker import (gets the geometry the panel should render)
+  const integratesWithViewer = /import[^;]*from\s+["'][^"']*viewer["']/i.test(text);
+  const usesRenderTarget = /WebGLRenderTarget|WebGLRenderer|render\s*\(\s*scene\b/.test(text);
+  if (!integratesWithViewer && !usesRenderTarget) {
+    violations.push({
+      file: "web/src/layout.ts",
+      line: 0,
+      rule: "R6",
+      detail: "layout.ts has no integration with viewer.ts and no WebGLRenderer/RenderTarget reference. Panel rendering is decoupled from real geometry; cannot match Rhino Layout/Detail viewport behavior. Wire layout panels to the real render pipeline (offscreen render target → texture → panel canvas).",
+    });
+  }
+
+  return violations;
+}
+
+// R7 — Ortho grid z-order. Jun 2026-05-04: "for the orthogonal views, the
+// grids parallel to the camera's plane per view, is being rendered in front
+// of the geometry, should not be the case." Three.js GridHelper at default
+// renderOrder=0 + opaque material can occlude geometry when their world-z
+// coincides (or geometry intersects grid plane). Fix pattern: explicit
+// `grid.renderOrder = -1` + `grid.material.depthWrite = false` so grid
+// always renders first and never writes to depth buffer; geometry renders
+// on top with proper depth-testing.
+function checkOrthoGridZOrder(): Violation[] {
+  const lines = readLines(VIEWER_TS);
+  if (lines.length === 0) return [{ file: "web/src/viewer.ts", line: 0, rule: "R7", detail: "viewer.ts not found" }];
+
+  const violations: Violation[] = [];
+
+  // Find every GridHelper instantiation. For each, require explicit
+  // renderOrder configuration (= -1 or similar) within ±10 lines.
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(/new\s+THREE\.GridHelper\s*\(/);
+    if (!m) continue;
+
+    // Look for renderOrder configuration in a 20-line window after creation.
+    const windowEnd = Math.min(lines.length, i + 20);
+    let sawRenderOrder = false;
+    let sawDepthWrite = false;
+    for (let j = i; j < windowEnd; j++) {
+      if (/\.renderOrder\s*=\s*-?\d+/.test(lines[j])) sawRenderOrder = true;
+      if (/depthWrite\s*[:=]\s*false/.test(lines[j])) sawDepthWrite = true;
+    }
+    if (!sawRenderOrder) {
+      violations.push({
+        file: "web/src/viewer.ts",
+        line: i + 1,
+        rule: "R7",
+        detail: `GridHelper at this line has no .renderOrder configuration within 20 lines; ortho cameras can render grid in front of coplanar geometry. Add this.grid.renderOrder = -1 and this.grid.material.depthWrite = false right after creation.`,
+      });
+    } else if (!sawDepthWrite) {
+      violations.push({
+        file: "web/src/viewer.ts",
+        line: i + 1,
+        rule: "R7",
+        detail: `GridHelper at this line has renderOrder set but no material.depthWrite=false; depth-buffer write from grid still occludes geometry on coplanar surfaces. Add this.grid.material.depthWrite = false.`,
+      });
+    }
+  }
+
+  return violations;
+}
+
 function main(): void {
   const violations: Violation[] = [
     ...checkRibbonIcons(),
@@ -297,6 +428,9 @@ function main(): void {
     ...checkPaletteDispatch(),
     ...checkViewerSelection(),
     ...checkCropping(),
+    ...checkConsoleDslScope(),
+    ...checkLayoutFunctional(),
+    ...checkOrthoGridZOrder(),
   ];
 
   if (violations.length === 0) {
@@ -308,7 +442,7 @@ function main(): void {
     const loc = v.line > 0 ? `${v.file}:${v.line}` : v.file;
     console.log(`${loc} [${v.rule}] ${v.detail}`);
   }
-  console.error(`\n${violations.length} violation${violations.length === 1 ? "" : "s"} — see silly-baking-yeti.md T1/T2/T3/T4/T7 for fix path`);
+  console.error(`\n${violations.length} violation${violations.length === 1 ? "" : "s"} — see silly-baking-yeti.md T1/T2/T3/T4/T7/T6/T15 for fix path`);
   process.exit(1);
 }
 
