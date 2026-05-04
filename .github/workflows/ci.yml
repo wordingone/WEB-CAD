@@ -21,6 +21,10 @@ jobs:
         run: bun run typecheck
       - name: Typecheck web
         run: bun run web:typecheck
+      - name: Audit stubs (zero UI dispatch gaps)
+        run: bun run audit:stubs
+      - name: Audit zip parity (lean shell.ts vs handoff app.jsx)
+        run: bun run audit:parity
       - name: Unit tests
         run: bun test
 
