@@ -40,6 +40,31 @@ rooms, stair-step structures, and a 14-element Schultz Residence (the
 hero demo, also reachable via the Cmd-K palette). Each has 3-6 sliders
 that re-trigger the worker without re-running the model.
 
+Beyond prompt-to-geometry, the page accepts three other input modes:
+**drag a floorplan PNG** to drive the 2D→3D reconstruction agent
+(emits IFC4 from a hand sketch); **drag a JPG/PNG to "Reconstruct via
+Agent…"** to drive the image→IFC E2B agent (Gemma 4 multimodal,
+LoRA-free); and **type DSL into the CONSOLE tab** (`wall(...)`,
+`slab(...)`, `column(...)`, `cut(...)`) for direct geometric control
+without round-tripping through the model.
+
+---
+
+## For judges (60 seconds)
+
+1. Open the [hosted demo](#) (URL filled at submission).
+2. Press `Cmd-K` (or `Ctrl-K`). Type `schultz`. Press Enter.
+3. Watch a 14-element residence emerge in <5 seconds, fully
+   IFC4-exportable. Click **Export → IFC4** to download a file that
+   loads cleanly in Revit / ArchiCAD / BlenderBIM.
+4. Click any element. The right sidebar shows IFC class + storey +
+   GUID + layer. Ctrl-click two more elements; the panel reports
+   `3 elements selected` with a union bounds rotation — the same
+   selection model a working architect uses in Rhino.
+
+That's the equity story in three clicks: a non-CAD user, in a browser,
+emits BIM-compliant geometry without an installer or API key.
+
 ---
 
 ## AI prompt pipeline
