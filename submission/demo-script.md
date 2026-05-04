@@ -80,8 +80,8 @@ title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 
 > "Now type your own prompt. _Build a square column, thirty centimeters
 > by thirty centimeters, three meters tall._ Cmd-Enter. The page hits
-> the inference cache — forty cached prompt-to-JS pairs from the v2
-> LoRA eval, every one of them round-trip-verified. Forty milliseconds.
+> the inference cache — sixty round-trip-verified prompt-to-JS pairs
+> covering both the LoRA eval set and the DSL corpus. Forty milliseconds.
 > No GPU spun up, no network call, no waiting. **The cache is the
 > default; live inference is one toggle away** for users who want the
 > real model in the loop."
@@ -137,7 +137,7 @@ title-block "GEMMA·ARCHITECT — UNTITLED.001 / SCALE 1:50 · IFC4 · METRIC".
 > that reads IFC. The model isn't generating pixels. It's generating
 > a building."
 
-> "Twenty thousand sentences in the training set. One LoRA adapter.
+> "Less than a thousand sentences in the training set. One LoRA adapter.
 > One web page. Open-source, Apache-2.0. Take it, fine-tune your own,
 > serve your own users. **CAD just stopped being a subscription.**"
 
