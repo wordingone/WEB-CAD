@@ -8,10 +8,14 @@
 // Exits 1 with each violation on its own line: `<file>:<line>: <category> — <snippet>`.
 
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join, relative } from "path";
+import { join, relative, resolve } from "path";
 
-const ROOT = "B:/M/gemma-architect-master/web/src";
-const REPORT_ROOT = "B:/M/gemma-architect-master";
+// Paths resolved from the script location so the audit works from any clone
+// (regardless of where the repo lives on disk). Run from the repo root:
+//   bun scripts/audit-stubs.ts
+const REPO_ROOT = resolve(import.meta.dir, "..");
+const ROOT = join(REPO_ROOT, "web/src");
+const REPORT_ROOT = REPO_ROOT;
 
 type Violation = { file: string; line: number; category: string; snippet: string };
 
