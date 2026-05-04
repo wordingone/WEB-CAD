@@ -470,8 +470,8 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
   if (!tool) return null;
   const handler = TOOL_HANDLERS[tool];
   if (!handler) {
-    const todo = TOOL_TODOS[tool] ?? "no kernel mapping yet";
-    console.log(`[create-mode] tool '${tool}' is TODO — ${todo}`);
+    const hint = TOOL_TODOS[tool] ?? "no kernel mapping yet";
+    console.log(`[create-mode] tool '${tool}': ${hint}`);
     return null;
   }
   _pending.push(world);
