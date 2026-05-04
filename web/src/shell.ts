@@ -134,7 +134,7 @@ function resetLayout(): void {
 
 // Download the current construction sequence as a .gemma.json project file.
 // This is the "Save" / "Save As…" fallback until T6 adds File System Access.
-function saveProjectJson(): void {
+export function saveProjectJson(): void {
   const seq = getCreateSequence();
   const payload = { version: 1, sequence: seq };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

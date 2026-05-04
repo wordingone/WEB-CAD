@@ -4,6 +4,7 @@
 
 import { iconSVG } from "./icons";
 import { openExportDrawer } from "./export-drawer";
+import { saveProjectJson } from "./shell";
 
 type Cmd = {
   group: "GENERATE" | "MODEL" | "VIEW" | "FILE";
@@ -56,7 +57,7 @@ const ALL_CMDS: Cmd[] = [
   { group: "FILE",     icon: "export",   label: "Export…",                   kbd: "⌘E",  run: () => openExportDrawer() },
   { group: "FILE",     icon: "export",   label: "Export IFC4 (one-click)",   kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="ifc"]') as HTMLElement | null)?.click() },
   { group: "FILE",     icon: "export",   label: "Export GLB (one-click)",    kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="glb"]') as HTMLElement | null)?.click() },
-  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => alert("Save .gma project — not yet implemented.") },
+  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => saveProjectJson() },
 ];
 
 let overlayEl: HTMLDivElement | null = null;
