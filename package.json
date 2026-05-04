@@ -12,7 +12,11 @@
     "web:dev": "vite --config web/vite.config.ts",
     "web:build": "vite build --config web/vite.config.ts",
     "web:preview": "vite preview --config web/vite.config.ts",
-    "web:typecheck": "tsc --noEmit -p web/tsconfig.json"
+    "web:typecheck": "tsc --noEmit -p web/tsconfig.json",
+    "audit:stubs": "bun scripts/audit-stubs.ts",
+    "audit:parity": "bun scripts/audit-zip-parity.ts",
+    "verify": "bun run typecheck && bun run web:typecheck && bun run audit:stubs && bun run audit:parity",
+    "verify:deploy": "bun scripts/validate-deploy.ts"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
