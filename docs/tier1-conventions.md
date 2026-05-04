@@ -194,8 +194,8 @@ const tank = profile.revolve();   // default: revolve around Z
 ## drawPolyline
 
 `drawPolyline(pts)` accepts any number of 2D points and **auto-closes**
-the path (per `tier1.ts:53`, the wrapper appends `pen.close()`). So
-for an N-gon, just provide the N vertices in order — don't repeat the
+the path (per `src/tools/tier1.ts:52`, the wrapper appends `pen.close()`).
+So for an N-gon, just provide the N vertices in order — don't repeat the
 first point.
 
 ```js
