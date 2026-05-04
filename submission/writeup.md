@@ -67,10 +67,13 @@ corpus, optional live LoRA inference when the user wants the actual
 model in the loop.
 
 <!--
-At submission time, embed the 3×3 screenshot grid here. The grid is
-composited from `submission/screenshots/{wall,column-3m,schultz}-{prompt,render,bim}.png`
-per `submission/screenshots/README.md`. Once captured + composited:
-  ![Demo grid: prompt → render → IFC in BlenderBIM, three rows](screenshots/grid.png)
+At submission time, embed the 4×3 screenshot grid here. The grid is
+composited per the `magick montage` command in
+`submission/screenshots/README.md` (rows: wall, column, Schultz; cols:
+prompt, render, drafting, BIM). 7 of 12 source cells are already
+captured (01-09 numbered shots); 3 BIM cells + 2 column cells are
+pending capture pre-composite. Once composited:
+  ![Demo grid: prompt → render → drafting → BIM, three rows](screenshots/grid.png)
 Leave commented out until the PNG exists — Kaggle does not gracefully
 hide broken image refs.
 -->
