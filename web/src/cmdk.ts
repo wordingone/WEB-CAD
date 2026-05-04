@@ -4,6 +4,7 @@
 
 import { iconSVG } from "./icons";
 import { openExportDrawer } from "./export-drawer";
+import { saveProjectJson } from "./shell";
 
 type Cmd = {
   group: "GENERATE" | "MODEL" | "VIEW" | "FILE";
@@ -44,6 +45,7 @@ const ALL_CMDS: Cmd[] = [
   { group: "MODEL",    icon: "column",   label: "New column",               kbd: "C",   run: () => selectDemoIndex(1) },
   { group: "MODEL",    icon: "extrude",  label: "Slab with stair hole",     kbd: "E",   run: () => selectDemoIndex(3) },
   { group: "MODEL",    icon: "wall",     label: "L-shape walls",            kbd: "L",   run: () => selectDemoIndex(5) },
+  { group: "MODEL",    icon: "wall",     label: "Schultz Residence (14 elements)", kbd: "R",   run: () => selectDemoIndex(8) },
   { group: "VIEW",     icon: "graph",        label: "Toggle drafting style", kbd: "D",   run: () => (window as unknown as { __toggleDrafting?: () => void }).__toggleDrafting?.() },
   { group: "VIEW",     icon: "split-single", label: "Mode → MODEL",         kbd: "⌥1",  run: () => activateModeKey("model") },
   { group: "VIEW",     icon: "split-quad",   label: "Mode → LAYOUT (paper)", kbd: "⌥2",  run: () => activateModeKey("layout") },
@@ -55,7 +57,7 @@ const ALL_CMDS: Cmd[] = [
   { group: "FILE",     icon: "export",   label: "Export…",                   kbd: "⌘E",  run: () => openExportDrawer() },
   { group: "FILE",     icon: "export",   label: "Export IFC4 (one-click)",   kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="ifc"]') as HTMLElement | null)?.click() },
   { group: "FILE",     icon: "export",   label: "Export GLB (one-click)",    kbd: "",    run: () => (document.querySelector('.exp-btn[data-fmt="glb"]') as HTMLElement | null)?.click() },
-  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => alert("Save .gma project — not yet implemented.") },
+  { group: "FILE",     icon: "save",     label: "Save .gma project",        kbd: "⌘S",  run: () => saveProjectJson() },
 ];
 
 let overlayEl: HTMLDivElement | null = null;

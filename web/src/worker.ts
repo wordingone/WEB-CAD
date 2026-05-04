@@ -27,6 +27,7 @@ import {
 import * as WebIFC from "web-ifc";
 // @ts-ignore — wasm asset URL resolved by vite-plugin-wasm
 import webIfcWasmUrl from "web-ifc/web-ifc.wasm?url";
+import type { IfcHierarchyElement } from "./ifc-types";
 
 type Pt = [number, number];
 
@@ -100,6 +101,14 @@ type ReadyMsg = { type: "ready" };
 
 // File-load: IFC.
 type LoadIfcRequest = { type: "load-ifc"; id: number; bytes: ArrayBuffer };
+export type IfcElementRange = {
+  expressID: number;
+  vertexStart: number;
+  vertexCount: number;
+  indexStart: number;
+  indexCount: number;
+};
+
 type LoadIfcSuccess = {
   type: "load-ifc-ok";
   id: number;
@@ -110,6 +119,8 @@ type LoadIfcSuccess = {
   bounds: { min: [number, number, number]; max: [number, number, number] };
   schema: string;
   entityCount: number;
+  hierarchy: IfcHierarchyElement[];
+  elementRanges: IfcElementRange[];
 };
 type LoadIfcError = { type: "load-ifc-error"; id: number; error: string };
 
@@ -260,12 +271,17 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
     const normals: number[] = [];
     const colors: number[] = [];
     let entityCount = 0;
+    const elementExpressIDs: number[] = [];
 
+    const elementRanges: IfcElementRange[] = [];
     const meshCount = flatMeshes.size();
     for (let i = 0; i < meshCount; i++) {
       const flatMesh = flatMeshes.get(i);
+      elementExpressIDs.push(flatMesh.expressID);
       const placedCount = flatMesh.geometries.size();
       entityCount += placedCount;
+      const elemVertStart = positions.length / 3;
+      const elemIdxStart = indices.length;
       for (let j = 0; j < placedCount; j++) {
         const placed = flatMesh.geometries.get(j);
         const geom = api.GetGeometry(modelID, placed.geometryExpressID);
@@ -299,6 +315,76 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
           indices.push(idx[k] + baseIndex);
         }
       }
+      elementRanges.push({
+        expressID: flatMesh.expressID,
+        vertexStart: elemVertStart,
+        vertexCount: positions.length / 3 - elemVertStart,
+        indexStart: elemIdxStart,
+        indexCount: indices.length - elemIdxStart,
+      });
+    }
+
+    // Build reverse type-number → IFC class name map.
+    const typeToIfcName = new Map<number, string>(
+      (Object.entries(WebIFC) as Array<[string, unknown]>)
+        .filter(([k, v]) => k.startsWith("IFC") && typeof v === "number")
+        .map(([k, v]) => [v as number, k]),
+    );
+
+    // Extract storeys.
+    const storeyLineIDs = api.GetLineIDsWithType(modelID, WebIFC.IFCBUILDINGSTOREY);
+    const storeyByID = new Map<number, { name: string; elevation: number }>();
+    for (let si = 0; si < storeyLineIDs.size(); si++) {
+      const sid = storeyLineIDs.get(si);
+      try {
+        const line = api.GetLine(modelID, sid, false) as any;
+        storeyByID.set(sid, {
+          name: (line.Name?.value as string | undefined) ?? `Storey ${si + 1}`,
+          elevation: (line.Elevation?.value as number | undefined) ?? 0,
+        });
+      } catch {}
+    }
+
+    // Build element → storey map via IfcRelContainedInSpatialStructure.
+    const elemToStorey = new Map<number, number>();
+    const relIDs = api.GetLineIDsWithType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE);
+    for (let ri = 0; ri < relIDs.size(); ri++) {
+      try {
+        const rel = api.GetLine(modelID, relIDs.get(ri), false) as any;
+        const structID: number = rel.RelatingStructure?.expressID ?? -1;
+        if (!storeyByID.has(structID)) continue;
+        const related = rel.RelatedElements as Array<{ expressID?: number; value?: number }> | undefined;
+        if (!related) continue;
+        for (const elem of related) {
+          const eid = elem.expressID ?? elem.value;
+          if (typeof eid === "number") elemToStorey.set(eid, structID);
+        }
+      } catch {}
+    }
+
+    // Build hierarchy entries for each geometry element.
+    const hierarchy: IfcHierarchyElement[] = [];
+    for (const eid of elementExpressIDs) {
+      try {
+        const line = api.GetLine(modelID, eid, false) as any;
+        const typeNum = api.GetLineType(modelID, eid);
+        const ifcClass = typeToIfcName.get(typeNum) ?? "IfcEntity";
+        const name =
+          (line.Name?.value as string | undefined) ??
+          (line.LongName?.value as string | undefined) ??
+          `#${eid}`;
+        const guid = (line.GlobalId?.value as string | undefined) ?? "";
+        const storeyID = elemToStorey.get(eid);
+        const storey = storeyID != null ? storeyByID.get(storeyID) : undefined;
+        hierarchy.push({
+          expressID: eid,
+          name,
+          guid,
+          ifcClass,
+          storeyName: storey?.name ?? "Unassigned",
+          storeyElevation: storey?.elevation ?? 0,
+        });
+      } catch {}
     }
 
     api.CloseModel(modelID);
@@ -326,6 +412,8 @@ async function loadIfc(bytes: ArrayBuffer): Promise<LoadIfcSuccess | LoadIfcErro
       bounds: { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] },
       schema,
       entityCount,
+      hierarchy,
+      elementRanges,
     };
   } catch (e) {
     if (modelID >= 0) {

@@ -206,11 +206,16 @@ function emitWall(s: Wall, name: string): string {
   const ang = Math.atan2(dy, dx);
   // Wall: rectangle of (length × thickness) extruded h, rotated to wall axis,
   // translated to midpoint. Z=0 base.
+  // Replicad Solid.rotate signature is (angle, position, direction). Earlier
+  // arg order passed direction first, position second — silently returned
+  // undefined and broke .translate downstream. 4/8 corpus rows (every wall-
+  // based one: wall, wall-with-door, l-walls, four-walled-room) failed before
+  // this fix. Regression caught by scripts/verify-dsl-corpus.ts.
   return [
     `const ${name} = drawRectangle(${len.toFixed(4)}, ${s.thickness.toFixed(4)})`,
     `  .sketchOnPlane("XY")`,
     `  .extrude(${s.height.toFixed(4)})`,
-    `  .rotate(${((ang * 180) / Math.PI).toFixed(4)}, [0,0,1], [0,0,0])`,
+    `  .rotate(${((ang * 180) / Math.PI).toFixed(4)}, [0,0,0], [0,0,1])`,
     `  .translate([${cx.toFixed(4)}, ${cy.toFixed(4)}, 0]);`,
   ].join("\n");
 }

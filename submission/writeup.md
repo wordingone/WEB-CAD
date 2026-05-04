@@ -26,29 +26,86 @@ afford the $3K/year CAD subscription that today gates the practice.
 ## What it does
 
 A non-CAD user opens a static web page (no install, no login, no API
-key). They see a prompt dropdown listing eight canned demos, a 3D viewer,
-parameter sliders, and three buttons: **Run**, **Export IFC**, **Export STL**.
+key). The page shell is a drafting workbench (post-#170 bundle port):
+top-bar **EXPORT** drawer + Cmd-K palette, left palette of CAD-tool
+glyphs, right sidebar (SCENE / INSPECT / ASSETS), bottom dock with
+five tabs (PROMPT / CONSOLE / NODES / PARAMETERS / HISTORY), 3D viewer
+in the center.
 
-1. They pick a demo from the dropdown — say, `"Wall (5.5m × 0.2m × 2.8m)"`.
-2. The natural-language prompt and the model-generated replicad source
-   appear in two text boxes, side by side. They can edit either one.
-3. They click **Run**. A web worker boots OpenCascade WebAssembly
-   (replicad-opencascadejs), executes the source against the same Tier 1
-   tool surface the model was trained on, and posts the resulting mesh
-   back to the main thread. three.js renders it in the viewer.
-4. They drag the **length** / **thickness** / **height** sliders. Each
-   change debounces 90ms and re-runs the worker — geometry updates live,
-   no model re-inference needed.
-5. They click **Export IFC**. The page hand-emits an IFC4 STEP-21 file
-   (the IFC text wire format) wrapping the mesh in an
-   `IfcBuildingElementProxy` → `IfcFacetedBrep` → `IfcClosedShell` chain,
+1. They open the **PROMPT** tab. A chip strip lists the canned demos.
+   They click `"Wall · 5.5×0.2×2.8m"`.
+2. The natural-language prompt fills the textarea; the model-generated
+   replicad source mirrors into a JS source pane. Either is editable.
+3. They click **GENERATE** (or hit `⌘⏎`). A web worker boots
+   OpenCascade WebAssembly (replicad-opencascadejs), executes the
+   source against the same Tier 1 tool surface the model was trained
+   on, and posts the resulting mesh back to the main thread. three.js
+   renders it in the viewer. The CONSOLE tab logs
+   `[ai-generate] cache · X.XX match · ~50ms`.
+4. They drag the **length** / **thickness** / **height** sliders in
+   the PARAMETERS tab. Each change debounces 90ms and re-runs the
+   worker — geometry updates live, no model re-inference needed.
+5. They click **EXPORT** (or hit `⌘E`). A drawer slides in offering
+   12 formats (IFC4, STL, OBJ, GLB, STEP, IGES, ...). They pick
+   IFC4. The page hand-emits an IFC4 STEP-21 file (wrapping the mesh
+   in `IfcBuildingElementProxy` → `IfcFacetedBrep` → `IfcClosedShell`),
    round-trips the bytes through web-ifc.OpenModel to verify the file
    parses back, and downloads it.
 
-Eight canned demos ship in the v1 page, picked from the held-out
-40-row eval set: walls, columns, raised slabs, slabs with stair holes,
-walls with doorways, L-shape walls, four-walled rooms, stair-step
-structures. Each demo has 3–6 sliders that retrigger the worker.
+Nine demos ship in the page. Eight are picked from the held-out 40-row
+eval set (walls, columns, raised slabs, slabs with stair holes, walls
+with doorways, L-shape walls, four-walled rooms, stair-step structures).
+The ninth is a hero demo — the **Schultz Residence**: a single-story
+12×8m residence assembled from 14 replicad operations (multi-fuse + two
+boolean cuts for a doorway and a window). Each demo has 3–6 sliders that
+retrigger the worker.
+
+A user can also **type their own prompt**. The textbox runs through a
+two-path AI pipeline (described under "AI prompt → geometry pipeline"
+below): cache-first for sub-100ms response on prompts close to the eval
+corpus, optional live LoRA inference when the user wants the actual
+model in the loop.
+
+<!--
+At submission time, embed the 3×3 screenshot grid here. The grid is
+composited from `submission/screenshots/{wall,column-3m,schultz}-{prompt,render,bim}.png`
+per `submission/screenshots/README.md`. Once captured + composited:
+  ![Demo grid: prompt → render → IFC in BlenderBIM, three rows](screenshots/grid.png)
+Leave commented out until the PNG exists — Kaggle does not gracefully
+hide broken image refs.
+-->
+
+### Beyond prompt-to-geometry: three other input paths
+
+A non-CAD user has more than one way to start a building. The same
+worker → kernel → IFC pipeline accepts three other entry points:
+
+- **Drag a hand-sketched floorplan PNG into the canvas.** A 2D→3D
+  reconstruction agent runs Sobel edge detection + a Hough-lite
+  pixel-run scanner, finds horizontal and vertical wall segments at a
+  default 100 px/m scale, extrudes them at 2.8m, and emits IFC4. A
+  pencil sketch becomes a loadable BIM file in one drop. Zero deps —
+  Sobel and the Hough loop both ship as in-line OffscreenCanvas code.
+- **Reconstruct via Agent (image → IFC) for a JPG of a real
+  floorplan.** Gemma 4 multimodal native — no LoRA on this branch.
+  The image content block is attached directly to a function-calling
+  request; the model emits dispatch calls (`makeWall`, `makeSlab`,
+  `cut`, ...) routed through the same dispatch table the human user
+  types into. One model, two surface types, the multimodal
+  differentiator that justifies "why Gemma 4 specifically."
+- **Type DSL into the CONSOLE tab.** A copyright-safe Rhino-style
+  lexicon (~70 verbs hand-curated against IFC4 entity classes,
+  documented at `web/src/spatial-dictionary.LICENSE.md`) backs the
+  CONSOLE input: `wall(0, 0, 5.5, 0.2, 2.8); slab(0, 0, 5, 6, 0.2);
+  column(2, 3, 0.4, 3); cut(slab, door)`. Direct geometric control
+  for the architect who already speaks CAD.
+
+The implication: gemma-architect treats Gemma 4 not as a single
+prompt-completion endpoint but as a **routing function** over a
+dispatch table that's also exposed to human keystrokes, drag-drop, and
+clicks. Judges who score on tech depth will find this in
+`web/src/dispatch.ts` (single source of truth for ~30 canonical
+operations across human + agent input).
 
 ---
 
@@ -80,7 +137,7 @@ drawPolyline([[x1,y1], [x2,y2], ...])
 .fuse(otherSolid)
 .cut(otherSolid)
 .translate([dx, dy, dz])
-.rotate(angle, axis, center)
+.rotate(angle, position, direction)
 ```
 
 This covers ~85% of what a small-shop architect produces in the
@@ -121,7 +178,8 @@ boolean chains) is curated in the dataset but not the model's primary target.
 
 Per-row results in `outputs/cad-lora-v2-4b-it-eval.jsonl`. Per-row prompts
 plus generated source are auditable; eight of them ship as canned demos in
-the web page.
+the web page (the ninth is the Schultz Residence hero, which uses `gold`
+because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 
 ### Browser runtime
 
@@ -134,6 +192,43 @@ the web page.
 - Bundle (verified 2026-05-03 against `bun run web:build`): main JS 4.24 MB
   / gzip 0.58 MB · worker 3.84 MB · replicad OpenCascade WASM 10.8 MB / gzip
   4.58 MB · web-ifc WASM 1.3 MB / gzip 0.48 MB · CSS 61 kB / gzip 12 kB.
+
+### AI prompt → geometry pipeline
+
+Two paths back the page's prompt textbox; the user picks via configuration,
+the default is the cache.
+
+**Path 1 — bundled cache.** Forty-one prompt → JS pairs ship with the web
+bundle as `web/public/ai-cache.json`. Forty come from the LoRA eval corpus
+(every row that scored full round-trip — parse + api + runtime). The
+forty-first is the Schultz Residence (gold; the 4b-it pred has structural
+bugs on the 14-element multi-fuse). On a typed prompt, `web/src/ai-generate.ts`
+does weighted-F1 fuzzy match (numeric/dimension tokens count 2x) against
+the cache and returns the closest match's JS. Sub-100ms. No GPU. No network.
+
+This path makes the demo bullet-proof for judges who don't want to set up
+a GPU server. The cache is built deterministically from the eval JSONL —
+if we re-train, regenerating the cache is a one-line `bun scripts/build-ai-cache.ts`.
+
+**Path 2 — live LoRA inference.** A minimal FastAPI wrapper at
+`src/serve/serve_lora.py` loads the v2 adapter through Unsloth FastModel
+(4-bit) and exposes an OpenAI-compat `/v1/chat/completions` endpoint.
+Setting `window.__loraUrl` (or build-time `VITE_LORA_URL`) makes the
+frontend hit it first and only fall back to the cache on network/HTTP
+errors. ~30s adapter load on a 4090, then ~2s/turn at temperature 0.1.
+
+Both paths funnel into the same `generateGeometry()` interface, so the
+backend can swap without touching the workbench wiring. Pipeline shape:
+
+```
+prompt textbox → ai-generate.generateGeometry()
+              ├─ if loraUrl → POST /v1/chat/completions → JS
+              └─ else → cache F1 fuzzy match → JS
+              ↓
+        #js-source textarea → run-btn click → worker.ts
+              ↓
+        replicad execute() → mesh + IFC
+```
 
 ### IFC4 export
 
@@ -151,21 +246,32 @@ A separate `bun scripts/web-self-harness.ts` exercises the same data path
 the worker takes — execute against tier1, mesh via OpenCascade, build IFC
 bytes, validate STEP-21 structure (header, schema marker, footer, exact
 face count, exactly one IfcBuildingElementProxy / IfcFacetedBrep /
-IfcClosedShell). All 8 demos pass.
+IfcClosedShell). All 9 demos pass (8 dropdown + Schultz hero).
 
 ```
-gemma-architect web self-harness — 8 demos
+gemma-architect web self-harness — 9 demos
 OpenCascade ready.
   PASS  wall                 Solid 12 tris  5.50×0.20×2.80m  ifc=4.4KB / 90 entities
   PASS  column               Solid 164 tris  0.90×0.90×5.00m  ifc=29.1KB / 694 entities
   PASS  raised-slab          Solid 12 tris  5.00×4.00×0.20m  ifc=4.0KB / 90 entities
   PASS  slab-with-hole       Compound 20 tris  6.00×6.00×0.20m  ifc=5.3KB / 126 entities
   PASS  wall-with-door       Compound 20 tris  4.13×0.28×2.69m  ifc=6.4KB / 126 entities
-  PASS  l-walls              Compound 44 tris  8.45×9.25×3.35m  ifc=11.0KB / 234 entities
-  PASS  four-walled-room     Compound 68 tris  13.56×13.20×3.06m  ifc=16.8KB / 354 entities
+  PASS  l-walls              Compound 20 tris  8.45×9.25×3.35m  ifc=5.8KB / 126 entities
+  PASS  four-walled-room     Compound 32 tris  9.12×9.34×3.06m  ifc=8.3KB / 174 entities
   PASS  stair-step           Compound 36 tris  1.56×2.77×0.84m  ifc=10.0KB / 198 entities
-8/8 demos passed.
+  PASS  schultz-residence    Compound 120 tris  12.00×8.00×3.20m  ifc=24.6KB / 566 entities
+9/9 demos passed.
 ```
+
+A second harness, `bun scripts/test-ifc-bounds.ts`, exercises the
+**IFC viewer** path on six bundled real-world IFCs (Schultz Residence,
+AC20-FZK-Haus, AC20-Institute-Var-2, plus three smaller fixtures). It
+validates that per-element world-space transforms come out of web-ifc's
+column-major `flatTransformation` correctly — a regression in the
+matrix block at `web/src/worker.ts:283-289` would collapse every
+component to world origin (each FlatMesh would render at (0,0,0)).
+Today: all 6 samples produce coherent buildings with thousands of
+distinct per-part translations.
 
 ---
 
@@ -269,7 +375,7 @@ format accessible from a free webpage typed into in plain English."
 
 - **Repo**: https://github.com/wordingone/gemma-architect
 - **LoRA adapter**: https://huggingface.co/gemma-architect/cad-lora-v2
-- **Live demo**: https://wordingone.github.io/gemma-architect/
+- **Live demo**: (Spaces URL — to be filled at submission time)
 - **Demo video**: (YouTube URL — to be filled at submission time)
 - **Reproduction guide**: `submission/repro.md`
 - **Impact statement**: `submission/impact.md`

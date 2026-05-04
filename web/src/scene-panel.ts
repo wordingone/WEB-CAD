@@ -13,6 +13,12 @@
 import * as THREE from "three";
 import type { Viewer } from "./viewer";
 import { iconSVG } from "./icons";
+import {
+  getFilters,
+  setFilter,
+  type SelectionFilters,
+} from "./selection-state";
+import type { IfcHierarchyElement } from "./ifc-types";
 
 type IfcClass = "ARCHITECTURE" | "STRUCTURE" | "OPENINGS" | "CIRCULATION" | "MESHES";
 function classifyByName(name: string): IfcClass {
@@ -30,6 +36,7 @@ export type SceneSummary = {
   filename?: string;
   schema?: string;       // IFC schema id, e.g. "IFC4"
   entityCount?: number;  // IFC entity count from the loader summary
+  hierarchy?: IfcHierarchyElement[];
 };
 
 type MeshNode = {
@@ -129,41 +136,92 @@ export class ScenePanel {
       : "";
     const schemaStr = summary.schema ? ` &middot; ${escapeHtml(summary.schema)}` : "";
 
-    // Group nodes by inferred IFC class.
-    const groups = new Map<IfcClass, MeshNode[]>();
-    const ORDER: IfcClass[] = ["ARCHITECTURE", "STRUCTURE", "OPENINGS", "CIRCULATION", "MESHES"];
-    for (const n of this.nodes) {
-      const cls = classifyByName(n.name);
-      if (!groups.has(cls)) groups.set(cls, []);
-      groups.get(cls)!.push(n);
-    }
-
     let outlinerHtml = `<div class="outliner">`;
-    if (this.nodes.length === 0) {
-      outlinerHtml += `<div style="padding:14px; color:var(--ink-faint); font-size:10px;">No meshes in this scene.</div>`;
-    } else {
-      for (const cls of ORDER) {
-        const items = groups.get(cls);
-        if (!items || items.length === 0) continue;
+
+    if (summary.hierarchy && summary.hierarchy.length > 0) {
+      // Storey-organized IFC tree.
+      const storeyMap = new Map<string, { elevation: number; classes: Map<string, IfcHierarchyElement[]> }>();
+      for (const el of summary.hierarchy) {
+        const key = el.storeyName;
+        if (!storeyMap.has(key)) storeyMap.set(key, { elevation: el.storeyElevation, classes: new Map() });
+        const storey = storeyMap.get(key)!;
+        if (!storey.classes.has(el.ifcClass)) storey.classes.set(el.ifcClass, []);
+        storey.classes.get(el.ifcClass)!.push(el);
+      }
+      // Sort storeys by elevation; "Unassigned" last.
+      const storeyKeys = [...storeyMap.keys()].sort((a, b) => {
+        if (a === "Unassigned") return 1;
+        if (b === "Unassigned") return -1;
+        return storeyMap.get(a)!.elevation - storeyMap.get(b)!.elevation;
+      });
+      for (const storeyKey of storeyKeys) {
+        const storey = storeyMap.get(storeyKey)!;
+        const elevStr = storeyKey !== "Unassigned" ? ` (${storey.elevation.toFixed(2)}m)` : "";
+        const storeyTotal = [...storey.classes.values()].reduce((s, arr) => s + arr.length, 0);
+        const sectionId = `storey-${storeyKey}`;
         outlinerHtml += `
-          <div class="outliner-section" data-section="${cls}">
+          <div class="outliner-section" data-section="${escapeAttr(sectionId)}">
             <div class="outliner-section-header">
               ${iconSVG("chevron-down", 9)}
-              ${cls}
-              <span class="count">${items.length}</span>
+              ${escapeHtml(storeyKey)}${escapeHtml(elevStr)}
+              <span class="count">${storeyTotal}</span>
             </div>`;
-        for (const n of items) {
-          const tris = n.triangles.toLocaleString();
+        const classKeys = [...storey.classes.keys()].sort();
+        for (const cls of classKeys) {
+          const elems = storey.classes.get(cls)!;
+          const classSectionId = `class-${cls}`;
           outlinerHtml += `
-            <div class="outliner-row" data-id="${n.id}" style="--depth:${Math.min(n.depth, 2)}">
-              <span class="twirl"></span>
-              <span class="name" data-action="zoom" data-id="${n.id}" title="Click to zoom · ${tris} tri">${escapeHtml(n.name)}</span>
-              <span class="swatch" style="background:${n.color}; border-color:${n.color};" aria-hidden="true"></span>
-              <button class="vis-btn" data-action="toggle" data-id="${n.id}" title="Toggle visibility" type="button" aria-label="Toggle visibility for ${escapeHtml(n.name)}">${iconSVG("eye", 11)}</button>
-              <button class="vis-btn" data-action="lock" data-id="${n.id}" title="Lock (stub)" type="button" aria-label="Lock ${escapeHtml(n.name)}">${iconSVG("lock", 11)}</button>
-            </div>`;
+            <div class="outliner-section" data-section="${escapeAttr(classSectionId)}" style="margin-left:10px;">
+              <div class="outliner-section-header">
+                ${iconSVG("chevron-down", 9)}
+                ${escapeHtml(cls)}
+                <span class="count">${elems.length}</span>
+              </div>`;
+          for (const el of elems) {
+            const label = el.name && el.name !== `#${el.expressID}` ? el.name : `#${el.expressID}`;
+            outlinerHtml += `
+              <div class="outliner-row" style="--depth:2">
+                <span class="name" title="${escapeAttr(el.guid)}">${escapeHtml(label)}</span>
+              </div>`;
+          }
+          outlinerHtml += `</div>`;
         }
         outlinerHtml += `</div>`;
+      }
+    } else {
+      // Flat mesh-based tree grouped by inferred IFC class.
+      const groups = new Map<IfcClass, MeshNode[]>();
+      const ORDER: IfcClass[] = ["ARCHITECTURE", "STRUCTURE", "OPENINGS", "CIRCULATION", "MESHES"];
+      for (const n of this.nodes) {
+        const cls = classifyByName(n.name);
+        if (!groups.has(cls)) groups.set(cls, []);
+        groups.get(cls)!.push(n);
+      }
+      if (this.nodes.length === 0) {
+        outlinerHtml += `<div style="padding:14px; color:var(--ink-faint); font-size:10px;">No meshes in this scene.</div>`;
+      } else {
+        for (const cls of ORDER) {
+          const items = groups.get(cls);
+          if (!items || items.length === 0) continue;
+          outlinerHtml += `
+            <div class="outliner-section" data-section="${cls}">
+              <div class="outliner-section-header">
+                ${iconSVG("chevron-down", 9)}
+                ${cls}
+                <span class="count">${items.length}</span>
+              </div>`;
+          for (const n of items) {
+            const tris = n.triangles.toLocaleString();
+            outlinerHtml += `
+              <div class="outliner-row" data-id="${n.id}" style="--depth:${Math.min(n.depth, 2)}">
+                <span class="twirl"></span>
+                <span class="name" data-action="zoom" data-id="${n.id}" title="Click to zoom · ${tris} tri">${escapeHtml(n.name)}</span>
+                <span class="swatch" style="background:${n.color}; border-color:${n.color};" aria-hidden="true"></span>
+                <button class="vis-btn" data-action="toggle" data-id="${n.id}" title="Toggle visibility" type="button" aria-label="Toggle visibility for ${escapeHtml(n.name)}">${iconSVG("eye", 11)}</button>
+              </div>`;
+          }
+          outlinerHtml += `</div>`;
+        }
       }
     }
     outlinerHtml += `</div>`;
@@ -174,6 +232,25 @@ export class ScenePanel {
   }
 
   private wireRowActions(): void {
+    // Collapsible section headers.
+    this.root.querySelectorAll<HTMLElement>(".outliner-section-header").forEach((header) => {
+      header.style.cursor = "pointer";
+      header.addEventListener("click", () => {
+        const section = header.parentElement as HTMLElement;
+        const collapsed = section.dataset.collapsed === "1";
+        if (collapsed) {
+          section.dataset.collapsed = "";
+          section.querySelectorAll<HTMLElement>(".outliner-row").forEach((r) => (r.style.display = ""));
+          const svg = header.querySelector<SVGElement>("svg");
+          if (svg) svg.style.transform = "";
+        } else {
+          section.dataset.collapsed = "1";
+          section.querySelectorAll<HTMLElement>(".outliner-row").forEach((r) => (r.style.display = "none"));
+          const svg = header.querySelector<SVGElement>("svg");
+          if (svg) svg.style.transform = "rotate(-90deg)";
+        }
+      });
+    });
     this.root.querySelectorAll<HTMLElement>("[data-action]").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -198,8 +275,6 @@ export class ScenePanel {
           const row = (e.currentTarget as HTMLElement).closest<HTMLElement>(".outliner-row");
           row?.classList.add("selected");
           this.viewer.frameObjectOnly(node.mesh);
-        } else if (action === "lock") {
-          // Stub — placeholder for future selection-lock functionality.
         }
       });
     });
@@ -213,4 +288,53 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(s: string): string {
+  return s.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Selection-filter checkbox bank (Rhino-style). Eight entries; defaults match
+// selection-state.ts. Returned as a live DOM element so it can be mounted
+// permanently in the sidebar, independent of which tab is active.
+const SELECTION_FILTER_KEYS: Array<{ key: keyof SelectionFilters; label: string }> = [
+  { key: "Points",        label: "Points" },
+  { key: "Curves",        label: "Curves" },
+  { key: "Surfaces",      label: "Surfaces" },
+  { key: "Polysurfaces",  label: "Polysurfaces" },
+  { key: "Meshes",        label: "Meshes" },
+  { key: "Annotations",   label: "Annotations" },
+  { key: "Lights",        label: "Lights" },
+  { key: "Blocks",        label: "Blocks" },
+];
+
+export function buildSelectionFiltersPanel(): HTMLElement {
+  const filters = getFilters();
+  const rows = SELECTION_FILTER_KEYS.map(({ key, label }) => {
+    const checked = filters[key] ? "checked" : "";
+    return `<label class="sf-row" style="display:flex; align-items:center; gap:6px; padding:2px 0; font-size:11px; cursor:pointer;">
+      <input type="checkbox" data-filter="${key}" ${checked} style="margin:0;"/>
+      <span style="color:var(--ink-soft);">${label}</span>
+    </label>`;
+  }).join("");
+
+  const container = document.createElement("div");
+  container.className = "selection-filters";
+  container.style.cssText = "padding:6px 10px; border-top:1px solid var(--hairline-soft);";
+  container.innerHTML = `
+    <div style="font-family:var(--mono); font-size:10px; color:var(--ink-faint); letter-spacing:0.08em; padding-bottom:4px;">SELECTION FILTERS</div>
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 12px;">
+      ${rows}
+    </div>
+    <div style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); padding-top:4px;">Ctrl+Shift+click to drill into sub-objects</div>
+  `;
+
+  // Wire checkboxes — setFilter drives subscribeFilters in main.ts which
+  // handles vertex-helper visibility for the Points key.
+  container.querySelectorAll<HTMLInputElement>("input[data-filter]").forEach((input) => {
+    const key = input.dataset.filter as keyof SelectionFilters;
+    input.addEventListener("change", () => setFilter(key, input.checked));
+  });
+
+  return container;
 }

@@ -264,8 +264,8 @@ post-hackathon roadmap item to close it.
   the tool surface end-to-end (execute → mesh → IFC → validate →
   bounds-check). Useful when sanity-checking a tier1.ts change or a
   fixture change.
-- `scripts/web-self-harness.ts` — the 8 canned demos, end-to-end. The
-  CI hook for the model itself.
+- `scripts/web-self-harness.ts` — the 9 canned demos (8 dropdown + Schultz
+  hero), end-to-end. The CI hook for the model itself.
 
 The harness suite was exactly how the asymmetric Z convention got
 caught — `leo-as-architect.ts` flagged 5 of 8 designs with bounds

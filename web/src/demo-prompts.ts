@@ -1,9 +1,8 @@
-// Eight canned (prompt, JS) pairs picked from the cad-lora-v2-4b-it eval set
-// (40-row held-out, 100% runtime_pass). Used as the offline demo when the
-// Gemma model isn't available in-browser. All eight verified parse_ok +
-// api_clean + has_solid_op + runtime_pass on the live tier1 surface.
+// Demo (prompt, JS) pairs.
 //
-// Source rows (line indices in outputs/cad-lora-v2-4b-it-eval.jsonl):
+// Items 1-8 are picked from the cad-lora-v2-4b-it eval set
+// (40-row held-out, 100% runtime_pass). All verified parse_ok + api_clean
+// + has_solid_op + runtime_pass on the live tier1 surface.
 //   row  2 — slab with hole       → Boolean cut
 //   row  5 — raised slab          → translate
 //   row  7 — circular column      → drawCircle + extrude
@@ -12,6 +11,14 @@
 //   row 22 — stair-step           → multi-fuse + translate
 //   row 23 — L-shape walls        → fuse
 //   row 33 — wall with doorway    → cut
+//
+// Item 9 is the Schultz Residence multi-element compound — 14 consts,
+// fuses + cuts across slab/walls/door/window/columns/roof. Sourced from
+// data/schultz-target.jsonl (the canonical first-target eval row); this is
+// the architectural target the LoRA is being trained to produce. Current
+// 4b-it pred achieves 12 of 14 consts (door/window emitted as floating
+// boxes instead of cuts — see docs/closed-loop-cad-test-report.md). When
+// the LoRA closes the gap this entry can be regenerated from its output.
 
 export type Param = {
   name: string;        // identifier in the JS source to substitute
@@ -139,6 +146,25 @@ const stairs = s0.fuse(s1).fuse(s2).fuse(s3);`,
       { name: "RISE",  label: "rise / step (m)", min: 0.1, max: 0.3, step: 0.01, default: 0.21 },
       { name: "WIDTH", label: "stair width (m)", min: 0.8, max: 4,   step: 0.05, default: 2.77 },
     ],
+  },
+  {
+    id: "schultz-residence",
+    label: "9. Schultz Residence (14-element compound — multi-fuse + cuts)",
+    prompt: "Build a single-story residence in the style of the Schultz Residence: rectangular 12m by 8m footprint, 0.2m floor slab, four perimeter exterior walls 2.8m tall and 0.2m thick, one interior partition splitting the plan east-west at x=7m (0.15m thick, full height), two square columns 0.3m by 0.3m at the front corners, a 1m by 2.1m doorway in the south wall centered on the front entry (4m from the west edge), a 2m by 1.4m window in the north wall centered (6m from the west edge), and a flat roof slab 0.2m thick at z=2.8m. Fuse all walls and slabs into a single composite.",
+    js: `const slabFloor = drawRectangle(12, 8).sketchOnPlane("XY").extrude(0.2).translate([6, 4, -0.2]);
+const slabRoof = drawRectangle(12, 8).sketchOnPlane("XY").extrude(0.2).translate([6, 4, 2.8]);
+const wallSouth = drawRectangle(12, 0.2).sketchOnPlane("XY").extrude(2.8).translate([6, 0.1, 0]);
+const doorCut = drawRectangle(1, 0.2).sketchOnPlane("XY").extrude(2.1).translate([4, 0.1, 0]);
+const wallSouthCut = wallSouth.cut(doorCut);
+const wallNorth = drawRectangle(12, 0.2).sketchOnPlane("XY").extrude(2.8).translate([6, 7.9, 0]);
+const windowCut = drawRectangle(2, 0.2).sketchOnPlane("XY").extrude(1.4).translate([6, 7.9, 0.9]);
+const wallNorthCut = wallNorth.cut(windowCut);
+const wallWest = drawRectangle(0.2, 7.6).sketchOnPlane("XY").extrude(2.8).translate([0.1, 4, 0]);
+const wallEast = drawRectangle(0.2, 7.6).sketchOnPlane("XY").extrude(2.8).translate([11.9, 4, 0]);
+const partition = drawRectangle(0.15, 7.6).sketchOnPlane("XY").extrude(2.8).translate([7, 4, 0]);
+const columnSW = drawRectangle(0.3, 0.3).sketchOnPlane("XY").extrude(2.8).translate([0.5, 0.5, 0]);
+const columnSE = drawRectangle(0.3, 0.3).sketchOnPlane("XY").extrude(2.8).translate([11.5, 0.5, 0]);
+const residence = slabFloor.fuse(slabRoof).fuse(wallSouthCut).fuse(wallNorthCut).fuse(wallWest).fuse(wallEast).fuse(partition).fuse(columnSW).fuse(columnSE);`,
   },
 ];
 

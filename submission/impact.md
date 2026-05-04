@@ -21,6 +21,18 @@ file readable by every BIM tool on the planet (Revit, ArchiCAD, BlenderBIM,
 Solibri, IFC.js viewers, BimVision). Parameters become sliders the user
 can drag without ever opening a modeling environment.
 
+The sharpest version of the equity case is the hand-sketch path: a
+small-shop architect in a region where Revit costs three months' wages
+opens the page, drags a hand-drawn pencil-on-paper floorplan into the
+canvas, and downloads a BIM-compliant IFC4 file in seconds. Sobel +
+Hough wall detection runs in-line on the page (zero deps, no service
+to call), extrudes detected segments at 2.8m, emits IFC4 — turns
+"person with a sketch" into "BIM asset producer" without an installer,
+API key, or CAD training prerequisite. For a real photograph of a
+floorplan, the same path drives Gemma 4 multimodal native (no LoRA
+on this branch — function-calling routes the image directly through
+the same dispatch table the typed-prompt path uses).
+
 The audience who gains access:
 
 - **Small-shop architects** in regions where commercial CAD is priced for
@@ -51,6 +63,15 @@ window:
 3. **Apache-2.0 license** — the model artifact ships under a license the
    hackathon and downstream users can actually deploy commercially without
    legal review.
+4. **Eval round-trip strong enough to ship a cache.** The held-out eval
+   produces 40/40 valid prompt → JS pairs. Those pairs ship as a 60-row
+   bundled cache (40 eval + 19 DSL corpus + 1 Schultz gold) the page
+   fuzzy-matches against. Result: a user without a GPU, behind a
+   network-blocked demo VM, or on a low-spec laptop hits the same demo
+   experience in ~50 ms as someone running the live LoRA. The live model
+   is one toggle away (`window.__loraUrl` → `src/serve/serve_lora.py`)
+   for novel off-corpus prompts — but the cache is the floor, not the
+   fallback.
 
 A larger non-Gemma model would have meant either a paid API (kills the
 free-tier deployment) or a server we'd have to host. Both contradict the
@@ -72,9 +93,12 @@ The submission is not a research artifact; it's a deployable web app.
 **Phase 2 (post-hackathon, 1–3 months)**
 - Tier 2 vocabulary: revolves (cylindrical tanks, tapered silos, toroidal
   forms), multi-hole boolean cuts, more sophisticated boolean chains.
-- Image-input mode — Gemma 4's multimodality lets a user upload a hand-sketch
-  and get a parametric replicad sequence back. Out of scope for the
-  hackathon but the model already supports it.
+- Sketch-recognition refinement: the v1 Sobel + Hough wall detector handles
+  orthogonal-only floorplans at default 100 px/m scale. Phase 2 adds curved
+  walls (Hough circle), per-room labels via OCR, and user-adjustable scale.
+- Photo-to-IFC fine-tune: v1's image→IFC path uses Gemma 4 multimodal native
+  (no LoRA on the multimodal branch). A LoRA tuned on annotated floorplan
+  photos would lift accuracy above the function-calling baseline.
 - IFC4 → IFC4x3 spec coverage for civil-infrastructure projects.
 
 **Phase 3 (6–12 months)**

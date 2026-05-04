@@ -13,6 +13,41 @@
 // keeps working without changes.
 
 import { iconSVG, axesGizmoSVG } from "./icons";
+import { generateGeometry, GenerateError } from "./ai-generate";
+import { compileDsl } from "./dsl-eval";
+import { dispatchSync, type DispatchArgs } from "./dispatch";
+import { setState } from "./app-state";
+import { setGridOn } from "./snap-state";
+import { buildSelectionFiltersPanel } from "./scene-panel";
+import * as THREE from "three";
+import { subscribe, getSelected, subscribeMulti, getMultiSelected, type Selection } from "./selection-state";
+
+// Push a line into the in-page CONSOLE dock tab. The tab body lives in
+// buildConsoleTabBody and re-implements its own local pushLine for the DSL
+// terminal — this exported variant lets runGenerate (and any future caller)
+// surface telemetry there too. Falls back to console.log when the dock isn't
+// mounted yet.
+function pushConsoleLine(kind: "cmd" | "ok" | "err" | "info", text: string): void {
+  const history = document.getElementById("console-history");
+  if (!history) {
+    console.log(`[console:${kind}] ${text}`);
+    return;
+  }
+  const d = new Date();
+  const ts =
+    String(d.getHours()).padStart(2, "0") + ":" +
+    String(d.getMinutes()).padStart(2, "0") + ":" +
+    String(d.getSeconds()).padStart(2, "0");
+  const glyph = kind === "cmd" ? "›" : kind === "ok" ? "✓" : kind === "err" ? "✗" : "·";
+  const line = document.createElement("div");
+  line.className = `console-line ${kind}`;
+  line.innerHTML = `<span class="ts"></span><span class="glyph"></span><span class="text"></span>`;
+  line.querySelector(".ts")!.textContent = ts;
+  line.querySelector(".glyph")!.textContent = glyph;
+  line.querySelector(".text")!.textContent = text;
+  history.appendChild(line);
+  history.scrollTop = history.scrollHeight;
+}
 
 type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
 
@@ -59,7 +94,7 @@ const SIDEBAR_TABS: SidebarTab[] = [
 ];
 
 const SAMPLE_ASSETS = [
-  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 2.4 MB",  v: "schultz-residence" },
+  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 22 MB",   v: "schultz-residence" },
   { id: "haus",    name: "FZK-Haus",        sub: "IFC · 412 KB",  v: "kit-fzk-haus" },
   { id: "inst",    name: "Institute v2",    sub: "IFC · 1.2 MB",  v: "kit-office" },
   { id: "bonsai",  name: "Bonsai openings", sub: "IFC · 88 KB",   v: "bonsai-openings" },
@@ -84,17 +119,18 @@ function buildPalette(host: HTMLElement) {
       const btn = el("button", "palette-btn", { type: "button", title: tool.label, "data-tool": tool.id });
       btn.innerHTML = iconSVG(tool.icon, 18) +
         `<span class="palette-tooltip">${tool.label}</span><span class="corner"></span>`;
-      btn.addEventListener("click", () => {
-        host.querySelectorAll(".palette-btn.active").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-        // Wire to ribbon-tool change later (#172). For now: just a visual selection.
-      });
+      // Palette button click drives app-state, which fans out to ribbon
+      // tool-btns and statusbar Tool cell via subscriptions in shell.ts.
+      // syncToolActiveClass (in app-state) drives the .active class on every
+      // [data-tool] element, including this palette-btn — no local toggling
+      // needed.
+      btn.addEventListener("click", () => setState("activeTool", tool.id));
       sec.appendChild(btn);
     }
     host.appendChild(sec);
   }
-  // Default activate Select.
-  (host.querySelector('[data-tool="select"]') as HTMLElement | null)?.classList.add("active");
+  // Initial active class is driven by syncToolActiveClass in shell.ts via
+  // the activeTool subscription firing once on attach (default "select").
 }
 
 function buildSnapDock(): HTMLElement {
@@ -120,7 +156,11 @@ function buildSnapDock(): HTMLElement {
   `;
   // Toggle handlers.
   root.querySelectorAll(".snap-btn").forEach((b) => {
-    b.addEventListener("click", () => b.classList.toggle("on"));
+    const btn = b as HTMLElement;
+    btn.addEventListener("click", () => {
+      btn.classList.toggle("on");
+      if (btn.textContent?.trim() === "GRID") setGridOn(btn.classList.contains("on"));
+    });
   });
   return root;
 }
@@ -138,8 +178,6 @@ function buildSceneTab(scenePanel: HTMLElement | null): HTMLElement {
 }
 
 function buildInspectTab(): HTMLElement {
-  // Properties stub — bundle's full Properties UI (transform, dimensions,
-  // material, replicad source) will land in #176 (AI prompt → geometry).
   const wrap = el("div", "tab-body props");
   wrap.innerHTML = `
     <div class="props-header">
@@ -150,30 +188,127 @@ function buildInspectTab(): HTMLElement {
     </div>
     <div class="prop-section">
       <div class="prop-section-title">IDENTITY</div>
-      <div class="prop-row"><span class="k">Name</span><span class="v">—</span></div>
-      <div class="prop-row"><span class="k">GUID</span><span class="v">—</span></div>
-      <div class="prop-row"><span class="k">Layer</span><span class="v">—</span></div>
+      <div class="prop-row"><span class="k">Name</span><span class="v" data-field="name">—</span></div>
+      <div class="prop-row"><span class="k">Type</span><span class="v" data-field="type">—</span></div>
+      <div class="prop-row"><span class="k">GUID</span><span class="v" data-field="guid">—</span></div>
+      <div class="prop-row"><span class="k">Storey</span><span class="v" data-field="storey">—</span></div>
+      <div class="prop-row"><span class="k">Layer</span><span class="v" data-field="layer">—</span></div>
     </div>
     <div class="prop-section">
       <div class="prop-section-title">TRANSFORM</div>
       <div class="prop-vec3">
         <span class="k">Position</span>
-        <span class="axis" data-axis="X">0.000</span>
-        <span class="axis" data-axis="Y">0.000</span>
-        <span class="axis" data-axis="Z">0.000</span>
+        <span class="axis" data-axis="X">—</span>
+        <span class="axis" data-axis="Y">—</span>
+        <span class="axis" data-axis="Z">—</span>
       </div>
       <div class="prop-vec3">
         <span class="k">Rotation</span>
-        <span class="axis" data-axis="X">0°</span>
-        <span class="axis" data-axis="Y">0°</span>
-        <span class="axis" data-axis="Z">0°</span>
+        <span class="axis" data-axis="Rx">—</span>
+        <span class="axis" data-axis="Ry">—</span>
+        <span class="axis" data-axis="Rz">—</span>
       </div>
     </div>
     <div class="prop-section">
-      <div class="prop-section-title">STATUS</div>
-      <div class="prop-row"><span class="k">Mode</span><span class="v">live · object inspector populates after #176 wires geometry → IFC4 round-trip</span></div>
+      <div class="prop-section-title">BOUNDS</div>
+      <div class="prop-vec3">
+        <span class="k">Size</span>
+        <span class="axis" data-axis="dX">—</span>
+        <span class="axis" data-axis="dY">—</span>
+        <span class="axis" data-axis="dZ">—</span>
+      </div>
     </div>
   `;
+
+  function updateInspect(sel: Selection | null): void {
+    const title = wrap.querySelector<HTMLElement>(".props-title");
+    const subtitle = wrap.querySelector<HTMLElement>(".props-subtitle");
+
+    // Multi-select path: Ctrl+click set has > 1 element.
+    const multi = getMultiSelected();
+    if (multi.length > 1) {
+      if (title) title.textContent = `${multi.length} elements selected`;
+      const types = [...new Set(
+        multi.map((s) => (s.object.userData?.ifcClass as string | undefined) || s.topology)
+      )].sort().join(", ");
+      if (subtitle) subtitle.textContent = types;
+      wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
+      // TRANSFORM position: all "—"
+      wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
+      // BOUNDS: union bbox of all selected meshes.
+      const unionBox = new THREE.Box3();
+      for (const s of multi) unionBox.expandByObject(s.object);
+      const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
+      if (isFinite(unionBox.min.x)) {
+        const sz = new THREE.Vector3();
+        unionBox.getSize(sz);
+        if (sizeAxes[0]) sizeAxes[0].textContent = sz.x.toFixed(3);
+        if (sizeAxes[1]) sizeAxes[1].textContent = sz.y.toFixed(3);
+        if (sizeAxes[2]) sizeAxes[2].textContent = sz.z.toFixed(3);
+      }
+      return;
+    }
+
+    if (!sel) {
+      if (title) title.textContent = "—";
+      if (subtitle) subtitle.textContent = "no selection";
+      wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
+      wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
+      return;
+    }
+    const obj = sel.object as THREE.Object3D;
+    const ud = (obj.userData ?? {}) as {
+      ifcClass?: string;
+      guid?: string;
+      storeyName?: string;
+      layer?: string;
+    };
+    if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
+    if (subtitle) subtitle.textContent = ud.ifcClass || sel.topology;
+    const nameEl = wrap.querySelector<HTMLElement>('[data-field="name"]');
+    if (nameEl) nameEl.textContent = obj.name || "—";
+    const typeEl = wrap.querySelector<HTMLElement>('[data-field="type"]');
+    if (typeEl) typeEl.textContent = ud.ifcClass || sel.topology;
+    const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
+    if (guidEl) guidEl.textContent = ud.guid || (sel.uuid.slice(0, 16) + "…");
+    const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');
+    if (storeyEl) storeyEl.textContent = ud.storeyName || "—";
+    const layerEl = wrap.querySelector<HTMLElement>('[data-field="layer"]');
+    if (layerEl) layerEl.textContent = ud.layer || ud.ifcClass || "default";
+    // Position: prefer bounding-box center for IFC (vertices are world-space
+    // baked, so getWorldPosition returns 0,0,0). For non-IFC objects with a
+    // real local origin, the center of the bbox still reads sensibly.
+    const box = new THREE.Box3().setFromObject(obj);
+    const posAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(1) .axis');
+    if (isFinite(box.min.x)) {
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      if (posAxes[0]) posAxes[0].textContent = center.x.toFixed(3);
+      if (posAxes[1]) posAxes[1].textContent = center.y.toFixed(3);
+      if (posAxes[2]) posAxes[2].textContent = center.z.toFixed(3);
+    } else {
+      const pos = new THREE.Vector3();
+      obj.getWorldPosition(pos);
+      if (posAxes[0]) posAxes[0].textContent = pos.x.toFixed(3);
+      if (posAxes[1]) posAxes[1].textContent = pos.y.toFixed(3);
+      if (posAxes[2]) posAxes[2].textContent = pos.z.toFixed(3);
+    }
+    // Bounds
+    const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
+    if (isFinite(box.min.x)) {
+      const sz = new THREE.Vector3();
+      box.getSize(sz);
+      if (sizeAxes[0]) sizeAxes[0].textContent = sz.x.toFixed(3);
+      if (sizeAxes[1]) sizeAxes[1].textContent = sz.y.toFixed(3);
+      if (sizeAxes[2]) sizeAxes[2].textContent = sz.z.toFixed(3);
+    } else {
+      sizeAxes.forEach((a) => (a.textContent = "—"));
+    }
+  }
+
+  subscribe(updateInspect);
+  subscribeMulti(() => updateInspect(getSelected()));
+  updateInspect(getSelected());
   return wrap;
 }
 
@@ -214,7 +349,7 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
 
   const tabs = el("div", "sb-tabs");
   const body = el("div", "sb-body");
-  body.style.cssText = "flex:1; min-height:0; overflow:auto;";
+  body.style.cssText = "flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;";
   const snap = buildSnapDock();
 
   const panes: Record<string, HTMLElement> = {
@@ -246,8 +381,11 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
     if (panes[id]) body.appendChild(panes[id]);
   }
 
+  const filterPanel = buildSelectionFiltersPanel();
+
   host.appendChild(tabs);
   host.appendChild(body);
+  host.appendChild(filterPanel);
   host.appendChild(snap);
   activate("scene");
 }
@@ -264,6 +402,7 @@ const PROMPT_CHIPS: { label: string; demoId: string }[] = [
   { label: "L-shape walls",                     demoId: "l-walls" },
   { label: "Four-walled room",                  demoId: "four-walled-room" },
   { label: "Stair-step",                        demoId: "stair-step" },
+  { label: "Schultz Residence · 14 elements",   demoId: "schultz-residence" },
 ];
 
 const RECENT_LINES: { ts: string; t: string; demoId: string }[] = [
@@ -278,6 +417,7 @@ const RECENT_LINES: { ts: string; t: string; demoId: string }[] = [
 const DEMO_ID_ORDER = [
   "wall", "column", "raised-slab", "slab-with-hole",
   "wall-with-door", "l-walls", "four-walled-room", "stair-step",
+  "schultz-residence",
 ];
 function demoIdToIndex(id: string): string | null {
   const i = DEMO_ID_ORDER.indexOf(id);
@@ -378,11 +518,63 @@ function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
     });
   }
 
-  function runGenerate() {
-    // Mirror our textarea into legacy #prompt-text (read-only display) + #js-source
-    // is already populated by the demo change handler. Click run.
+  async function runGenerate() {
+    // The legacy #js-source is populated by the demo-change handler whenever
+    // a demo is picked. If the user has edited the prompt away from any demo,
+    // we route through ai-generate (cache-first, LoRA fallback) to produce
+    // a fresh JS string before clicking the legacy #run-btn.
     const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
-    if (runBtn) runBtn.click();
+    if (!runBtn) return;
+    const ptx = document.getElementById("prompt-text") as HTMLTextAreaElement | null;
+    const jsSrc = document.getElementById("js-source") as HTMLTextAreaElement | null;
+    const userPrompt = ta.value.trim();
+    const demoPrompt = (ptx?.value ?? "").trim();
+    // If the user hasn't edited away from the selected demo, the cached JS in
+    // #js-source is correct — preserve current "demo run" behavior.
+    if (userPrompt && demoPrompt && userPrompt === demoPrompt) {
+      runBtn.click();
+      return;
+    }
+    // Empty textarea — same fallback (just runs whatever js-source has).
+    if (!userPrompt) {
+      runBtn.click();
+      return;
+    }
+    // Edited away from the demo — invoke AI generate.
+    const prevLabel = genBtn.textContent;
+    genBtn.disabled = true;
+    genBtn.innerHTML = `${iconSVG("sparkle", 11)} GENERATING…`;
+    try {
+      const result = await generateGeometry(userPrompt);
+      if (jsSrc) {
+        jsSrc.value = result.js;
+        jsSrc.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      // Update legacy prompt-text mirror so re-runs treat this as the active prompt.
+      if (ptx) ptx.value = userPrompt;
+      // Surface telemetry to the in-page CONSOLE tab + DevTools console.
+      const msg = result.source === "cache"
+        ? `cache · ${(result.confidence ?? 0).toFixed(2)} match · ${result.latency_ms.toFixed(0)}ms`
+        : result.source === "lora"
+          ? `lora · ${result.latency_ms.toFixed(0)}ms`
+          : `demo`;
+      pushConsoleLine("ok", `[ai-generate] ${msg}`);
+      console.log(`[ai-generate] ${msg}`);
+      runBtn.click();
+    } catch (e) {
+      const err = e as GenerateError;
+      pushConsoleLine("err", `[ai-generate] ${err.message}`);
+      console.error("[ai-generate]", err.message);
+      const status = document.getElementById("status");
+      if (status) {
+        status.textContent = `AI: ${err.message}`;
+        status.className = "status err";
+      }
+    } finally {
+      genBtn.disabled = false;
+      if (prevLabel) genBtn.innerHTML = prevLabel;
+      else genBtn.innerHTML = `${iconSVG("play", 11)} GENERATE`;
+    }
   }
 
   // Initial seed: pick first demo so the textarea + js-source are populated.
@@ -412,20 +604,105 @@ function buildConsoleTabBody(): HTMLElement {
   const wrap = el("div", "tab-body console-tab");
   wrap.innerHTML = `
     <div class="console">
-      <div class="console-history">
+      <div class="console-history" id="console-history">
         <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">OpenCascade WebAssembly initialized</span></div>
         <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">web-ifc parser ready · IFC4 schema</span></div>
         <div class="console-line ok"><span class="ts">00:00:02</span><span class="glyph">✓</span><span class="text">Gemma-3-4b-it adapter loaded</span></div>
-        <div class="console-line cmd"><span class="ts">00:00:08</span><span class="glyph">›</span><span class="text">demo: wall.5500x200x2800</span></div>
-        <div class="console-line ok"><span class="ts">00:00:08</span><span class="glyph">✓</span><span class="text">Geometry rebuilt · 1 solid · 12 tri</span></div>
+        <div class="console-line info"><span class="ts">00:00:03</span><span class="glyph">·</span><span class="text">DSL ready · type wall|slab|column|box|cut, then ⏎</span></div>
       </div>
       <div class="console-prompt">
         <span class="caret">›</span>
-        <input placeholder="type a command — :extrude 2.8   :move 0,1,0   :prompt &quot;raised slab 4×6m&quot;   ?"/>
+        <input id="console-input" placeholder="DSL — wall (0 0) (5 0) height=3 thickness=0.2     |     column (0 0) height=3 profile=square(0.3)"/>
         <span style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); letter-spacing:0.04em;">⏎ run</span>
       </div>
     </div>
   `;
+
+  // Input handler: type DSL → compile → push JS → run.
+  const input = wrap.querySelector<HTMLInputElement>("#console-input")!;
+  const history = wrap.querySelector<HTMLDivElement>("#console-history")!;
+  const buffer: string[] = [];
+  let bufferIdx = 0;
+
+  function ts(): string {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  }
+  function pushLine(kind: "cmd" | "ok" | "err" | "info", text: string) {
+    const line = document.createElement("div");
+    line.className = `console-line ${kind}`;
+    const glyph = kind === "cmd" ? "›" : kind === "ok" ? "✓" : kind === "err" ? "✗" : "·";
+    line.innerHTML = `<span class="ts">${ts()}</span><span class="glyph">${glyph}</span><span class="text"></span>`;
+    line.querySelector(".text")!.textContent = text;
+    history.appendChild(line);
+    history.scrollTop = history.scrollHeight;
+  }
+
+  input.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const src = input.value.trim();
+      if (!src) return;
+      buffer.push(src);
+      bufferIdx = buffer.length;
+      input.value = "";
+      pushLine("cmd", src);
+
+      // `:` prefix routes through the dispatch table alongside the DSL compiler.
+      // Key=val pairs (height=3, thickness=0.2) become DispatchArgs; positional
+      // tuples like (0 0) are ignored by the dispatch path but handled by compileDsl.
+      const isDeclCmd = src.startsWith(":");
+      const dslSrc = isDeclCmd ? src.slice(1).trim() : src;
+
+      if (isDeclCmd) {
+        const tokens = dslSrc.split(/\s+/);
+        const verb = tokens[0];
+        const dispArgs: DispatchArgs = {};
+        for (const t of tokens.slice(1)) {
+          const eq = t.indexOf("=");
+          if (eq > 0) {
+            const k = t.slice(0, eq);
+            const v = t.slice(eq + 1);
+            const n = Number(v);
+            dispArgs[k] = Number.isFinite(n) ? n : v;
+          }
+        }
+        const dr = dispatchSync(verb, dispArgs);
+        pushLine(
+          dr.ok ? "ok" : "info",
+          `dispatch ${verb} → ${dr.ok ? dr.canonical! : `${dr.error}${dr.detail ? ": " + dr.detail : ""}`}`,
+        );
+      }
+
+      const c = compileDsl(dslSrc);
+      if (!c.ok) {
+        pushLine("err", `line ${c.line}: ${c.message}`);
+        return;
+      }
+      // Compile result has multi-line JS — feed into legacy #js-source then click run.
+      const jsSrc = document.getElementById("js-source") as HTMLTextAreaElement | null;
+      const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
+      if (jsSrc && runBtn) {
+        jsSrc.value = c.js;
+        jsSrc.dispatchEvent(new Event("input", { bubbles: true }));
+        pushLine("info", `compiled · ${c.solids.length} solid${c.solids.length === 1 ? "" : "s"} → kernel`);
+        runBtn.click();
+      } else {
+        pushLine("err", "kernel not ready (no #run-btn / #js-source)");
+      }
+    } else if (e.key === "ArrowUp") {
+      if (buffer.length === 0) return;
+      e.preventDefault();
+      bufferIdx = Math.max(0, bufferIdx - 1);
+      input.value = buffer[bufferIdx] ?? "";
+    } else if (e.key === "ArrowDown") {
+      if (buffer.length === 0) return;
+      e.preventDefault();
+      bufferIdx = Math.min(buffer.length, bufferIdx + 1);
+      input.value = buffer[bufferIdx] ?? "";
+    }
+  });
+
   return wrap;
 }
 
@@ -534,7 +811,8 @@ function wireDockResize() {
     dragging = true;
     startY = e.clientY;
     const cur = getComputedStyle(app).getPropertyValue("--dock-h").trim();
-    startH = parseInt(cur || "260", 10);
+    // Default fallback matches app.jsx initial dockH=340. T1 .zip parity.
+    startH = parseInt(cur || "340", 10);
     document.body.style.userSelect = "none";
   });
   window.addEventListener("mousemove", (e: MouseEvent) => {

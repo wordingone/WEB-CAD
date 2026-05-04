@@ -12,7 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "isolatedModules": true,
-    "types": ["vite/client"]
+    "types": ["vite/client", "bun-types"]
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": ["src/**/*", "test/**/*", "vite.config.ts"]
 }

@@ -87,7 +87,7 @@ Expected `train-stats.json`:
 Numbers may differ in the 5th decimal place across runs (cuDNN
 non-determinism); the loss should be in the 0.20–0.27 band.
 
-### E2B variant (deferred in the hackathon submission)
+### E2B-LoRA variant (deferred in the hackathon submission)
 
 ```bash
 GEMMA_V2_MODEL=E2B PYTHONUTF8=1 python src/train/lora_train_v2.py
@@ -96,6 +96,14 @@ GEMMA_V2_MODEL=E2B PYTHONUTF8=1 python src/train/lora_train_v2.py
 This trains `unsloth/gemma-3n-E2B-it` (the 2B-effective Gemma 4 variant) with
 the same hyperparameters. Adds ~35 min. Compare eval scores and pick the
 better one for browser deployment if VRAM permits both at runtime.
+
+**Note on naming.** "E2B" in this section refers to the *LoRA-on-Gemma-3n-E2B
+training variant* — NOT the image→IFC agent (the one demo-script.md and
+writeup.md sometimes call the "E2B agent"). The image→IFC path (#182) shipped
+in v1 using Gemma 4 multimodal native function-calling against the same
+dispatch table the typed-prompt path uses; it does NOT depend on this
+LoRA-on-E2B variant. Deferring the E2B-LoRA training does not affect the
+image-input mode in the deployed page.
 
 ## 4. Eval
 
@@ -170,13 +178,13 @@ bun run web:dev
 
 ```bash
 bun run web:build
-# Output: web/dist/  (sizes verified 2026-05-03 against current master)
-#   index.html                         12.30 kB / gzip    2.96 kB
+# Output: web/dist/  (sizes verified 2026-05-03 against master HEAD d14c6ea, build 6.02s)
+#   index.html                          8.71 kB / gzip    2.60 kB
 #   assets/worker-*.js              3,844.81 kB
 #   assets/web-ifc-*.wasm           1,303.94 kB / gzip  483.17 kB
 #   assets/replicad_single-*.wasm  10,800.30 kB / gzip 4,575.06 kB
 #   assets/index-*.css                 61.30 kB / gzip   11.61 kB
-#   assets/index-*.js               4,238.41 kB / gzip  576.57 kB
+#   assets/index-*.js               4,252.76 kB / gzip  582.53 kB
 ```
 
 The CSS chunk grew from 3 kB → 61 kB after the bundle design-system port
@@ -197,7 +205,85 @@ The COOP+COEP headers (`Cross-Origin-Opener-Policy: same-origin`,
 WASM modules for SharedArrayBuffer-backed multithreaded paths. They are
 configured in `web/vite.config.ts` for both `server` and `preview`.
 
-## 7. Self-harness (no browser)
+## 7. AI prompt → geometry pipeline
+
+The PROMPT tab (`web/src/ai-generate.ts`) turns a natural-language
+description into replicad JS. Two paths back the textbox: a bundled
+60-row cache (default) and a live LoRA server (opt-in). See
+`docs/ai-pipeline.md` for the full architecture.
+
+### Build the bundled cache
+
+```bash
+bun scripts/build-ai-cache.ts
+# wrote web/public/ai-cache.json (60 rows)
+```
+
+The cache is sourced from three corpora that the build script merges:
+- `outputs/cad-lora-v2-4b-it-eval.jsonl` — 40 prompts × 100% round-trip
+  on the v2 LoRA eval (each row's `pred` parses, executes, and produces
+  a non-empty solid through Tier 1)
+- `data/dsl-demo-corpus.jsonl` — 19 DSL prompts compiled to JS via
+  `web/src/dsl-eval.ts` (`compileDsl()`, the same path the CONSOLE tab
+  uses at runtime — broader coverage on parametric scenarios than the
+  4b-it eval alone)
+- `outputs/cad-lora-v2-4b-it-schultz-eval.jsonl` — 1 row for the
+  Schultz Residence using `gold` (the 4b-it `pred` has translate/cut
+  bugs on the 14-element multi-fuse — gold is shipped as the
+  user-facing artifact)
+
+### Smoke-test the matcher
+
+```bash
+bun scripts/test-ai-match.ts
+```
+
+F1-weighted similarity (numeric tokens count 2x, stop-words filtered).
+F1 ≥ 0.30 returns the cached row; below threshold the path falls
+through to live LoRA or surfaces a `no-match` error to the user.
+
+### IFC viewer + DSL corpus regressions
+
+```bash
+bun scripts/test-ifc-bounds.ts        # 6 bundled IFC samples; verifies
+                                       # the column-major matrix fix in
+                                       # web/src/worker.ts:283-289
+bun scripts/verify-dsl-corpus.ts      # 19-row DSL corpus, all compile
+```
+
+### Live LoRA server (opt-in)
+
+For users who want the real model in the loop instead of the cache:
+
+```bash
+pip install fastapi uvicorn pydantic
+python src/serve/serve_lora.py
+# adapter loads in ~30s on a 4090; listens on http://127.0.0.1:8088
+```
+
+Endpoints:
+- `GET /health` → `{"status":"ok","adapter":"<path>"}`
+- `POST /v1/chat/completions` → OpenAI-compat chat response
+
+### Wire the frontend at the live server
+
+Build-time:
+
+```bash
+VITE_LORA_URL=http://localhost:8088/v1/chat/completions bun run web:build
+```
+
+Or runtime (DevTools console):
+
+```js
+window.__loraUrl = "http://localhost:8088/v1/chat/completions";
+```
+
+When set, `generateGeometry()` tries the LoRA endpoint first and falls
+back to the cache on network/HTTP errors. Without it, the cache is the
+sole path — what judges see by default.
+
+## 8. Self-harness (no browser)
 
 Validates the same data path the worker takes — useful for CI or
 catching regressions in the geometry kernel without a browser.
@@ -208,17 +294,18 @@ bun scripts/web-self-harness.ts
 
 Expected output:
 ```
-gemma-architect web self-harness — 8 demos
+gemma-architect web self-harness — 9 demos
 OpenCascade ready.
   PASS  wall                 Solid 12 tris  5.50×0.20×2.80m  ifc=4.4KB / 90 entities
   PASS  column               Solid 164 tris  0.90×0.90×5.00m  ifc=29.1KB / 694 entities
   PASS  raised-slab          Solid 12 tris  5.00×4.00×0.20m  ifc=4.0KB / 90 entities
   PASS  slab-with-hole       Compound 20 tris  6.00×6.00×0.20m  ifc=5.3KB / 126 entities
   PASS  wall-with-door       Compound 20 tris  4.13×0.28×2.69m  ifc=6.4KB / 126 entities
-  PASS  l-walls              Compound 44 tris  8.45×9.25×3.35m  ifc=11.0KB / 234 entities
-  PASS  four-walled-room     Compound 68 tris  13.56×13.20×3.06m  ifc=16.8KB / 354 entities
+  PASS  l-walls              Compound 20 tris  8.45×9.25×3.35m  ifc=5.8KB / 126 entities
+  PASS  four-walled-room     Compound 32 tris  9.12×9.34×3.06m  ifc=8.3KB / 174 entities
   PASS  stair-step           Compound 36 tris  1.56×2.77×0.84m  ifc=10.0KB / 198 entities
-8/8 demos passed.
+  PASS  schultz-residence    Compound 120 tris  12.00×8.00×3.20m  ifc=24.6KB / 566 entities
+9/9 demos passed.
 ```
 
 The harness:
@@ -232,7 +319,7 @@ The harness:
 The browser-side **Export IFC** button additionally round-trips the bytes
 through web-ifc.OpenModel — that's a WASM-only path (see `web/src/ifc.ts`).
 
-## 8. Browser smoke test (manual)
+## 9. Browser smoke test (manual)
 
 After `bun run web:preview`:
 
@@ -277,6 +364,10 @@ After `bun run web:preview`:
 | `inference_eval_v2.py`            | 5 min    |
 | `publish_v2.py` (with HF_TOKEN)   | 1 min    |
 | `bun run web:build`               | 5 s      |
+| `bun scripts/build-ai-cache.ts`   | 5 s      |
+| `bun scripts/test-ai-match.ts`    | 2 s      |
+| `bun scripts/test-ifc-bounds.ts`  | 5 s      |
+| `bun scripts/verify-dsl-corpus.ts`| 5 s      |
 | `bun scripts/web-self-harness.ts` | 30 s     |
 | Browser smoke test                | 2 min    |
 | **Total**                         | **~70 min** |
