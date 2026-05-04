@@ -66,11 +66,11 @@ export const SAMPLES: SampleFile[] = [
   },
   {
     id: "simple-sweep",
-    label: "Simple sweep primitive (IFC4)",
+    label: "Simple sweep primitive (IFC4X3_ADD2)",
     path: "samples/simple-sweep-1.ifc",
     format: "ifc",
     size: "4 KB",
-    note: "Minimal swept solid — quickest possible IFC sample",
+    note: "Minimal swept solid, IfcOpenShell 0.8.2, schema IFC4X3_ADD2 — schema-version smoke test (web-ifc 0.0.77 partial-parses; no crash)",
   },
   {
     id: "triangle-obj",
