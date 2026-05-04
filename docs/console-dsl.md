@@ -1,7 +1,11 @@
 # gemma-architect Console DSL — v0 lexicon
 
-Status: draft, 2026-05-03. Owned by Leo. Reviews welcome from Eli; train data
-follow-up belongs to forge once the lexicon is frozen.
+Status: shipped 2026-05-03 (#181 closed). v0 subset (wall/slab/column/box/cut)
+lowers end-to-end via `web/src/dsl-eval.ts:compileDsl()` and is wired to the
+CONSOLE tab. The full lexicon below is the v1 design target — verbs not yet
+listed in §"Mapping to existing replicad ops" are sketched for later rounds.
+The v2 training corpus (dataset/v2-results.md) consumed the v0 subset; 4b-it
+LoRA shipped 2026-05-01 against the v2 dataset.
 
 ## Purpose
 
@@ -254,39 +258,28 @@ the design target:
 IFC export (`export ifc …`) re-runs the existing
 `web/src/ifc.ts:buildIfc` pipeline against the produced solid graph.
 
-## Train-data follow-up (forge owns)
+## Train-data status
 
-Once this lexicon is frozen (Jun-approved), forge generates a multi-modal
-training corpus. Each sample is a `(input, dsl-script)` pair where
-`input` is one of three modalities, sampled in roughly equal proportions:
+The v2 training corpus (`dataset/v2-results.md`) is the realized version
+of the corpus plan that originally lived in this section. It consumed
+the v0 DSL subset (wall/slab/column/box/cut) plus raw `drawRectangle/
+cut/fuse/extrude` replicad operations across a 5-bucket split:
 
-- **image-only**: rendered TOP/PERSPECTIVE/FRONT/RIGHT viewport image of
-  the building (Three.js → png, 512×512, drafting-style stroke). The
-  model writes DSL that reconstructs the geometry.
-- **text-only**: natural-language description (e.g. `"a 6×4m room with
-  a 0.9m-wide door on the south wall and a window centered on the
-  north wall"`). The model writes DSL that satisfies the description.
-- **image + text**: viewport image plus a refining text instruction
-  (e.g. *image of an L-shape* + `"add a 1.2m-wide door at the inside
-  corner"`). The model writes DSL that produces the modified building.
+- 50 hand-curated Tier 1 extras (`fixtures/tier1-extra.jsonl`)
+- 50 Tier 2 curated (cylindrical tanks, cones, toroids, openings)
+- 200 synthetic-generated rows
+- 50 mined-style rows
+- 50 hand-authored mechanical-voice rows
 
-Targets are always the DSL — never the final export format. The
-pipeline runs DSL → replicad → user-selected export format
-(IFC/STEP/OBJ/STL/GLB/glTF/USDZ/SVG/DXF/PDF) at inference time, so the
-model learns one output language and stays format-agnostic.
+Stratified 10% holdout → 40 eval rows + 360 training seeds → 932
+augmented training rows. 4b-it shipped 2026-05-01 with 40/40 (100%)
+round-trip on the held-out eval (parse_ok + api_clean + has_solid_op +
+execute()). E2B variant deferred per dataset/v2-results.md.
 
-The 4b-it variant should be retrained on this new lexicon (current
-training is on a `drawRectangle/cut/fuse/extrude` raw replicad surface;
-moving it to the DSL gives the model a 3-4× shorter token budget per
-spec). The e2b variant currently training (#102) should also pick up
-this lexicon in its next round.
-
-Phase-1 corpus: 200 building variants generated procedurally (vary
-footprint, openings, story count, levels). Phase-2 ablation: drop one
-modality at a time to measure how much each contributes
-(image-only vs text-only vs hybrid). Phase-3: open the DSL to
-multi-step refinement chains (initial DSL → user text correction →
-revised DSL).
+Multi-modal expansion (image-only / text-only / image+text) is the v1
+direction once Tier 2 vocabulary lands and additional training cycles
+are unblocked. Targets remain the DSL — pipeline lowers DSL → replicad
+→ any of the 12 export formats the app supports.
 
 ## What's deliberately out of scope (v0)
 
@@ -331,13 +324,17 @@ protected; specific phrasings can be.
 
 ## Status
 
-Draft. Ready for Jun review before forge starts generating
-DSL-targeted training data.
+Shipped. v0 subset (wall/slab/column/box/cut) lowers end-to-end and is
+wired to the CONSOLE tab. v2 training corpus consumed the lexicon; 4b-it
+LoRA shipped 2026-05-01. v1 expansion (additional verbs, multi-modal
+training) is post-hackathon work.
 
 ## Cross-refs
 
-- avir-cli #102 — gemma-3n-E2B LoRA train (currently in progress)
-- gemma-architect #168 — 2D→3D reconstruction agent scaffold (depends
-  on this DSL being frozen)
-- gemma-architect #179 — Cmd-K palette + console parser (CONSOLE tab
-  will accept DSL scripts via the parser this lexicon defines)
+- avir-cli #102 — gemma-3n-E2B LoRA train (closed; E2B deferred per
+  `dataset/v2-results.md`, 4b-it shipped instead 2026-05-01)
+- gemma-architect #168 — 2D→3D reconstruction agent scaffold (closed;
+  ships via Gemma 4 multimodal native function-calling)
+- gemma-architect #179 — Cmd-K palette + console parser (closed;
+  CONSOLE tab accepts DSL scripts via `compileDsl()`)
+- gemma-architect #181 — DSL/lexicon for CONSOLE tab (closed; this doc)
