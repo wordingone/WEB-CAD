@@ -71,7 +71,7 @@ Full investigation in 5 parallel haiku agent reports (2026-05-01). Headline find
 
 ## 9. Hosting / registries
 
-- **HuggingFace Hub** — model artifact host (`gemma-architect/cad-lora-v2` staged).
+- **HuggingFace Hub** — model artifact host (`gemma-architect/cad-lora-v2` is the intended path; push pending HF_TOKEN — see `submission/README.md` outstanding blockers and `dataset/v2-results.md` §Publish).
 - **Kaggle** — submission platform.
 - **arXiv** — paper source for all four CAD/LLM papers above.
 
