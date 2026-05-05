@@ -180,12 +180,18 @@ export class Viewer {
     fill.position.set(-8, -6, 4);
     this.scene.add(fill);
 
-    // Reference grid + axes.
-    this.grid = new THREE.GridHelper(20, 20, 0x6f6f78, 0xc8c2b4);
+    // Reference grid + axes — lighter lineweight so drawn geometry reads over it.
+    this.grid = new THREE.GridHelper(20, 20, 0xa8a8b0, 0xd8d4cc);
     this.grid.rotation.x = Math.PI / 2;
     this.grid.renderOrder = -1;
     const gridMat = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
-    for (const m of gridMat) { (m as THREE.LineBasicMaterial).depthWrite = false; }
+    for (const m of gridMat) {
+      const lm = m as THREE.LineBasicMaterial;
+      lm.depthWrite = false;
+      lm.transparent = true;
+      lm.opacity = 0.55;
+      lm.needsUpdate = true;
+    }
     this.scene.add(this.grid);
 
     this.axes = new THREE.AxesHelper(2);
@@ -613,11 +619,17 @@ export class Viewer {
     const divisions = Math.min(500, Math.max(4, Math.round(sceneSize / step)));
     this.scene.remove(this.grid);
     this.grid.geometry.dispose();
-    this.grid = new THREE.GridHelper(sceneSize, divisions, 0x444444, 0x2c2c34);
+    this.grid = new THREE.GridHelper(sceneSize, divisions, 0xa8a8b0, 0xd8d4cc);
     this.grid.rotation.x = Math.PI / 2;
     this.grid.renderOrder = -1;
     const gMat = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
-    for (const m of gMat) { (m as THREE.LineBasicMaterial).depthWrite = false; }
+    for (const m of gMat) {
+      const lm = m as THREE.LineBasicMaterial;
+      lm.depthWrite = false;
+      lm.transparent = true;
+      lm.opacity = 0.55;
+      lm.needsUpdate = true;
+    }
     (this.grid as unknown as { __lastSize?: number }).__lastSize = sceneSize;
     this.scene.add(this.grid);
   }
@@ -1571,7 +1583,7 @@ export class Viewer {
     return this.camera;
   }
 
-  addMesh(mesh: THREE.Mesh, _kind?: string): void {
+  addMesh(mesh: THREE.Object3D, _kind?: string): void {
     this.scene.add(mesh);
   }
 

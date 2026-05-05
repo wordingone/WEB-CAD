@@ -43,6 +43,10 @@ import { SAMPLES } from "./sample-files";
 import type { WorkerOut } from "./worker";
 import { syncToolActiveClass } from "./app-state";
 import { initCreateMode } from "./create-mode";
+import { undo, redo } from "./history";
+import { registerHandler, dispatchSync } from "./dispatch";
+import { addToMultiSelected, clearMultiSelected, getFilters, topologyAllowed } from "./selection-state";
+import * as THREE from "three";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -97,6 +101,46 @@ const viewer = new Viewer(canvas, viewportAreaEl);
 (window as unknown as { __viewer: Viewer }).__viewer = viewer;
 syncToolActiveClass();
 initCreateMode(viewer);
+
+// Select-all handler (#31): populates the multi-set with every selectable
+// scene object that passes the current filters. Gumball anchors at the
+// centroid of the bounding union.
+registerHandler("SdSelectAll", () => {
+  clearMultiSelected();
+  const filters = getFilters();
+  const selectable: THREE.Object3D[] = [];
+  viewer.getScene().traverse((obj) => {
+    const kind = obj.userData.kind as string | undefined;
+    if (!kind) return;
+    const topo = (kind === "brep" || kind === "compound") ? kind as "brep" | "compound"
+               : (kind === "mesh") ? "mesh" as const
+               : null;
+    if (!topo || !topologyAllowed(topo, filters)) return;
+    selectable.push(obj);
+  });
+  if (selectable.length === 0) return;
+  // Compute centroid to anchor gumball.
+  const centroid = new THREE.Vector3();
+  selectable.forEach((o) => centroid.add(o.getWorldPosition(new THREE.Vector3())));
+  centroid.divideScalar(selectable.length);
+  // Add all to multi-set so INSPECT + subscriptions see them.
+  selectable.forEach((o) => {
+    addToMultiSelected({
+      topology: (o.userData.kind as "mesh" | "brep" | "compound") ?? "mesh",
+      uuid: o.uuid,
+      object: o,
+      transformTarget: o,
+    });
+  });
+  // Anchor gumball at centroid via a transient proxy.
+  const proxy = new THREE.Object3D();
+  proxy.position.copy(centroid);
+  proxy.userData.kind = "_selectAll_proxy";
+  viewer.getScene().add(proxy);
+  viewer.selectObject(proxy);
+  window.dispatchEvent(new CustomEvent("viewer:selectAll", { detail: { count: selectable.length } }));
+});
+
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
 
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
@@ -118,6 +162,26 @@ window.addEventListener("keydown", (e) => {
     default: return;
   }
   e.preventDefault();
+});
+
+// Ctrl/Cmd hotkeys: undo/redo (#27) and select-all (#31).
+window.addEventListener("keydown", (e) => {
+  const tgt = e.target as HTMLElement | null;
+  if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) return;
+  if (e.key === "z" || e.key === "Z") {
+    if (e.shiftKey) {
+      if (redo(viewer)) e.preventDefault();
+    } else {
+      if (undo(viewer)) e.preventDefault();
+    }
+  } else if (e.key === "y" || e.key === "Y") {
+    if (redo(viewer)) e.preventDefault();
+  } else if (e.shiftKey && (e.key === "a" || e.key === "A")) {
+    e.preventDefault();
+    dispatchSync("selectAll", {});
+  }
 });
 
 // Drafting-style toggle (#173 Gap 2). Walks the active scene root, adds

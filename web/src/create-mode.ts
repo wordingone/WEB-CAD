@@ -10,7 +10,8 @@
 //
 // What is fully wired (working):
 //   - Wall, Rect, Circle, Line, Door, Window, Slab, Column,
-//     Polyline (4-click auto-close), Polygon (hex), Stair, Extrude (2-click box)
+//     Polyline (4-click auto-close), Polygon (hex), Stair,
+//     Box (3-corner: c1→c2 diagonal base, c3→height), Curve (Enter to commit)
 //
 // What is stubbed (logs to console, awaits parent task to wire kernel call):
 //   - Arc, Spline, Revolve
@@ -21,6 +22,7 @@ import type { Viewer } from "./viewer";
 import { setState } from "./app-state";
 import { dispatchSync } from "./dispatch";
 import { snapPoint } from "./snap-state";
+import { pushAction } from "./history";
 
 // Default heights / sizes from tier1-conventions.
 const DEFAULT_WALL_HEIGHT = 3;
@@ -131,9 +133,10 @@ function buildRect(a: { x: number; y: number }, b: { x: number; y: number }): { 
   inner.closePath();
   outer.holes.push(inner);
   const geom = new THREE.ShapeGeometry(outer);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xc9b18a, roughness: 0.4, metalness: 0.0, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc9b18a, roughness: 0.4, metalness: 0.0, side: THREE.DoubleSide, depthTest: false });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(cx, cy, 0.001);
+  mesh.position.set(cx, cy, 0);
+  mesh.renderOrder = 1;
   mesh.userData.kind = "brep";
   mesh.userData.creator = "rect";
   const h = DEFAULT_RECT_HEIGHT;
@@ -147,9 +150,10 @@ function buildCircle(center: { x: number; y: number }, radial: { x: number; y: n
   const r = Math.max(0.05, Math.sqrt(dx * dx + dy * dy));
   const t = 0.015;
   const geom = new THREE.RingGeometry(Math.max(0.02, r - t), r + t, 48);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xb6d59a, roughness: 0.4, metalness: 0.0, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xb6d59a, roughness: 0.4, metalness: 0.0, side: THREE.DoubleSide, depthTest: false });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(center.x, center.y, 0.001);
+  mesh.position.set(center.x, center.y, 0);
+  mesh.renderOrder = 1;
   mesh.userData.kind = "brep";
   mesh.userData.creator = "circle";
   const h = DEFAULT_RECT_HEIGHT;
@@ -157,14 +161,15 @@ function buildCircle(center: { x: number; y: number }, radial: { x: number; y: n
   return { mesh, chain };
 }
 
-function buildLine(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+function buildLine(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Object3D; chain: string } {
   const curve = new THREE.LineCurve3(
     new THREE.Vector3(a.x, a.y, 0),
     new THREE.Vector3(b.x, b.y, 0),
   );
-  const geom = new THREE.TubeGeometry(curve, 1, 0.008, 6, false);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x2d2d35, roughness: 0.4, metalness: 0.0 });
+  const geom = new THREE.TubeGeometry(curve, 1, 0.012, 6, false);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2d2d35, roughness: 0.4, metalness: 0.0, depthTest: false });
   const mesh = new THREE.Mesh(geom, mat);
+  mesh.renderOrder = 1;
   mesh.userData.kind = "mesh";
   mesh.userData.creator = "line";
   const chain = `const line = drawPolyline([[${round(a.x)}, ${round(a.y)}], [${round(b.x)}, ${round(b.y)}]]).sketchOnPlane("XY").extrude(0.002);`;
@@ -313,9 +318,8 @@ function buildPolygon(center: { x: number; y: number }, radial: { x: number; y: 
   return { mesh, chain };
 }
 
-function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Mesh; chain: string } {
+function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Object3D; chain: string } {
   // 4-click open line strip. Visual is a tube path through the points.
-  // (Variable click count requires sentinel-terminate UX — fixed at 4 for now.)
   const path = new THREE.CurvePath<THREE.Vector3>();
   for (let i = 0; i < pts.length - 1; i++) {
     path.add(new THREE.LineCurve3(
@@ -324,9 +328,10 @@ function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Mesh
     ));
   }
   const segments = Math.max(1, (pts.length - 1) * 4);
-  const geom = new THREE.TubeGeometry(path, segments, 0.008, 6, false);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.4, metalness: 0.05 });
+  const geom = new THREE.TubeGeometry(path, segments, 0.012, 6, false);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.4, metalness: 0.05, depthTest: false });
   const mesh = new THREE.Mesh(geom, mat);
+  mesh.renderOrder = 1;
   mesh.userData.kind = "mesh";
   mesh.userData.creator = "polyline";
   const worldVerts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
@@ -355,12 +360,13 @@ function buildExtrude(base: { x: number; y: number }, top: { x: number; y: numbe
   return { mesh, chain };
 }
 
-function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.Mesh; chain: string } {
+function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.Object3D; chain: string } {
   const vecs = pts.map((p) => new THREE.Vector3(p.x, p.y, 0));
   const curve = new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.5);
-  const geom = new THREE.TubeGeometry(curve, pts.length * 8, 0.008, 6, false);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.4, metalness: 0.05 });
+  const geom = new THREE.TubeGeometry(curve, pts.length * 8, 0.012, 6, false);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.4, metalness: 0.05, depthTest: false });
   const mesh = new THREE.Mesh(geom, mat);
+  mesh.renderOrder = 1;
   mesh.userData.kind = "mesh";
   mesh.userData.creator = "curve";
   const worldPts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
@@ -368,21 +374,60 @@ function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.Mesh; c
   return { mesh, chain };
 }
 
-function buildPoint(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
-  const r = 0.05;
-  const geom = new THREE.SphereGeometry(r, 12, 8);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xff7a45, roughness: 0.4, metalness: 0.1 });
-  const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(p.x, p.y, r);
-  mesh.userData.kind = "mesh";
-  mesh.userData.creator = "point";
+function buildPoint(p: { x: number; y: number }): { mesh: THREE.Object3D; chain: string } {
+  const r = 0.06;
+  const group = new THREE.Group();
+  group.position.set(p.x, p.y, 0);
+  group.renderOrder = 1;
+
+  // Outline sphere — BackSide renders only back faces, creating a dark rim.
+  const outlineGeom = new THREE.SphereGeometry(r * 1.28, 12, 8);
+  const outlineMat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.BackSide, depthTest: false });
+  const outlineMesh = new THREE.Mesh(outlineGeom, outlineMat);
+  outlineMesh.renderOrder = 1;
+  group.add(outlineMesh);
+
+  // Inner white sphere.
+  const innerGeom = new THREE.SphereGeometry(r, 12, 8);
+  const innerMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25, metalness: 0.1, depthTest: false });
+  const innerMesh = new THREE.Mesh(innerGeom, innerMat);
+  innerMesh.renderOrder = 2;
+  group.add(innerMesh);
+
+  group.userData.kind = "mesh";
+  group.userData.creator = "point";
   const chain = `const pt = makeCylinder(${round(r)}, ${round(r * 2)}).translate([${round(p.x)}, ${round(p.y)}, 0]);`;
+  return { mesh: group, chain };
+}
+
+// 3-corner box (#30): c1 + c2 define the base rectangle as a diagonal pair;
+// c3's distance from the base center determines the extrusion height.
+function buildBox(
+  c1: { x: number; y: number },
+  c2: { x: number; y: number },
+  c3: { x: number; y: number },
+): { mesh: THREE.Object3D; chain: string } {
+  const w = Math.max(0.05, Math.abs(c2.x - c1.x));
+  const d = Math.max(0.05, Math.abs(c2.y - c1.y));
+  const cx = (c1.x + c2.x) / 2;
+  const cy = (c1.y + c2.y) / 2;
+  const distToCenter = Math.sqrt((c3.x - cx) ** 2 + (c3.y - cy) ** 2);
+  const h = Math.max(0.05, distToCenter);
+  const geom = new THREE.BoxGeometry(w, d, h);
+  geom.translate(0, 0, h / 2);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(cx, cy, 0);
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "box";
+  const chain = `const box = drawRectangle(${round(w)}, ${round(d)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(cx)}, ${round(cy)}, 0]);`;
   return { mesh, chain };
 }
 
 type ToolHandler = {
+  // Number of clicks to auto-commit. -1 = unlimited: collect until Enter.
   clicks: number;
-  handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Mesh; chain: string };
+  handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Object3D; chain: string };
 };
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
@@ -401,9 +446,9 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   stair:    { clicks: 2, handler: ([a, b]) => buildStair(a, b) },
   polygon:  { clicks: 2, handler: ([a, b]) => buildPolygon(a, b) },
   polyline: { clicks: 4, handler: (pts) => buildPolyline(pts) },
-  curve:    { clicks: 3, handler: (pts) => buildCurve(pts) },
+  curve:    { clicks: -1, handler: (pts) => buildCurve(pts) },
   point:    { clicks: 1, handler: ([p]) => buildPoint(p) },
-  extrude:  { clicks: 2, handler: ([a, b]) => buildExtrude(a, b) },
+  extrude:  { clicks: 3, handler: ([c1, c2, c3]) => buildBox(c1, c2, c3) },
 };
 
 const TOOL_TODOS: Record<string, string> = {
@@ -493,39 +538,74 @@ function destroyCursorDot(): void {
 
 function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: number; y: number }): void {
   clearPreview(viewer);
-  if (_pending.length !== 1) return;
+  const isUnlimited = handler.clicks === -1;
+  // Fixed-click tools only preview on 1 pending click; unlimited on ≥1.
+  if (!isUnlimited && _pending.length !== 1) return;
+  if (isUnlimited && _pending.length < 1) return;
 
-  // Skip degenerate preview (cursor on top of first click).
-  const dx = livePoint.x - _pending[0].x;
-  const dy = livePoint.y - _pending[0].y;
+  const previewPts = isUnlimited ? [..._pending, livePoint] : [_pending[0], livePoint];
+
+  // Skip degenerate preview.
+  const last = previewPts[previewPts.length - 1];
+  const prev = previewPts[previewPts.length - 2];
+  const dx = last.x - prev.x;
+  const dy = last.y - prev.y;
   if (dx * dx + dy * dy < 1e-4) return;
 
+  // Unlimited tools need ≥2 pts to build geometry.
+  if (isUnlimited && previewPts.length < 2) return;
+
   try {
-    const out = handler.handler([_pending[0], livePoint]);
+    const out = handler.handler(previewPts);
     const preview = out.mesh;
-    // Replace material with translucent preview version.
-    const origMat = Array.isArray(preview.material) ? preview.material[0] : preview.material;
-    const previewMat = new THREE.MeshStandardMaterial({
-      color: (origMat as THREE.MeshStandardMaterial).color?.clone() ?? new THREE.Color(0x888888),
-      transparent: true,
-      opacity: 0.35,
-      depthWrite: false,
-    });
-    if (Array.isArray(preview.material)) {
-      preview.material.forEach((m) => m.dispose());
+    // Replace material(s) with a translucent preview version.
+    const applyPreviewMat = (m: THREE.Mesh) => {
+      const origMat = Array.isArray(m.material) ? m.material[0] : m.material;
+      const previewMat = new THREE.MeshStandardMaterial({
+        color: (origMat as THREE.MeshStandardMaterial).color?.clone() ?? new THREE.Color(0x888888),
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        depthTest: false,
+      });
+      if (Array.isArray(m.material)) m.material.forEach((mat) => mat.dispose());
+      else (m.material as THREE.Material).dispose();
+      m.material = previewMat;
+      m.renderOrder = 1;
+    };
+    if (preview instanceof THREE.Mesh) {
+      applyPreviewMat(preview);
+      _previewMesh = preview;
     } else {
-      (preview.material as THREE.Material).dispose();
+      // Group (e.g. point) — apply to all mesh children.
+      preview.traverse((child) => { if (child instanceof THREE.Mesh) applyPreviewMat(child); });
+      _previewMesh = preview as unknown as THREE.Mesh;
     }
-    preview.material = previewMat;
-    _previewMesh = preview;
     viewer.getScene().add(preview);
   } catch {
     // Degenerate geometry — skip preview
   }
 }
 
+// Commit the current unlimited-click tool (curve). Called by Enter key.
+function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string } | null {
+  const tool = readActiveTool();
+  if (!tool) return null;
+  const handler = TOOL_HANDLERS[tool];
+  if (!handler || handler.clicks !== -1 || _pending.length < 2) return null;
+  clearTemporary(viewer);
+  const out = handler.handler(_pending);
+  _pending = [];
+  viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh");
+  _createSequence.push(out.chain);
+  pushAction(out.mesh, out.chain);
+  hideCursorDot();
+  dispatchSync("setActiveTool", { toolId: "select" });
+  return out;
+}
+
 // Test hook — emit a click programmatically given world-space coords.
-export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, opts?: { tool?: string }): { mesh: THREE.Mesh; chain: string } | null {
+export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, opts?: { tool?: string }): { mesh: THREE.Object3D; chain: string } | null {
   const tool = opts?.tool ?? readActiveTool();
   if (!tool) return null;
   const handler = TOOL_HANDLERS[tool];
@@ -535,10 +615,12 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
     return null;
   }
   _pending.push(world);
-  // Show point marker on first click of a multi-click tool.
-  if (_pending.length === 1 && handler.clicks > 1) {
+  // Show point marker on first click of multi-click or unlimited tools.
+  if (_pending.length === 1 && handler.clicks !== 1) {
     setMarker(viewer, world);
   }
+  // Unlimited tools: never auto-commit; wait for Enter.
+  if (handler.clicks === -1) return null;
   if (_pending.length < handler.clicks) return null;
 
   // All clicks collected — build final mesh.
@@ -547,6 +629,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
   _pending = [];
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep");
   _createSequence.push(out.chain);
+  pushAction(out.mesh, out.chain);
   return out;
 }
 
@@ -594,7 +677,8 @@ export function initCreateMode(viewer: Viewer): void {
     if (!world || _pending.length === 0) return;
     const snapped = snapPoint(world.x, world.y);
     const handler = TOOL_HANDLERS[tool];
-    if (!handler || handler.clicks < 2) return;
+    // Show rubber band for multi-click tools (clicks≥2) and unlimited tools (clicks=-1).
+    if (!handler || (handler.clicks > 0 && handler.clicks < 2)) return;
     updateRubberBand(viewer, handler, snapped);
   });
 
@@ -602,13 +686,17 @@ export function initCreateMode(viewer: Viewer): void {
     hideCursorDot();
   });
 
-  // Esc cancels the in-progress placement.
+  // Esc cancels; Enter commits unlimited tools (curve).
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && _pending.length > 0) {
       clearTemporary(viewer);
       hideCursorDot();
       _pending = [];
       dispatchSync("setActiveTool", { toolId: "select" });
+      return;
+    }
+    if (ev.key === "Enter") {
+      commitUnlimited(viewer);
     }
   });
 
