@@ -376,6 +376,21 @@ Honest about scope:
   off by a wall thickness" errors. Tier 2 dataset work + per-row positional
   eval (was the prompt's spatial intent honored within tolerance?) is the
   obvious next step.
+- **2D sketch primitives partial** — solids and arch elements work
+  end-to-end on both the prompt path and the CONSOLE tab (`wall`, `slab`,
+  `column`, `box`, `cut`, `extrude`). Pure 2D sketch primitives — `line`,
+  `circle`, `rectangle`, `polyline`, `curve`, `point` — are a known gap:
+  the console rejects them as `unknown verb` (`web/src/dsl-eval.ts:405`),
+  the palette buttons that exist for `line/rect/circle/polyline` extrude
+  into thin solids rather than rendering 2D wires (a 0.001m-tall box for
+  `line`, a 2.8m-tall cylinder for `circle`), and `point` has no palette
+  button at all. Tracked as
+  [#3](https://github.com/wordingone/gemma-architect/issues/3) — each
+  primitive will lower to `drawX().sketchOnPlane("XY")` without extrude
+  and render as `THREE.Line` / `THREE.RingGeometry` / sphere marker, with
+  a corresponding palette icon for `point`. The model-driven prompt
+  pipeline does not exercise these primitives, so the demo flow is
+  unaffected.
 
 ---
 
