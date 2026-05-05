@@ -179,7 +179,7 @@ bun run web:dev
 
 ```bash
 bun run web:build
-# Output: web/dist/  (sizes verified 2026-05-04, build ~20s)
+# Output: web/dist/  (sizes verified 2026-05-05, build ~20s)
 #   index.html                         12.23 kB / gzip    2.93 kB
 #   assets/worker-*.js              3,881.81 kB
 #   assets/web-ifc-*.wasm           1,303.94 kB / gzip  483.17 kB
@@ -260,7 +260,7 @@ through to live LoRA or surfaces a `no-match` error to the user.
 ```bash
 bun scripts/test-ifc-bounds.ts        # 6 bundled IFC samples; verifies
                                        # the column-major matrix fix in
-                                       # web/src/worker.ts:283-289
+                                       # web/src/worker.ts:298-310
 bun scripts/verify-dsl-corpus.ts      # 19-row DSL corpus, all compile
 ```
 

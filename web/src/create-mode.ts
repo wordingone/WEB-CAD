@@ -81,7 +81,9 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
   const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const point = new THREE.Vector3();
   const hit = raycaster.ray.intersectPlane(plane, point);
-  return hit ? point : null;
+  if (hit) return point;
+  // Ray nearly parallel to Z=0 (near-horizontal camera) — fall back to camera XY projected onto Z=0.
+  return new THREE.Vector3(camera.position.x, camera.position.y, 0);
 }
 
 // --- Tool handlers ---
@@ -560,11 +562,18 @@ export function resetPending(): void {
 // through to viewer.onPointerDown for selection.
 export function initCreateMode(viewer: Viewer): void {
   _viewer = viewer;
-  const canvas = viewer.getCanvas();
+  // The THREE.js canvas has pointer-events:none — clicks land on .vp-body
+  // children of the viewport area. Register on the viewport-area-host ancestor
+  // (always present in static HTML) so the capture listener fires before any
+  // .vp-body listeners registered during buildWorkbench/buildModes.
+  const vpBody =
+    document.getElementById("viewport-area-host") ??
+    document.querySelector<HTMLElement>("#viewport-2 .vp-body") ??
+    viewer.getCanvas();
 
   // Capture-phase listener — runs before the viewer's own pointerdown so we
   // can swallow the event when a create-tool is active.
-  canvas.addEventListener("pointerdown", (ev) => {
+  vpBody.addEventListener("pointerdown", (ev) => {
     if (ev.button !== 0) return;
     const tool = readActiveTool();
     if (!tool) return;
@@ -576,22 +585,20 @@ export function initCreateMode(viewer: Viewer): void {
   }, { capture: true });
 
   // Cursor dot + rubber-band preview on every pointer move.
-  canvas.addEventListener("pointermove", (ev) => {
+  vpBody.addEventListener("pointermove", (ev) => {
     const tool = readActiveTool();
+    if (!tool) { hideCursorDot(); return; }
+    // Show dot at screen position regardless of ground-plane hit (camera may be near-horizontal).
+    moveCursorDot(viewer, { x: 0, y: 0 }, ev.clientX, ev.clientY);
     const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
-    if (!tool || !world) {
-      hideCursorDot();
-      return;
-    }
+    if (!world || _pending.length === 0) return;
     const snapped = snapPoint(world.x, world.y);
-    moveCursorDot(viewer, snapped, ev.clientX, ev.clientY);
-    if (_pending.length === 0) return;
     const handler = TOOL_HANDLERS[tool];
     if (!handler || handler.clicks < 2) return;
     updateRubberBand(viewer, handler, snapped);
   });
 
-  canvas.addEventListener("pointerleave", () => {
+  vpBody.addEventListener("pointerleave", () => {
     hideCursorDot();
   });
 

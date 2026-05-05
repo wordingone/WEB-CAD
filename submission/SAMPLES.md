@@ -74,3 +74,8 @@ The TypeScript-side metadata for the in-app dropdown lives in
 carries the same provenance as a code comment; this page is the
 human-readable surfacing for judges who shouldn't have to grep TS source
 to verify the real-vs-synthetic distinction.
+
+Size convention: values use binary (IEC) arithmetic — 1 MB = 1,048,576 B,
+1 KB = 1,024 B — displayed with traditional MB/KB labels, matching Linux
+`ls -lh` (without --si) and Windows Explorer. Example: 22,891,841 B → 21.83 MiB → reported
+as 21.8 MB. Strict SI (decimal) notation is not used.

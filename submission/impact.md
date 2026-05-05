@@ -29,9 +29,9 @@ Hough wall detection runs in-line on the page (zero deps, no service
 to call), extrudes detected segments at 2.8m, emits IFC4 — turns
 "person with a sketch" into "BIM asset producer" without an installer,
 API key, or CAD training prerequisite. For a real photograph of a
-floorplan, the same path drives Gemma 4 multimodal native (no LoRA
-on this branch — function-calling routes the image directly through
-the same dispatch table the typed-prompt path uses).
+floorplan, a Gemma 4 multimodal function-calling path is wired in
+`agent-harness.ts` (geometry dispatch handlers are the remaining
+integration milestone).
 
 The audience who gains access:
 
@@ -131,7 +131,7 @@ The submission is not a research artifact; it's a deployable web app.
   harness (`bun scripts/leo-as-architect.ts`, 8/8) exercises Tier 2 ops
   the canned demos don't (revolves, gables, T-junctions, octagonal
   columns). Run via `bun scripts/web-self-harness.ts`.
-- **Bundle size** (verified 2026-05-04 against the deployed
+- **Bundle size** (verified 2026-05-05 against the deployed
   `wordingone.github.io/gemma-architect/` build via `curl -sI`): an
   8.22 MB main JS chunk (gzip 0.72 MB) + a 3.88 MB worker chunk +
   replicad's 10.8 MB OpenCascade WASM (gzip 4.58 MB) + web-ifc's 1.3 MB
@@ -145,7 +145,7 @@ The submission is not a research artifact; it's a deployable web app.
   for the multi-threaded WASM path (SharedArrayBuffer prerequisite);
   GitHub Pages cannot serve those, so the live page falls back to
   single-thread WASM gracefully.
-- **Live page latencies** (verified 2026-05-04 against the deployed URL,
+- **Live page latencies** (verified 2026-05-05 against the deployed URL,
   single-thread WASM, no COOP+COEP): cache hit ~7 ms; wall full
   prompt→geometry cycle ~21 ms; 14-element Schultz Residence
   multi-fuse+cuts ~210 ms. ai-cache.json CDN first fetch ~116 ms, warm
