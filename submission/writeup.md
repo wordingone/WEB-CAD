@@ -280,7 +280,7 @@ AC20-FZK-Haus, AC20-Institute-Var-2; plus three smaller fixtures). See
 [`submission/SAMPLES.md`](SAMPLES.md) for per-file provenance. It
 validates that per-element world-space transforms come out of web-ifc's
 column-major `flatTransformation` correctly — a regression in the
-matrix block at `web/src/worker.ts:283-289` would collapse every
+matrix block at `web/src/worker.ts:298-310` would collapse every
 component to world origin (each FlatMesh would render at (0,0,0)).
 Today: all 6 samples produce coherent buildings with thousands of
 distinct per-part translations.

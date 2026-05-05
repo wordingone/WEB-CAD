@@ -260,7 +260,7 @@ through to live LoRA or surfaces a `no-match` error to the user.
 ```bash
 bun scripts/test-ifc-bounds.ts        # 6 bundled IFC samples; verifies
                                        # the column-major matrix fix in
-                                       # web/src/worker.ts:283-289
+                                       # web/src/worker.ts:298-310
 bun scripts/verify-dsl-corpus.ts      # 19-row DSL corpus, all compile
 ```
 
