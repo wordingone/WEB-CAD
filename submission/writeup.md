@@ -194,7 +194,7 @@ because the 4b-it `pred` has translate/cut bugs on the 14-element multi-fuse).
 - **replicad 0.20.0** (`^0.20` pinned in `package.json`) + **replicad-opencascadejs 0.20.2** for the geometry kernel
 - **web-ifc 0.0.77** for IFC4 STEP-21 round-trip verification
 - **three.js 0.162.0** + OrbitControls for the viewer (Z-up to match replicad)
-- Bundle (verified 2026-05-04 against `bun run web:build` + the deployed
+- Bundle (verified 2026-05-05 against `bun run web:build` + the deployed
   GH Pages build via curl): main JS 8.22 MB / gzip 0.72 MB · worker 3.88 MB
   · replicad OpenCascade WASM 10.8 MB / gzip 4.58 MB · web-ifc WASM 1.3 MB
   / gzip 0.48 MB · CSS 61 kB / gzip 12 kB. Lazy-loaded chunks for PDF export
@@ -376,21 +376,16 @@ Honest about scope:
   off by a wall thickness" errors. Tier 2 dataset work + per-row positional
   eval (was the prompt's spatial intent honored within tolerance?) is the
   obvious next step.
-- **2D sketch primitives partial** — solids and arch elements work
-  end-to-end on both the prompt path and the CONSOLE tab (`wall`, `slab`,
-  `column`, `box`, `cut`, `extrude`). Pure 2D sketch primitives — `line`,
-  `circle`, `rectangle`, `polyline`, `curve`, `point` — are a known gap:
-  the console rejects them as `unknown verb` (`web/src/dsl-eval.ts:405`),
-  the palette buttons that exist for `line/rect/circle/polyline` extrude
-  into thin solids rather than rendering 2D wires (a 0.001m-tall box for
-  `line`, a 2.8m-tall cylinder for `circle`), and `point` has no palette
-  button at all. Tracked as
-  [#3](https://github.com/wordingone/gemma-architect/issues/3) — each
-  primitive will lower to `drawX().sketchOnPlane("XY")` without extrude
-  and render as `THREE.Line` / `THREE.RingGeometry` / sphere marker, with
-  a corresponding palette icon for `point`. The model-driven prompt
-  pipeline does not exercise these primitives, so the demo flow is
-  unaffected.
+- **2D sketch primitives shipped (PR #7, fc1284c)** — solids, arch elements,
+  and 2D sketch primitives all work end-to-end on both the prompt path and
+  the CONSOLE tab. All 6 palette buttons are present (`line`, `rect`,
+  `circle`, `polyline`, `curve`, `point`); 4 of 6 DSL verbs (`line`,
+  `circle`, `rect`, `point`) render as `THREE.Line` / `THREE.RingGeometry` /
+  sphere marker on the Z=0 plane via `drawX().sketchOnPlane("XY")`. The
+  remaining gap: the LoRA training corpus (`dataset/v2/`) does not yet include
+  2D-primitive prompts, so the AI path never routes to them — the demo flow
+  uses solid/arch vocab. Extending the training set with sketch rows is the
+  obvious next dataset step.
 
 ---
 
