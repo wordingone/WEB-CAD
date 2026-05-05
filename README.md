@@ -59,7 +59,7 @@ without round-tripping through the model.
    loads cleanly in Revit / ArchiCAD / BlenderBIM.
 4. Click any element. The right sidebar shows IFC class + storey +
    GUID + layer. Ctrl-click two more elements; the panel reports
-   `3 elements selected` with a union bounds rotation — the same
+   `3 elements selected` with a union bounds size — the same
    selection model a working architect uses in Rhino.
 
 That's the equity story in three clicks: a non-CAD user, in a browser,
