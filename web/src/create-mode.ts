@@ -81,7 +81,9 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
   const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const point = new THREE.Vector3();
   const hit = raycaster.ray.intersectPlane(plane, point);
-  return hit ? point : null;
+  if (hit) return point;
+  // Ray nearly parallel to Z=0 (near-horizontal camera) — fall back to camera XY projected onto Z=0.
+  return new THREE.Vector3(camera.position.x, camera.position.y, 0);
 }
 
 // --- Tool handlers ---

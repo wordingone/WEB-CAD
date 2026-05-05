@@ -620,6 +620,8 @@ function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
         status.textContent = `AI: ${err.message}`;
         status.className = "status err";
       }
+      // Auto-switch dock to CONSOLE so the error line is visible without DevTools.
+      document.querySelector<HTMLElement>('.dock-tab[data-tab="console"]')?.click();
     } finally {
       genBtn.disabled = false;
       if (prevLabel) genBtn.innerHTML = prevLabel;
