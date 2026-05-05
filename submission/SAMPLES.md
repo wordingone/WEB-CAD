@@ -75,6 +75,7 @@ carries the same provenance as a code comment; this page is the
 human-readable surfacing for judges who shouldn't have to grep TS source
 to verify the real-vs-synthetic distinction.
 
-Size convention: values are reported in SI MB/KB (1 MB = 1,000,000 B),
-matching the output of common filesystem tools (`ls -lh`, macOS Finder,
-Windows Explorer). IEC MiB/KiB notation is not used.
+Size convention: values use binary (IEC) arithmetic — 1 MB = 1,048,576 B,
+1 KB = 1,024 B — displayed with traditional MB/KB labels, matching macOS
+Finder and Windows Explorer. Example: 22,891,841 B → 21.83 MiB → reported
+as 21.8 MB. Strict SI (decimal) notation is not used.
