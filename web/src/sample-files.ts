@@ -24,7 +24,7 @@ export const SAMPLES: SampleFile[] = [
     label: "Schultz Residence — multi-story home, Boston (Opening Design, Revit 2014)",
     path: "samples/Schultz_Residence.ifc",
     format: "ifc",
-    size: "22.5 MB",
+    size: "21.8 MB",
     note: "11 storeys (Basement→Roof), 105 walls, 25 windows, 17 doors, 10 stairs · 424k entities · IFC2x3, Revit 2014. Real building. CC BY-ND 4.0 / Opening Design.",
   },
   // Synthetic IFC4 reference fixtures from KIT (Karlsruhe Institute of
@@ -53,7 +53,7 @@ export const SAMPLES: SampleFile[] = [
     label: "Bonsai project — small house with openings (IFC4)",
     path: "samples/bonsai-project0-openings.ifc",
     format: "ifc",
-    size: "47 KB",
+    size: "48 KB",
     note: "788 entities, IFC4 — BlenderBIM tutorial 'Project 0' starter, fast parse",
   },
   {
