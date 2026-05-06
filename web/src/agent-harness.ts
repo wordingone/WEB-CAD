@@ -1,37 +1,36 @@
-// agent-harness.ts — Gemma 4 agent wrapper (T10 per silly-baking-yeti.md).
+// agent-harness.ts — In-browser WebGPU inference via Transformers.js v4 (#47).
 //
-// Wraps the local Gemma 4 (E2B-it) llama-server endpoint with:
-//   - System prompt: Spatial Dictionary entries + Scene KG snapshot + matched skills
-//   - Tools array: dispatch table → OpenAI-compat function definitions
-//   - Multimodal content blocks: optional ImageBitmap frames forwarded as
-//     `image_url` parts (Gemma 4 vision tower handles them natively;
-//     gemma-architect's adapter at `src/serve/serve_lora.py` is OURS, so the
-//     image-stripping bug in avir-cli's openai-adapter does not apply here)
-//   - Tool-call parsing: `tool_calls[]` deltas mapped to AgentDispatch records
+// Model: onnx-community/gemma-4-E2B-it-ONNX (Q4 quantized, CDN-hosted).
+// Uses Gemma4ForConditionalGeneration + AutoProcessor directly — the
+// "image-text-to-text" pipeline task is not supported in transformers.js 4.2.0.
 //
-// The harness does NOT execute dispatches itself — it returns the parsed
-// AgentDispatch[] for the caller (shell.ts / agent loop) to invoke via
-// `dispatch()` from `./dispatch`. Keeps this module pure-IO + pure-mapping
-// so it stays unit-testable against a mocked fetch.
+// Load sequence:
+//   1. First call to runAgentTurn() triggers model download (~2GB, cached by browser).
+//   2. Badge element (#ai-model-badge) shows download progress then "LIVE".
+//   3. Subsequent calls skip loading and go straight to inference.
 //
-// Endpoint: http://127.0.0.1:8083/v1/chat/completions (overridable via
-// VITE_AGENT_URL or window.__agentUrl, mirroring the ai-generate.ts pattern).
+// Tool-call format: model emits ```json {"verb":"Name","args":{...}} ``` blocks.
+// parseDispatches() extracts these; remaining text becomes the response text.
 
-import { getDictionary, type SdArg, type SpatialDictionaryEntry } from "./dictionary";
+import { Gemma4ForConditionalGeneration, AutoProcessor, RawImage, PreTrainedModel } from "@huggingface/transformers";
+import { getDictionary } from "./dictionary";
+import { listHandlers } from "./dispatch";
 import { snapshotAsText } from "./scene-kg";
+import { captureViewport } from "./viewport-capture";
 import type { Skill } from "./skills-loader";
-
-export type AgentRequest = {
-  prompt: string;
-  frames?: ImageBitmap[];
-  maxTurns?: number;
-  skills?: Skill[];
-  model?: string;
-};
 
 export type AgentDispatch = {
   verb: string;
   args: Record<string, unknown>;
+};
+
+export type AgentRequest = {
+  prompt: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  frames?: ImageBitmap[];
+  maxTurns?: number;
+  skills?: Skill[];
+  model?: string;
 };
 
 export type AgentResponse = {
@@ -40,210 +39,288 @@ export type AgentResponse = {
   raw?: unknown;
 };
 
-// ---- Endpoint resolution -----------------------------------------------
+// ---- Model loading --------------------------------------------------------
 
-const DEFAULT_ENDPOINT = "http://127.0.0.1:8083/v1/chat/completions";
-const DEFAULT_MODEL = "gemma-4-e2b-it";
+const MODEL_ID = "onnx-community/gemma-4-E2B-it-ONNX";
+const BADGE_ID = "ai-model-badge";
 
-function getEndpoint(): string {
-  if (typeof window !== "undefined") {
-    const w = window as unknown as { __agentUrl?: string };
-    if (w.__agentUrl) return w.__agentUrl;
-  }
-  const env = (import.meta as unknown as { env?: Record<string, string> }).env;
-  return env?.VITE_AGENT_URL ?? DEFAULT_ENDPOINT;
+let _model: PreTrainedModel | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _processor: any = null;
+let _loadPromise: Promise<{ model: PreTrainedModel; processor: unknown }> | null = null;
+
+function updateBadge(inner: string): void {
+  const el = document.getElementById(BADGE_ID);
+  if (el) el.innerHTML = inner;
 }
 
-// ---- JSON-schema generation from the dispatch table --------------------
-// Map SdArgType → JSON-schema property. Kernel-specific handles (edge /
-// surface / solid) become opaque `string` so the agent passes UUIDs.
-function argToJsonSchema(arg: SdArg): Record<string, unknown> {
-  switch (arg.type) {
-    case "number":
-    case "integer":
-      return { type: arg.type === "integer" ? "integer" : "number" };
-    case "boolean":
-      return { type: "boolean" };
-    case "string":
-    case "enum_format":
-      return { type: "string" };
-    case "point2":
-      return { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2 };
-    case "point3":
-    case "vector3":
-      return { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3 };
-    case "polyline":
-    case "polyline_or_circle":
-    case "list_point2":
-      return { type: "array", items: { type: "array", items: { type: "number" } } };
-    case "list_edge":
-    case "list_face":
-    case "list_any":
-    case "list_edge_or_surface":
-      return { type: "array", items: { type: "string" } };
-    case "any":
-      return {};
-    default:
-      // Kernel-internal handles (edge / surface / solid / curve / plane3 /
-      // line3 / number_or_vector3 / arraybuffer / etc.) are passed by
-      // reference as opaque tokens — the agent cites them by UUID, the
-      // dispatch handler resolves them on the kernel side.
-      return { type: "string" };
-  }
+type ProgressInfo = {
+  status: string;
+  name?: string;
+  progress?: number;
+};
+
+// Try WebGPU first (q4f16 quantization); fall back through device:"auto"
+// (onnxruntime-web selects WebGL then WASM-SIMD automatically). Model files
+// are cached in browser storage after first download — subsequent visits skip
+// the network transfer entirely.
+async function getModel(): Promise<{ model: PreTrainedModel; processor: unknown }> {
+  if (_model && _processor) return { model: _model, processor: _processor };
+  if (_loadPromise) return _loadPromise;
+
+  _loadPromise = (async () => {
+    updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LOADING…`);
+    window.dispatchEvent(new CustomEvent("agentmodel:loading", { detail: { progress: 0 } }));
+
+    const progressCb = (info: ProgressInfo) => {
+      if (info.status === "downloading") {
+        const pct = info.progress != null ? `${Math.round(info.progress)}%` : "";
+        const file = info.name?.split("/").pop() ?? "";
+        const label = [pct, file].filter(Boolean).join(" ");
+        updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  ${label}`);
+        window.dispatchEvent(
+          new CustomEvent("agentmodel:loading", { detail: { progress: info.progress ?? 0, file } }),
+        );
+      } else if (info.status === "loading") {
+        updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  INITIALIZING`);
+      }
+    };
+
+    type DeviceSpec = { device: "webgpu" | "auto"; dtype: "q4f16" | "q4"; label: string };
+    const backends: DeviceSpec[] = [
+      { device: "webgpu", dtype: "q4f16", label: "GPU" },
+      { device: "auto",   dtype: "q4",    label: "CPU" },
+    ];
+
+    let lastErr: Error = new Error("No backend available");
+    for (const { device, dtype, label } of backends) {
+      try {
+        const model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
+          dtype,
+          device,
+          progress_callback: progressCb,
+        });
+        const processor = await AutoProcessor.from_pretrained(MODEL_ID);
+        _model = model;
+        _processor = processor;
+        updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LIVE · ${label}`);
+        window.dispatchEvent(new CustomEvent("agentmodel:ready", { detail: { device, label } }));
+        return { model, processor };
+      } catch (e) {
+        lastErr = e as Error;
+        if (device === "webgpu") {
+          console.warn("[agent-harness] WebGPU unavailable, trying CPU fallback:", (e as Error).message);
+          updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LOADING CPU…`);
+        }
+      }
+    }
+
+    window.dispatchEvent(new CustomEvent("agentmodel:error", { detail: lastErr.message }));
+    throw lastErr;
+  })();
+
+  // _loadPromise was assigned on the line above — non-null is guaranteed here.
+  return _loadPromise!;
 }
 
-function entryToTool(entry: SpatialDictionaryEntry): Record<string, unknown> {
-  const properties: Record<string, unknown> = {};
-  const required: string[] = [];
-  for (const a of entry.args) {
-    properties[a.name] = argToJsonSchema(a);
-    if (a.required) required.push(a.name);
-  }
-  const description =
-    `${entry.kernel_op} (${entry.topology_role})` +
-    (entry.synonyms.length > 0 ? ` — synonyms: ${entry.synonyms.slice(0, 4).join(", ")}` : "");
-  return {
-    type: "function",
-    function: {
-      name: entry.canonical_name,
-      description,
-      parameters: { type: "object", properties, required },
-    },
-  };
-}
-
-export function buildToolDefinitions(): Record<string, unknown>[] {
-  return getDictionary().map(entryToTool);
-}
-
-// ---- System prompt assembly --------------------------------------------
-
-function summariseSkills(skills: Skill[] | undefined): string {
-  if (!skills || skills.length === 0) return "Available skills: none active for this turn.";
-  const lines = skills.map((s) => `- ${s.name} (v${s.version}): ${s.description}`);
-  return `Available skills:\n${lines.join("\n")}`;
-}
+// ---- System prompt --------------------------------------------------------
 
 function summariseDictionary(): string {
   const dict = getDictionary();
-  // One-line per entry keeps the prompt under ~3KB even at 70 verbs.
-  const lines = dict.map((e) => {
-    const argList = e.args.map((a) => `${a.name}:${a.type}${a.required ? "" : "?"}`).join(",");
-    return `- ${e.canonical_name}(${argList}) — ${e.topology_role}`;
+  const implemented = new Set(listHandlers());
+  // Show only verbs that have a registered handler (native or shim).
+  // Falls back to full dictionary if dispatch hasn't initialized yet.
+  const available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.canonical_name)) : dict;
+  const lines = available.map((e) => {
+    const argList = e.args.map((a) => `${a.name}:${a.type}${a.required ? "" : "?"}`).join(", ");
+    return `  ${e.canonical_name}(${argList})`;
   });
-  return `Available verbs (${dict.length}):\n${lines.join("\n")}`;
+  const count = available.length;
+  return count > 0
+    ? `Available verbs (${count} — use ONLY these, do not invent verb names):\n${lines.join("\n")}`
+    : "No verbs currently available. Do not emit tool calls.";
 }
 
-export function buildSystemPrompt(skills?: Skill[]): string {
-  const sd = summariseDictionary();
+function summariseSkills(skills: Skill[] | undefined): string {
+  if (!skills || skills.length === 0) return "Available skills: none active.";
+  return `Available skills:\n${skills.map((s) => `  ${s.name} (v${s.version}): ${s.description}`).join("\n")}`;
+}
+
+function buildSceneContext(): string {
+  // Try KG first (populated by dispatch-created objects).
   const kg = snapshotAsText();
-  const sk = summariseSkills(skills);
+  if (!kg.includes("empty")) return kg;
+
+  // Fall back to walking the THREE.js scene graph for the default demo scene.
+  type ViewerScene = { children?: Array<{ type: string; name?: string; position?: { x: number; y: number; z: number } }> };
+  const viewer = (window as unknown as { __viewer?: { scene?: ViewerScene } }).__viewer;
+  const children = viewer?.scene?.children;
+  if (!children) return kg;
+
+  const meshes = children.filter((c) => c.type === "Mesh" || c.type === "Group");
+  if (meshes.length === 0) return kg;
+
+  const lines = meshes.slice(0, 15).map((m) => {
+    const pos = m.position
+      ? `at (${m.position.x.toFixed(1)}, ${m.position.y.toFixed(1)}, ${m.position.z.toFixed(1)})`
+      : "";
+    return `${m.name || m.type}${pos ? " " + pos : ""}`;
+  });
+  const suffix = meshes.length > 15 ? ` … and ${meshes.length - 15} more` : "";
+  return `Scene contains ${meshes.length} object(s): ${lines.join("; ")}${suffix}.`;
+}
+
+
+const FEW_SHOT_EXAMPLES = `
+Examples of correct tool calls (copy the verb names EXACTLY — do not rename them):
+
+User: create a box 6m wide, 4m deep, 3m tall
+Assistant:
+\`\`\`json
+{"verb":"SdBox","args":{"width":6,"depth":4,"height":3}}
+\`\`\`
+
+User: draw a wall 4m long, 0.3m thick, 3m tall
+Assistant:
+\`\`\`json
+{"verb":"IfcWall","args":{"profile":[[0,0],[4,0]],"thickness":0.3,"height":3}}
+\`\`\`
+
+User: add a sphere radius 1
+Assistant:
+\`\`\`json
+{"verb":"SdSphere","args":{"radius":1}}
+\`\`\`
+
+User: add a cylinder, radius 0.5 height 2
+Assistant:
+\`\`\`json
+{"verb":"SdCylinder","args":{"radius":0.5,"height":2}}
+\`\`\`
+`.trim();
+
+export function buildSystemPrompt(skills?: Skill[]): string {
   return [
-    "You are Gemma·Architect, a CAD agent. You drive a parametric CAD UI by emitting tool calls against the verbs below.",
-    sd,
-    `Current scene: ${kg}`,
-    sk,
-    "Respond with one or more tool calls when an action is needed. Use plain text only for clarifying questions or summaries.",
+    "You are Gemma·Architect, a parametric CAD assistant embedded in a browser app.",
+    "When the user asks to create or modify geometry, emit tool calls as JSON code blocks.",
+    'Format: ```json\n{"verb":"VerbName","args":{...}}\n```',
+    "Emit one ```json block per tool call. Multiple actions = multiple blocks in sequence.",
+    "CRITICAL: Use ONLY the exact verb names listed below. Do not invent or rename verbs — any verb not in the list is silently rejected and nothing will be created.",
+    FEW_SHOT_EXAMPLES,
+    summariseDictionary(),
+    `Current scene (text): ${buildSceneContext()}`,
+    "When a viewport image is attached to a user message, describe what is visible in the scene from that image. When no image is provided, refer to the 'Current scene' text summary above.",
+    summariseSkills(skills),
+    "For questions or summaries, respond with plain text only (no JSON blocks).",
   ].join("\n\n");
 }
 
-// ---- Multimodal content blocks -----------------------------------------
-// ImageBitmap (from T12 video-recorder) → base64 PNG data URL via
-// OffscreenCanvas, serialised inline for the inference endpoint.
-async function frameToDataUrl(frame: ImageBitmap): Promise<string> {
-  const canvas = new OffscreenCanvas(frame.width, frame.height);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("agent-harness: 2D canvas context unavailable");
-  ctx.drawImage(frame, 0, 0);
-  const blob = await canvas.convertToBlob({ type: "image/png" });
-  const buf = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  const b64 = typeof btoa === "function" ? btoa(binary) : "";
-  return `data:image/png;base64,${b64}`;
+export function buildToolDefinitions(): Record<string, unknown>[] {
+  // Not used in the WebGPU path (tool calls are text-parsed, not schema-validated).
+  return [];
 }
 
-async function buildUserContent(
-  prompt: string,
-  frames: ImageBitmap[] | undefined,
-): Promise<unknown> {
-  if (!frames || frames.length === 0) return prompt;
-  const parts: Array<Record<string, unknown>> = [{ type: "text", text: prompt }];
-  for (const f of frames) {
-    const url = await frameToDataUrl(f);
-    parts.push({ type: "image_url", image_url: { url } });
-  }
-  return parts;
-}
+// ---- Tool-call parsing ---------------------------------------------------
 
-// ---- Tool-call parsing -------------------------------------------------
+function parseDispatches(raw: string): { dispatches: AgentDispatch[]; text: string } {
+  const dispatches: AgentDispatch[] = [];
+  const blockRe = /```json\s*([\s\S]*?)```/gi;
+  const removals: string[] = [];
+  let m: RegExpExecArray | null;
 
-type ChatChoiceMessage = {
-  content?: string | null;
-  tool_calls?: Array<{
-    id?: string;
-    type?: string;
-    function?: { name?: string; arguments?: string };
-  }>;
-};
-
-type ChatCompletionResponse = {
-  choices?: Array<{ message?: ChatChoiceMessage; finish_reason?: string }>;
-};
-
-function parseDispatches(message: ChatChoiceMessage | undefined): AgentDispatch[] {
-  if (!message || !Array.isArray(message.tool_calls)) return [];
-  const out: AgentDispatch[] = [];
-  for (const call of message.tool_calls) {
-    const verb = call.function?.name?.trim();
-    if (!verb) continue;
-    const rawArgs = call.function?.arguments ?? "{}";
-    let args: Record<string, unknown> = {};
+  while ((m = blockRe.exec(raw)) !== null) {
+    removals.push(m[0]);
     try {
-      const parsed = JSON.parse(rawArgs);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        args = parsed as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(m[1].trim());
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of items) {
+        if (item && typeof item === "object") {
+          const obj = item as Record<string, unknown>;
+          const verb = typeof obj.verb === "string" ? obj.verb.trim() : "";
+          const args =
+            obj.args && typeof obj.args === "object" && !Array.isArray(obj.args)
+              ? (obj.args as Record<string, unknown>)
+              : {};
+          if (verb) dispatches.push({ verb, args });
+        }
       }
     } catch {
-      // Malformed arg JSON — preserve the raw string so the caller can log
-      // it; dispatch() will reject via ArgValidationError on type mismatch.
-      args = { _raw: rawArgs };
+      // Malformed block — skip silently.
     }
-    out.push({ verb, args });
   }
-  return out;
+
+  let text = raw;
+  for (const block of removals) {
+    text = text.replace(block, "");
+  }
+  return { dispatches, text: text.trim() };
 }
 
-// ---- Public entry point ------------------------------------------------
+// ---- Public entry point --------------------------------------------------
 
 export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
-  const endpoint = getEndpoint();
-  const model = req.model ?? DEFAULT_MODEL;
-  const userContent = await buildUserContent(req.prompt, req.frames);
-  const messages = [
-    { role: "system", content: buildSystemPrompt(req.skills) },
-    { role: "user", content: userContent },
-  ];
-  const body = {
-    model,
-    messages,
-    tools: buildToolDefinitions(),
-    tool_choice: "auto",
-    max_tokens: 4096,
-    temperature: 0.2,
-  };
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    throw new Error(`agent-harness: HTTP ${resp.status} ${resp.statusText}`);
+  const { model, processor } = await getModel();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proc = processor as any;
+
+  // Always capture viewport so the model can see the current scene state.
+  const imageDataUrl = captureViewport();
+
+  type TextPart = { type: "text"; text: string };
+  type ImagePart = { type: "image"; image: RawImage };
+  type ContentPart = TextPart | ImagePart;
+  type UserContent = string | ContentPart[];
+
+  // Collect images and build user message content.
+  const imageList: RawImage[] = [];
+  let userContent: UserContent;
+  if (imageDataUrl) {
+    const rawImage = await RawImage.fromURL(imageDataUrl);
+    imageList.push(rawImage);
+    userContent = [
+      { type: "image", image: rawImage } satisfies ImagePart,
+      { type: "text", text: req.prompt } satisfies TextPart,
+    ];
+  } else {
+    userContent = req.prompt;
   }
-  const json = (await resp.json()) as ChatCompletionResponse;
-  const choice = json.choices?.[0];
-  const dispatches = parseDispatches(choice?.message);
-  const text = choice?.message?.content?.trim() ?? "";
-  return { dispatches, text, raw: json };
+
+  // Keep at most the last 10 turns (20 messages) to bound prefill length.
+  // Beyond ~10 turns, older context hurts latency more than it helps accuracy.
+  const MAX_HISTORY_MSGS = 20;
+  const trimmedHistory = (req.history ?? []).slice(-MAX_HISTORY_MSGS);
+
+  const messages = [
+    { role: "system" as const, content: buildSystemPrompt(req.skills) },
+    ...trimmedHistory,
+    { role: "user" as const, content: userContent },
+  ];
+
+  // Gemma4Processor._call(text, images, audio, options) — passing options as the
+  // second argument incorrectly routes it to `images`, causing image.rgb() errors.
+  // Correct approach: apply chat template to get a string, then call proc(text, images).
+  const chatText: string = proc.apply_chat_template(messages, {
+    add_generation_prompt: true,
+    tokenize: false,
+  }) as string;
+
+  // Encode: processor tokenizes text and encodes images (null when text-only).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inputs: any = await proc(chatText, imageList.length > 0 ? imageList : null);
+
+  // Generate — greedy decoding for deterministic tool-call JSON.
+  const outputs = await model.generate({
+    ...inputs,
+    max_new_tokens: 1024,
+    do_sample: false,
+  });
+
+  // Decode only the newly generated tokens (strip the prompt prefix).
+  const inputLength: number = inputs.input_ids?.dims?.[1] ?? 0;
+  const generated = inputLength > 0 ? (outputs as any).slice(null, [inputLength, null]) : outputs;
+  const decoded: string[] = proc.batch_decode(generated, { skip_special_tokens: true });
+  const responseText = decoded[0] ?? "";
+
+  const { dispatches, text } = parseDispatches(responseText);
+  return { dispatches, text: text || responseText, raw: outputs };
 }

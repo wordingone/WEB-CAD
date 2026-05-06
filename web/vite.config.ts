@@ -25,7 +25,7 @@ export default defineConfig({
   server: {
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Embedder-Policy": "credentialless",
     },
     fs: {
       // Allow reading sibling outputs/ for canned demo prompts in dev.
@@ -35,11 +35,14 @@ export default defineConfig({
   preview: {
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
+      "Cross-Origin-Embedder-Policy": "credentialless",
     },
   },
   optimizeDeps: {
-    exclude: ["replicad-opencascadejs", "web-ifc"],
+    // replicad + web-ifc ship .wasm and must not be pre-bundled.
+    // @huggingface/transformers uses internal workers with dynamic imports
+    // that Vite's pre-bundler breaks if it tries to inline them.
+    exclude: ["replicad-opencascadejs", "web-ifc", "@huggingface/transformers"],
   },
   build: {
     target: "esnext",
