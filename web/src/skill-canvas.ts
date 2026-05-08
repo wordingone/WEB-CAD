@@ -341,6 +341,36 @@ export class SkillCanvas {
     return [...order, ...rest];
   }
 
+  // ── P5b: agent-triggered animation ────────────────────────────────────────
+
+  // Build a fresh linear graph from steps, render it, then highlight each
+  // node in topo order as its verb dispatches. Called by skill:animate event.
+  async runWithAnimation(steps: SkillStep[]): Promise<void> {
+    const nodes: CanvasNode[] = steps.map((step, i) => ({
+      id: crypto.randomUUID(),
+      verb: step.verb,
+      args: step.args,
+      x: 20 + i * 180,
+      y: 80,
+    }));
+    const edges: CanvasEdge[] = nodes.slice(0, -1).map((n, i) => ({
+      id: crypto.randomUUID(),
+      from: n.id,
+      to: nodes[i + 1].id,
+    }));
+    this._graph = { nodes, edges };
+    saveGraph(this._graph);
+    this._renderGraph();
+
+    for (const node of this._topoSort()) {
+      const el = this._nodesEl.querySelector<HTMLElement>(`[data-id="${node.id}"]`);
+      el?.classList.add("node-running");
+      dispatchSync(node.verb, node.args as DispatchArgs);
+      await new Promise(r => setTimeout(r, 80));
+      el?.classList.remove("node-running");
+    }
+  }
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   destroy(): void {

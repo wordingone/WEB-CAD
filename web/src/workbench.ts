@@ -881,6 +881,7 @@ async function renderSkillNodes(): Promise<void> {
 }
 
 let _canvasInstance: SkillCanvas | null = null;
+let _activateNodesCanvas: (() => void) | null = null;
 
 function buildNodesTabBody(): HTMLElement {
   const outer = el("div", "tab-body nodes-tab");
@@ -927,6 +928,7 @@ function buildNodesTabBody(): HTMLElement {
 
   listBtn.addEventListener("click",   () => activate("list"));
   canvasBtn.addEventListener("click", () => activate("canvas"));
+  _activateNodesCanvas = () => activate("canvas");
 
   outer.appendChild(switcher);
   outer.appendChild(listPane);
@@ -1117,6 +1119,14 @@ function buildDock(
   }
   activate("prompt");
   initLiveTabSubscriptions();
+
+  // P5b: when chat-panel fires "skill:animate", switch to NODES→Canvas and run.
+  window.addEventListener("skill:animate", (e) => {
+    const { steps } = (e as CustomEvent<{ steps: SkillStep[] }>).detail;
+    activate("nodes");
+    _activateNodesCanvas?.();
+    void _canvasInstance?.runWithAnimation(steps);
+  });
 }
 
 function wireDockResize() {

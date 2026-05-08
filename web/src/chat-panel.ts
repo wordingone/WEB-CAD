@@ -9,6 +9,7 @@ import type { AgentDispatch, AgentResponse } from "./agent/agent-harness";
 import { invokeCommand } from "./commands/command-session";
 import type { Skill } from "./agent/skills-loader";
 import { findSkillsForPrompt } from "./agent/skills-loader";
+import { listSavedSkills } from "./skill-store";
 import { isSimplePlan } from "./plan";
 import { lastTurn } from "./telemetry";
 
@@ -47,6 +48,10 @@ export class ChatPanel {
   private _sendBtn!: HTMLButtonElement;
   private _perfStripEl!: HTMLElement;
   private _skills: Skill[] = [];
+  private _attachedImage: { dataUrl: string; name: string } | null = null;
+  private _imgPreviewEl!: HTMLElement;
+  private _imgThumbEl!: HTMLImageElement;
+  private _fileInput!: HTMLInputElement;
 
   constructor(private _root: HTMLElement) {
     this._build();
@@ -68,18 +73,27 @@ export class ChatPanel {
       <div class="chat-list"></div>
       <div class="chat-starters"></div>
       <div class="chat-perf-strip" style="display:none"></div>
+      <div class="chat-image-preview" style="display:none">
+        <img class="chat-image-thumb" alt="attached image">
+        <button class="chat-image-clear" type="button" title="Remove image">✕</button>
+      </div>
       <div class="chat-compose">
         <textarea class="chat-input"
           placeholder="Ask Gemma·Architect — create geometry, inspect the scene, explain commands…"
           rows="2"></textarea>
+        <button class="btn btn-sm chat-attach-btn" type="button" title="Attach image (or paste / drop)">📎</button>
         <button class="btn btn-accent btn-sm chat-send-btn" type="button">SEND</button>
       </div>
+      <input type="file" class="chat-file-input" accept="image/*" style="display:none">
     `;
-    this._listEl    = this._root.querySelector(".chat-list")!;
-    this._startersEl = this._root.querySelector(".chat-starters")!;
+    this._listEl      = this._root.querySelector(".chat-list")!;
+    this._startersEl  = this._root.querySelector(".chat-starters")!;
     this._perfStripEl = this._root.querySelector(".chat-perf-strip")!;
-    this._inputEl   = this._root.querySelector<HTMLTextAreaElement>(".chat-input")!;
-    this._sendBtn   = this._root.querySelector<HTMLButtonElement>(".chat-send-btn")!;
+    this._inputEl     = this._root.querySelector<HTMLTextAreaElement>(".chat-input")!;
+    this._sendBtn     = this._root.querySelector<HTMLButtonElement>(".chat-send-btn")!;
+    this._imgPreviewEl = this._root.querySelector(".chat-image-preview")!;
+    this._imgThumbEl  = this._root.querySelector<HTMLImageElement>(".chat-image-thumb")!;
+    this._fileInput   = this._root.querySelector<HTMLInputElement>(".chat-file-input")!;
 
     window.addEventListener("debug:telemetry-toggle", () => {
       const visible = this._perfStripEl.style.display !== "none";
@@ -105,6 +119,59 @@ export class ChatPanel {
         void this._send();
       }
     });
+
+    // Image attach button → hidden file picker
+    this._root.querySelector(".chat-attach-btn")!.addEventListener("click", () => {
+      this._fileInput.click();
+    });
+    this._fileInput.addEventListener("change", () => {
+      const file = this._fileInput.files?.[0];
+      if (file) void this._loadImageFile(file);
+      this._fileInput.value = "";
+    });
+
+    // Clear attached image
+    this._root.querySelector(".chat-image-clear")!.addEventListener("click", () => {
+      this._clearImage();
+    });
+
+    // Paste: grab first image item from clipboard
+    this._inputEl.addEventListener("paste", (e: ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find((it) => it.type.startsWith("image/"));
+      if (imageItem) {
+        e.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) void this._loadImageFile(file);
+      }
+    });
+
+    // Drop image onto compose area
+    const compose = this._root.querySelector(".chat-compose")!;
+    compose.addEventListener("dragover", (e) => { e.preventDefault(); });
+    compose.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const file = (e as DragEvent).dataTransfer?.files?.[0];
+      if (file?.type.startsWith("image/")) void this._loadImageFile(file);
+    });
+  }
+
+  private async _loadImageFile(file: File): Promise<void> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    this._attachedImage = { dataUrl, name: file.name };
+    this._imgThumbEl.src = dataUrl;
+    this._imgPreviewEl.style.display = "flex";
+  }
+
+  private _clearImage(): void {
+    this._attachedImage = null;
+    this._imgThumbEl.src = "";
+    this._imgPreviewEl.style.display = "none";
   }
 
   private async _send(): Promise<void> {
@@ -121,14 +188,38 @@ export class ChatPanel {
     const thinking = this._appendThinking();
 
     try {
+      // P5b: if text is a "run <skill name>" command, animate on canvas instead
+      // of routing through inference. Requires run/play/execute prefix so that
+      // prompts like "draw a wall" don't accidentally match a skill named "wall".
+      const savedSkills = await listSavedSkills().catch(() => []);
+      const lowerText = text.toLowerCase();
+      const RUN_PREFIX = /^(run|play|execute)\s+/i;
+      const matchedSaved = RUN_PREFIX.test(text)
+        ? savedSkills.find(sk => {
+            const after = lowerText.replace(RUN_PREFIX, "");
+            return after.startsWith(sk.name.toLowerCase());
+          })
+        : undefined;
+      if (matchedSaved) {
+        this._removeThinking(thinking);
+        window.dispatchEvent(new CustomEvent("skill:animate", { detail: { steps: matchedSaved.steps } }));
+        const msg = `Running skill "${matchedSaved.name}" on canvas…`;
+        this._pushMsg({ role: "assistant", content: msg });
+        this._history.push({ role: "assistant", content: msg });
+        return;
+      }
+
       const matchedSkills = this._skills.length > 0 ? findSkillsForPrompt(this._skills, text) : [];
       const skillsToPass = matchedSkills.length > 0 ? matchedSkills : this._skills;
+      const attachedImage = this._attachedImage;
+      this._clearImage(); // clear before await so UI resets immediately
       const resp = await runAgentTurn({
         prompt: text,
         history: this._history.slice(0, -1),
         skills: skillsToPass,
         skillsTotal: this._skills.length,
         maxNewTokens: estimateMaxTokens(text),
+        ...(attachedImage ? { userImage: attachedImage.dataUrl } : {}),
       });
 
       this._removeThinking(thinking);
