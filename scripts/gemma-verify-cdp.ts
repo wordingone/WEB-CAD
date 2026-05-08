@@ -20,7 +20,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const CDP_JSON  = "B:/M/gemma-architect-master/.shared-browser/cdp.json";
-const STATE_DIR = "B:/M/gemma-architect-master/state";
+const STATE_DIR = `${process.cwd()}/state`;
 const DEV_URL   = "http://localhost:5175/";
 
 const isolated = process.argv.includes("--isolated");
@@ -28,13 +28,9 @@ const isolated = process.argv.includes("--isolated");
 // --- Resolve SHA ---
 function getSHA(): string {
   try {
-    return execSync("git -C B:/M/gemma-architect-master rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    return execSync("git rev-parse --short HEAD", { encoding: "utf8", cwd: process.cwd() }).trim();
   } catch {
-    try {
-      return execSync("git -C B:/M/gemma-architect rev-parse --short HEAD", { encoding: "utf8" }).trim();
-    } catch {
-      return "unknown";
-    }
+    return "unknown";
   }
 }
 
