@@ -34,6 +34,7 @@ export type AgentRequest = {
   prompt: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   frames?: ImageBitmap[];
+  userImage?: string; // data URL of user-attached image (D1 multimodal)
   maxTurns?: number;
   skills?: Skill[];
   skillsTotal?: number; // total registered skills before keyword filtering
@@ -354,10 +355,17 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   const MAX_HISTORY_MSGS = 20;
   const trimmedHistory = (req.history ?? []).slice(-MAX_HISTORY_MSGS);
 
+  const userMsgContent: unknown = req.userImage
+    ? [
+        { type: "image_url", image_url: { url: req.userImage } },
+        { type: "text", text: req.prompt },
+      ]
+    : req.prompt;
+
   const messages = [
     { role: "system" as const, content: buildSystemPrompt(req.skills) },
     ...trimmedHistory.map((m) => ({ role: m.role, content: m.content })),
-    { role: "user" as const, content: req.prompt },
+    { role: "user" as const, content: userMsgContent },
   ];
 
   updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  REMOTE ·  ⟳`);
@@ -404,7 +412,15 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   // being asked — Jun directive 2026-05-06.
   const imageList: RawImage[] = [];
   let userContent: UserContent;
-  if (req.frames && req.frames.length > 0) {
+  if (req.userImage) {
+    // User-attached image (D1 multimodal) — use directly without viewport capture.
+    const rawImage = await RawImage.fromURL(req.userImage);
+    imageList.push(rawImage);
+    userContent = [
+      { type: "image", image: rawImage } satisfies ImagePart,
+      { type: "text", text: req.prompt } satisfies TextPart,
+    ];
+  } else if (req.frames && req.frames.length > 0) {
     const snapshotUrl = captureViewport();
     if (snapshotUrl) {
       const rawImage = await RawImage.fromURL(snapshotUrl);
