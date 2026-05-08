@@ -46,8 +46,10 @@ import { initCreateMode } from "./create-mode";
 import { undo, redo } from "./history";
 import { registerHandler, dispatchSync, installDefaultHandlers } from "./dispatch";
 import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc } from "./nurbs-primitives";
-import { tessellate, createClampedUniformNurbs } from "./nurbs-curves";
+import { tessellate, createClampedUniformNurbs, type Curve, pointAt as curvePointAt, domain as curveDomain } from "./nurbs-curves";
 import { nurbsCurveFromArc } from "./nurbs-curve-algorithms";
+import { tessellateSurface } from "./nurbs-surfaces";
+import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "./nurbs-surface-algorithms";
 import { addToMultiSelected, clearMultiSelected, getFilters, topologyAllowed } from "./selection-state";
 import * as THREE from "three";
 
@@ -449,6 +451,110 @@ registerHandler("SdSpline", (args) => {
   obj.userData.creator = "SdSpline";
   viewer.addMesh(obj, "mesh");
   return { created: "spline", points: pts3.map(p => ptToArray(p)) };
+});
+
+// ── Tier 3 handlers: SdRevolve / SdSweep / SdLoft (#78) ─────────────────────
+
+// Resolve a Curve from handler args: accepts inline {kind, ...} or a
+// point-array shorthand {points:[...]}.
+function resolveCurve(arg: unknown): Curve {
+  if (arg && typeof arg === "object" && !Array.isArray(arg)) {
+    const obj = arg as Record<string, unknown>;
+    if (obj.kind === "line" && Array.isArray(obj.from) && Array.isArray(obj.to)) {
+      const [fx=0,fy=0,fz=0] = obj.from as number[];
+      const [tx=0,ty=0,tz=0] = obj.to as number[];
+      const len = Math.sqrt((tx-fx)**2+(ty-fy)**2+(tz-fz)**2);
+      return { kind: "line", from: {x:fx,y:fy,z:fz}, to: {x:tx,y:ty,z:tz}, domain: {min:0,max:len} };
+    }
+    if (obj.kind === "arc" && typeof obj.radius === "number") {
+      const [cx=0,cy=0,cz=0] = (obj.center as number[] | undefined) ?? [0,0,0];
+      return {
+        kind: "arc",
+        center: {x:cx,y:cy,z:cz},
+        radius: obj.radius as number,
+        startAngle: (obj.startAngle as number) ?? 0,
+        endAngle: (obj.endAngle as number) ?? 2*Math.PI,
+        plane: { origin: {x:cx,y:cy,z:cz}, xAxis: {x:1,y:0,z:0}, yAxis: {x:0,y:1,z:0}, normal: {x:0,y:0,z:1} },
+        domain: { min: 0, max: (obj.radius as number) * ((obj.endAngle as number ?? 2*Math.PI) - (obj.startAngle as number ?? 0)) },
+      };
+    }
+    if (Array.isArray(obj.points) && (obj.points as unknown[]).length >= 2) {
+      const pts = (obj.points as number[][]).map(p => ({x:p[0]??0,y:p[1]??0,z:p[2]??0}));
+      const params: number[] = [0];
+      for (let i = 1; i < pts.length; i++) {
+        const dx=pts[i].x-pts[i-1].x, dy=pts[i].y-pts[i-1].y, dz=pts[i].z-pts[i-1].z;
+        params.push(params[i-1] + Math.sqrt(dx*dx+dy*dy+dz*dz));
+      }
+      return { kind: "polyline", points: pts, parameters: params };
+    }
+  }
+  throw new Error(`resolveCurve: unrecognised curve description: ${JSON.stringify(arg)}`);
+}
+
+// Build a THREE.Mesh from tessellated surface data.
+function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(tess.positions, 3));
+  geo.setAttribute("normal",   new THREE.BufferAttribute(tess.normals, 3));
+  geo.setAttribute("uv",       new THREE.BufferAttribute(tess.uvs, 2));
+  geo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
+}
+
+registerHandler("SdRevolve", (args) => {
+  try {
+    const profile = resolveCurve(args.profile);
+    const [ax=0,ay=0,az=0] = (args.axisFrom as number[] | undefined) ?? [0,0,0];
+    const [bx=0,by=0,bz=1] = (args.axisTo   as number[] | undefined) ?? [0,0,1];
+    const start = (args.angleStart as number) ?? 0;
+    const end   = (args.angleEnd   as number) ?? 2 * Math.PI;
+    const axis = { from: {x:ax,y:ay,z:az}, to: {x:bx,y:by,z:bz} };
+    const surface = surfaceOfRevolution(profile, axis, start, end);
+    const tess = tessellateSurface(surface, 32, 64);
+    const obj = surfaceToMesh(tess);
+    obj.userData.kind = "revolution";
+    obj.userData.creator = "SdRevolve";
+    viewer.addMesh(obj, "mesh");
+    return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end };
+  } catch (e) {
+    return { error: String(e), created: null };
+  }
+});
+
+registerHandler("SdSweep", (args) => {
+  try {
+    const profile = resolveCurve(args.profile);
+    const rail    = resolveCurve(args.rail);
+    const surface = sweepSurface(profile, rail, { keepFrame: (args.keepFrame as boolean) ?? false });
+    const tess = tessellateSurface(surface, 32, 32);
+    const obj = surfaceToMesh(tess);
+    obj.userData.kind = "sweep";
+    obj.userData.creator = "SdSweep";
+    viewer.addMesh(obj, "mesh");
+    return { created: "sweep" };
+  } catch (e) {
+    return { error: String(e), created: null };
+  }
+});
+
+registerHandler("SdLoft", (args) => {
+  try {
+    const rawCurves = (args.curves as unknown[] | undefined) ?? [];
+    if (rawCurves.length < 2) return { error: "SdLoft requires at least 2 curves", created: null };
+    const curves = rawCurves.map((c) => resolveCurve(c));
+    const surface = loftSurfaces(curves, {
+      closed:  (args.closed  as boolean) ?? false,
+      degreeV: (args.degreeV as number)  ?? Math.min(3, curves.length - 1),
+    });
+    const tess = tessellateSurface(surface, 32, 32);
+    const obj = surfaceToMesh(tess);
+    obj.userData.kind = "loft";
+    obj.userData.creator = "SdLoft";
+    viewer.addMesh(obj, "mesh");
+    return { created: "loft", curveCount: curves.length };
+  } catch (e) {
+    return { error: String(e), created: null };
+  }
 });
 
 // Install shim handlers for every dictionary verb that doesn't have a native
