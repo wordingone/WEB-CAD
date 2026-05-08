@@ -1,0 +1,8 @@
+# Core command-routing surfaces require explicit review.
+/web/src/workbench.ts @wordingone
+/web/src/dsl-eval.ts @wordingone
+/web/src/dispatch.ts @wordingone
+/web/test/dispatch.test.ts @wordingone
+
+# CI/deploy workflow changes require explicit review.
+/.github/workflows/* @wordingone
