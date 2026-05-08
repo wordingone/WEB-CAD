@@ -108,7 +108,7 @@ html[data-mode="night"] {
 }
 
 html[data-mode="night"] {
-  --paper-base:   oklch(0.20 0.060 248);
+  --paper-base:   oklch(0.28 0.068 248);  /* #145: was 0.20 — too dark, unreadable navy; blueprint blue needs visible lightness */
   --paper:        oklch(0.24 0.065 248 / 0.55);
   --paper-2:      oklch(0.22 0.068 248 / 0.62);
   --paper-3:      oklch(0.18 0.070 248 / 0.72);
