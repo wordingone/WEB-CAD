@@ -193,14 +193,16 @@ body::before {
   /* texture + grid: removed per user request */
 }
 
+/* paper grain noise — kept at 0.08 in day (vellum) so it reads as subtle
+   texture without hazing the 3D viewport; 0.10/screen in night (blueprint). */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0.32  0 0 0 0 0.34  0 0 0 0 0.38  0 0 0 0.18 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  opacity: 0.40;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0.40  0 0 0 0 0.36  0 0 0 0 0.32  0 0 0 0.16 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.08;
   mix-blend-mode: multiply;
 }
 
@@ -222,25 +224,6 @@ html[data-mode="night"] body::before {
 /* ============================================================
    APP SHELL GRID
    ============================================================ */
-
-/* (consolidated into the PAPER TEXTURE block above) */
-
-/* paper grain noise (subtle multiplicative texture) */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0.40  0 0 0 0 0.36  0 0 0 0 0.32  0 0 0 0.16 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  opacity: 0.40;
-  mix-blend-mode: multiply;
-}
-
-html[data-mode="night"] body::after {
-  mix-blend-mode: screen;
-  opacity: 0.10;
-}
 
 /* App is the GLASS layer — its panels sit over the body grid.
    Crucially: do NOT set z-index/position on .app or its children, or
