@@ -2666,6 +2666,11 @@ html[data-mode="night"] .paper-stage {
   user-select: none;
 }
 .sc-node:hover { border-color: var(--gemma, #7c4dff); }
+.sc-node.node-running {
+  border-color: var(--gemma, #7c4dff);
+  box-shadow: 0 0 0 3px rgba(124,77,255,0.25), 0 2px 8px rgba(0,0,0,0.10);
+  background: rgba(124,77,255,0.08);
+}
 .sc-node-header {
   display: flex;
   align-items: center;

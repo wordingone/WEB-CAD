@@ -9,6 +9,7 @@ import type { AgentDispatch, AgentResponse } from "./agent/agent-harness";
 import { invokeCommand } from "./commands/command-session";
 import type { Skill } from "./agent/skills-loader";
 import { findSkillsForPrompt } from "./agent/skills-loader";
+import { listSavedSkills } from "./skill-store";
 import { isSimplePlan } from "./plan";
 import { lastTurn } from "./telemetry";
 
@@ -121,6 +122,20 @@ export class ChatPanel {
     const thinking = this._appendThinking();
 
     try {
+      // P5b: if text names a saved skill, animate it on the canvas instead of
+      // routing through the inference path.
+      const savedSkills = await listSavedSkills().catch(() => []);
+      const lowerText = text.toLowerCase();
+      const matchedSaved = savedSkills.find(sk => lowerText.includes(sk.name.toLowerCase()));
+      if (matchedSaved) {
+        this._removeThinking(thinking);
+        window.dispatchEvent(new CustomEvent("skill:animate", { detail: { steps: matchedSaved.steps } }));
+        const msg = `Running skill "${matchedSaved.name}" on canvas…`;
+        this._pushMsg({ role: "assistant", content: msg });
+        this._history.push({ role: "assistant", content: msg });
+        return;
+      }
+
       const matchedSkills = this._skills.length > 0 ? findSkillsForPrompt(this._skills, text) : [];
       const skillsToPass = matchedSkills.length > 0 ? matchedSkills : this._skills;
       const resp = await runAgentTurn({
