@@ -26,6 +26,18 @@ const STARTER_PROMPTS = [
   "What arguments does makeBox accept?",
 ];
 
+function estimateMaxTokens(prompt: string): number {
+  const p = prompt.toLowerCase();
+  // Short informational queries rarely need more than 256 tokens.
+  if (/\?$/.test(p) || /^(what|how|why|is|are|show|list|describe|explain)\b/.test(p)) return 256;
+  // Multi-step design requests need headroom for plan + multiple tool_calls.
+  // Covers all 10 P8a benchmark prompt categories (fire-station→station,
+  // hospitality-cabin→cabin, walkup-4story→apartment, community-center→center/hall).
+  if (/\b(design|pavilion|room|building|house|complex|floor|facade|station|cabin|apartment|center|hall|clinic|library|residence|create|model)\b/.test(p)) return 1024;
+  // Default: single geometry command fits in 512.
+  return 512;
+}
+
 export class ChatPanel {
   private _messages: Message[] = [];
   private _history: Array<{ role: "user" | "assistant"; content: string }> = [];
@@ -116,7 +128,7 @@ export class ChatPanel {
         history: this._history.slice(0, -1),
         skills: skillsToPass,
         skillsTotal: this._skills.length,
-        maxNewTokens: 1024,
+        maxNewTokens: estimateMaxTokens(text),
       });
 
       this._removeThinking(thinking);
