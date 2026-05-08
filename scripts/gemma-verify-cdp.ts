@@ -77,10 +77,10 @@ if (attachedViaCDP) {
   page = canonical;
   console.log(`Canonical tab: ${page.url()}`);
   // Reload to wipe prior-run JS state without closing the tab
-  await page.reload({ waitUntil: "networkidle", timeout: 15000 });
+  await page.reload({ waitUntil: "load", timeout: 30000 });
 } else {
   page = await context.newPage();
-  await page.goto(DEV_URL, { waitUntil: "networkidle", timeout: 15000 });
+  await page.goto(DEV_URL, { waitUntil: "load", timeout: 30000 });
 }
 
 // --- Install test hook ---
