@@ -123,6 +123,11 @@ async function getModel(): Promise<{ model: PreTrainedModel; processor: unknown 
   return _loadPromise!;
 }
 
+/** Fire-and-forget model prefetch. Safe to call early (CREATE tab focus). */
+export function prefetchModel(): void {
+  getModel().catch(() => { /* errors surface on first runAgentTurn */ });
+}
+
 // ---- System prompt --------------------------------------------------------
 
 function summariseDictionary(): string {

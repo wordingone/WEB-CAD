@@ -23,6 +23,7 @@ import { buildSelectionFiltersPanel } from "./scene-panel";
 import * as THREE from "three";
 import { subscribe, getSelected, subscribeMulti, getMultiSelected, type Selection } from "./selection-state";
 import { getCreateSequence } from "./create-mode";
+import { prefetchModel } from "./agent-harness";
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -934,6 +935,7 @@ function buildDock(
     });
     bodyHost.innerHTML = "";
     if (panes[id]) bodyHost.appendChild(panes[id]);
+    if (id === "prompt") prefetchModel();
   }
   activate("prompt");
   initLiveTabSubscriptions();
