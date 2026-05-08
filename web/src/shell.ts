@@ -113,7 +113,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   { label: "MEASURE",   tools: ["Ruler", "Compass", "Aligned-Dim", "Angular-Dim", "Area-Dim", "Volume-Dim", "Label", "Transient-Measure"] },
 ];
 
-const LAYOUT_RIBBON_TABS = ["RENDER", "ARCH", "COMP"] as const;
+const LAYOUT_RIBBON_TABS = ["RENDER"] as const;
 type LayoutRibbonTab = typeof LAYOUT_RIBBON_TABS[number];
 
 const LAYOUT_TOOL_GROUPS: ToolGroup[] = [
@@ -130,7 +130,7 @@ const MODES: ModeDef[] = [
   { key: "research", num: "03", label: "RESEARCH" },
 ];
 
-const RIBBON_TABS = ["RENDER", "ARCH", "COMP"] as const;
+const RIBBON_TABS = ["RENDER"] as const;
 type RibbonTab = typeof RIBBON_TABS[number];
 
 // Module-level refs used by setRibbonMode to swap ribbon content in-place.
@@ -154,11 +154,7 @@ function fillRibbonTabs(tabsEl: HTMLElement, tabs: readonly string[], initialTab
         el.classList.toggle("active", active);
         el.setAttribute("aria-selected", active ? "true" : "false");
       });
-      if (t === "ARCH" || t === "COMP") {
-        window.dispatchEvent(new CustomEvent("ribbon:section-tab", { detail: { tab: t } }));
-      } else {
-        dispatchSync("setViewContext", { tab: t });
-      }
+      dispatchSync("setViewContext", { tab: t });
     });
     tabsEl.appendChild(tab);
   }
