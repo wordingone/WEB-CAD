@@ -9,14 +9,14 @@
 //   2. Badge element (#ai-model-badge) shows download progress then "LIVE".
 //   3. Subsequent calls skip loading and go straight to inference.
 //
-// Tool-call format: model emits ```json {"verb":"Name","args":{...}} ``` blocks.
+// Function-call format: model emits ```json {"verb":"Name","args":{...}} ``` blocks.
 // parseDispatches() extracts these; remaining text becomes the response text.
 
 import { Gemma4ForConditionalGeneration, AutoProcessor, RawImage, PreTrainedModel } from "@huggingface/transformers";
-import { getDictionary } from "./dictionary";
-import { listHandlers } from "./dispatch";
-import { snapshotAsText } from "./scene-kg";
-import { captureViewport } from "./viewport-capture";
+import { getDictionary } from "../commands/dictionary";
+import { listHandlers } from "../commands/dispatch";
+import { snapshotAsText } from "../scene-kg";
+import { captureViewport } from "../viewport-capture";
 import type { Skill } from "./skills-loader";
 
 export type AgentDispatch = {
@@ -137,13 +137,21 @@ function summariseDictionary(): string {
   // Falls back to full dictionary if dispatch hasn't initialized yet.
   const available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.canonical_name)) : dict;
   const lines = available.map((e) => {
-    const argList = e.args.map((a) => `${a.name}:${a.type}${a.required ? "" : "?"}`).join(", ");
-    return `  ${e.canonical_name}(${argList})`;
+    const argList = e.args
+      .map((a) => {
+        const req = a.required ? "required" : "optional";
+        const unit = a.unit ? ` unit=${a.unit}` : "";
+        const def = a.default !== undefined ? ` default=${JSON.stringify(a.default)}` : "";
+        return `${a.name}:${a.type} [${req}${unit}${def}]`;
+      })
+      .join(", ");
+    const syn = e.synonyms.length > 0 ? ` synonyms=[${e.synonyms.join(", ")}]` : "";
+    return `  ${e.canonical_name}(${argList})${syn}`;
   });
   const count = available.length;
   return count > 0
-    ? `Available verbs (${count} — use ONLY these, do not invent verb names):\n${lines.join("\n")}`
-    : "No verbs currently available. Do not emit tool calls.";
+    ? `Available function schemas (${count} — use ONLY these function names, do not invent function names):\n${lines.join("\n")}`
+    : "No function schemas currently available. Do not emit function calls.";
 }
 
 function summariseSkills(skills: Skill[] | undefined): string {
@@ -177,7 +185,7 @@ function buildSceneContext(): string {
 
 
 const FEW_SHOT_EXAMPLES = `
-Examples of correct tool calls (copy the verb names EXACTLY — do not rename them):
+Examples of correct function calls (copy the function names EXACTLY — do not rename them):
 
 User: create a box 6m wide, 4m deep, 3m tall
 Assistant:
@@ -262,15 +270,17 @@ Assistant:
 \`\`\`json
 {"verb":"SdExport","args":{"format":"ifc"}}
 \`\`\`
+
 `.trim();
 
 export function buildSystemPrompt(skills?: Skill[]): string {
   return [
     "You are Gemma·Architect, a parametric CAD assistant embedded in a browser app.",
-    "When the user asks to create or modify geometry, emit tool calls as JSON code blocks.",
-    'Format: ```json\n{"verb":"VerbName","args":{...}}\n```',
-    "Emit one ```json block per tool call. Multiple actions = multiple blocks in sequence.",
-    "CRITICAL: Use ONLY the exact verb names listed below. Do not invent or rename verbs — any verb not in the list is silently rejected and nothing will be created.",
+    "When the user asks to create or modify geometry, emit function calls.",
+    'Preferred format: <tool_call>{"command":"VerbName","parameters":{...},"metadata":{"source":"agent"}}</tool_call>',
+    'Legacy format accepted: ```json\n{"verb":"VerbName","args":{...}}\n```',
+    "Emit one ```json block per function call. Multiple actions = multiple blocks in sequence.",
+    "CRITICAL: Use ONLY the exact function names listed below. Do not invent or rename functions — any function not in the list is silently rejected and nothing will be created.",
     FEW_SHOT_EXAMPLES,
     summariseDictionary(),
     `Current scene (text): ${buildSceneContext()}`,
@@ -281,11 +291,11 @@ export function buildSystemPrompt(skills?: Skill[]): string {
 }
 
 export function buildToolDefinitions(): Record<string, unknown>[] {
-  // Not used in the WebGPU path (tool calls are text-parsed, not schema-validated).
+  // Not used in the WebGPU path (function calls are text-parsed, not schema-validated).
   return [];
 }
 
-// ---- Tool-call parsing ---------------------------------------------------
+// ---- Function-call parsing ----------------------------------------------
 
 function parseDispatches(raw: string): { dispatches: AgentDispatch[]; text: string } {
   const dispatches: AgentDispatch[] = [];
@@ -298,11 +308,20 @@ function parseDispatches(raw: string): { dispatches: AgentDispatch[]; text: stri
       for (const item of items) {
         if (item && typeof item === "object") {
           const obj = item as Record<string, unknown>;
-          const verb = typeof obj.verb === "string" ? obj.verb.trim() : "";
-          const args =
+          const verbRaw =
+            typeof obj.verb === "string"
+              ? obj.verb
+              : typeof obj.command === "string"
+                ? obj.command
+                : "";
+          const verb = verbRaw.trim();
+          const args = (
             obj.args && typeof obj.args === "object" && !Array.isArray(obj.args)
-              ? (obj.args as Record<string, unknown>)
-              : {};
+              ? obj.args
+              : obj.parameters && typeof obj.parameters === "object" && !Array.isArray(obj.parameters)
+                ? obj.parameters
+                : {}
+          ) as Record<string, unknown>;
           if (verb) { dispatches.push({ verb, args }); found = true; }
         }
       }
@@ -310,13 +329,19 @@ function parseDispatches(raw: string): { dispatches: AgentDispatch[]; text: stri
     } catch { return false; }
   }
 
-  // Pass 1: fenced ```json ... ``` blocks.
-  let text = raw.replace(/```json\s*([\s\S]*?)```/gi, (_, inner) => {
+  // Pass 1: FunctionGemma-style <tool_call>{...}</tool_call> blocks.
+  let text = raw.replace(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi, (_, inner) => {
     tryExtract(inner.trim());
     return "";
   });
 
-  // Pass 2: bare "json" marker (no backticks) at the start of a line, optionally
+  // Pass 2: fenced ```json ... ``` blocks.
+  text = text.replace(/```json\s*([\s\S]*?)```/gi, (_, inner) => {
+    tryExtract(inner.trim());
+    return "";
+  });
+
+  // Pass 3: bare "json" marker (no backticks) at the start of a line, optionally
   // followed by a newline, then a single-line JSON object.
   // Handles model outputs like "json\n{...}" and "json {...}".
   text = text.replace(/(^|\r?\n)([ \t]*json[ \t]*\r?\n?[ \t]*)(\{[^\n\r]+\})/gi,
@@ -325,7 +350,7 @@ function parseDispatches(raw: string): { dispatches: AgentDispatch[]; text: stri
       return newline; // keep leading newline to preserve line breaks
     });
 
-  // Pass 3: standalone single-line JSON object with a "verb" field on its own line.
+  // Pass 4: standalone single-line JSON object with a "verb" field on its own line.
   // Handles bare {"verb":"..."} that the model emits without any wrapper.
   text = text.replace(/^[ \t]*(\{[^\n\r]+"verb"[^\n\r]*\})[ \t]*$/gm, (match, inner) => {
     if (tryExtract(inner.trim())) return "";
@@ -392,7 +417,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inputs: any = await proc(chatText, imageList.length > 0 ? imageList : null);
 
-  // Generate — greedy decoding for deterministic tool-call JSON.
+  // Generate — greedy decoding for deterministic function-call JSON.
   const outputs = await model.generate({
     ...inputs,
     max_new_tokens: 1024,

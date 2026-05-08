@@ -14,7 +14,7 @@ import { buildWorkbench } from "./workbench";
 import { buildModes, activateMode } from "./modes";
 import { initCmdK } from "./cmdk";
 import { initExportDrawer, openExportDrawer } from "./export-drawer";
-import { Viewer } from "./viewer";
+import { Viewer } from "./viewer/viewer";
 import { ScenePanel, type SceneSummary } from "./scene-panel";
 import { applyDrafting, removeDrafting, isDrafting } from "./drafting";
 import { DEMOS, applyParams, type DemoPrompt, type Param } from "./demo-prompts";
@@ -42,15 +42,15 @@ import {
 import { SAMPLES } from "./sample-files";
 import type { WorkerOut } from "./worker";
 import { syncToolActiveClass } from "./app-state";
-import { initCreateMode } from "./create-mode";
+import { initCreateMode } from "./viewer/create-mode";
 import { undo, redo } from "./history";
-import { registerHandler, dispatchSync, installDefaultHandlers } from "./dispatch";
+import { registerHandler, dispatchSync, installDefaultHandlers } from "./commands/dispatch";
 import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc } from "./nurbs-primitives";
 import { tessellate, createClampedUniformNurbs, type Curve, pointAt as curvePointAt, domain as curveDomain } from "./nurbs-curves";
 import { nurbsCurveFromArc } from "./nurbs-curve-algorithms";
 import { tessellateSurface } from "./nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "./nurbs-surface-algorithms";
-import { addToMultiSelected, clearMultiSelected, getFilters, topologyAllowed } from "./selection-state";
+import { addToMultiSelected, clearMultiSelected, getFilters, getSelected, topologyAllowed } from "./viewer/selection-state";
 import * as THREE from "three";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -115,6 +115,54 @@ initCreateMode(viewer);
 // Undo/Redo handlers (#55): route SdUndo and SdRedo to the history module.
 registerHandler("SdUndo", () => { undo(viewer); });
 registerHandler("SdRedo", () => { redo(viewer); });
+
+registerHandler("SdMove", (args) => {
+  const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+  if (!sel) return { moved: false, reason: "no selection" };
+  const x = (args.x as number | undefined)
+    ?? (Array.isArray(args.delta) ? (args.delta as number[])[0] : undefined)
+    ?? (Array.isArray(args.vector) ? (args.vector as number[])[0] : undefined)
+    ?? 0;
+  const y = (args.y as number | undefined)
+    ?? (Array.isArray(args.delta) ? (args.delta as number[])[1] : undefined)
+    ?? (Array.isArray(args.vector) ? (args.vector as number[])[1] : undefined)
+    ?? 0;
+  const z = (args.z as number | undefined)
+    ?? (Array.isArray(args.delta) ? (args.delta as number[])[2] : undefined)
+    ?? (Array.isArray(args.vector) ? (args.vector as number[])[2] : undefined)
+    ?? 0;
+  sel.position.x += x;
+  sel.position.y += y;
+  sel.position.z += z;
+  sel.updateMatrix();
+  sel.updateMatrixWorld(true);
+  return { moved: true, delta: [x, y, z] };
+});
+
+registerHandler("SdScale", (args) => {
+  const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+  if (!sel) return { scaled: false, reason: "no selection" };
+  const f = (args.factor as number | undefined) ?? 1;
+  sel.scale.multiplyScalar(f);
+  sel.updateMatrix();
+  sel.updateMatrixWorld(true);
+  return { scaled: true, factor: f };
+});
+
+registerHandler("SdRotate", (args) => {
+  const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+  if (!sel) return { rotated: false, reason: "no selection" };
+  const deg = (args.angle as number | undefined) ?? 0;
+  const axis = (args.axis as number[] | undefined) ?? [0, 0, 1];
+  const q = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).normalize(),
+    (deg * Math.PI) / 180,
+  );
+  sel.quaternion.premultiply(q);
+  sel.updateMatrix();
+  sel.updateMatrixWorld(true);
+  return { rotated: true, angle: deg, axis };
+});
 
 // Select-all handler (#31): populates the multi-set with every selectable
 // scene object that passes the current filters. Gumball anchors at the
@@ -294,15 +342,20 @@ registerHandler("SdPoint", (args) => {
 registerHandler("SdLine", (args) => {
   const start = (args.start as number[] | undefined) ?? [0, 0, 0];
   const end   = (args.end   as number[] | undefined) ?? [1, 0, 0];
+  const sx = start[0] ?? 0, sy = start[1] ?? 0, sz = start[2] ?? 0;
+  const ex = end[0] ?? 1, ey = end[1] ?? 0, ez = end[2] ?? 0;
+  const cx = (sx + ex) / 2, cy = (sy + ey) / 2, cz = (sz + ez) / 2;
   const geom = new THREE.BufferGeometry();
   geom.setAttribute("position", new THREE.Float32BufferAttribute([
-    start[0] ?? 0, start[1] ?? 0, start[2] ?? 0,
-    end[0]   ?? 1, end[1]   ?? 0, end[2]   ?? 0,
+    sx - cx, sy - cy, sz - cz,
+    ex - cx, ey - cy, ez - cz,
   ], 3));
   const mat = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 });
   const obj = new THREE.LineSegments(geom, mat);
+  obj.position.set(cx, cy, cz);
   obj.userData.kind = "line";
-  obj.userData.creator = "SdLine";
+  obj.userData.creator = "line";
+  obj.userData.controlPoints = [new THREE.Vector3(sx, sy, sz), new THREE.Vector3(ex, ey, ez)];
   viewer.addMesh(obj, "mesh");
   return { created: "line", start, end };
 });
@@ -336,7 +389,8 @@ registerHandler("SdPolyline", (args) => {
   const mat = new THREE.LineBasicMaterial({ color: 0x000000 });
   const obj = closed ? new THREE.LineLoop(geom, mat) : new THREE.Line(geom, mat);
   obj.userData.kind = "polyline";
-  obj.userData.creator = "SdPolyline";
+  obj.userData.creator = "polyline";
+  obj.userData.controlPoints = points.map((p) => new THREE.Vector3(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0));
   viewer.addMesh(obj, "mesh");
   return { created: "polyline", points, closed };
 });
@@ -449,6 +503,7 @@ registerHandler("SdSpline", (args) => {
   const obj = new THREE.Line(polylineToGeom(tess), curveMat());
   obj.userData.kind = "spline";
   obj.userData.creator = "SdSpline";
+  obj.userData.controlPoints = pts3.map(p => new THREE.Vector3(p.x, p.y, p.z));
   viewer.addMesh(obj, "mesh");
   return { created: "spline", points: pts3.map(p => ptToArray(p)) };
 });
@@ -555,6 +610,85 @@ registerHandler("SdLoft", (args) => {
   } catch (e) {
     return { error: String(e), created: null };
   }
+});
+
+registerHandler("SdArray", (args) => {
+  const count = Math.max(1, Math.trunc((args.count as number | undefined) ?? 1));
+  const spacing = (args.spacing as number[] | undefined) ?? [1, 0, 0];
+  const sx = spacing[0] ?? 1;
+  const sy = spacing[1] ?? 0;
+  const sz = spacing[2] ?? 0;
+
+  const cols = Math.max(1, Math.trunc((args.cols as number | undefined) ?? (args.countX as number | undefined) ?? count));
+  const rows = Math.max(1, Math.trunc((args.rows as number | undefined) ?? (args.countY as number | undefined) ?? 1));
+  const spacingY = (args.spacingY as number[] | undefined) ?? [0, 1, 0];
+  const syx = spacingY[0] ?? 0;
+  const syy = spacingY[1] ?? 1;
+  const syz = spacingY[2] ?? 0;
+
+  const target = args.target;
+  const selected = getSelected()?.transformTarget ?? null;
+  const active = viewer.getActiveObject();
+  const baseObj = selected ?? active ?? null;
+
+  function makePoint(position: [number, number, number]): THREE.Points {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.Float32BufferAttribute(position, 3));
+    const mat = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, color: 0x000000 });
+    const obj = new THREE.Points(geom, mat);
+    obj.userData.kind = "point";
+    obj.userData.creator = "SdArray";
+    return obj;
+  }
+
+  const isPointTarget =
+    target === "point" ||
+    target === "SdPoint" ||
+    (Array.isArray(target) && target.length >= 2) ||
+    (target && typeof target === "object" && (target as Record<string, unknown>).kind === "point");
+
+  const basePointRaw =
+    Array.isArray(target)
+      ? target
+      : (target && typeof target === "object" && Array.isArray((target as Record<string, unknown>).position))
+        ? ((target as Record<string, unknown>).position as number[])
+        : ([0, 0, 0] as number[]);
+  const basePoint: [number, number, number] = [
+    basePointRaw[0] ?? 0,
+    basePointRaw[1] ?? 0,
+    basePointRaw[2] ?? 0,
+  ];
+
+  let created = 0;
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const dx = i * sx + j * syx;
+      const dy = i * sy + j * syy;
+      const dz = i * sz + j * syz;
+      if (isPointTarget || !baseObj) {
+        const p = makePoint([basePoint[0] + dx, basePoint[1] + dy, basePoint[2] + dz]);
+        viewer.addMesh(p, "mesh");
+      } else {
+        const clone = baseObj.clone(true);
+        clone.position.set(
+          baseObj.position.x + dx,
+          baseObj.position.y + dy,
+          baseObj.position.z + dz,
+        );
+        clone.userData.creator = "SdArray";
+        viewer.addMesh(clone, (clone.userData.kind as string | undefined) ?? "mesh");
+      }
+      created++;
+    }
+  }
+
+  return {
+    created: isPointTarget || !baseObj ? "point-array" : "array",
+    count: created,
+    rows,
+    cols,
+    spacing: [sx, sy, sz],
+  };
 });
 
 // Install shim handlers for every dictionary verb that doesn't have a native

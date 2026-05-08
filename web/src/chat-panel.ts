@@ -4,10 +4,10 @@
 // through agent-harness.ts → dispatch.ts. Dispatches fire immediately after
 // each model turn; their verb names are shown as inline pills.
 
-import { runAgentTurn } from "./agent-harness";
-import type { AgentDispatch } from "./agent-harness";
-import { dispatchSync } from "./dispatch";
-import type { Skill } from "./skills-loader";
+import { runAgentTurn } from "./agent/agent-harness";
+import type { AgentDispatch } from "./agent/agent-harness";
+import { invokeCommand } from "./commands/command-session";
+import type { Skill } from "./agent/skills-loader";
 
 type Message = {
   role: "user" | "assistant";
@@ -104,14 +104,21 @@ export class ChatPanel {
       });
 
       const fired: string[] = [];
+      const execSummaries: string[] = [];
       for (const d of resp.dispatches) {
-        const dr = dispatchSync(d.verb, d.args);
-        fired.push(dr.ok ? d.verb : `${d.verb}(err)`);
+        const out = await invokeCommand({
+          command: d.verb,
+          parameters: d.args,
+          metadata: { source: "agent" },
+        });
+        fired.push(out.status === "success" ? `${out.canonical}` : `${d.verb}(err)`);
+        execSummaries.push(out.summary);
       }
 
       const assistantText =
-        resp.text.trim() ||
-        (fired.length > 0 ? `Dispatched: ${fired.join(", ")}` : "(no response)");
+        execSummaries.length > 0
+          ? execSummaries.join(" ")
+          : (resp.text.trim() || (fired.length > 0 ? `Dispatched: ${fired.join(", ")}` : "(no response)"));
 
       this._removeThinking(thinking);
       this._pushMsg({
