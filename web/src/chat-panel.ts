@@ -122,11 +122,18 @@ export class ChatPanel {
     const thinking = this._appendThinking();
 
     try {
-      // P5b: if text names a saved skill, animate it on the canvas instead of
-      // routing through the inference path.
+      // P5b: if text is a "run <skill name>" command, animate on canvas instead
+      // of routing through inference. Requires run/play/execute prefix so that
+      // prompts like "draw a wall" don't accidentally match a skill named "wall".
       const savedSkills = await listSavedSkills().catch(() => []);
       const lowerText = text.toLowerCase();
-      const matchedSaved = savedSkills.find(sk => lowerText.includes(sk.name.toLowerCase()));
+      const RUN_PREFIX = /^(run|play|execute)\s+/i;
+      const matchedSaved = RUN_PREFIX.test(text)
+        ? savedSkills.find(sk => {
+            const after = lowerText.replace(RUN_PREFIX, "");
+            return after.startsWith(sk.name.toLowerCase());
+          })
+        : undefined;
       if (matchedSaved) {
         this._removeThinking(thinking);
         window.dispatchEvent(new CustomEvent("skill:animate", { detail: { steps: matchedSaved.steps } }));
