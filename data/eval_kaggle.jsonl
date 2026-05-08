@@ -1,0 +1,16 @@
+# eval_kaggle.jsonl — held-out Kaggle RVT/IFC eval bench
+# EVAL ONLY — NOT USED FOR TRAINING. See data/kaggle-eval-bench/PROVENANCE.md.
+#
+# Schema per row:
+#   id            string   sha256[:12] of (source_url + filename)
+#   prompt        string   derived natural-language prompt for the LoRA
+#   gold_elements object   {IfcWall: N, IfcSlab: N, ...} element-type counts
+#   gold_path     string   relative path under data/kaggle-eval-bench/
+#   schema        string   "IFC2x3" | "IFC4"
+#
+# Rows are populated after running:
+#   kaggle datasets download artemboiko/rvtifc-projects -p data/kaggle-eval-bench/ --unzip
+#   python scripts/select-kaggle-subset.py
+#
+# This file is intentionally empty until the download + selection step runs.
+# eval-kaggle-bench.py handles an empty JSONL gracefully (zero rows, exit 0).
