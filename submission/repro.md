@@ -72,7 +72,7 @@ Writes:
 Expected `train-stats.json`:
 ```json
 {
-  "model": "TBD — set GEMMA4_BASE_MODEL env var (legacy base purged 2026-05-05)",
+  "model": "gemma-4-E2B-it (onnx-community/gemma-4-E2B-it-ONNX)",
   "tag": "4b-it",
   "train_loss": 0.2442411027883214,
   "metrics": {
@@ -96,8 +96,8 @@ GEMMA_V2_MODEL=E2B PYTHONUTF8=1 python src/train/lora_train_v2.py
 
 This variant trains with the same hyperparameters on the Gemma 4 E2B base.
 Adds ~35 min. Compare eval scores and pick the better one for browser
-deployment if VRAM permits both at runtime. Base selection TBD per Jun
-directive 2026-05-05 — set GEMMA4_BASE_MODEL env var before running.
+deployment if VRAM permits both at runtime. Base: E2B-it (browser VRAM ceiling
+rules out E4B for the live demo). Set GEMMA4_BASE_MODEL=gemma-4-E2B-it.
 
 **Note on naming.** "E2B" in this section refers to the *LoRA-on-Gemma-4-E2B
 training variant* — NOT the image→IFC agent (the one demo-script.md and
