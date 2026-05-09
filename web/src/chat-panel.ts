@@ -11,6 +11,7 @@ import type { Skill } from "./agent/skills-loader";
 import { findSkillsForPrompt } from "./agent/skills-loader";
 import { isSimplePlan } from "./plan";
 import { lastTurn } from "./telemetry";
+import { buildDispatchSummary } from "./chat-dispatch-summary";
 
 type Message = {
   role: "user" | "assistant";
@@ -157,24 +158,26 @@ export class ChatPanel {
       `tg ${t.tg_tps.toFixed(1)} t/s · pp ${t.pp_tps.toFixed(0)} t/s · in ${t.tokens_in} · out ${t.tokens_out} · prefill ${Math.round(t.prefill_ms)}ms · decode ${Math.round(t.decode_ms)}ms`;
   }
 
-  private async _executeAndPush(resp: AgentResponse): Promise<void> {
+  private async _runDispatches(resp: AgentResponse): Promise<{ summary: string; fired: string[] }> {
     const fired: string[] = [];
-    const execSummaries: string[] = [];
     for (const d of resp.dispatches) {
       const out = await invokeCommand({
         command: d.verb,
         parameters: d.args,
         metadata: { source: "agent" },
       });
-      fired.push(out.status === "success" ? `${out.canonical}` : `${d.verb}(err)`);
-      execSummaries.push(out.summary);
+      fired.push(out.status === "success" ? d.verb : `${d.verb}(err)`);
     }
-    const assistantText =
-      execSummaries.length > 0
-        ? execSummaries.join(" ")
-        : (resp.text.trim() || (fired.length > 0 ? `Dispatched: ${fired.join(", ")}` : "(no response)"));
-    this._pushMsg({ role: "assistant", content: assistantText, dispatches: resp.dispatches });
-    this._history.push({ role: "assistant", content: assistantText });
+    const summary = resp.dispatches.length === 0
+      ? (resp.text.trim() || "(no response)")
+      : buildDispatchSummary(resp.dispatches, fired);
+    return { summary, fired };
+  }
+
+  private async _executeAndPush(resp: AgentResponse): Promise<void> {
+    const { summary } = await this._runDispatches(resp);
+    this._pushMsg({ role: "assistant", content: summary, dispatches: resp.dispatches });
+    this._history.push({ role: "assistant", content: summary });
     (window as unknown as { __viewer?: { frameAllVisible?(): void } }).__viewer?.frameAllVisible?.();
   }
 
@@ -197,10 +200,15 @@ export class ChatPanel {
     runBtn.addEventListener("click", () => {
       runBtn.disabled = true;
       runBtn.textContent = "Executing…";
-      void this._executeAndPush(resp).then(() => {
+      void this._runDispatches(resp).then(({ summary }) => {
         planBlock.remove();
         runBtn.remove();
         item.classList.remove("chat-plan-pending");
+        const content = document.createElement("div");
+        content.className = "chat-msg-content";
+        content.textContent = summary;
+        item.appendChild(content);
+        this._history.push({ role: "assistant", content: summary });
       });
     });
 
