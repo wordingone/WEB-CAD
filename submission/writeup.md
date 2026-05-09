@@ -87,17 +87,7 @@ set (walls, columns, raised slabs, slabs with stair holes, walls with
 doorways, L-shape walls, four-walled rooms, stair-step structures). Each
 has 3–6 sliders that retrigger the worker.
 
-<!--
-At submission time, embed the 4×3 screenshot grid here. The grid is
-composited per the `magick montage` command in
-`submission/screenshots/README.md` (rows: wall, column, Schultz; cols:
-prompt, render, drafting, BIM). 7 of 12 source cells are already
-captured (01-09 numbered shots); 3 BIM cells + 2 column cells are
-pending capture pre-composite. Once composited:
-  ![Demo grid: prompt → render → drafting → BIM, three rows](screenshots/grid.png)
-Leave commented out until the PNG exists — Kaggle does not gracefully
-hide broken image refs.
--->
+![Demo grid — wall workflow · Schultz demo · chrome surfaces (3×3)](screenshots/grid.png)
 
 ### Beyond prompt-to-geometry: three other entry points
 
