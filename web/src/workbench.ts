@@ -33,8 +33,39 @@ import { subscribe, getSelected, subscribeMulti, getMultiSelected, type Selectio
 import { getCreateSequence } from "./viewer/create-mode";
 import { prefetchModel } from "./agent/agent-harness";
 import { listSavedSkills, deleteSkill, type SavedSkill, type SkillStep } from "./skill-store";
+import type { Skill } from "./agent/skills-loader";
 import { openSaveSkillModal } from "./skill-modal";
 import { SkillCanvas } from "./skill-canvas";
+
+// Eager-load all build-time skill.json files so the chat fastpath has steps at runtime.
+// Only the 5 schema_version-2 skills have a "steps" array; others have undefined steps.
+type _SkillJsonEntry = {
+  name: string;
+  keywords: string[];
+  steps?: Array<{ verb: string; args: Record<string, unknown> }>;
+};
+// Access .default for compatibility across Vite JSON module shapes.
+const _SKILL_JSON_MODS = import.meta.glob(
+  "../skills/*/skill.json",
+  { eager: true },
+) as Record<string, { default: _SkillJsonEntry } | _SkillJsonEntry>;
+
+function _buildTimeSkills(): Skill[] {
+  const skills = Object.values(_SKILL_JSON_MODS).map((mod) => {
+    const json = ("default" in mod ? mod.default : mod) as _SkillJsonEntry;
+    return {
+      name: json.name,
+      version: "0",
+      description: json.name.replace(/-/g, " "),
+      keywords: json.keywords,
+      examples: [],
+      eval_id: "",
+      body: "",
+      steps: json.steps,
+    };
+  });
+  return skills;
+}
 
 // Push a line into the in-page CONSOLE dock tab. The tab body lives in
 // buildConsoleTabBody and re-implements its own local pushLine for the DSL
@@ -942,7 +973,8 @@ function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement {
 
   // Build both inner panes upfront; swap visibility on mode change.
   const chatRoot = el("div", "chat-panel-root");
-  new ChatPanel(chatRoot);
+  const chatPanel = new ChatPanel(chatRoot);
+  chatPanel.setSkills(_buildTimeSkills());
 
   const consolePane = buildConsoleInner();
 
