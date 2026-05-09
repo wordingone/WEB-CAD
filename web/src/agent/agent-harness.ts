@@ -160,8 +160,14 @@ async function getModel(): Promise<{ model: PreTrainedModel; processor: unknown 
   return _loadPromise!;
 }
 
-/** Fire-and-forget model prefetch. Safe to call early (CREATE tab focus). */
+/** Fire-and-forget model prefetch. Safe to call early (CREATE tab focus).
+ *  No-op when remote inference is configured — badge is set to LIVE·REMOTE immediately. */
 export function prefetchModel(): void {
+  if (REMOTE_URL) {
+    // Remote path: mark as ready immediately so bench + UI don't wait for an in-browser load.
+    updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LIVE · REMOTE`);
+    return;
+  }
   getModel().catch(() => { /* errors surface on first runAgentTurn */ });
 }
 
@@ -374,7 +380,7 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
     { role: "user" as const, content: userContent },
   ];
 
-  updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  REMOTE ·  ⟳`);
+  updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LIVE · REMOTE ·  ⟳`);
 
   const resp = await fetch(`${REMOTE_URL}/v1/chat/completions`, {
     method: "POST",
@@ -393,7 +399,7 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   const content = json.choices[0]?.message?.content ?? "";
   const tpsLabel = json._tps != null ? ` · ${json._tps.toFixed(0)} t/s` : "";
   const mtpLabel = json._mtp_enabled ? " · MTP" : "";
-  updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  REMOTE${mtpLabel}${tpsLabel}`);
+  updateBadge(`<span class="v">G</span>EMMA·4·E2B  ·  LIVE · REMOTE${mtpLabel}${tpsLabel}`);
 
   const { dispatches, text } = parseDispatches(content);
   return { dispatches, text: text || content, raw: json };
