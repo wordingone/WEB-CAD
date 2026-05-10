@@ -372,13 +372,16 @@ registerHandler("SdCylinder", (args) => {
 registerHandler("SdCone", (args) => {
   const r = (args.radius as number | undefined) ?? 0.5;
   const h = (args.height as number | undefined) ?? 2;
+  const cplane = resolveCPlane("SdCone", args as Record<string, unknown>, viewer);
   const geom = new THREE.ConeGeometry(r, h, 32);
   geom.rotateX(Math.PI / 2);
   const mat = new THREE.MeshStandardMaterial({ color: 0xd0a868, roughness: 0.55, metalness: 0.05 });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.z = h / 2;
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), cplane.normal);
+  mesh.position.copy(cplane.normal.clone().multiplyScalar(h / 2));
   mesh.userData.kind = "brep";
   mesh.userData.creator = "SdCone";
+  mesh.userData.cplaneKind = cplane.kind;
   viewer.addMesh(mesh, "brep");
   return { created: "cone", radius: r, height: h };
 });
