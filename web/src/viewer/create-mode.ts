@@ -24,6 +24,9 @@ import { dispatchSync } from "../commands/dispatch";
 import { snapPoint } from "./snap-state";
 import { pushAction } from "../history";
 import { getActiveCommandSession, provideSessionPick, clearCommandSession } from "../commands/command-session";
+import { gridStore } from "../grids";
+import { levelStore } from "../levels";
+import { datumStore } from "../datums";
 
 // Default heights / sizes from tier1-conventions.
 const DEFAULT_WALL_HEIGHT = 3;
@@ -58,8 +61,10 @@ export function clearCreateSequence(): void {
   _createSequence.length = 0;
 }
 
-// Pending click buffer
-let _pending: Array<{ x: number; y: number }> = [];
+// Pending click buffer — z is only set for the "level" tool (geometry raycast elevation).
+let _pending: Array<{ x: number; y: number; z?: number }> = [];
+// Last pointer screen position — used by inline chip after level/datum placement.
+let _lastPointerClient: { x: number; y: number } = { x: 0, y: 0 };
 // Temporary scene objects — removed when the tool completes or is cancelled.
 let _previewMesh: THREE.Mesh | null = null;
 let _markerMesh: THREE.Points | null = null;
@@ -104,6 +109,86 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
   if (hit) return point;
   // Ray nearly parallel to Z=0 (near-horizontal camera) — fall back to camera XY projected onto Z=0.
   return new THREE.Vector3(camera.position.x, camera.position.y, 0);
+}
+
+// Raycast against scene geometry to inherit Z elevation (for level placement, AC B.1).
+// Falls back to 0 when no geometry is hit (e.g. empty scene or top-down view hitting ground).
+function getGeometryZ(viewer: Viewer, clientX: number, clientY: number): number {
+  const canvas = viewer.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(ndc, viewer.getCamera() as THREE.PerspectiveCamera);
+  const hits = raycaster.intersectObjects(viewer.getScene().children, true);
+  return hits.length > 0 ? hits[0].point.z : 0;
+}
+
+// Show an inline chip at screen position (x, y) for editing a newly placed level.
+function showLevelChip(
+  viewer: Viewer,
+  levelId: string,
+  screenX: number,
+  screenY: number,
+): void {
+  const chip = document.createElement("div");
+  chip.className = "level-inline-chip";
+  chip.style.cssText = [
+    "position:fixed",
+    `left:${screenX + 12}px`,
+    `top:${screenY - 20}px`,
+    "display:flex",
+    "gap:4px",
+    "align-items:center",
+    "background:var(--chrome-secondary,#2a2a2a)",
+    "border:1px solid var(--hairline,#444)",
+    "border-radius:4px",
+    "padding:3px 6px",
+    "font-size:11px",
+    "color:var(--ink-body,#ddd)",
+    "z-index:9999",
+    "box-shadow:0 2px 8px rgba(0,0,0,0.5)",
+  ].join(";");
+
+  const nameIn = document.createElement("input");
+  nameIn.type = "text";
+  nameIn.placeholder = "Name";
+  nameIn.style.cssText = "width:90px; font-size:11px; padding:2px 4px; background:var(--chrome,#1a1a1a); border:1px solid var(--hairline,#444); color:var(--ink-body,#ddd); border-radius:3px;";
+  const hIn = document.createElement("input");
+  hIn.type = "number";
+  hIn.step = "0.1";
+  hIn.placeholder = "Ht (m)";
+  hIn.value = "3.0";
+  hIn.style.cssText = "width:58px; font-size:11px; padding:2px 4px; background:var(--chrome,#1a1a1a); border:1px solid var(--hairline,#444); color:var(--ink-body,#ddd); border-radius:3px;";
+
+  const commit = () => {
+    const name = nameIn.value.trim();
+    const height = parseFloat(hIn.value);
+    levelStore.update(levelId, {
+      ...(name ? { name } : {}),
+      ...(!isNaN(height) ? { height } : {}),
+    });
+    chip.remove();
+  };
+
+  nameIn.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") chip.remove(); });
+  hIn.addEventListener("keydown", (e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") chip.remove(); });
+  hIn.addEventListener("blur", () => setTimeout(commit, 100));
+
+  chip.appendChild(nameIn);
+  chip.appendChild(hIn);
+  document.body.appendChild(chip);
+  setTimeout(() => nameIn.focus(), 10);
+
+  // Auto-remove if user clicks elsewhere (after a tick so the placement click doesn't immediately close it).
+  setTimeout(() => {
+    const outside = (e: MouseEvent) => { if (!chip.contains(e.target as Node)) { chip.remove(); document.removeEventListener("mousedown", outside); } };
+    document.addEventListener("mousedown", outside);
+  }, 200);
+
+  void viewer; // viewer reference reserved for future worldToScreen projection
 }
 
 // --- Tool handlers ---
@@ -600,47 +685,69 @@ function buildRailing(a: { x: number; y: number }, b: { x: number; y: number }):
   return { mesh, chain };
 }
 
-function buildRefGrid(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+function buildRefGrid(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Object3D; chain: string } {
   const w = Math.abs(b.x - a.x) || 5;
   const d = Math.abs(b.y - a.y) || 5;
   const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-  const geom = new THREE.BoxGeometry(w, d, 0.02);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x8888aa, transparent: true, opacity: 0.3, wireframe: true });
-  const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(cx, cy, 0);
-  mesh.userData.kind = "brep";
-  mesh.userData.creator = "grid";
-  const chain = `// ref-grid: ${round(w)}×${round(d)} at [${round(cx)}, ${round(cy)}]`;
-  return { mesh, chain };
+  const spacing = 5;
+  const count = Math.max(2, Math.min(10, Math.round(Math.max(w, d) / spacing) + 1));
+  const name = `Grid ${gridStore.all().length + 1}`;
+  const grid = gridStore.add({ name, spacing, count, rotation: 0, origin: [cx, cy], visible: true });
+  const extent = spacing * (count - 1);
+  const half = extent / 2;
+  const t = 0.02;
+  const mat = new THREE.MeshBasicMaterial({ color: 0x888899, transparent: true, opacity: 0.5 });
+  const group = new THREE.Group();
+  group.position.set(cx, cy, 0);
+  group.userData.kind = "grid";
+  group.userData.gridId = grid.id;
+  group.userData.creator = "IfcGrid";
+  for (let i = 0; i < count; i++) {
+    const offset = -half + i * spacing;
+    const mv = new THREE.Mesh(new THREE.BoxGeometry(t, extent + spacing, t), mat);
+    mv.position.set(offset, 0, 0);
+    group.add(mv);
+    const mh = new THREE.Mesh(new THREE.BoxGeometry(extent + spacing, t, t), mat);
+    mh.position.set(0, offset, 0);
+    group.add(mh);
+  }
+  const chain = `IfcGrid({origin:[${round(cx)},${round(cy)}],spacing:${spacing},count:${count},name:"${name}"})`;
+  return { mesh: group, chain };
 }
 
-function buildLevel(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+function buildLevel(p: { x: number; y: number; z?: number }): { mesh: THREE.Object3D; chain: string; levelId: string } {
+  const elevation = p.z ?? 0;
+  const name = `Level ${levelStore.all().length}`;
+  const level = levelStore.findOrCreate(name, elevation, 3.0);
   const extent = 10;
   const geom = new THREE.BoxGeometry(extent, extent, 0.02);
   const mat = new THREE.MeshBasicMaterial({ color: 0x44aa88, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(p.x, p.y, 0);
+  mesh.position.set(p.x, p.y, elevation);
   mesh.userData.kind = "brep";
-  mesh.userData.creator = "level";
-  const chain = `// level: datum plane at [${round(p.x)}, ${round(p.y)}, 0]`;
-  return { mesh, chain };
+  mesh.userData.creator = "IfcLevel";
+  mesh.userData.levelId = level.id;
+  const chain = `IfcLevel({elevation:${elevation},name:"${name}",height:3.0})`;
+  return { mesh, chain, levelId: level.id };
 }
 
-function buildDatum(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+function buildDatum(p: { x: number; y: number }): { mesh: THREE.Object3D; chain: string } {
+  const datum = datumStore.add({ position: [p.x, p.y, 0] });
   const geom = new THREE.SphereGeometry(0.15, 8, 8);
   const mat = new THREE.MeshStandardMaterial({ color: 0x33bb66, roughness: 0.3, metalness: 0.2 });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(p.x, p.y, 0);
   mesh.userData.kind = "brep";
-  mesh.userData.creator = "datum";
-  const chain = `// datum: marker at [${round(p.x)}, ${round(p.y)}, 0]`;
+  mesh.userData.creator = "IfcDatum";
+  mesh.userData.datumId = datum.id;
+  const chain = `IfcDatum({position:[${round(p.x)},${round(p.y)},0]})`;
   return { mesh, chain };
 }
 
 type ToolHandler = {
   // Number of clicks to auto-commit. -1 = unlimited: collect until Enter.
   clicks: number;
-  handler: (pts: Array<{ x: number; y: number }>) => { mesh: THREE.Object3D; chain: string };
+  handler: (pts: Array<{ x: number; y: number; z?: number }>) => { mesh: THREE.Object3D; chain: string };
 };
 
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
@@ -831,7 +938,7 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
 }
 
 // Test hook — emit a click programmatically given world-space coords.
-export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, opts?: { tool?: string }): { mesh: THREE.Object3D; chain: string } | null {
+export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?: number }, opts?: { tool?: string }): { mesh: THREE.Object3D; chain: string } | null {
   const tool = opts?.tool ?? readActiveTool();
   if (!tool) return null;
   const handler = TOOL_HANDLERS[tool];
@@ -859,6 +966,14 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number }, 
   // After committing a create operation, return to Select so transform-gizmo
   // interactions are not swallowed by create-mode capture listeners.
   dispatchSync("setActiveTool", { toolId: "select" });
+
+  // Show inline chip for level placement (AC B.2) so the user can immediately
+  // set name and storey height without opening the BUILDING LEVELS sidebar.
+  if (tool === "level") {
+    const levelId = (out as { levelId?: string }).levelId;
+    if (levelId) showLevelChip(viewer, levelId, _lastPointerClient.x, _lastPointerClient.y);
+  }
+
   return out;
 }
 
@@ -908,8 +1023,11 @@ export function initCreateMode(viewer: Viewer): void {
     const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
     if (!world) return;
     ev.stopImmediatePropagation();
+    _lastPointerClient = { x: ev.clientX, y: ev.clientY };
     const snapped = snapPoint(world.x, world.y);
-    emitClickWorld(viewer, snapped, { tool });
+    // For level placement, raycast against scene geometry to inherit Z elevation (AC B.1).
+    const z = tool === "level" ? getGeometryZ(viewer, ev.clientX, ev.clientY) : undefined;
+    emitClickWorld(viewer, { ...snapped, z }, { tool });
   }, { capture: true });
 
   // Cursor dot + rubber-band preview on every pointer move.
