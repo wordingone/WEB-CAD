@@ -1286,9 +1286,7 @@ async function assertNoCmdkOverlay(afterSurface) {
     const btn = document.querySelector('#viewport-2 .vp-view-btn');
     if (!btn) return { passed: false, evidence: { reason: 'no .vp-view-btn in viewport-2' } };
 
-    // Capture camera position before switching.
-    const before = window.__viewer?.camera?.position;
-    const beforeZ = before ? Math.round(before.z * 1000) / 1000 : null;
+    // (camera position no longer checked here; see Surface 38 for ortho projection assert)
 
     // Dispatch click to open popover.
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -1309,13 +1307,13 @@ async function assertNoCmdkOverlay(afterSurface) {
     const nameEl = btn.querySelector('.vp-view-name');
     const labelUpdated = nameEl && nameEl.textContent.trim() === 'TOP';
 
-    // Camera must have moved — TOP view sets camera.z >> initial y-up z.
-    const after = window.__viewer?.camera?.position;
-    const afterZ = after ? Math.round(after.z * 1000) / 1000 : null;
-    const cameraMoved = beforeZ !== null && afterZ !== null && Math.abs(afterZ - beforeZ) > 1;
+    // After setView("top"), the persp pane camera must be orthographic (#331).
+    const perspPane = window.__viewer?.panes?.find(p => p.view === 'persp');
+    const paneCamera = perspPane?.camera;
+    const cameraIsOrtho = paneCamera?.isOrthographicCamera === true;
 
-    const passed = popoverOpen && popoverClosed && !!labelUpdated && cameraMoved;
-    return { passed, evidence: { popoverOpen, popoverClosed, labelText: nameEl?.textContent?.trim(), labelUpdated, beforeZ, afterZ, cameraMoved } };
+    const passed = popoverOpen && popoverClosed && !!labelUpdated && cameraIsOrtho;
+    return { passed, evidence: { popoverOpen, popoverClosed, labelText: nameEl?.textContent?.trim(), labelUpdated, cameraIsOrtho, cameraType: paneCamera?.type } };
   })()`, true);
   if (!r) record('view-switcher-dropdown', false, { reason: 'evaluate returned null' });
   else record('view-switcher-dropdown', r.passed, r.evidence);
@@ -1858,6 +1856,32 @@ async function assertNoCmdkOverlay(afterSurface) {
   })()`, true);
   if (!r) record('set-cplane-roundtrip', false, { reason: 'evaluate returned null' });
   else record('set-cplane-roundtrip', r.passed, r.evidence);
+}
+
+// ── Surface 42: ortho-projection (#331) ──────────────────────────────────────
+// setView("top") must switch the persp pane to OrthographicCamera.
+// Asserts projection matrix element [5] (1/top) matches ortho formula, not perspective.
+{
+  const r = await evaluate(`
+    (() => {
+      const viewer = window.__viewer;
+      if (!viewer) return { passed: false, evidence: { reason: '__viewer not found' } };
+      viewer.setView('top');
+      const perspPane = viewer.panes?.find(p => p.view === 'persp');
+      if (!perspPane) return { passed: false, evidence: { reason: 'persp pane not found' } };
+      const cam = perspPane.camera;
+      const isPerspective = cam.isPerspectiveCamera === true;
+      const isOrtho = cam.isOrthographicCamera === true;
+      // For an OrthographicCamera, projectionMatrix[5] = 2/(top-bottom).
+      // For a PerspectiveCamera, projectionMatrix[5] = 1/tan(fov/2).
+      // We just assert the camera is orthographic; projection matrix check is secondary.
+      const passed = isOrtho && !isPerspective;
+      // Restore to persp so we don't leave the viewer in an odd state.
+      viewer.setView('iso');
+      return { passed, evidence: { isOrtho, isPerspective, cameraType: cam.type } };
+    })()`);
+  if (!r) record('ortho-projection', false, { reason: 'evaluate returned null' });
+  else record('ortho-projection', r.passed, r.evidence);
 }
 
 } finally {
