@@ -1203,6 +1203,55 @@ function record(name, passed, evidence) {
   else record('level-chip-persist', r.passed, r.evidence);
 }
 
+// ── Surface 27: view-state-sidebar-lists-clip (#291b) ────────────────────────
+{
+  const r = await evaluate(`
+  (async () => {
+    if (!window.__dispatch) return { passed: false, evidence: { reason: '__dispatch missing' } };
+    const v = window.__viewer;
+    if (!v) return { passed: false, evidence: { reason: 'no __viewer' } };
+
+    // Clear any residual clip state from prior surfaces.
+    window.__dispatch('SdSectionBoxOff', {});
+    window.__dispatch('SdClippingPlanesClear', {});
+    await new Promise(r => setTimeout(r, 150));
+
+    // Apply a section box and a named clip plane.
+    window.__dispatch('SdSectionBox', { min: [-5, -5, 0], max: [5, 5, 6] });
+    window.__dispatch('SdClippingPlane', { origin: [3, 0, 0], normal: [1, 0, 0], label: 'surf27-test' });
+    await new Promise(r => setTimeout(r, 250));
+
+    // ── Engine assertions ──────────────────────────────────────────────────
+    const planes = v.getClippingPlanes?.() ?? [];
+    const sb = v.getSectionBox?.();
+    const hasSectionBox = !!sb;
+    const hasPlane = planes.some(p => p.label === 'surf27-test');
+
+    // ── DOM assertions — VIEW STATE sidebar renders both entries ───────────
+    // buildViewStateSection() creates spans with textContent = title for the
+    // subsection header and spans per row with the label text.
+    const allSpans = Array.from(document.querySelectorAll('span'));
+    const hasViewStateHdr = allSpans.some(el => el.textContent?.trim() === 'VIEW STATE');
+    const hasSectionBoxEntry = allSpans.some(el => el.textContent?.trim() === 'Section box');
+    const hasClipEntry = allSpans.some(el => el.textContent?.trim() === 'surf27-test');
+
+    // ── Cleanup ────────────────────────────────────────────────────────────
+    window.__dispatch('SdSectionBoxOff', {});
+    window.__dispatch('SdClippingPlanesClear', {});
+
+    const passed = hasSectionBox && hasPlane && hasViewStateHdr && hasSectionBoxEntry && hasClipEntry;
+    return {
+      passed,
+      evidence: {
+        hasSectionBox, hasPlane, planeCount: planes.length,
+        hasViewStateHdr, hasSectionBoxEntry, hasClipEntry,
+      },
+    };
+  })()`, true);
+  if (!r) record('view-state-sidebar-lists-clip', false, { reason: 'evaluate returned null' });
+  else record('view-state-sidebar-lists-clip', r.passed, r.evidence);
+}
+
 } finally {
   await cleanup();
 }
