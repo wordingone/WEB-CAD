@@ -154,6 +154,10 @@ export class Viewer {
   // Offscreen renderer for layout thumbnail panels.
   private _thumbCanvas: HTMLCanvasElement | null = null;
   private _thumbRenderer: THREE.WebGLRenderer | null = null;
+  // Cached override materials for displayMode thumbnails — allocated once, reused every frame.
+  private _thumbMatWireframe: THREE.MeshBasicMaterial | null = null;
+  private _thumbMatGhosted: THREE.MeshBasicMaterial | null = null;
+  private _thumbMatTechnical: THREE.MeshBasicMaterial | null = null;
   // Sub-object handle selection: set when the gumball is attached to a CP handle.
   private subTargetObject: THREE.Object3D | null = null;
   // Section box: 6 axis-aligned half-space planes derived from min/max corners.
@@ -2067,7 +2071,7 @@ export class Viewer {
     return oc;
   }
 
-  renderThumbnailTo(view: ViewName, dest: HTMLCanvasElement, anchorX = 0, anchorY = 0, snapW = 0, snapH = 0): void {
+  renderThumbnailTo(view: ViewName, dest: HTMLCanvasElement, anchorX = 0, anchorY = 0, snapW = 0, snapH = 0, displayMode?: string): void {
     const pane = this.panes.find(p => p.view === view);
     if (!pane) return;
     if (!this._thumbRenderer) {
@@ -2145,7 +2149,19 @@ export class Viewer {
       tmp.updateProjectionMatrix();
       cam = tmp;
     }
+    const prevOverride = this.scene.overrideMaterial;
+    if (displayMode === "wireframe") {
+      if (!this._thumbMatWireframe) this._thumbMatWireframe = new THREE.MeshBasicMaterial({ color: 0x2a2a3a, wireframe: true });
+      this.scene.overrideMaterial = this._thumbMatWireframe;
+    } else if (displayMode === "ghosted") {
+      if (!this._thumbMatGhosted) this._thumbMatGhosted = new THREE.MeshBasicMaterial({ color: 0x9ec5d8, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
+      this.scene.overrideMaterial = this._thumbMatGhosted;
+    } else if (displayMode === "technical") {
+      if (!this._thumbMatTechnical) this._thumbMatTechnical = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      this.scene.overrideMaterial = this._thumbMatTechnical;
+    }
     this._thumbRenderer.render(this.scene, cam);
+    this.scene.overrideMaterial = prevOverride;
     const ctx = dest.getContext("2d");
     if (ctx) ctx.drawImage(this._thumbCanvas!, 0, 0, w, h);
   }
@@ -2153,5 +2169,8 @@ export class Viewer {
   dispose(): void {
     this._themeObserver?.disconnect();
     this._themeObserver = null;
+    this._thumbMatWireframe?.dispose();
+    this._thumbMatGhosted?.dispose();
+    this._thumbMatTechnical?.dispose();
   }
 }
