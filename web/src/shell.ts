@@ -506,6 +506,7 @@ function buildRibbon(ribbonHost: HTMLElement, onSplitMode?: (mode: "single" | "q
   fillRibbonTabs(tabsEl, RIBBON_TABS, RIBBON_TABS[0]);
   fillRibbonTools(toolsEl, []);
   appendArchCompSlider(tabsEl);
+  appendRibbonAssets(toolsEl);
 
   // .ribbon-right — quick actions (palette + export + viewport split).
   const rightEl = document.createElement("div");
