@@ -2304,6 +2304,46 @@ await resetScene('before-box-inject');
   else record('comp-scope-toggle', r.passed, r.evidence);
 }
 
+// ── Surface 50: ribbon-asset-card-drives-sample (#400) ───────────────────────
+// Click Schultz card → #sample-select value updates to 'schultz-residence'.
+{
+  const r = await evaluate(`
+    (() => {
+      const card = document.querySelector('.ribbon-tools .ribbon-asset-card[data-sample="schultz-residence"]');
+      if (!card) return { passed: false, evidence: { reason: 'no schultz ribbon-asset-card' } };
+      const sel = document.getElementById('sample-select');
+      if (!sel) return { passed: false, evidence: { reason: 'no #sample-select' } };
+      const before = sel.value;
+      card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { passed: sel.value === 'schultz-residence', evidence: { before, after: sel.value } };
+    })()`);
+  if (!r) record('ribbon-asset-card-drives-sample', false, { reason: 'evaluate returned null' });
+  else record('ribbon-asset-card-drives-sample', r.passed, r.evidence);
+}
+
+// ── Surface 51: ribbon-assets-mode-toggle (#400) ─────────────────────────────
+// Switch to LAYOUT: ribbon-tools clears assets. Switch back to MODEL: restores.
+{
+  const r = await evaluate(`(async () => {
+    const modelTab = document.querySelector('.mode-tab[data-mode="model"]');
+    const layoutTab = document.querySelector('.mode-tab[data-mode="layout"]');
+    if (!modelTab || !layoutTab) return { passed: false, evidence: { reason: 'mode tabs missing' } };
+
+    layoutTab.click();
+    await new Promise(r => setTimeout(r, 600));
+    const layoutCards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card').length;
+
+    modelTab.click();
+    await new Promise(r => setTimeout(r, 600));
+    const modelCards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card').length;
+
+    const passed = layoutCards === 0 && modelCards > 0;
+    return { passed, evidence: { layoutCards, modelCards } };
+  })()`, true);
+  if (!r) record('ribbon-assets-mode-toggle', false, { reason: 'evaluate returned null' });
+  else record('ribbon-assets-mode-toggle', r.passed, r.evidence);
+}
+
 } finally {
   await cleanup();
 }
