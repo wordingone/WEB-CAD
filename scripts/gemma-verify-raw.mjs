@@ -1014,10 +1014,21 @@ await resetScene('before-box-inject');
           return { ok: true };
         }
         if (canonical) {
-          const res = window.__dispatch?.(canonical, {});
-          return (!res || res.error === 'UnknownVerb' || res.canonical === null)
-            ? { ok: false, reason: canonical + ' not in dispatch registry: ' + JSON.stringify(res) }
-            : { ok: true };
+          // Provide minimal realistic args so ArgValidationError/NeedsChoiceError is not silently masked (#473).
+          // Goal: reach the handler (past arg validation) to confirm registry presence.
+          const CANONICAL_STUB_ARGS = {
+            'SdExport':            { format: 'ifc' },
+            'SdBooleanUnion':      { a: 'stub-solid-a', b: 'stub-solid-b' },
+            'SdBooleanDifference': { outer: 'stub-solid-outer', inner: 'stub-solid-inner' },
+          };
+          const callArgs = Object.prototype.hasOwnProperty.call(CANONICAL_STUB_ARGS, canonical)
+            ? CANONICAL_STUB_ARGS[canonical] : {};
+          const res = window.__dispatch?.(canonical, callArgs);
+          if (!res || res.error === 'UnknownVerb' || res.canonical === null)
+            return { ok: false, reason: canonical + ' not in dispatch registry: ' + JSON.stringify(res) };
+          if (res.error === 'ArgValidationError' || res.error === 'NeedsChoiceError')
+            return { ok: false, reason: canonical + ' rejected args — ArgValidationError/NeedsChoiceError: ' + JSON.stringify(res) };
+          return { ok: true };
         }
         // onAction rows: per-label targeted checks
         if (/^Mode · /.test(label)) {
@@ -2638,6 +2649,155 @@ await resetScene('before-box-inject');
   })()`, true, 25000);
   if (!r58) record('ifc-default-select', false, { reason: 'evaluate returned null (timeout)' });
   else record('ifc-default-select', r58.passed, r58.evidence);
+
+// ── Surface 59: dispatch-sweep (#473) ────────────────────────────────────────
+// Verbs with realistic args sourced from spatial-api.yaml.
+// ArgValidationError / NeedsChoiceError → FAIL. No verb result is · info.
+// Jun directive (3rd repeat): "ArgValidationError should be FAILING, not just progressing."
+{
+  await resetScene('before-dispatch-sweep');
+  const r59 = await evaluate(`
+    (function() {
+      const dispatch = window.__dispatch;
+      if (!dispatch) return { passed: false, evidence: { reason: '__dispatch not available' } };
+
+      // Create fixture scene so UUID-dependent verbs have valid handles.
+      const wallRes  = dispatch('IfcWall', { profile: [[0,0],[4,0]], height: 3 });
+      const slabRes  = dispatch('IfcSlab', { profile: [[0,0],[4,0],[4,4],[0,4]], thickness: 0.2 });
+      const box1Res  = dispatch('SdBox',   { width: 2, depth: 2, height: 2 });
+      const box2Res  = dispatch('SdBox',   { width: 1, depth: 1, height: 1 });
+
+      const wallUuid = wallRes?.result?.uuid ?? 'fixture-missing-wall';
+      const box1Uuid = box1Res?.result?.uuid ?? 'fixture-missing-box1';
+      const box2Uuid = box2Res?.result?.uuid ?? 'fixture-missing-box2';
+
+      // verb → realistic args per spatial-api.yaml.
+      // ArgValidationError with these args = FAIL (schema regression).
+      const VERB_TESTS = [
+        // Zero-arg verbs
+        ['SdSelectAll',         {}],
+        ['SdDeselect',          {}],
+        ['SdZoomExtents',       {}],
+        ['SdZoomSelected',      {}],
+        ['SdUndo',              {}],
+        ['SdRedo',              {}],
+        ['SdIsolateOff',        {}],
+        ['SdSetViewPerspective',{}],
+        // View
+        ['SdSetViewOrtho',      { view: 'top' }],
+        ['SdSetViewOrtho',      { view: 'iso' }],
+        // Render
+        ['SdRenderMode',        { mode: 'shaded' }],
+        // Export — format required (enum_format); previously: ArgValidationError with {}
+        ['SdExport',            { format: 'ifc' }],
+        // Create — realistic profile / primitive args
+        ['IfcWall',             { profile: [[0,0],[3,0]], height: 3 }],
+        ['IfcSlab',             { profile: [[0,0],[3,0],[3,3],[0,3]], thickness: 0.2 }],
+        ['IfcColumn',           { position: [0, 0] }],
+        ['IfcDoor',             { position: [0, 0, 0] }],
+        ['IfcWindow',           { position: [0, 0, 0] }],
+        ['SdBox',               { width: 2, depth: 2, height: 2 }],
+        ['SdSphere',            { radius: 1 }],
+        ['SdCylinder',          { radius: 0.5, height: 3 }],
+        // UUID-dependent — target/uuid from fixture (previously: ArgValidationError with {})
+        ['SdLock',              { target: wallUuid }],
+        ['SdHide',              { target: wallUuid }],
+        ['SdSelect',            { target: wallUuid }],
+        ['SdIsolate',           { uuid: wallUuid }],
+        // Boolean ops — solid type is opaque pass-through; handler may throw, not ArgValidationError
+        ['SdBooleanUnion',      { a: box1Uuid, b: box2Uuid }],
+        ['SdBooleanDifference', { outer: box1Uuid, inner: box2Uuid }],
+        // Section / clip
+        ['SdSectionBox',        { min: [-5,-5,0], max: [5,5,6] }],
+        ['SdSectionBoxOff',     {}],
+        ['SdClippingPlane',     { origin: [0,0,0], normal: [1,0,0] }],
+        ['SdClippingPlanesClear',{}],
+        // Transform
+        ['SdMove',              { x: 1, y: 0, z: 0 }],
+        ['SdRotate',            { angle: 45, axis: [0,0,1] }],
+        ['SdScale',             { factor: 1.5 }],
+        // CPlane
+        ['SdSetCPlane',         { mode: 'top' }],
+        ['SdResetCPlane',       {}],
+      ];
+
+      const passes = [];
+      const fails  = [];
+      for (const [verb, args] of VERB_TESTS) {
+        const r = dispatch(verb, args);
+        if (!r || r.error === 'ArgValidationError' || r.error === 'NeedsChoiceError') {
+          fails.push({ verb, error: r?.error ?? 'null_result', detail: r?.detail ?? null });
+        } else {
+          passes.push(verb);
+        }
+      }
+
+      // ── Optional-arg side-effect tests (#473 addendum) ───────────────────
+      // Verbs whose args are all optional pass {} without ArgValidationError.
+      // That proves the verb is recognised — not that the arg reached the handler.
+      // Pass realistic args and assert the gemma:command event carries them.
+      // (dispatchEvent is synchronous, so a sync listener captures the event.)
+      const optFails  = [];
+      const optPasses = [];
+
+      function testOptArg(verb, args, checkFn) {
+        let eventDetail = null;
+        const h = (e) => { eventDetail = e.detail; };
+        window.addEventListener('gemma:command', h);
+        const r = dispatch(verb, args);
+        window.removeEventListener('gemma:command', h);
+        if (!r || r.error === 'ArgValidationError' || r.error === 'NeedsChoiceError') {
+          optFails.push({ verb, stage: 'dispatch', error: r?.error ?? 'null_result' });
+          return;
+        }
+        if (!eventDetail) {
+          optFails.push({ verb, stage: 'event', error: 'gemma:command not emitted' });
+          return;
+        }
+        const chk = checkFn(eventDetail, r);
+        if (!chk.ok) optFails.push({ verb, stage: 'side-effect', error: chk.reason });
+        else          optPasses.push(verb);
+      }
+
+      // SdSave: filename optional — assert arg propagated to kernel event
+      testOptArg('SdSave', { filename: 'verify-test.json' }, (ev) => {
+        if (ev.id !== 'saveProject')
+          return { ok: false, reason: 'event id mismatch: ' + ev.id };
+        if (ev.args?.filename !== 'verify-test.json')
+          return { ok: false, reason: 'filename not in event args: ' + JSON.stringify(ev.args) };
+        return { ok: true };
+      });
+
+      // SdOpen: filename optional — assert arg propagated to kernel event
+      testOptArg('SdOpen', { filename: 'verify-test.json' }, (ev) => {
+        if (ev.id !== 'openProject')
+          return { ok: false, reason: 'event id mismatch: ' + ev.id };
+        if (ev.args?.filename !== 'verify-test.json')
+          return { ok: false, reason: 'filename not in event args: ' + JSON.stringify(ev.args) };
+        return { ok: true };
+      });
+
+      return {
+        passed: fails.length === 0 && optFails.length === 0,
+        evidence: {
+          fixture: { wallOk: wallRes?.ok, box1Ok: box1Res?.ok, box2Ok: box2Res?.ok },
+          total: VERB_TESTS.length,
+          passed: passes.length,
+          failed: fails.length,
+          fails,
+          passes,
+          optionalArgTests: {
+            total: optPasses.length + optFails.length,
+            passed: optPasses.length,
+            failed: optFails.length,
+            fails: optFails,
+            passes: optPasses,
+          },
+        },
+      };
+    })()`);
+  if (!r59) record('dispatch-sweep', false, { reason: 'evaluate returned null' });
+  else record('dispatch-sweep', r59.passed, r59.evidence);
 }
 
 } finally {
