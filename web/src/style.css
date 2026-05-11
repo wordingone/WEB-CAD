@@ -3086,6 +3086,7 @@ html[data-mode="night"] .paper-stage {
   white-space: nowrap;
 }
 .node-box:hover { background: var(--paper-3); }
+.node-box.selected { background: var(--accent); color: var(--accent-fg, #fff); border-color: var(--accent); }
 .skill-nodes-saved-header {
   font-family: var(--mono);
   font-size: 10px;
