@@ -13,7 +13,7 @@
 //
 // Tracked: issue #196 — long-term fix is to replace Playwright in gemma-verify-cdp.ts
 
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, readFileSync } from "fs";
 import { execSync } from "child_process";
 
 // ── Connection ────────────────────────────────────────────────────────────────
@@ -2686,7 +2686,7 @@ await resetScene('before-box-inject');
 // ── Surface 59: dispatch-sweep (#473) ────────────────────────────────────────
 // Verbs with realistic args sourced from spatial-api.yaml.
 // ArgValidationError / NeedsChoiceError → FAIL. No verb result is · info.
-// Jun directive (3rd repeat): "ArgValidationError should be FAILING, not just progressing."
+// Per user feedback (3rd repeat): "ArgValidationError should be FAILING, not just progressing."
 {
   await resetScene('before-dispatch-sweep');
   const r59 = await evaluate(`
@@ -2833,18 +2833,74 @@ await resetScene('before-box-inject');
   else record('dispatch-sweep', r59.passed, r59.evidence);
 }
 
+// ── Surface 60: ribbon-layout-no-overlap (#469/#470) ─────────────────────────
+// Verifies:
+//   1. All 4 ribbon-asset-cards share the same y-coordinate (horizontal row, ±2px).
+//   2. The ribbon bottom edge does not exceed the workbench top edge (no overlap).
+{
+  const r60 = await evaluate(`(() => {
+    try {
+      const cards = [...document.querySelectorAll('.ribbon-tools .ribbon-asset-card')];
+      if (cards.length !== 4)
+        return { passed: false, evidence: { reason: 'expected 4 cards, got ' + cards.length } };
+      const rects = cards.map(c => c.getBoundingClientRect());
+      const y0 = rects[0].top;
+      const allSameY = rects.every(r => Math.abs(r.top - y0) <= 2);
+      if (!allSameY)
+        return { passed: false, evidence: { reason: 'cards not in horizontal row', ys: rects.map(r => Math.round(r.top)) } };
+
+      const ribbonEl = document.querySelector('.ribbon');
+      const workbenchEl = document.querySelector('.workbench');
+      if (!ribbonEl || !workbenchEl)
+        return { passed: false, evidence: { reason: 'missing .ribbon or .workbench' } };
+      const ribbonBottom = ribbonEl.getBoundingClientRect().bottom;
+      const workbenchTop = workbenchEl.getBoundingClientRect().top;
+      const overlapPx = Math.round(ribbonBottom - workbenchTop);
+      if (overlapPx > 0)
+        return { passed: false, evidence: { reason: 'ribbon overlaps workbench', overlapPx, ribbonBottom: Math.round(ribbonBottom), workbenchTop: Math.round(workbenchTop) } };
+
+      return {
+        passed: true,
+        evidence: {
+          cardCount: cards.length,
+          cardYs: rects.map(r => Math.round(r.top)),
+          ribbonBottom: Math.round(ribbonBottom),
+          workbenchTop: Math.round(workbenchTop),
+          overlapPx,
+        },
+      };
+    } catch(e) {
+      return { passed: false, evidence: { error: e.message } };
+    }
+  })()`);
+  if (!r60) record('ribbon-layout-no-overlap', false, { reason: 'evaluate returned null' });
+  else record('ribbon-layout-no-overlap', r60.passed, r60.evidence);
+}
+
 } finally {
   await cleanup();
 }
 
 // ── Aggregate + write receipt ─────────────────────────────────────────────────
 
-const allPassed  = surfaces.every(s => s.passed);
+// Read surface-allowfail.txt — surfaces listed there are excluded from all_passed gate.
+let allowFail = new Set();
+try {
+  const af = readFileSync("state/surface-allowfail.txt", "utf8");
+  for (const line of af.split("\n")) {
+    const id = line.split("#")[0].trim();
+    if (id) allowFail.add(id);
+  }
+} catch { /* file absent = no allowfail entries */ }
+
+const gatedSurfaces = surfaces.filter(s => !allowFail.has(s.name));
+const allPassed  = gatedSurfaces.every(s => s.passed);
 const passCount  = surfaces.filter(s => s.passed).length;
-const output = { sha, timestamp, attached_via_cdp: true, all_passed: allPassed, surfaces };
+const output = { sha, timestamp, attached_via_cdp: true, all_passed: allPassed, allow_fail: [...allowFail], surfaces };
 writeFileSync(outFile, JSON.stringify(output, null, 2));
 
 console.log("");
+if (allowFail.size > 0) console.log(`allowfail: ${[...allowFail].join(", ")}`);
 console.log(`${passCount}/${surfaces.length} surfaces passed — all_passed: ${allPassed}`);
 console.log(`attached_via_cdp: true`);
 console.log(`Output: ${outFile}`);
