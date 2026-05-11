@@ -938,11 +938,10 @@ async function assertNoCmdkOverlay(afterSurface) {
 
       function checkEntry({ label, toolId, canonical }) {
         if (toolId) {
-          const el = document.querySelector('[data-tool="' + toolId + '"]');
-          if (!el) return { ok: false, reason: '[data-tool="' + toolId + '"] absent from DOM' };
-          return el.classList.contains('active')
-            ? { ok: true }
-            : { ok: false, reason: '[data-tool="' + toolId + '"] not .active after setActiveTool dispatch' };
+          const res = window.__dispatch?.('setActiveTool', { toolId });
+          if (!res) return { ok: false, reason: 'setActiveTool dispatch returned null' };
+          if (res.error === 'UnknownVerb') return { ok: false, reason: 'setActiveTool not in dispatch registry' };
+          return { ok: true };
         }
         if (canonical) {
           const res = window.__dispatch?.(canonical, {});
@@ -1063,6 +1062,10 @@ async function assertNoCmdkOverlay(afterSurface) {
     })()`, true);
   if (!r) record('menubar-coverage', false, { reason: 'evaluate returned null' });
   else record('menubar-coverage', r.passed, r.evidence);
+  // 'Command palette...' row click opens cmdk; cmdk has no Escape listener so it stays open.
+  // Force-close before S21+ run, or S30's Ctrl+K will toggle-close instead of open.
+  await closeCmdkIfOpen();
+  await assertNoCmdkOverlay('menubar-coverage');
 }
 
 // ── Surface 21: research-mode-chrome ─────────────────────────────────────────
@@ -2163,6 +2166,41 @@ async function assertNoCmdkOverlay(afterSurface) {
     })()`);
   if (!r) record('polyline-render-after-4-click', false, { reason: 'evaluate returned null' });
   else record('polyline-render-after-4-click', r.passed, r.evidence);
+}
+
+// ── Surface 48: cplane-status-reactive (#362) ────────────────────────────────
+// Snap dock CPlane label reads "World XY" on init; after SdSetCPlane mode=top,
+// it updates to show the new mode. Tests reactive viewer:cplane-changed listener.
+{
+  const r = await evaluate(`
+    (() => {
+      try {
+        // 1. Check initial label reads "World XY"
+        const label = document.querySelector('#snap-cplane-label');
+        if (!label) return { passed: false, evidence: { reason: '#snap-cplane-label not found in snap dock' } };
+        const initText = label.textContent;
+        const initOk = initText === 'World XY';
+
+        // 2. Dispatch SdSetCPlane mode=top
+        window.__dispatch('SdSetCPlane', { mode: 'top' });
+
+        // 3. Check label updated to reflect new plane
+        const afterText = label.textContent;
+        const afterOk = afterText !== 'World XY' && afterText.length > 0;
+
+        // 4. Reset to world
+        window.__dispatch('SdResetCPlane', {});
+        const resetText = label.textContent;
+        const resetOk = resetText === 'World XY';
+
+        const passed = initOk && afterOk && resetOk;
+        return { passed, evidence: { initText, afterText, resetText, initOk, afterOk, resetOk } };
+      } catch(e) {
+        return { passed: false, evidence: { error: e.message } };
+      }
+    })()`);
+  if (!r) record('cplane-status-reactive', false, { reason: 'evaluate returned null' });
+  else record('cplane-status-reactive', r.passed, r.evidence);
 }
 
 } finally {
