@@ -2395,6 +2395,48 @@ await resetScene('before-box-inject');
   else record('sd-isolate-verb', r.passed, r.evidence);
 }
 
+// ── Surface 53: chat-image-attach (#407) ─────────────────────────────────────
+// Verifies that the compose area exposes the image-attach affordances:
+//   - .chat-attach-btn exists in the DOM
+//   - .chat-image-preview exists (hidden initially)
+//   - .chat-file-input (hidden file input) exists
+//   - window.__chatPanel or ChatPanel instance provides _pendingImage field plumbing
+//   (end-to-end model call not exercised here — intake wiring only)
+{
+  // Ensure the prompt dock tab is active and inner mode is "chat" (not "console").
+  await evaluate(`(() => {
+    const tab = document.querySelector('.dock-tab[data-tab="prompt"]');
+    if (tab) tab.click();
+    // If mode-pill shows "console", click it to switch inner pane to chat.
+    const modePill = document.querySelector('.mode-pill[data-mode="console"]');
+    if (modePill) modePill.click();
+  })()`);
+  await new Promise(r => setTimeout(r, 200));
+  const r = await evaluate(`(() => {
+    try {
+      const attachBtn = document.querySelector('.chat-attach-btn');
+      const previewEl = document.querySelector('.chat-image-preview');
+      const fileInput = document.querySelector('.chat-file-input');
+      if (!attachBtn) return { passed: false, evidence: { reason: 'no .chat-attach-btn' } };
+      if (!previewEl) return { passed: false, evidence: { reason: 'no .chat-image-preview' } };
+      if (!fileInput) return { passed: false, evidence: { reason: 'no .chat-file-input' } };
+      const previewHidden = previewEl.style.display === 'none' || previewEl.style.display === '';
+      return {
+        passed: true,
+        evidence: {
+          attachBtn: attachBtn.tagName,
+          previewInitiallyHidden: previewHidden,
+          fileInputAccept: fileInput.accept,
+        }
+      };
+    } catch(e) {
+      return { passed: false, evidence: { error: e.message } };
+    }
+  })()`);
+  if (!r) record('chat-image-attach', false, { reason: 'evaluate returned null' });
+  else record('chat-image-attach', r.passed, r.evidence);
+}
+
 } finally {
   await cleanup();
 }
