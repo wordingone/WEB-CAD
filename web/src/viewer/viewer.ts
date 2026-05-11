@@ -163,6 +163,9 @@ export class Viewer {
   private _thumbMatTechnical: THREE.MeshBasicMaterial | null = null;
   // Sub-object handle selection: set when the gumball is attached to a CP handle.
   private subTargetObject: THREE.Object3D | null = null;
+  // Isolation: stash visibility before hide-all-others, restore on off.
+  private _isolatedUuid: string | null = null;
+  private _preIsolationVisible: Map<string, boolean> = new Map();
   // Section box: 6 axis-aligned half-space planes derived from min/max corners.
   private _sectionPlanes: THREE.Plane[] = [];
   // Arbitrary named clipping planes (SdClippingPlane).
@@ -1934,6 +1937,39 @@ export class Viewer {
       perspPane.controls.update();
     }
   }
+
+  // ── Isolation: hide all objects except target + its ancestors/descendants ──────
+
+  isolate(uuid: string): boolean {
+    this.isolateOff();
+    const target = this.scene.getObjectByProperty("uuid", uuid);
+    if (!target) return false;
+    const ancestors = new Set<string>();
+    let cur: THREE.Object3D | null = target.parent;
+    while (cur && cur !== this.scene) { ancestors.add(cur.uuid); cur = cur.parent; }
+    const descendants = new Set<string>();
+    target.traverse((c) => { descendants.add(c.uuid); });
+    this.scene.traverse((obj) => {
+      if (obj === this.scene) return;
+      const keep = obj.uuid === uuid || ancestors.has(obj.uuid) || descendants.has(obj.uuid);
+      this._preIsolationVisible.set(obj.uuid, obj.visible);
+      if (!keep) obj.visible = false;
+    });
+    this._isolatedUuid = uuid;
+    return true;
+  }
+
+  isolateOff(): void {
+    if (this._isolatedUuid === null) return;
+    this.scene.traverse((obj) => {
+      const prev = this._preIsolationVisible.get(obj.uuid);
+      if (prev !== undefined) obj.visible = prev;
+    });
+    this._preIsolationVisible.clear();
+    this._isolatedUuid = null;
+  }
+
+  getIsolatedUuid(): string | null { return this._isolatedUuid; }
 
   // ── Section box (6 axis-aligned clipping planes from a min/max AABB) ──────────
 

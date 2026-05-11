@@ -2344,6 +2344,57 @@ await resetScene('before-box-inject');
   else record('ribbon-assets-mode-toggle', r.passed, r.evidence);
 }
 
+// ── Surface 52: sd-isolate-verb (#411) ────────────────────────────────────────
+// SdIsolate hides other scene objects; SdIsolateOff restores them.
+// Verified against the viewer's isolation state via getIsolatedUuid().
+{
+  const r = await evaluate(`
+    (() => {
+      try {
+        // Find a loaded mesh to isolate via the scene panel outliner.
+        const rows = document.querySelectorAll('.outliner-row[data-id]');
+        if (rows.length === 0) return { passed: false, evidence: { reason: 'no outliner rows' } };
+        const row = rows[0];
+        const id = row.dataset.id;
+
+        // Get the uuid from the viewer scene by matching userData.ifcId or mesh uuid.
+        if (!window.__viewer) return { passed: false, evidence: { reason: '__viewer not exposed' } };
+        let targetUuid = null;
+        window.__viewer.getScene().traverse((obj) => {
+          if (targetUuid) return;
+          if (obj.userData && (obj.userData.ifcId === id || obj.userData.id === id)) {
+            targetUuid = obj.uuid;
+          }
+        });
+        if (!targetUuid) {
+          // Fallback: use first mesh in scene
+          window.__viewer.getScene().traverse((obj) => {
+            if (targetUuid) return;
+            if (obj.isMesh) targetUuid = obj.uuid;
+          });
+        }
+        if (!targetUuid) return { passed: false, evidence: { reason: 'no mesh uuid found' } };
+
+        // Dispatch SdIsolate.
+        const dispatch = window.__dispatch;
+        if (!dispatch) return { passed: false, evidence: { reason: '__dispatch not exposed' } };
+        dispatch('SdIsolate', { uuid: targetUuid });
+        const isolatedUuid = window.__viewer.getIsolatedUuid?.();
+
+        // Dispatch SdIsolateOff.
+        dispatch('SdIsolateOff', {});
+        const afterUuid = window.__viewer.getIsolatedUuid?.();
+
+        const passed = isolatedUuid === targetUuid && afterUuid === null;
+        return { passed, evidence: { targetUuid, isolatedUuid, afterUuid } };
+      } catch(e) {
+        return { passed: false, evidence: { error: e.message } };
+      }
+    })()`);
+  if (!r) record('sd-isolate-verb', false, { reason: 'evaluate returned null' });
+  else record('sd-isolate-verb', r.passed, r.evidence);
+}
+
 } finally {
   await cleanup();
 }
