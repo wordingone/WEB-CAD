@@ -1155,7 +1155,7 @@ html[data-mode="night"] .paper-stage {
   /* -webkit-backdrop-filter: var(--glass-blur); */
   box-shadow: inset 0 0.5px 0 0 var(--glass-edge-light);
   position: relative;
-  height: 50px;
+  height: 68px;
 }
 .ribbon::before, .ribbon::after { display: none; }
 
@@ -1202,6 +1202,55 @@ html[data-mode="night"] .paper-stage {
   gap: 0;
   overflow-x: auto;
   min-width: 0;
+}
+
+.ribbon-assets {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border-left: var(--lw-construction) solid var(--ink-construction);
+  flex-shrink: 0;
+}
+
+.ribbon-asset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 50px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--paper-2, rgba(0,0,0,0.04));
+  border: var(--lw-edge) solid var(--chrome-seam);
+  gap: 3px;
+  color: var(--ink-dim);
+  text-align: center;
+  transition: background 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.ribbon-asset-card:hover {
+  background: var(--paper-3, rgba(0,0,0,0.08));
+  color: var(--ink);
+}
+.ribbon-asset-card.selected {
+  border-color: var(--gemma, oklch(0.55 0.15 28));
+  color: var(--ink);
+}
+.asset-card-name {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1.2;
+  padding: 0 3px;
+}
+.asset-card-sub {
+  font-size: 7px;
+  color: var(--ink-dim);
+  text-align: center;
 }
 
 .tool-group {
@@ -3443,68 +3492,7 @@ html[data-mode="night"] .paper-stage {
 .prop-vec3 .axis[data-axis="Y"]::before { color: oklch(0.55 0.18 145); }
 .prop-vec3 .axis[data-axis="Z"]::before { color: oklch(0.55 0.18 250); }
 
-/* Asset library */
-.assets {
-  padding: 6px 8px;
-}
-.assets-search {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border: 1px solid var(--hairline);
-  background: var(--paper);
-  margin-bottom: 6px;
-  border-radius: var(--r-sm);
-}
-.assets-search input {
-  flex: 1; border: none; outline: none;
-  background: transparent; font-family: var(--mono); font-size: 11px;
-  color: var(--ink);
-}
-.assets-search svg { width: 11px; height: 11px; color: var(--ink-faint); }
-
-.asset-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.asset-card {
-  border: 1px solid var(--hairline);
-  background: var(--paper);
-  cursor: pointer;
-  border-radius: var(--r);
-  overflow: hidden;
-  transition: border-color 80ms;
-}
-.asset-card:hover { border-color: var(--ink-soft); }
-.asset-card.selected {
-  border-color: var(--sanguine);
-  box-shadow: 0 0 0 1px var(--sanguine);
-}
-.asset-thumb {
-  height: 60px;
-  border-bottom: 1px solid var(--hairline);
-  background:
-    linear-gradient(45deg, transparent 49%, oklch(0.86 0.014 80) 49%, oklch(0.86 0.014 80) 51%, transparent 51%),
-    var(--paper-2);
-  position: relative;
-}
-.asset-meta {
-  padding: 4px 6px;
-  font-size: 9.5px;
-  font-family: var(--mono);
-}
-.asset-meta .name {
-  color: var(--ink);
-  font-weight: 600;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.asset-meta .sub {
-  color: var(--ink-faint);
-  font-size: 8.5px;
-  letter-spacing: 0.04em;
-}
+/* Asset library — sidebar CSS removed in #400 (cards moved to ribbon-tools) */
 
 /* ============================================================
    STATUS BAR

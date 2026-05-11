@@ -1262,7 +1262,7 @@ await resetScene('before-box-inject');
     const before = countVisible();
     if (before === 0) return { passed: false, evidence: { reason: 'no visible geometry before cycle', before } };
 
-    for (const tabId of ['inspect', 'assets', 'scene']) {
+    for (const tabId of ['inspect', 'scene']) {
       const tab = document.querySelector('.sb-tab[data-tab="' + tabId + '"]');
       if (!tab) return { passed: false, evidence: { reason: 'tab not found', tabId } };
       tab.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1599,20 +1599,17 @@ await resetScene('before-box-inject');
   else record('cplane-default-resolution', r.passed, r.evidence);
 }
 
-// ── Surface 33: assets-tab (#342) ────────────────────────────────────────────
+// ── Surface 33: assets-ribbon (#400) ─────────────────────────────────────────
+// SAMPLES strip is permanently visible in ribbon-tools (MODEL mode default).
+// No sidebar ASSETS tab — cards live in .ribbon-tools .ribbon-assets at page load.
 {
   const r = await evaluate(`
     (() => {
-      const assetsTab = document.querySelector('.sb-tab[data-tab="assets"]');
-      if (!assetsTab) return { passed: false, evidence: { reason: 'no .sb-tab[data-tab=assets]' } };
-      assetsTab.click();
-      const assetGrid = document.querySelector('.asset-grid');
-      const assetCards = document.querySelectorAll('.asset-card');
-      const toolGroups = document.querySelectorAll('.tool-group');
-      const ribbonTransform = [...document.querySelectorAll('.tool-group-label')].some(el => el.textContent === 'TRANSFORM');
+      const assetsWrap = document.querySelector('.ribbon-tools .ribbon-assets');
+      const cards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card');
       return {
-        passed: !!assetGrid && assetCards.length > 0 && toolGroups.length === 0,
-        evidence: { assetGrid: !!assetGrid, assetCards: assetCards.length, toolGroups: toolGroups.length, ribbonTransform }
+        passed: !!assetsWrap && cards.length > 0,
+        evidence: { ribbonAssets: !!assetsWrap, cardCount: cards.length }
       };
     })()`);
   if (!r) record('assets-tab', false, { reason: 'evaluate returned null' });
@@ -2006,27 +2003,27 @@ await resetScene('before-box-inject');
   else record('ortho-projection', r.passed, r.evidence);
 }
 
-// ── Surface 43: assets-tab-visible (#342) ────────────────────────────────────
-// Ribbon has no TOOL_GROUP labels; ASSETS sidebar tab activates sample picker.
+// ── Surface 43: assets-ribbon-visible (#400) ─────────────────────────────────
+// SAMPLES cards visible by default in ribbon-tools at page load (no click).
+// Ribbon height increased to accommodate cards. No sidebar ASSETS tab.
 {
   const r = await evaluate(`
     (() => {
-      // 1. Check ribbon-tools has no tool-group elements (TRANSFORM/SKETCH 2D/SOLID/ARCH/MEASURE gone)
+      // 1. ribbon-tools has no tool-group elements (MODEL mode shows ARCH|COMP slider + SAMPLES)
       const toolGroups = document.querySelectorAll('.ribbon-tools .tool-group');
-      const ribbonGroupLabels = Array.from(document.querySelectorAll('.ribbon-tools .tool-group-label')).map(el => el.textContent);
       if (toolGroups.length > 0) {
-        return { passed: false, evidence: { reason: 'tool-group elements still in ribbon-tools', count: toolGroups.length, labels: ribbonGroupLabels } };
+        return { passed: false, evidence: { reason: 'tool-group elements present in ribbon-tools', count: toolGroups.length } };
       }
-      // 2. ASSETS tab present in sidebar
-      const assetsTab = Array.from(document.querySelectorAll('.sb-tab')).find(t => t.textContent === 'ASSETS');
-      if (!assetsTab) {
-        return { passed: false, evidence: { reason: 'ASSETS tab not found in sidebar' } };
+      // 2. Asset cards in ribbon-tools without any click
+      const cards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card');
+      if (cards.length === 0) {
+        return { passed: false, evidence: { reason: 'no .ribbon-tools .ribbon-asset-card at page load' } };
       }
-      // 3. Click ASSETS tab and assert sample picker cards appear
-      assetsTab.click();
-      const cards = document.querySelectorAll('.tab-body.assets .asset-card');
-      const passed = cards.length > 0;
-      return { passed, evidence: { cardCount: cards.length, toolGroupCount: toolGroups.length } };
+      // 3. Ribbon height >= 60px
+      const ribbon = document.querySelector('.ribbon');
+      const ribbonH = ribbon ? ribbon.getBoundingClientRect().height : 0;
+      const passed = cards.length > 0 && ribbonH >= 60;
+      return { passed, evidence: { cardCount: cards.length, ribbonH, toolGroupCount: toolGroups.length } };
     })()`);
   if (!r) record('assets-tab-visible', false, { reason: 'evaluate returned null' });
   else record('assets-tab-visible', r.passed, r.evidence);
@@ -2305,6 +2302,46 @@ await resetScene('before-box-inject');
     })()`);
   if (!r) record('comp-scope-toggle', false, { reason: 'evaluate returned null' });
   else record('comp-scope-toggle', r.passed, r.evidence);
+}
+
+// ── Surface 50: ribbon-asset-card-drives-sample (#400) ───────────────────────
+// Click Schultz card → #sample-select value updates to 'schultz-residence'.
+{
+  const r = await evaluate(`
+    (() => {
+      const card = document.querySelector('.ribbon-tools .ribbon-asset-card[data-sample="schultz-residence"]');
+      if (!card) return { passed: false, evidence: { reason: 'no schultz ribbon-asset-card' } };
+      const sel = document.getElementById('sample-select');
+      if (!sel) return { passed: false, evidence: { reason: 'no #sample-select' } };
+      const before = sel.value;
+      card.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { passed: sel.value === 'schultz-residence', evidence: { before, after: sel.value } };
+    })()`);
+  if (!r) record('ribbon-asset-card-drives-sample', false, { reason: 'evaluate returned null' });
+  else record('ribbon-asset-card-drives-sample', r.passed, r.evidence);
+}
+
+// ── Surface 51: ribbon-assets-mode-toggle (#400) ─────────────────────────────
+// Switch to LAYOUT: ribbon-tools clears assets. Switch back to MODEL: restores.
+{
+  const r = await evaluate(`(async () => {
+    const modelTab = document.querySelector('.mode-tab[data-mode="model"]');
+    const layoutTab = document.querySelector('.mode-tab[data-mode="layout"]');
+    if (!modelTab || !layoutTab) return { passed: false, evidence: { reason: 'mode tabs missing' } };
+
+    layoutTab.click();
+    await new Promise(r => setTimeout(r, 600));
+    const layoutCards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card').length;
+
+    modelTab.click();
+    await new Promise(r => setTimeout(r, 600));
+    const modelCards = document.querySelectorAll('.ribbon-tools .ribbon-asset-card').length;
+
+    const passed = layoutCards === 0 && modelCards > 0;
+    return { passed, evidence: { layoutCards, modelCards } };
+  })()`, true);
+  if (!r) record('ribbon-assets-mode-toggle', false, { reason: 'evaluate returned null' });
+  else record('ribbon-assets-mode-toggle', r.passed, r.evidence);
 }
 
 } finally {

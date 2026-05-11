@@ -189,6 +189,47 @@ function fillRibbonTools(toolsEl: HTMLElement, groups: ToolGroup[]) {
   }
 }
 
+// SAMPLES displayed as ribbon asset cards in MODEL mode (far right of ribbon-tools).
+const RIBBON_SAMPLES = [
+  { name: "Schultz",   sub: "IFC", v: "schultz-residence" },
+  { name: "FZK-Haus",  sub: "IFC", v: "kit-fzk-haus" },
+  { name: "Institute", sub: "IFC", v: "kit-office" },
+  { name: "Bonsai",    sub: "IFC", v: "bonsai-openings" },
+];
+
+function appendRibbonAssets(toolsEl: HTMLElement) {
+  const wrap = document.createElement("div");
+  wrap.className = "ribbon-assets";
+
+  for (const s of RIBBON_SAMPLES) {
+    const card = document.createElement("div");
+    card.className = "ribbon-asset-card";
+    card.dataset.sample = s.v;
+
+    const name = document.createElement("span");
+    name.className = "asset-card-name";
+    name.textContent = s.name;
+
+    const sub = document.createElement("span");
+    sub.className = "asset-card-sub";
+    sub.textContent = s.sub;
+
+    card.appendChild(name);
+    card.appendChild(sub);
+    card.addEventListener("click", () => {
+      wrap.querySelectorAll(".ribbon-asset-card.selected").forEach((c: Element) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      const sel = document.getElementById("sample-select") as HTMLSelectElement | null;
+      if (sel) {
+        sel.value = s.v;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    wrap.appendChild(card);
+  }
+  toolsEl.appendChild(wrap);
+}
+
 // Append the ARCH|COMP toggle into the ribbon tabs strip (MODEL mode only).
 function appendArchCompSlider(tabsEl: HTMLElement) {
   const { root } = buildPhoneSlider({
@@ -220,6 +261,7 @@ export function setRibbonMode(mode: "model" | "layout" | "research") {
     fillRibbonTabs(_ribbonTabsEl, RIBBON_TABS, RIBBON_TABS[0]);
     fillRibbonTools(_ribbonToolsEl, []);
     appendArchCompSlider(_ribbonTabsEl);
+    appendRibbonAssets(_ribbonToolsEl);
   }
 }
 
@@ -464,6 +506,7 @@ function buildRibbon(ribbonHost: HTMLElement, onSplitMode?: (mode: "single" | "q
   fillRibbonTabs(tabsEl, RIBBON_TABS, RIBBON_TABS[0]);
   fillRibbonTools(toolsEl, []);
   appendArchCompSlider(tabsEl);
+  appendRibbonAssets(toolsEl);
 
   // .ribbon-right — quick actions (palette + export + viewport split).
   const rightEl = document.createElement("div");

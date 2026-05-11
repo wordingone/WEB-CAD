@@ -190,18 +190,6 @@ type SidebarTab = { id: string; label: string };
 const SIDEBAR_TABS: SidebarTab[] = [
   { id: "scene",   label: "SCENE" },
   { id: "inspect", label: "INSPECT" },
-  { id: "assets",  label: "ASSETS" },
-];
-
-const SAMPLE_ASSETS = [
-  { id: "schultz", name: "Schultz Resid.",  sub: "IFC · 22 MB",   v: "schultz-residence" },
-  { id: "haus",    name: "FZK-Haus",        sub: "IFC · 412 KB",  v: "kit-fzk-haus" },
-  { id: "inst",    name: "Institute v2",    sub: "IFC · 1.2 MB",  v: "kit-office" },
-  { id: "bonsai",  name: "Bonsai openings", sub: "IFC · 88 KB",   v: "bonsai-openings" },
-  { id: "wall",    name: "Wall+Window",     sub: "IFC · 7 KB",    v: "wall-with-opening" },
-  { id: "sweep",   name: "Sweep · simple",  sub: "IFC · 12 KB",   v: "simple-sweep" },
-  { id: "tri-obj", name: "Triangle",        sub: "OBJ · 1 KB",    v: "triangle-obj" },
-  { id: "tri-stl", name: "Triangle",        sub: "STL · 1 KB",    v: "triangle-stl" },
 ];
 
 function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElement {
@@ -762,38 +750,6 @@ function buildInspectTab(): HTMLElement {
   return wrap;
 }
 
-function buildAssetsTab(onPickSample: (v: string) => void): HTMLElement {
-  const wrap = el("div", "tab-body assets");
-  const search = el("div", "assets-search");
-  search.innerHTML = `${iconSVG("search", 11)}<input placeholder="search samples, primitives, blocks..."/>`;
-  wrap.appendChild(search);
-
-  const sectionLabel = el("div");
-  sectionLabel.style.cssText = "font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-dim); padding:6px 2px 4px; font-weight:600; display:flex; align-items:center; gap:6px;";
-  sectionLabel.innerHTML = `<span style="flex:1; height:1px; background:var(--hairline);"></span>SAMPLE FILES<span style="flex:1; height:1px; background:var(--hairline);"></span>`;
-  wrap.appendChild(sectionLabel);
-
-  const grid = el("div", "asset-grid");
-  for (const a of SAMPLE_ASSETS) {
-    const card = el("div", "asset-card", { "data-sample": a.v });
-    card.innerHTML = `
-      <div class="asset-thumb"></div>
-      <div class="asset-meta">
-        <div class="name">${a.name}</div>
-        <div class="sub">${a.sub}</div>
-      </div>
-    `;
-    card.addEventListener("click", () => {
-      grid.querySelectorAll(".asset-card.selected").forEach((c) => c.classList.remove("selected"));
-      card.classList.add("selected");
-      onPickSample(a.v);
-    });
-    grid.appendChild(card);
-  }
-  wrap.appendChild(grid);
-  return wrap;
-}
-
 function buildLevelsTab(): HTMLElement {
   const wrap = el("div", "tab-body levels-tab");
 
@@ -1128,14 +1084,6 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
   const panes: Record<string, HTMLElement> = {
     scene:   buildSceneTab(scenePanel),
     inspect: buildInspectTab(),
-    assets:  buildAssetsTab((v) => {
-      // Drive existing sample-select dropdown so loader picks up the sample.
-      const sel = document.getElementById("sample-select") as HTMLSelectElement | null;
-      if (sel) {
-        sel.value = v;
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    }),
   };
 
   for (const t of SIDEBAR_TABS) {
