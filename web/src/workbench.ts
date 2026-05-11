@@ -1430,9 +1430,10 @@ function buildConsoleInner(): HTMLElement {
 // skill capture. Cleared whenever the scene is cleared (gemma:run-ok resets).
 const _sessionSteps: SkillStep[] = [];
 
-interface NodeRecord { label: string; }
+interface NodeRecord { label: string; verb?: string; args?: Record<string, unknown>; }
 const _nodes: NodeRecord[] = [];
 let _nodesLastSeqLen = 0;
+let _selectedNodeIdx: number | null = null;
 let _nodesWrap: HTMLElement | null = null;
 
 const GEOMETRY_OP_RE = /^(Ifc|Sd|sd)/;
@@ -1510,7 +1511,7 @@ async function renderSkillNodes(): Promise<void> {
   } else {
     liveSection.innerHTML = _nodes.map((n, i) => `
       ${i > 0 ? `<div class="skill-nodes-arrow">↓</div>` : ""}
-      <div class="node-box" data-idx="${i}" title="${escHtml(n.label)}">${escHtml(n.label)}</div>
+      <div class="node-box${i === _selectedNodeIdx ? " selected" : ""}" data-idx="${i}" title="${escHtml(n.label)}">${escHtml(n.label)}</div>
     `).join("");
   }
   _skillsWrap.appendChild(liveSection);
@@ -1578,6 +1579,18 @@ function buildSkillsTabBody(): HTMLElement {
   listPane.style.cssText = "flex:1; overflow-y:auto; padding:8px 10px; display:flex; flex-direction:column; gap:4px;";
   _skillsWrap = listPane;
 
+  listPane.addEventListener("click", (e) => {
+    const box = (e.target as HTMLElement).closest<HTMLElement>(".node-box");
+    if (!box) return;
+    const idx = Number(box.dataset.idx ?? "-1");
+    if (idx < 0 || idx >= _nodes.length) return;
+    _selectedNodeIdx = idx;
+    void renderSkillNodes();
+    const n = _nodes[idx];
+    if (n.verb && n.args) renderNodeParameters(n.verb, n.args);
+    else renderParameters(null);
+  });
+
   const canvasPane = document.createElement("div");
   canvasPane.style.cssText = "flex:1; overflow:hidden; display:none;";
 
@@ -1615,6 +1628,13 @@ function buildSkillsTabBody(): HTMLElement {
   renderParameters(null);
   window.addEventListener("viewer:select", (rawEv) => {
     const uuid: string | null = (rawEv as CustomEvent<{ uuid: string | null }>).detail?.uuid ?? null;
+    if (_selectedNodeIdx !== null) {
+      // Node-box click takes priority; clear node selection but don't overwrite params with 3D-object params.
+      _selectedNodeIdx = null;
+      void renderSkillNodes();
+      return;
+    }
+    void renderSkillNodes();
     renderParameters(uuid);
   });
 
@@ -1753,7 +1773,7 @@ function initLiveTabSubscriptions(): void {
     _nodesLastSeqLen = seq.length;
 
     if (GEOMETRY_OP_RE.test(id)) {
-      _nodes.push({ label: commandToLabel(id, args as Record<string, unknown>) });
+      _nodes.push({ label: commandToLabel(id, args as Record<string, unknown>), verb: id, args: args as Record<string, unknown> });
       _sessionSteps.push({ verb: id, args: args as Record<string, unknown> });
     }
 
@@ -1790,6 +1810,67 @@ function sliderBounds(name: string): [number, number, number] {
   if (n.includes("radius") || n.includes("r")) return [0.05, 20, 0.05];
   if (n.includes("height") || n.includes("h")) return [0.1, 20, 0.1];
   return [0.05, 30, 0.05]; // width / length / depth / generic
+}
+
+function renderNodeParameters(verb: string, args: Record<string, unknown>): void {
+  if (!_paramsWrap) return;
+  _paramsWrap.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "params-header";
+  header.textContent = verb;
+  _paramsWrap.appendChild(header);
+
+  for (const [key, val] of Object.entries(args)) {
+    if (key.startsWith("_") || key === "uuid") continue;
+    if (typeof val !== "number" && typeof val !== "string" && typeof val !== "boolean") continue;
+
+    const row = document.createElement("div");
+    row.className = "params-row";
+    const label = document.createElement("label");
+    label.className = "params-label";
+    label.textContent = key;
+
+    if (typeof val === "number") {
+      const [min, max, step] = sliderBounds(key);
+      const slider = document.createElement("input");
+      slider.type = "range";
+      slider.className = "params-slider";
+      slider.min = String(min);
+      slider.max = String(max);
+      slider.step = String(step);
+      slider.value = String(val);
+
+      const valueSpan = document.createElement("span");
+      valueSpan.className = "params-value";
+      valueSpan.textContent = (val as number).toFixed(2);
+
+      slider.addEventListener("input", () => {
+        valueSpan.textContent = Number(slider.value).toFixed(2);
+      });
+
+      slider.addEventListener("change", () => {
+        const newVal = Number(slider.value);
+        const newArgs = { ...args, [key]: newVal };
+        if (_selectedNodeIdx !== null && _nodes[_selectedNodeIdx]?.verb === verb) {
+          _nodes[_selectedNodeIdx].args = newArgs;
+        }
+        dispatchSync(verb, newArgs as DispatchArgs);
+      });
+
+      row.appendChild(label);
+      row.appendChild(slider);
+      row.appendChild(valueSpan);
+    } else {
+      const valEl = document.createElement("span");
+      valEl.className = "params-value params-value-static";
+      valEl.textContent = String(val);
+      row.appendChild(label);
+      row.appendChild(valEl);
+    }
+
+    _paramsWrap.appendChild(row);
+  }
 }
 
 let _paramsWrap: HTMLElement | null = null;
