@@ -983,10 +983,29 @@
 - canonical_name: SdIsolate
   kernel_op: isolate
   args:
-    - {name: target, type: any, required: true}
+    - {name: uuid, type: string, required: true, description: "Three.js object uuid to isolate"}
   topology_role: selection
   kg_predicates: []
   synonyms: [isolate, solo]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdIsolateOff
+  kernel_op: isolateOff
+  args: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: ["isolate off", "unisolate", "show all"]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- canonical_name: SdFitToObject
+  kernel_op: fitToObject
+  args:
+    - {name: uuid, type: string, required: true, description: "Three.js object uuid to frame"}
+  topology_role: view
+  kg_predicates: []
+  synonyms: ["fit to object", "zoom to object", "frame object"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 

@@ -210,6 +210,29 @@ registerHandler("SdSectionBoxOff", () => {
   return { ok: true };
 });
 
+registerHandler("SdIsolate", (args) => {
+  const uuid = args.uuid as string;
+  if (!uuid) return { error: "uuid required" };
+  const ok = viewer.isolate(uuid);
+  document.dispatchEvent(new CustomEvent("viewer:isolate-changed", { detail: { uuid: ok ? uuid : null } }));
+  return ok ? { ok: true, uuid } : { error: "object not found", uuid };
+});
+
+registerHandler("SdIsolateOff", () => {
+  viewer.isolateOff();
+  document.dispatchEvent(new CustomEvent("viewer:isolate-changed", { detail: { uuid: null } }));
+  return { ok: true };
+});
+
+registerHandler("SdFitToObject", (args) => {
+  const uuid = args.uuid as string;
+  if (!uuid) return { error: "uuid required" };
+  const obj = viewer.getScene().getObjectByProperty("uuid", uuid);
+  if (!obj) return { error: "object not found", uuid };
+  viewer.frameObjectOnly(obj);
+  return { ok: true, uuid };
+});
+
 registerHandler("SdClippingPlane", (args) => {
   const origin = args.origin as [number, number, number];
   const normal = args.normal as [number, number, number];
@@ -1789,6 +1812,14 @@ registerHandler("SdResetCPlane", () => {
 installDefaultHandlers();
 
 const scenePanel = new ScenePanel(scenePanelEl, viewer);
+
+// Isolate status bar indicator — show/hide #sb-isolate on viewer:isolate-changed.
+document.addEventListener("viewer:isolate-changed", (e) => {
+  const cell = document.getElementById("sb-isolate");
+  if (!cell) return;
+  const uuid = (e as CustomEvent<{ uuid: string | null }>).detail?.uuid;
+  cell.style.display = uuid ? "" : "none";
+});
 
 // Navigation hotkeys — Blender-numpad keymap, with letter fallbacks for
 // keyboards without a numpad. Captured at window level but ignored if the

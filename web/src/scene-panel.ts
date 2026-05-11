@@ -20,6 +20,7 @@ import {
 } from "./viewer/selection-state";
 import type { IfcHierarchyElement } from "./ifc-types";
 import { subscribe } from "./app-state";
+import { dispatchSync } from "./commands/dispatch.js";
 
 type IfcClass = "ARCHITECTURE" | "STRUCTURE" | "OPENINGS" | "CIRCULATION" | "MESHES";
 function classifyByName(name: string): IfcClass {
@@ -284,6 +285,55 @@ export class ScenePanel {
           row?.classList.add("selected");
           this.viewer.frameObjectOnly(node.mesh);
         }
+      });
+    });
+
+    // Right-click: context menu with Isolate / Isolate Off.
+    this.root.querySelectorAll<HTMLElement>(".outliner-row").forEach((row) => {
+      row.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const id = row.dataset.id;
+        const node = this.nodes.find((n) => n.id === id);
+        if (!node) return;
+
+        document.getElementById("scene-ctx-menu")?.remove();
+        const menu = document.createElement("div");
+        menu.id = "scene-ctx-menu";
+        menu.style.cssText =
+          "position:fixed; z-index:9999; background:var(--paper-1,#fff);" +
+          " border:1px solid var(--chrome-seam,#ccc); border-radius:4px;" +
+          " padding:4px 0; min-width:140px; box-shadow:0 4px 12px rgba(0,0,0,0.15);";
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top  = `${e.clientY}px`;
+
+        const makeItem = (label: string, action: () => void): HTMLElement => {
+          const item = document.createElement("div");
+          item.textContent = label;
+          item.style.cssText =
+            "padding:5px 14px; cursor:pointer; font-size:11px;" +
+            " color:var(--ink); white-space:nowrap;";
+          item.addEventListener("mouseenter", () => { item.style.background = "var(--paper-2,#f0f0f0)"; });
+          item.addEventListener("mouseleave", () => { item.style.background = ""; });
+          item.addEventListener("click", () => { menu.remove(); action(); });
+          return item;
+        };
+
+        const isAlreadyIsolated = this.viewer.getIsolatedUuid() === node.mesh.uuid;
+        menu.appendChild(makeItem(isAlreadyIsolated ? "Isolate Off" : "Isolate", () => {
+          if (isAlreadyIsolated) {
+            dispatchSync("SdIsolateOff", {});
+          } else {
+            dispatchSync("SdIsolate", { uuid: node.mesh.uuid });
+          }
+        }));
+        if (!isAlreadyIsolated && this.viewer.getIsolatedUuid() !== null) {
+          menu.appendChild(makeItem("Isolate Off", () => { dispatchSync("SdIsolateOff", {}); }));
+        }
+        menu.appendChild(makeItem("Zoom To", () => { this.viewer.frameObjectOnly(node.mesh); }));
+
+        document.body.appendChild(menu);
+        const dismiss = () => { menu.remove(); document.removeEventListener("pointerdown", dismiss, true); };
+        setTimeout(() => document.addEventListener("pointerdown", dismiss, true), 0);
       });
     });
   }
