@@ -18,7 +18,7 @@
 // Exits 0 with stdout `0 dispatch-routing violations` on clean.
 // Exits 1 with each violation on its own line.
 
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { join, resolve } from "path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -220,9 +220,20 @@ function checkViewerSelection(): Violation[] {
 // R4b — index.html --dock-h must clamp to viewport (not literal 260px)
 // R4c — style.css must have a max-height media query for short viewports
 // R4d — workbench.ts dock-drag clamp ceiling must reference innerHeight
+function readAllCssLines(): string[] {
+  const lines = readLines(STYLE_CSS);
+  const modulesDir = join(REPO_ROOT, "web/src/styles");
+  if (existsSync(modulesDir)) {
+    for (const f of readdirSync(modulesDir).filter((n) => n.endsWith(".css"))) {
+      lines.push(...readLines(join(modulesDir, f)));
+    }
+  }
+  return lines;
+}
+
 function checkCropping(): Violation[] {
   const violations: Violation[] = [];
-  const css = readLines(STYLE_CSS);
+  const css = readAllCssLines();
   const html = readLines(INDEX_HTML);
   const wb = readLines(WORKBENCH_TS);
 
