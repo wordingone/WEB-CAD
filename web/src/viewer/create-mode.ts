@@ -22,7 +22,7 @@ import type { Viewer } from "./viewer";
 import { setState, subscribe } from "../app-state";
 import { dispatchSync } from "../commands/dispatch";
 import { snapPoint, getSnap } from "./snap-state";
-import { pushAction } from "../history";
+import { pushAction, pushTransformAction, captureTransform } from "../history";
 import { getActiveCommandSession, provideSessionPick, provideSessionChoice, clearCommandSession, commitCommandSession } from "../commands/command-session";
 import type { ChoiceOption } from "../commands/dictionary";
 import { gridStore } from "../geometry/grids";
@@ -120,10 +120,39 @@ export function setChooserHint(choice: { arg: string; options: ChoiceOption[] } 
   _chooserEl.classList.add("visible");
 }
 
+// Op tools are handled by the opPhase state machine, not the click-to-place pipeline.
+const OP_TOOL_IDS = new Set(["extrude", "boolean", "fillet", "aligned-dim", "angular-dim", "area-dim", "volume-dim", "label", "transient-measure"]);
+
+// Creators that are valid extrude profiles (curves and surfaces).
+const EXTRUDABLE_CREATORS = new Set(["rect", "circle", "polygon", "polyline", "curve", "line", "wall", "slab", "column", "box", "beam", "roof", "space"]);
+
+// Object hovered during an op-tool select phase — highlighted with emissive tint.
+let _opHoverObj: THREE.Mesh | null = null;
+let _opHoverSavedEmissive: number | null = null;
+function opSetHover(obj: THREE.Mesh | null): void {
+  if (_opHoverObj === obj) return;
+  // Un-highlight previous hover.
+  if (_opHoverObj && _opHoverSavedEmissive !== null) {
+    const mat = _opHoverObj.material as THREE.MeshStandardMaterial;
+    if (mat?.emissive) mat.emissive.setHex(_opHoverSavedEmissive);
+    _opHoverSavedEmissive = null;
+  }
+  _opHoverObj = obj;
+  // Highlight new hover.
+  if (obj) {
+    const mat = obj.material as THREE.MeshStandardMaterial;
+    if (mat?.emissive) {
+      _opHoverSavedEmissive = (mat.emissive as THREE.Color).getHex();
+      (mat.emissive as THREE.Color).setHex(0x334455);
+    }
+  }
+}
+
 function readActiveTool(): string | null {
   const btn = document.querySelector<HTMLElement>(".palette-btn.active");
   const id = btn?.dataset.tool ?? null;
   if (!id || id === "select" || id === "move" || id === "rotate" || id === "scale") return null;
+  if (OP_TOOL_IDS.has(id)) return null; // handled by opPhase, not click-to-place
   return id;
 }
 
@@ -132,9 +161,11 @@ function readActiveTool(): string | null {
 // userData.endpoints. Builders that set endpoints: buildWall, buildLine,
 // buildPolyline. Others fall through to grid-only snap.
 
-type SnapVertex = { x: number; y: number; z: number; id: string };
+type SnapVertex = { x: number; y: number; z: number; id: string; edgeDir?: THREE.Vector3 };
 let _snapTarget: SnapVertex | null = null;
 export function getSnapTarget(): SnapVertex | null { return _snapTarget; }
+// Last edge direction captured from an edge snap — used for smart Shift-lock.
+let _lastSnapEdgeDir: THREE.Vector3 | null = null;
 
 // ── Host-aware placement (door / window / opening) ───────────────────────────
 // On click, raycast against scene objects before committing the tool. If no valid
@@ -197,19 +228,187 @@ function collectSnapVertices(viewer: Viewer): SnapVertex[] {
 }
 
 const VERTEX_SNAP_PX = 20;
+
+// Closest point on a 3-D segment [A,B] to the camera ray. Returns null when
+// ray and segment are nearly parallel. Used for edge snap.
+function closestPtOnSegToRay(
+  viewer: Viewer, clientX: number, clientY: number,
+  A: THREE.Vector3, B: THREE.Vector3,
+): THREE.Vector3 | null {
+  const segDir = B.clone().sub(A);
+  const segLen = segDir.length();
+  if (segLen < 1e-9) return null;
+  const unit = segDir.clone().divideScalar(segLen);
+  const pt = unprojectToAxisLine(viewer, clientX, clientY, A, unit);
+  if (!pt) return null;
+  const t = Math.max(0, Math.min(segLen, pt.clone().sub(A).dot(unit)));
+  return A.clone().addScaledVector(unit, t);
+}
+
 function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): SnapVertex | null {
   const snap = getSnap();
-  if (!snap.snapOn || !snap.vertexSnapOn) return null;
-  const verts = collectSnapVertices(viewer);
-  let best: SnapVertex | null = null;
-  let bestD = VERTEX_SNAP_PX;
-  for (const v of verts) {
-    const sc = projectToScreen(viewer, v.x, v.y, v.z);
-    if (!sc) continue;
-    const d = Math.hypot(sc.x - clientX, sc.y - clientY);
-    if (d < bestD) { bestD = d; best = v; }
+  if (!snap.snapOn) return null;
+  const anyGeomSnap = snap.vertexSnapOn || snap.edgeSnapOn || snap.midpointSnapOn;
+  if (!anyGeomSnap) return null;
+
+  // ── 1. Stored endpoint vertices (sketch geometry: wall, line, polyline) ─────
+  if (snap.vertexSnapOn) {
+    const verts = collectSnapVertices(viewer);
+    let best: SnapVertex | null = null;
+    let bestD = VERTEX_SNAP_PX;
+    for (const v of verts) {
+      const sc = projectToScreen(viewer, v.x, v.y, v.z);
+      if (!sc) continue;
+      const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+      if (d < bestD) { bestD = d; best = v; }
+    }
+    if (best) return best;
+
+    // Midpoint snap on stored endpoint pairs.
+    if (snap.midpointSnapOn) {
+      const midState = { best: null as THREE.Vector3 | null, bestD: VERTEX_SNAP_PX };
+      viewer.getScene().traverse((obj) => {
+        const eps = (obj.userData as { endpoints?: SnapVertex[] }).endpoints;
+        if (!eps || eps.length < 2) return;
+        for (let i = 0; i < eps.length - 1; i++) {
+          const a = eps[i], b = eps[i + 1];
+          const mid = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+          const sc = projectToScreen(viewer, mid.x, mid.y, mid.z);
+          if (!sc) return;
+          const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+          if (d < midState.bestD) { midState.bestD = d; midState.best = mid; }
+        }
+      });
+      if (midState.best) {
+        const v = midState.best;
+        return { id: makeSnapId(v.x, v.y, v.z), x: v.x, y: v.y, z: v.z };
+      }
+    }
   }
-  return best;
+
+  // ── 2. Line/curve objects: vertex snap by screen-distance to each control point ──
+  // THREE.Raycaster has poor precision against Lines in perspective view (threshold
+  // tuning is fiddly). Instead, iterate each vertex of Line/LineLoop/LineSegments
+  // objects and snap by screen-distance — same as stored-endpoint snap in section 1.
+  const snapExclude = _ptPhase ? ptGetTarget() : null;
+  if (snap.vertexSnapOn || snap.edgeSnapOn) {
+    let lineVBest: SnapVertex | null = null;
+    let lineVBestD = VERTEX_SNAP_PX;
+    viewer.getScene().traverse((obj) => {
+      if (obj.userData.noSnap) return;
+      if (obj === snapExclude) return;
+      if (!(obj instanceof THREE.Line)) return; // covers Line, LineLoop, LineSegments
+      const posAttr = obj.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+      if (!posAttr) return;
+      const count = posAttr.count;
+      for (let i = 0; i < count; i++) {
+        const lv = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(obj.matrixWorld);
+        const sc = projectToScreen(viewer, lv.x, lv.y, lv.z);
+        if (!sc) continue;
+        const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+        if (d < lineVBestD) {
+          lineVBestD = d;
+          lineVBest = { id: makeSnapId(lv.x, lv.y, lv.z), x: lv.x, y: lv.y, z: lv.z };
+        }
+      }
+      // Edge snap along segments for Line objects.
+      if (snap.edgeSnapOn) {
+        const looped = obj instanceof THREE.LineLoop;
+        for (let i = 0; i < count - (looped ? 0 : 1); i++) {
+          const A = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(obj.matrixWorld);
+          const B = new THREE.Vector3().fromBufferAttribute(posAttr, (i + 1) % count).applyMatrix4(obj.matrixWorld);
+          const ep = closestPtOnSegToRay(viewer, clientX, clientY, A, B);
+          if (!ep) continue;
+          const sc = projectToScreen(viewer, ep.x, ep.y, ep.z);
+          if (!sc) continue;
+          const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+          if (d < lineVBestD) {
+            lineVBestD = d;
+            const edgeDir = B.clone().sub(A).normalize();
+            lineVBest = { id: makeSnapId(ep.x, ep.y, ep.z), x: ep.x, y: ep.y, z: ep.z, edgeDir };
+          }
+        }
+      }
+    });
+    if (lineVBest) {
+      if ((lineVBest as SnapVertex).edgeDir) _lastSnapEdgeDir = (lineVBest as SnapVertex).edgeDir!;
+      return lineVBest;
+    }
+  }
+
+  // ── 3. Geometry raycasting — hits a mesh surface ───────────────────────────
+  const canvas = viewer.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(ndc, viewer.getCamera() as THREE.PerspectiveCamera);
+
+  // Filter to real Mesh objects; skip helpers, noSnap-tagged objects, and the
+  // object currently being transformed (prevents snapping to itself).
+  const meshes: THREE.Mesh[] = [];
+  viewer.getScene().traverse((obj) => {
+    if (obj.userData.noSnap) return;
+    if (obj === snapExclude) return;
+    if (!(obj instanceof THREE.Mesh)) return;
+    if (!obj.geometry || !obj.geometry.getAttribute("position")) return;
+    meshes.push(obj);
+  });
+
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (hits.length === 0) return null;
+  const hit = hits[0];
+  if (!hit.face) return null;
+  const mesh = hit.object as THREE.Mesh;
+  const posAttr = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+  const matW = mesh.matrixWorld;
+  const faceIdx = [hit.face.a, hit.face.b, hit.face.c];
+  const facePts = faceIdx.map(i => new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(matW));
+
+  // Priority: vertex snap > midpoint snap > edge snap.
+  let candidate: THREE.Vector3 | null = null;
+  let candidateD = VERTEX_SNAP_PX;
+
+  if (snap.vertexSnapOn) {
+    for (const fv of facePts) {
+      const sc = projectToScreen(viewer, fv.x, fv.y, fv.z);
+      if (!sc) continue;
+      const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+      if (d < candidateD) { candidateD = d; candidate = fv; }
+    }
+    if (candidate) return { id: makeSnapId(candidate.x, candidate.y, candidate.z), x: candidate.x, y: candidate.y, z: candidate.z };
+  }
+
+  // Note: triangle-face midpoint snap is intentionally omitted here.
+  // Snapping to midpoints of invisible internal triangulation edges produces
+  // "snaps to unknown point" UX. Midpoint snap applies only to stored endpoint
+  // pairs (section 1 above), where the segments are user-visible sketch lines.
+
+  if (snap.edgeSnapOn) {
+    // Snap to closest point anywhere along each of the 3 triangle edges.
+    let edgeCandidateDir: THREE.Vector3 | null = null;
+    for (let i = 0; i < 3; i++) {
+      const A = facePts[i], B = facePts[(i + 1) % 3];
+      const ep = closestPtOnSegToRay(viewer, clientX, clientY, A, B);
+      if (!ep) continue;
+      const sc = projectToScreen(viewer, ep.x, ep.y, ep.z);
+      if (!sc) continue;
+      const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+      if (d < candidateD) {
+        candidateD = d;
+        candidate = ep;
+        edgeCandidateDir = B.clone().sub(A).normalize();
+      }
+    }
+    if (candidate) {
+      _lastSnapEdgeDir = edgeCandidateDir;
+      return { id: makeSnapId(candidate.x, candidate.y, candidate.z), x: candidate.x, y: candidate.y, z: candidate.z, edgeDir: edgeCandidateDir ?? undefined };
+    }
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1020,8 +1219,6 @@ const TOOL_TODOS: Record<string, string> = {
   arc:       "draw(start).arcTo(end, [via]).sketchOnPlane('XY').extrude(thickness)",
   spline:    "draw(start).bezierTo(end, [c1], [c2]).sketchOnPlane('XY').extrude(thickness)",
   revolve:   "select profile then axis then angle — TODO 3-step gizmo flow",
-  fillet:    "select edges, set radius — TODO post-selection edit op",
-  boolean:   "select two solids, choose op (fuse/cut/intersect)",
   move:      "select then drag — already covered by transform gizmo",
   rotate:    "select then drag — already covered by transform gizmo",
   scale:     "select then drag — already covered by transform gizmo",
@@ -1239,17 +1436,25 @@ export function resetPending(): void {
 // Scale:  pick_base  → type/pick  → uniform scale
 
 type PTPhase =
-  | { kind: "start";      tool: "move" | "rotate" | "scale" }
-  | { kind: "end_move";   start: THREE.Vector3 }
-  | { kind: "angle_end";  base: THREE.Vector3 }
-  | { kind: "scale_ref";  base: THREE.Vector3 }
-  | { kind: "scale_end";  base: THREE.Vector3; refPt: THREE.Vector3 };
+  | { kind: "start";         tool: "move" | "rotate" | "scale" }
+  | { kind: "end_move";      start: THREE.Vector3 }
+  | { kind: "rotate_axis_a" }
+  | { kind: "rotate_axis_b"; axisA: THREE.Vector3 }
+  | { kind: "angle_end";     base: THREE.Vector3; axisA: THREE.Vector3; axisDir: THREE.Vector3 }
+  | { kind: "scale_ref";     base: THREE.Vector3 }
+  | { kind: "scale_end";     base: THREE.Vector3; refPt: THREE.Vector3 };
 
 let _ptPhase: PTPhase | null = null;
 let _ptCoordInputEl: HTMLInputElement | null = null;
 let _ptCoordWrapEl: HTMLElement | null = null;
 let _ptPreviewLine: THREE.Line | null = null;
 let _ptViewer: Viewer | null = null;
+let _ptInitPos: THREE.Vector3 | null = null;
+let _ptInitQuat: THREE.Quaternion | null = null;
+let _ptInitScale: THREE.Vector3 | null = null;
+let _ptAxisLock: "x" | "y" | "z" | null = null;
+let _ptAxisLockLine: THREE.Line | null = null;
+let _lastPtTool: "move" | "rotate" | "scale" | null = null;
 
 function ptGetTarget(): THREE.Object3D | null {
   return getSelected()?.transformTarget ?? null;
@@ -1269,7 +1474,8 @@ function ptShowCoordInput(placeholder: string): void {
   if (!_ptCoordWrapEl) return;
   if (_ptCoordInputEl) _ptCoordInputEl.placeholder = placeholder;
   _ptCoordWrapEl.classList.add("visible");
-  _ptCoordInputEl?.focus();
+  // Defer focus past the current click event so the viewport doesn't steal it back.
+  setTimeout(() => _ptCoordInputEl?.focus(), 30);
 }
 
 function ptHideCoordInput(): void {
@@ -1293,10 +1499,86 @@ function ptSetPreviewLine(viewer: Viewer, from: THREE.Vector3, to: THREE.Vector3
   const mat = new THREE.LineBasicMaterial({ color: 0x4488ff, depthTest: false });
   _ptPreviewLine = new THREE.Line(geo, mat);
   _ptPreviewLine.renderOrder = 99;
+  _ptPreviewLine.userData.noSnap = true;
   viewer.getScene().add(_ptPreviewLine);
 }
 
-function ptCancel(viewer: Viewer): void {
+function ptGetAxisBase(): THREE.Vector3 | null {
+  const p = _ptPhase;
+  if (!p) return null;
+  if (p.kind === "end_move") return p.start;
+  if (p.kind === "rotate_axis_b") return p.axisA;
+  if (p.kind === "angle_end") return p.base;
+  if (p.kind === "scale_ref" || p.kind === "scale_end") return p.base;
+  return null;
+}
+
+function ptClearAxisLockLine(viewer: Viewer): void {
+  if (_ptAxisLockLine) {
+    viewer.getScene().remove(_ptAxisLockLine);
+    _ptAxisLockLine.geometry.dispose();
+    (_ptAxisLockLine.material as THREE.Material).dispose();
+    _ptAxisLockLine = null;
+  }
+}
+
+function ptSetAxisLockLine(viewer: Viewer, basePt: THREE.Vector3): void {
+  ptClearAxisLockLine(viewer);
+  if (!_ptAxisLock) return;
+  const dir = _ptAxisLock === "x" ? new THREE.Vector3(1, 0, 0) :
+              _ptAxisLock === "y" ? new THREE.Vector3(0, 1, 0) :
+                                    new THREE.Vector3(0, 0, 1);
+  const color = _ptAxisLock === "x" ? 0xff3333 : _ptAxisLock === "y" ? 0x33cc33 : 0x3388ff;
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    basePt.clone().addScaledVector(dir, -1000),
+    basePt.clone().addScaledVector(dir,  1000),
+  ]);
+  const mat = new THREE.LineBasicMaterial({ color, depthTest: false, opacity: 0.55, transparent: true });
+  _ptAxisLockLine = new THREE.Line(geo, mat);
+  _ptAxisLockLine.renderOrder = 98;
+  _ptAxisLockLine.userData.noSnap = true;
+  viewer.getScene().add(_ptAxisLockLine);
+}
+
+// Returns the effective axis direction for the current lock state.
+// If the last snap was an edge snap and Shift is held, uses that edge direction
+// (smart snap / stick-snap). Falls back to the cardinal axis.
+function ptEffectiveAxisDir(): THREE.Vector3 {
+  if (_lastSnapEdgeDir) return _lastSnapEdgeDir.clone();
+  return _ptAxisLock === "x" ? new THREE.Vector3(1, 0, 0) :
+         _ptAxisLock === "y" ? new THREE.Vector3(0, 1, 0) :
+                               new THREE.Vector3(0, 0, 1);
+}
+
+// Closest point on axis line (basePt + t*axisDir) to the camera ray.
+// Returns null when ray is nearly parallel to the axis (degenerate).
+function unprojectToAxisLine(
+  viewer: Viewer, clientX: number, clientY: number,
+  basePt: THREE.Vector3, axisDir: THREE.Vector3,
+): THREE.Vector3 | null {
+  const canvas = viewer.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(ndc, viewer.getCamera() as THREE.PerspectiveCamera);
+  const ro = raycaster.ray.origin.clone();
+  const rd = raycaster.ray.direction.clone();
+  const w = ro.sub(basePt); // w = rayOrigin - basePt
+  const b = rd.dot(axisDir);
+  const denom = b * b - 1; // axisDir normalized → axisDir·axisDir=1
+  if (Math.abs(denom) < 1e-8) return null;
+  const t = (b * w.dot(rd) - w.dot(axisDir)) / denom;
+  return basePt.clone().addScaledVector(axisDir, t);
+}
+
+// Finalize a PT operation — keep the current object transform, clean up state.
+function ptFinish(viewer: Viewer): void {
+  _ptInitPos = null; _ptInitQuat = null; _ptInitScale = null;
+  _ptAxisLock = null;
+  ptClearAxisLockLine(viewer);
   _ptPhase = null;
   ptClearPrompt();
   ptHideCoordInput();
@@ -1305,15 +1587,27 @@ function ptCancel(viewer: Viewer): void {
   dispatchSync("setActiveTool", { toolId: "select" });
 }
 
+function ptCancel(viewer: Viewer): void {
+  const obj = ptGetTarget();
+  if (obj && _ptInitPos) {
+    obj.position.copy(_ptInitPos);
+    if (_ptInitQuat) obj.quaternion.copy(_ptInitQuat);
+    if (_ptInitScale) obj.scale.copy(_ptInitScale);
+    obj.updateMatrix();
+    obj.updateMatrixWorld(true);
+  }
+  ptFinish(viewer);
+}
+
 function ptCommitMove(obj: THREE.Object3D, delta: THREE.Vector3): void {
   obj.position.add(delta);
   obj.updateMatrix();
   obj.updateMatrixWorld(true);
 }
 
-function ptCommitRotate(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: number): void {
+function ptCommitRotate(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: number, axisDir?: THREE.Vector3): void {
   const rad = angleDeg * Math.PI / 180;
-  const axis = new THREE.Vector3(0, 0, 1);
+  const axis = axisDir ? axisDir.clone().normalize() : new THREE.Vector3(0, 0, 1);
   obj.position.sub(base);
   obj.position.applyAxisAngle(axis, rad);
   obj.position.add(base);
@@ -1340,15 +1634,19 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
   if (!obj) { ptCancel(viewer); return; }
 
   if (phase.kind === "start") {
+    // Save initial transform so cancel can restore it.
+    _ptInitPos = obj.position.clone();
+    _ptInitQuat = obj.quaternion.clone();
+    _ptInitScale = obj.scale.clone();
     const pt = worldPt.clone();
     if (phase.tool === "move") {
       _ptPhase = { kind: "end_move", start: pt };
-      ptPrompt("Target point — click, type x,y,z, or Enter for original position");
+      ptPrompt("Target point — click, type x,y,z, or Enter for original position  [Shift+X/Y/Z = axis lock]");
       ptShowCoordInput("x, y  or  x, y, z");
     } else if (phase.tool === "rotate") {
-      _ptPhase = { kind: "angle_end", base: pt };
-      ptPrompt("Rotation angle — hover and click, or type degrees");
-      ptShowCoordInput("angle in degrees");
+      _ptPhase = { kind: "rotate_axis_a" };
+      ptPrompt("Rotation axis — click start point of axis");
+      ptHideCoordInput();
     } else {
       _ptPhase = { kind: "scale_ref", base: pt };
       ptPrompt("Scale — type factor (e.g. 2.0) or click reference start point");
@@ -1357,21 +1655,64 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
     return;
   }
 
+  if (phase.kind === "rotate_axis_a") {
+    _ptPhase = { kind: "rotate_axis_b", axisA: worldPt.clone() };
+    ptPrompt("Rotation axis — click end point of axis");
+    ptSetPreviewLine(viewer, worldPt, worldPt.clone().add(new THREE.Vector3(0, 0, 0.01)));
+    return;
+  }
+
+  if (phase.kind === "rotate_axis_b") {
+    // Apply Shift axis lock to constrain the rotation axis to a cardinal direction.
+    let endPt = worldPt.clone();
+    if (_ptAxisLock) {
+      const lockDir = ptEffectiveAxisDir();
+      const constrained = unprojectToAxisLine(viewer, 0, 0, phase.axisA, lockDir);
+      // If lock is active, use the lock direction from axisA instead.
+      endPt = phase.axisA.clone().add(lockDir);
+    }
+    const axisDir = endPt.clone().sub(phase.axisA);
+    if (axisDir.length() < 1e-6) {
+      ptPrompt("Rotation axis — points too close, click a different end point");
+      return;
+    }
+    axisDir.normalize();
+    // Save initial transform now that axis is defined.
+    _ptInitPos = obj.position.clone();
+    _ptInitQuat = obj.quaternion.clone();
+    _ptInitScale = obj.scale.clone();
+    _ptPhase = { kind: "angle_end", base: phase.axisA.clone(), axisA: phase.axisA.clone(), axisDir };
+    ptPrompt("Rotation angle — hover and click, or type degrees");
+    ptShowCoordInput("angle in degrees");
+    return;
+  }
+
   if (phase.kind === "end_move") {
-    const delta = worldPt.clone().sub(phase.start);
-    ptCommitMove(obj, delta);
-    ptClearPreviewLine(viewer);
-    ptCancel(viewer);
+    if (_ptInitPos) {
+      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
+      obj.position.copy(_ptInitPos).add(worldPt.clone().sub(phase.start));
+      obj.updateMatrix(); obj.updateMatrixWorld(true);
+      pushTransformAction(obj, before);
+    }
+    ptFinish(viewer);
     return;
   }
 
   if (phase.kind === "angle_end") {
     const dx = worldPt.x - phase.base.x;
     const dy = worldPt.y - phase.base.y;
-    const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
-    ptCommitRotate(obj, phase.base, angleDeg);
-    ptClearPreviewLine(viewer);
-    ptCancel(viewer);
+    const raw = Math.atan2(dy, dx) * 180 / Math.PI;
+    const snap = getSnap();
+    const angleDeg = (snap.snapOn && snap.polarOn)
+      ? Math.round(raw / snap.angleStep) * snap.angleStep : raw;
+    if (_ptInitPos && _ptInitQuat) {
+      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat.clone(), scale: _ptInitScale!.clone() };
+      obj.position.copy(_ptInitPos);
+      obj.quaternion.copy(_ptInitQuat);
+      ptCommitRotate(obj, phase.base, angleDeg, phase.axisDir);
+      pushTransformAction(obj, before);
+    }
+    ptFinish(viewer);
     return;
   }
 
@@ -1385,11 +1726,14 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
   if (phase.kind === "scale_end") {
     const refDist = phase.refPt.distanceTo(phase.base);
     const newDist = worldPt.distanceTo(phase.base);
-    if (refDist > 1e-6) {
+    if (refDist > 1e-6 && _ptInitPos && _ptInitScale) {
+      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale.clone() };
+      obj.position.copy(_ptInitPos);
+      obj.scale.copy(_ptInitScale);
       ptCommitScale(obj, phase.base, newDist / refDist);
+      pushTransformAction(obj, before);
     }
-    ptClearPreviewLine(viewer);
-    ptCancel(viewer);
+    ptFinish(viewer);
   }
 }
 
@@ -1398,33 +1742,58 @@ function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (!phase) return;
   const obj = ptGetTarget();
   if (!obj) { ptCancel(viewer); return; }
+  const nonNullObj = obj; // capture for inner function
 
   const parts = raw.split(/[,\s]+/).map(Number);
+
+  // Reset object to initial transform before applying the typed exact value.
+  function resetToInit(): void {
+    if (_ptInitPos) nonNullObj.position.copy(_ptInitPos!);
+    if (_ptInitQuat) nonNullObj.quaternion.copy(_ptInitQuat!);
+    if (_ptInitScale) nonNullObj.scale.copy(_ptInitScale!);
+    nonNullObj.updateMatrix(); nonNullObj.updateMatrixWorld(true);
+  }
 
   if (phase.kind === "start" || phase.kind === "end_move") {
     if (parts.length >= 2 && parts.every(Number.isFinite)) {
       const pt = new THREE.Vector3(parts[0], parts[1], parts[2] ?? 0);
-      ptHandlePoint(viewer, pt);
+      if (phase.kind === "start") {
+        ptHandlePoint(viewer, pt);
+      } else {
+        const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
+        resetToInit();
+        ptCommitMove(obj, pt.clone().sub(phase.start));
+        pushTransformAction(obj, before);
+        ptFinish(viewer);
+      }
     }
+    return;
+  }
+
+  if (phase.kind === "rotate_axis_a" || phase.kind === "rotate_axis_b") {
+    // Coord input not used for axis picking — ignore.
     return;
   }
 
   if (phase.kind === "angle_end") {
     const deg = parts[0];
     if (Number.isFinite(deg)) {
-      ptCommitRotate(obj, phase.base, deg);
-      ptClearPreviewLine(viewer);
-      ptCancel(viewer);
+      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
+      resetToInit();
+      ptCommitRotate(obj, phase.base, deg, phase.axisDir);
+      pushTransformAction(obj, before);
+      ptFinish(viewer);
     }
     return;
   }
 
   if (phase.kind === "scale_ref") {
-    // Single number = direct scale factor; two or more = reference point for distance-based scale.
     if (parts.length === 1 && Number.isFinite(parts[0]) && parts[0] > 0) {
+      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
+      resetToInit();
       ptCommitScale(obj, phase.base, parts[0]);
-      ptClearPreviewLine(viewer);
-      ptCancel(viewer);
+      pushTransformAction(obj, before);
+      ptFinish(viewer);
     } else if (parts.length >= 2 && parts.every(Number.isFinite)) {
       ptHandlePoint(viewer, new THREE.Vector3(parts[0], parts[1], parts[2] ?? 0));
     }
@@ -1434,9 +1803,11 @@ function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "scale_end") {
     const factor = parts[0];
     if (Number.isFinite(factor) && factor > 0) {
+      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
+      resetToInit();
       ptCommitScale(obj, phase.base, factor);
-      ptClearPreviewLine(viewer);
-      ptCancel(viewer);
+      pushTransformAction(obj, before);
+      ptFinish(viewer);
     }
   }
 }
@@ -1449,18 +1820,566 @@ function ptHandleEnter(viewer: Viewer): void {
 
   if (phase.kind === "start") {
     const centroid = ptCentroid(obj);
-    ptHandlePoint(viewer, new THREE.Vector3(centroid.x, centroid.y, centroid.z));
+    ptHandlePoint(viewer, centroid);
+  } else if (phase.kind === "rotate_axis_a") {
+    // Enter on axis start: use object centroid as axis start point.
+    ptHandlePoint(viewer, ptCentroid(obj));
+  } else if (phase.kind === "rotate_axis_b") {
+    // Enter on axis end: use centroid + Z unit as a default Z axis.
+    ptHandlePoint(viewer, phase.axisA.clone().add(new THREE.Vector3(0, 0, 1)));
   }
-  // other phases: Enter does nothing (user must click or type)
+  // angle_end / move / scale: Enter does nothing (user must click or type)
 }
 
 function ptStartTool(tool: "move" | "rotate" | "scale"): void {
-  const obj = ptGetTarget();
-  if (!obj) return;
+  _lastPtTool = tool;
   _ptPhase = { kind: "start", tool };
+  _ptInitPos = null; _ptInitQuat = null; _ptInitScale = null;
+  _ptAxisLock = null;
   const toolLabel = { move: "Move", rotate: "Rotate", scale: "Scale" }[tool];
-  ptPrompt(`${toolLabel} — reference point: click, type x,y,z, or Enter for centroid`);
-  ptShowCoordInput("x, y  or  x, y, z");
+  const obj = ptGetTarget();
+  if (!obj) {
+    ptPrompt(`${toolLabel} — click to select an object`);
+    if (tool !== "rotate") ptShowCoordInput("x, y  or  x, y, z");
+  } else if (tool === "rotate") {
+    // Rotate jumps straight to axis picking — bypass the start-phase prompt.
+    _ptPhase = { kind: "rotate_axis_a" };
+    ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
+  } else {
+    ptPrompt(`${toolLabel} — reference point: click, type x,y,z, or Enter for centroid`);
+    ptShowCoordInput("x, y  or  x, y, z");
+  }
+}
+
+// ── Op-tool state machine ─────────────────────────────────────────────────────
+// Extrude, Boolean, Fillet, and annotation tools (aligned-dim, angular-dim,
+// area-dim, volume-dim) share a lightweight multi-phase prompt driver that
+// re-uses the existing picker-prompt / coord-input / cursor-dot infrastructure.
+
+type OpPhase =
+  | { kind: "extrude_select" }
+  | { kind: "extrude_height"; profile: THREE.Object3D; cx: number; cy: number; w: number; d: number }
+  | { kind: "bool_a" }
+  | { kind: "bool_b"; objA: THREE.Object3D }
+  | { kind: "bool_op"; objA: THREE.Object3D; objB: THREE.Object3D }
+  | { kind: "fillet_select" }
+  | { kind: "fillet_radius"; target: THREE.Object3D }
+  | { kind: "dim_a";       tool: "aligned-dim" | "angular-dim" | "area-dim" | "volume-dim" }
+  | { kind: "dim_b";       tool: "aligned-dim"; ptA: THREE.Vector3 }
+  | { kind: "dim_c";       tool: "angular-dim"; ptA: THREE.Vector3; ptB: THREE.Vector3 }
+  | { kind: "dim_area";    tool: "area-dim";    pts: THREE.Vector3[] }
+  | { kind: "dim_volume";  tool: "volume-dim" };
+
+let _opPhase: OpPhase | null = null;
+let _opPreview: THREE.Object3D | null = null;
+let _opLabels: HTMLElement[] = [];
+
+function opClearPreview(viewer: Viewer): void {
+  if (_opPreview) {
+    viewer.getScene().remove(_opPreview);
+    _opPreview.traverse((c) => {
+      if ((c as THREE.Mesh).geometry) (c as THREE.Mesh).geometry.dispose();
+      const mat = (c as THREE.Mesh).material;
+      if (mat) { if (Array.isArray(mat)) mat.forEach(m => m.dispose()); else (mat as THREE.Material).dispose(); }
+    });
+    _opPreview = null;
+  }
+}
+
+function opClearLabels(): void {
+  for (const el of _opLabels) el.remove();
+  _opLabels = [];
+}
+
+function opFinish(viewer: Viewer): void {
+  opClearPreview(viewer);
+  opSetHover(null);
+  _opPhase = null;
+  ptClearPrompt();
+  ptHideCoordInput();
+  hideCursorDot();
+  viewer.setGumballEnabled(true);
+  dispatchSync("setActiveTool", { toolId: "select" });
+}
+
+function opCancel(viewer: Viewer): void {
+  opSetHover(null);
+  // Un-highlight any stored boolean selections.
+  const restoreEmissive = (obj: THREE.Object3D) => {
+    const m = obj as THREE.Mesh;
+    if (m.userData._savedEmissive !== undefined) {
+      ((m.material as THREE.MeshStandardMaterial).emissive as THREE.Color)
+        .setHex(m.userData._savedEmissive as number);
+      delete m.userData._savedEmissive;
+    }
+  };
+  if (_opPhase?.kind === "bool_b") restoreEmissive(_opPhase.objA);
+  if (_opPhase?.kind === "bool_op") { restoreEmissive(_opPhase.objA); restoreEmissive(_opPhase.objB); }
+  opFinish(viewer);
+}
+
+function opAddLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer): HTMLElement {
+  const el = document.createElement("div");
+  el.style.cssText = [
+    "position:fixed",
+    "background:rgba(0,0,0,0.72)",
+    "color:#fff",
+    "padding:2px 6px",
+    "border-radius:3px",
+    "font-size:11px",
+    "font-family:var(--mono,monospace)",
+    "pointer-events:none",
+    "z-index:9999",
+    "white-space:nowrap",
+  ].join(";");
+  el.textContent = text;
+  document.body.appendChild(el);
+  _opLabels.push(el);
+  const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
+  if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
+  return el;
+}
+
+function opBuildAnnotLine(pts: THREE.Vector3[], color = 0x4488ff): THREE.Object3D {
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color, depthTest: false });
+  const line = new THREE.Line(geo, mat);
+  line.renderOrder = 100;
+  line.userData.noSnap = true;
+  return line;
+}
+
+// Build extrude geometry from a profile object at the given height.
+// Returns a THREE.Mesh whose position is already set to world origin.
+function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
+  const creator = profile.userData.creator as string | undefined;
+  const box = new THREE.Box3().setFromObject(profile);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const ctr = new THREE.Vector3(); box.getCenter(ctr);
+
+  // Circle → cylinder
+  if (creator === "circle") {
+    const r = Math.max(0.05, size.x / 2);
+    const geom = new THREE.CylinderGeometry(r, r, h, 64);
+    // CylinderGeometry is Y-up; rotate so it extrudes along Z.
+    geom.rotateX(Math.PI / 2);
+    geom.translate(0, 0, h / 2);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xb6d59a, roughness: 0.55, metalness: 0.05 });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(ctr.x, ctr.y, 0);
+    return mesh;
+  }
+
+  // Polyline or curve → vertical ruled surface from stored control points
+  if (creator === "polyline" || creator === "curve") {
+    const pts: THREE.Vector3[] = (profile.userData.controlPoints as THREE.Vector3[] | undefined) ?? [];
+    const worldPts = pts.map((p) => p.clone().applyMatrix4(profile.matrixWorld));
+    if (worldPts.length >= 2) {
+      const verts: number[] = [];
+      const idxs: number[] = [];
+      worldPts.forEach((p, i) => {
+        verts.push(p.x, p.y, 0, p.x, p.y, h);
+        if (i < worldPts.length - 1) {
+          const b = i * 2;
+          idxs.push(b, b+2, b+1, b+1, b+2, b+3);
+        }
+      });
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+      geom.setIndex(idxs);
+      geom.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({ color: 0x88aacc, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geom, mat);
+      return mesh;
+    }
+  }
+
+  // Rect or any other 2-D profile → box from bounding rect
+  const w = Math.max(0.05, size.x);
+  const d = Math.max(0.05, size.y || size.x);
+  const geom = new THREE.BoxGeometry(w, d, h);
+  geom.translate(0, 0, h / 2);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05 });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(ctr.x, ctr.y, 0);
+  return mesh;
+}
+
+// Raycast scene geometry at clientX/Y, return first hit object.
+// For extrude profiles, also checks Line objects by screen-distance to their vertices.
+function opRaycastObject(
+  viewer: Viewer,
+  clientX: number,
+  clientY: number,
+  profileOnly = false,
+): { obj: THREE.Object3D; point: THREE.Vector3 } | null {
+  const canvas = viewer.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const rc = new THREE.Raycaster();
+  rc.setFromCamera(ndc, viewer.getCamera() as THREE.PerspectiveCamera);
+
+  // Line objects: nearest vertex within threshold wins.
+  let lineHit: { obj: THREE.Object3D; point: THREE.Vector3 } | null = null;
+  let lineHitD = 18; // px threshold for clicking Line objects
+  viewer.getScene().traverse((o) => {
+    if (o.userData.noSnap) return;
+    if (profileOnly && !EXTRUDABLE_CREATORS.has(o.userData.creator ?? "")) return;
+    if (!(o instanceof THREE.Line)) return;
+    const posAttr = o.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!posAttr) return;
+    for (let i = 0; i < posAttr.count; i++) {
+      const wp = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(o.matrixWorld);
+      const sc = projectToScreen(viewer, wp.x, wp.y, wp.z);
+      if (!sc) continue;
+      const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+      if (d < lineHitD) { lineHitD = d; lineHit = { obj: o, point: wp }; }
+    }
+  });
+  if (lineHit) return lineHit;
+
+  const meshes: THREE.Mesh[] = [];
+  viewer.getScene().traverse((o) => {
+    if (o.userData.noSnap) return;
+    if (profileOnly && !EXTRUDABLE_CREATORS.has(o.userData.creator ?? "")) return;
+    if (!(o instanceof THREE.Mesh)) return;
+    if (!o.geometry?.getAttribute("position")) return;
+    meshes.push(o);
+  });
+  const hits = rc.intersectObjects(meshes, false);
+  if (!hits.length) return null;
+  const hit = hits[0];
+  return { obj: hit.object, point: hit.point.clone() };
+}
+
+function opStartTool(viewer: Viewer, tool: string): void {
+  opClearPreview(viewer);
+  opClearLabels();
+  opSetHover(null);
+  _opPhase = null;
+  ptClearPrompt();
+  ptHideCoordInput();
+  viewer.setGumballEnabled(false);
+
+  if (tool === "extrude") {
+    const sel = ptGetTarget();
+    const selIsProfile = sel && EXTRUDABLE_CREATORS.has(sel.userData.creator ?? "");
+    if (selIsProfile) {
+      const box = new THREE.Box3().setFromObject(sel!);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const ctr = new THREE.Vector3(); box.getCenter(ctr);
+      _opPhase = { kind: "extrude_height", profile: sel!, cx: ctr.x, cy: ctr.y, w: size.x, d: size.y };
+      ptPrompt("Extrude height — move cursor up/down to set height, click to commit  [Escape = cancel]");
+    } else {
+      _opPhase = { kind: "extrude_select" };
+      ptPrompt("Extrude — click a curve, rectangle, circle, or polygon profile");
+    }
+  } else if (tool === "boolean") {
+    _opPhase = { kind: "bool_a" };
+    ptPrompt("Boolean — click the first solid");
+  } else if (tool === "fillet") {
+    _opPhase = { kind: "fillet_select" };
+    ptPrompt("Fillet — click an edge, corner, or object");
+  } else if (tool === "aligned-dim" || tool === "angular-dim" || tool === "area-dim" || tool === "volume-dim") {
+    const t = tool as "aligned-dim" | "angular-dim" | "area-dim" | "volume-dim";
+    _opPhase = { kind: "dim_a", tool: t };
+    const msg: Record<string, string> = {
+      "aligned-dim":  "Aligned dimension — click first point",
+      "angular-dim":  "Angular dimension — click vertex point",
+      "area-dim":     "Area — click points to define polygon, Enter to compute",
+      "volume-dim":   "Volume — click an object to measure",
+    };
+    ptPrompt(msg[tool] ?? "Click to begin");
+  }
+}
+
+function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "fuse" | "cut" | "intersect"): void {
+  const restoreEmissive = (obj: THREE.Object3D) => {
+    const m = obj as THREE.Mesh;
+    if (m.userData._savedEmissive !== undefined) {
+      ((m.material as THREE.MeshStandardMaterial).emissive as THREE.Color).setHex(m.userData._savedEmissive as number);
+      delete m.userData._savedEmissive;
+    }
+  };
+  restoreEmissive(objA); restoreEmissive(objB);
+
+  if (op === "fuse") {
+    // Fuse: merge both geometries into one mesh at world space.
+    const mA = objA as THREE.Mesh;
+    const mB = objB as THREE.Mesh;
+    if (mA.geometry && mB.geometry) {
+      const gA = mA.geometry.clone().applyMatrix4(mA.matrixWorld);
+      const gB = mB.geometry.clone().applyMatrix4(mB.matrixWorld);
+      const merged = mergeGeometries([gA, gB], false);
+      gA.dispose(); gB.dispose();
+      if (merged) {
+        const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05 });
+        const fused = new THREE.Mesh(merged, mat);
+        fused.userData.kind = "brep";
+        fused.userData.creator = "boolean-fuse";
+        viewer.getScene().remove(objA);
+        viewer.getScene().remove(objB);
+        viewer.addMesh(fused, "brep");
+        pushAction(fused, "boolean-fuse");
+      }
+    }
+  } else {
+    // Cut / Intersect: full CSG not yet implemented — show message.
+    ptPrompt(`Boolean ${op}: solid CSG not yet implemented — use Fuse for merging`);
+    setTimeout(() => ptClearPrompt(), 2000);
+  }
+  setChooserHint(null);
+  opFinish(viewer);
+}
+
+function opShowBoolChooser(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D): void {
+  if (!_chooserEl) return;
+  _chooserEl.innerHTML = "";
+  const label = document.createElement("div");
+  label.className = "chooser-label";
+  label.textContent = "Boolean operation:";
+  _chooserEl.appendChild(label);
+  const ops: Array<["fuse" | "cut" | "intersect", string]> = [
+    ["fuse", "Fuse (union)"],
+    ["cut", "Cut (A − B)"],
+    ["intersect", "Intersect"],
+  ];
+  for (const [op, lbl] of ops) {
+    const chip = document.createElement("button");
+    chip.className = "chooser-chip";
+    chip.textContent = lbl;
+    chip.addEventListener("click", () => opExecBoolean(viewer, objA, objB, op));
+    _chooserEl.appendChild(chip);
+  }
+  _chooserEl.classList.add("visible");
+}
+
+function opHandleClick(viewer: Viewer, clientX: number, clientY: number): boolean {
+  const phase = _opPhase;
+  if (!phase) return false;
+
+  const world = unprojectToXY(viewer, clientX, clientY);
+  const sv = nearestSnapVertex(viewer, clientX, clientY);
+  const snapped3 = sv
+    ? new THREE.Vector3(sv.x, sv.y, sv.z)
+    : world ? new THREE.Vector3(snapPoint(world.x, world.y).x, snapPoint(world.x, world.y).y, 0)
+             : null;
+  if (!snapped3 && phase.kind !== "extrude_select" && phase.kind !== "bool_a" && phase.kind !== "bool_b" && phase.kind !== "fillet_select" && phase.kind !== "dim_a" && phase.kind !== "dim_volume") return false;
+
+  // ── Extrude ────────────────────────────────────────────────────────────────
+  if (phase.kind === "extrude_select") {
+    const hit = opRaycastObject(viewer, clientX, clientY, true);
+    if (!hit) { ptPrompt("Extrude — click a curve, rectangle, circle, or polygon profile"); return true; }
+    const box = new THREE.Box3().setFromObject(hit.obj);
+    const size = new THREE.Vector3(); box.getSize(size);
+    const ctr = new THREE.Vector3(); box.getCenter(ctr);
+    opSetHover(null);
+    _opPhase = { kind: "extrude_height", profile: hit.obj, cx: ctr.x, cy: ctr.y, w: size.x, d: size.y };
+    ptPrompt("Extrude height — move cursor up/down to set height, click to commit");
+    return true;
+  }
+
+  if (phase.kind === "extrude_height") {
+    // Commit the current preview height.
+    const h = _opPreview ? (new THREE.Box3().setFromObject(_opPreview)).getSize(new THREE.Vector3()).z : 1;
+    opClearPreview(viewer);
+    const h2 = Math.max(0.05, h);
+    const mesh = opBuildExtrudeMesh(phase.profile, h2);
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "extrude";
+    viewer.addMesh(mesh, "brep");
+    _createSequence.push(`// extrude h=${round(h2)} from profile creator=${phase.profile.userData.creator ?? "unknown"}`);
+    pushAction(mesh, "extrude");
+    opFinish(viewer);
+    return true;
+  }
+
+  // ── Boolean ─────────────────────────────────────────────────────────────────
+  if (phase.kind === "bool_a") {
+    const hit = opRaycastObject(viewer, clientX, clientY);
+    if (!hit) { ptPrompt("Boolean — click the first solid"); return true; }
+    opSetHover(null); // clear hover highlight before locking A
+    const m = hit.obj as THREE.Mesh;
+    if (m.material && !Array.isArray(m.material) && (m.material as THREE.MeshStandardMaterial).emissive) {
+      m.userData._savedEmissive = ((m.material as THREE.MeshStandardMaterial).emissive as THREE.Color).getHex();
+      ((m.material as THREE.MeshStandardMaterial).emissive as THREE.Color).setHex(0x003399);
+    }
+    _opPhase = { kind: "bool_b", objA: hit.obj };
+    ptPrompt("Boolean — click the second solid (selected: first highlighted)");
+    return true;
+  }
+
+  if (phase.kind === "bool_b") {
+    const hit = opRaycastObject(viewer, clientX, clientY);
+    if (!hit || hit.obj === phase.objA) { ptPrompt("Boolean — click a different second solid"); return true; }
+    const objB = hit.obj;
+    // Highlight B.
+    const mB = objB as THREE.Mesh;
+    if (mB.material && !Array.isArray(mB.material) && (mB.material as THREE.MeshStandardMaterial).emissive) {
+      mB.userData._savedEmissive = ((mB.material as THREE.MeshStandardMaterial).emissive as THREE.Color).getHex();
+      ((mB.material as THREE.MeshStandardMaterial).emissive as THREE.Color).setHex(0x330033);
+    }
+    _opPhase = { kind: "bool_op", objA: phase.objA, objB };
+    // Wire chooser buttons directly to local op executor (not command session).
+    opShowBoolChooser(viewer, phase.objA, objB);
+    ptPrompt("Boolean — choose operation");
+    return true;
+  }
+
+  if (phase.kind === "bool_op") {
+    // Chooser handles the op — clicks in 3D do nothing.
+    return true;
+  }
+
+  // ── Fillet ──────────────────────────────────────────────────────────────────
+  if (phase.kind === "fillet_select") {
+    const hit = opRaycastObject(viewer, clientX, clientY);
+    if (!hit) { ptPrompt("Fillet — click an edge, corner, or object"); return true; }
+    _opPhase = { kind: "fillet_radius", target: hit.obj };
+    ptPrompt("Fillet radius — type a value and press Enter");
+    ptShowCoordInput("radius in meters");
+    return true;
+  }
+
+  // ── Annotations ─────────────────────────────────────────────────────────────
+  if (phase.kind === "dim_a") {
+    if (!snapped3) return true;
+    if (phase.tool === "volume-dim") {
+      const hit = opRaycastObject(viewer, clientX, clientY);
+      const target = hit?.obj ?? null;
+      if (!target) { ptPrompt("Volume — click an object to measure"); return true; }
+      const box = new THREE.Box3().setFromObject(target);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const vol = size.x * size.y * size.z;
+      const ctr = new THREE.Vector3(); box.getCenter(ctr);
+      opAddLabel(`Vol: ${vol.toFixed(2)} m³`, ctr, viewer);
+      opFinish(viewer);
+      return true;
+    }
+    if (phase.tool === "area-dim") {
+      _opPhase = { kind: "dim_area", tool: "area-dim", pts: [snapped3] };
+      ptPrompt(`Area — click more points  [1 point placed, Enter to compute]`);
+      return true;
+    }
+    if (phase.tool === "aligned-dim") {
+      _opPhase = { kind: "dim_b", tool: "aligned-dim", ptA: snapped3 };
+      ptPrompt("Aligned dimension — click second point");
+      return true;
+    }
+    if (phase.tool === "angular-dim") {
+      _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: snapped3, ptB: snapped3.clone() };
+      ptPrompt("Angular dimension — click first ray point");
+      return true;
+    }
+    return true;
+  }
+
+  if (phase.kind === "dim_b" && snapped3) {
+    const dist = snapped3.distanceTo(phase.ptA);
+    const mid = phase.ptA.clone().add(snapped3).multiplyScalar(0.5);
+    const lineObj = opBuildAnnotLine([phase.ptA, snapped3]);
+    viewer.getScene().add(lineObj);
+    opAddLabel(`${dist.toFixed(3)} m`, mid, viewer);
+    opFinish(viewer);
+    return true;
+  }
+
+  if (phase.kind === "dim_c" && snapped3) {
+    // First click after vertex = first ray; second = second ray.
+    if (phase.ptA.equals(phase.ptB)) {
+      _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: phase.ptA, ptB: snapped3 };
+      ptPrompt("Angular dimension — click second ray point");
+    } else {
+      const v1 = phase.ptB.clone().sub(phase.ptA).normalize();
+      const v2 = snapped3.clone().sub(phase.ptA).normalize();
+      const angleDeg = Math.acos(Math.max(-1, Math.min(1, v1.dot(v2)))) * 180 / Math.PI;
+      opAddLabel(`${angleDeg.toFixed(1)}°`, phase.ptA, viewer);
+      opFinish(viewer);
+    }
+    return true;
+  }
+
+  if (phase.kind === "dim_area" && snapped3) {
+    phase.pts.push(snapped3);
+    ptPrompt(`Area — ${phase.pts.length} points placed, Enter to compute or click more`);
+    return true;
+  }
+
+  return false;
+}
+
+// Commit area polygon (Enter key).
+function opHandleEnter(viewer: Viewer): void {
+  const phase = _opPhase;
+  if (!phase) return;
+
+  if (phase.kind === "dim_area" && phase.pts.length >= 3) {
+    // Shoelace formula for XY area (ignores Z).
+    let area = 0;
+    const pts = phase.pts;
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      area += pts[i].x * pts[j].y;
+      area -= pts[j].x * pts[i].y;
+    }
+    area = Math.abs(area) / 2;
+    const ctr = pts.reduce((a, b) => a.clone().add(b), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+    const lineObj = opBuildAnnotLine([...pts, pts[0]]);
+    viewer.getScene().add(lineObj);
+    opAddLabel(`Area: ${area.toFixed(2)} m²`, ctr, viewer);
+    opFinish(viewer);
+    return;
+  }
+
+  if (phase.kind === "fillet_radius") {
+    // Radius is submitted via coord input's Enter handler — this path handles
+    // the case where Enter is pressed without a value in the input.
+    ptPrompt("Fillet radius — type a value and press Enter");
+    return;
+  }
+}
+
+// Coord-input submit for op tools.
+function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
+  const phase = _opPhase;
+  if (!phase) return;
+  if (phase.kind === "fillet_radius") {
+    const r = parseFloat(raw);
+    if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius — enter a positive number"); return; }
+    // Fillet geometry not yet wired to kernel — display the radius and finish.
+    ptPrompt(`Fillet r=${r.toFixed(3)} m — select an edge to apply (kernel integration pending)`);
+    setTimeout(() => opFinish(viewer), 800);
+  }
+}
+
+// Live preview for extrude height (cursor Y in viewport → Z world height).
+function opUpdateExtrudePreview(viewer: Viewer, clientY: number): void {
+  if (_opPhase?.kind !== "extrude_height") return;
+  // Map viewport Y to height: top of canvas = 10m, bottom = 0.05m.
+  const canvas = viewer.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const t = 1 - Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+  const h = Math.max(0.05, t * 10);
+  opClearPreview(viewer);
+  const mesh = opBuildExtrudeMesh(_opPhase.profile, h);
+  // Apply translucent preview material.
+  mesh.traverse((c) => {
+    if (c instanceof THREE.Mesh) {
+      const mat = c.material as THREE.MeshStandardMaterial;
+      c.material = new THREE.MeshStandardMaterial({
+        color: (mat as THREE.MeshStandardMaterial).color?.clone() ?? new THREE.Color(0xc9c0a8),
+        transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide,
+      });
+      mat.dispose();
+    }
+  });
+  mesh.traverse((c) => { c.renderOrder = 50; c.userData.noSnap = true; });
+  _opPreview = mesh;
+  viewer.getScene().add(mesh);
+  ptPrompt(`Extrude height — ${h.toFixed(2)} m — click to commit  [Escape = cancel]`);
 }
 
 // Bind the create-mode pipeline to viewport mousedown. Coexists with the
@@ -1500,23 +2419,47 @@ export function initCreateMode(viewer: Viewer): void {
   _ptCoordInputEl = ptInput;
 
   ptInput.addEventListener("keydown", (ev) => {
+    // Axis lock: Shift+X/Y/Z must work even when the coord input has focus.
+    // Handle it here before stopPropagation so the window listener isn't needed.
+    if (_ptPhase && _ptPhase.kind !== "start" && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      const k = ev.key.toLowerCase();
+      if (k === "x" || k === "y" || k === "z") {
+        ev.preventDefault();
+        _ptAxisLock = k as "x" | "y" | "z";
+        const basePt = ptGetAxisBase();
+        if (basePt) ptSetAxisLockLine(viewer, basePt);
+      }
+    }
     ev.stopPropagation();
-    if (ev.key === "Enter") {
+    if (ev.key === "Enter" || ev.key === " ") {
       const raw = ptInput.value.trim();
-      if (raw) ptHandleCoordSubmit(viewer, raw);
-      else ptHandleEnter(viewer);
+      if (raw) {
+        if (_opPhase) opHandleCoordSubmit(viewer, raw);
+        else ptHandleCoordSubmit(viewer, raw);
+      } else {
+        if (_opPhase) opHandleEnter(viewer);
+        else ptHandleEnter(viewer);
+      }
       ptInput.value = "";
+      if (ev.key === " ") ev.preventDefault();
     } else if (ev.key === "Escape") {
       if (_ptPhase) ptCancel(viewer);
     }
   });
 
-  // When activeTool changes to a PT tool, start the state machine.
+  const OP_TOOLS = new Set(["extrude", "boolean", "fillet", "aligned-dim", "angular-dim", "area-dim", "volume-dim"]);
+
+  // When activeTool changes to a PT or op tool, start the state machine.
   subscribe("activeTool", (tool) => {
     if (tool === "move" || tool === "rotate" || tool === "scale") {
+      if (_opPhase) opCancel(viewer);
       ptStartTool(tool as "move" | "rotate" | "scale");
-    } else if (_ptPhase) {
-      ptCancel(viewer);
+    } else if (OP_TOOLS.has(tool)) {
+      if (_ptPhase) ptCancel(viewer);
+      opStartTool(viewer, tool);
+    } else {
+      if (_ptPhase) ptCancel(viewer);
+      if (_opPhase) opCancel(viewer);
     }
   });
 
@@ -1528,13 +2471,52 @@ export function initCreateMode(viewer: Viewer): void {
     if (!tool) {
       // Precision transform click — intercept when PT is active.
       if (_ptPhase) {
-        const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
-        if (!world) return;
+        const obj = ptGetTarget();
+        if (!obj) {
+          // No selection yet — let the click fall through to the viewer's selection raycaster.
+          // After selection resolves (next tick), update the prompt.
+          setTimeout(() => {
+            if (_ptPhase?.kind === "start" && ptGetTarget()) {
+              if (_ptPhase.tool === "rotate") {
+                _ptPhase = { kind: "rotate_axis_a" };
+                ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
+              } else {
+                const tl = { move: "Move", scale: "Scale" }[_ptPhase.tool] ?? _ptPhase.tool;
+                ptPrompt(`${tl} — reference point: click, type x,y,z, or Enter for centroid`);
+              }
+            }
+          }, 0);
+          return;
+        }
+        // Axis-constrained or XY-plane cursor position.
+        const axisBase = ptGetAxisBase();
+        let clickPt: THREE.Vector3 | null = null;
+        if (_ptAxisLock && axisBase) {
+          clickPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, axisBase, ptEffectiveAxisDir());
+        }
+        if (!clickPt) {
+          // Try geometry vertex/edge snap first.
+          const sv = nearestSnapVertex(viewer, ev.clientX, ev.clientY);
+          if (sv) {
+            clickPt = new THREE.Vector3(sv.x, sv.y, sv.z);
+          } else {
+            const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
+            if (!world) return;
+            const snapped = snapPoint(world.x, world.y);
+            clickPt = new THREE.Vector3(snapped.x, snapped.y, 0);
+          }
+        }
         ev.stopImmediatePropagation();
-        const snapped = snapPoint(world.x, world.y);
-        ptHandlePoint(viewer, new THREE.Vector3(snapped.x, snapped.y, 0));
+        ptHandlePoint(viewer, clickPt);
         return;
       }
+      // Op-tool click (extrude, boolean, fillet, annotations).
+      if (_opPhase) {
+        ev.stopImmediatePropagation();
+        opHandleClick(viewer, ev.clientX, ev.clientY);
+        return;
+      }
+
       const session = getActiveCommandSession();
       if (session?.state === "collecting_args") {
         const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
@@ -1587,16 +2569,18 @@ export function initCreateMode(viewer: Viewer): void {
       moveCursorDot(viewer, { x: 0, y: 0 }, ev.clientX, ev.clientY);
       return;
     }
-    // Alt key bypasses snap (raw mouse position). Otherwise: vertex snap first,
+    // Alt key bypasses snap (raw mouse position). Otherwise: vertex/edge snap first,
     // fall back to grid snap.
-    let snapped: { x: number; y: number };
+    let snapped: { x: number; y: number; z?: number };
     if (ev.altKey) {
       _snapTarget = null;
+      _lastSnapEdgeDir = null;
       snapped = world;
     } else {
       const vertex = nearestSnapVertex(viewer, ev.clientX, ev.clientY);
       if (vertex) {
         _snapTarget = vertex;
+        if (!vertex.edgeDir) _lastSnapEdgeDir = null;
         snapped = vertex;
       } else {
         _snapTarget = null;
@@ -1604,30 +2588,105 @@ export function initCreateMode(viewer: Viewer): void {
       }
     }
     // Project snapped world position back to screen so the dot visually snaps (#327).
-    const screen = projectToScreen(viewer, snapped.x, snapped.y, 0);
+    const screen = projectToScreen(viewer, snapped.x, snapped.y, snapped.z ?? 0);
     moveCursorDot(viewer, snapped, screen?.x ?? ev.clientX, screen?.y ?? ev.clientY, _snapTarget !== null);
 
-    // PT preview: for angle_end phase show line from base to cursor + live angle readout.
-    if (_ptPhase?.kind === "angle_end") {
-      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, 0);
-      ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
+    // PT preview: live transform + readout for each active phase.
+    if (_ptPhase?.kind === "start") {
+      // Update prompt when selection state may have changed.
+      const ptObj = ptGetTarget();
+      const tl = { move: "Move", rotate: "Rotate", scale: "Scale" }[_ptPhase.tool];
+      if (!ptObj) ptPrompt(`${tl} — click to select an object`);
+      else ptPrompt(`${tl} — reference point: click, type x,y,z, or Enter for centroid`);
+    } else if (_ptPhase?.kind === "end_move") {
+      // Compute axis-constrained cursor world point.
+      let cursorPt: THREE.Vector3;
+      if (_ptAxisLock) {
+        cursorPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, _ptPhase.start, ptEffectiveAxisDir())
+          ?? new THREE.Vector3(snapped.x, snapped.y, 0);
+      } else {
+        cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+      }
+      // Live preview: move object.
+      const ptObj = ptGetTarget();
+      if (ptObj && _ptInitPos) {
+        ptObj.position.copy(_ptInitPos).add(cursorPt.clone().sub(_ptPhase.start));
+        ptObj.updateMatrix(); ptObj.updateMatrixWorld(true);
+      }
+      ptSetPreviewLine(viewer, _ptPhase.start, cursorPt);
+      const delta = cursorPt.clone().sub(_ptPhase.start);
+      const lockTag = _ptAxisLock ? `  [${_ptAxisLock.toUpperCase()} LOCK]` : "";
+      ptPrompt(`Target point — click, type x,y,z  [Δ ${delta.x.toFixed(2)}, ${delta.y.toFixed(2)}, ${delta.z.toFixed(2)}]${lockTag}`);
+    } else if (_ptPhase?.kind === "rotate_axis_a") {
+      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+      ptPrompt(`Rotation axis — click start point  [${cursorPt.x.toFixed(2)}, ${cursorPt.y.toFixed(2)}, ${cursorPt.z.toFixed(2)}]`);
+    } else if (_ptPhase?.kind === "rotate_axis_b") {
+      let cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+      // If Shift+axis-lock: constrain to that cardinal direction from axisA.
+      if (_ptAxisLock) {
+        const axisDir = ptEffectiveAxisDir();
+        const projected = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, _ptPhase.axisA, axisDir);
+        if (projected) cursorPt = projected;
+      }
+      ptSetPreviewLine(viewer, _ptPhase.axisA, cursorPt);
+      const dir = cursorPt.clone().sub(_ptPhase.axisA).normalize();
+      const lockTag = _ptAxisLock ? `  [${_ptAxisLock.toUpperCase()} AXIS]` : "";
+      ptPrompt(`Rotation axis — click end point  [dir ${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}]${lockTag}`);
+    } else if (_ptPhase?.kind === "angle_end") {
+      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
       const dx = cursorPt.x - _ptPhase.base.x;
       const dy = cursorPt.y - _ptPhase.base.y;
-      const deg = Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
-      ptPrompt(`Rotation angle — hover and click  [${deg}°]  or type degrees`);
-    } else if (_ptPhase?.kind === "scale_end") {
-      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, 0);
+      const raw = Math.atan2(dy, dx) * 180 / Math.PI;
+      const snap2 = getSnap();
+      const deg = (snap2.snapOn && snap2.polarOn)
+        ? Math.round(raw / snap2.angleStep) * snap2.angleStep : raw;
+      // Live preview: rotate object.
+      const ptObj = ptGetTarget();
+      if (ptObj && _ptInitPos && _ptInitQuat) {
+        ptObj.position.copy(_ptInitPos);
+        ptObj.quaternion.copy(_ptInitQuat);
+        ptCommitRotate(ptObj, _ptPhase.base, deg, _ptPhase.axisDir);
+      }
       ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
+      ptPrompt(`Rotation angle — hover and click  [${Math.round(deg)}°]  or type degrees`);
+    } else if (_ptPhase?.kind === "scale_end") {
+      let cursorPt: THREE.Vector3;
+      if (_ptAxisLock) {
+        cursorPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, _ptPhase.base, ptEffectiveAxisDir())
+          ?? new THREE.Vector3(snapped.x, snapped.y, 0);
+      } else {
+        cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+      }
       const refDist = _ptPhase.refPt.distanceTo(_ptPhase.base);
       const newDist = cursorPt.distanceTo(_ptPhase.base);
-      const factor = refDist > 1e-6 ? (newDist / refDist).toFixed(3) : "—";
-      ptPrompt(`Scale end — click  [factor: ${factor}]`);
-    } else if (_ptPhase?.kind === "end_move") {
-      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, 0);
-      ptSetPreviewLine(viewer, _ptPhase.start, cursorPt);
-      const dx = (cursorPt.x - _ptPhase.start.x).toFixed(2);
-      const dy = (cursorPt.y - _ptPhase.start.y).toFixed(2);
-      ptPrompt(`Target point — click, type x,y,z  [Δ ${dx}, ${dy}]`);
+      const factor = refDist > 1e-6 ? newDist / refDist : 1;
+      // Live preview: scale object.
+      const ptObj = ptGetTarget();
+      if (ptObj && _ptInitPos && _ptInitScale) {
+        ptObj.position.copy(_ptInitPos);
+        ptObj.scale.copy(_ptInitScale);
+        ptCommitScale(ptObj, _ptPhase.base, factor);
+      }
+      ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
+      const lockTag = _ptAxisLock ? `  [${_ptAxisLock.toUpperCase()} LOCK]` : "";
+      ptPrompt(`Scale end — click  [factor: ${factor.toFixed(3)}]${lockTag}`);
+    }
+
+    // Op-tool live preview + hover highlight.
+    if (_opPhase?.kind === "extrude_height") {
+      opUpdateExtrudePreview(viewer, ev.clientY);
+    }
+    // Hover highlight during object-select phases.
+    if (_opPhase?.kind === "extrude_select" || _opPhase?.kind === "bool_a" || _opPhase?.kind === "fillet_select") {
+      const profileOnly = _opPhase.kind === "extrude_select";
+      const hit = opRaycastObject(viewer, ev.clientX, ev.clientY, profileOnly);
+      opSetHover(hit ? hit.obj as THREE.Mesh : null);
+    } else if (_opPhase?.kind === "bool_b") {
+      const hit = opRaycastObject(viewer, ev.clientX, ev.clientY);
+      const hoverable = hit && hit.obj !== _opPhase.objA ? hit.obj as THREE.Mesh : null;
+      opSetHover(hoverable);
+    } else {
+      opSetHover(null);
     }
 
     if (!tool) return;
@@ -1642,10 +2701,25 @@ export function initCreateMode(viewer: Viewer): void {
     hideCursorDot();
   });
 
-  // Esc cancels; Enter commits unlimited tools (curve) or PT centroid.
+  // Shift+X/Y/Z = hold-to-constrain axis lock. Release Shift to unlock.
+  // Smart snap: if the last snap was an edge snap, Shift uses that edge direction.
+  // Also constrains the rotation axis direction during rotate_axis_b.
   window.addEventListener("keydown", (ev) => {
+    if (_ptPhase && _ptPhase.kind !== "start" && _ptPhase.kind !== "rotate_axis_a"
+        && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey
+        && document.activeElement !== _ptCoordInputEl) {
+      const key = ev.key.toLowerCase();
+      if (key === "x" || key === "y" || key === "z") {
+        ev.preventDefault();
+        _ptAxisLock = key as "x" | "y" | "z";
+        const basePt = _ptPhase.kind === "rotate_axis_b" ? _ptPhase.axisA : ptGetAxisBase();
+        if (basePt) ptSetAxisLockLine(viewer, basePt);
+        return;
+      }
+    }
     if (ev.key === "Escape") {
       if (_ptPhase) { ptCancel(viewer); return; }
+      if (_opPhase) { opCancel(viewer); return; }
       if (_pending.length > 0) {
         clearTemporary(viewer);
         hideCursorDot();
@@ -1659,7 +2733,20 @@ export function initCreateMode(viewer: Viewer): void {
       }
       return;
     }
-    if (ev.key === "Enter") {
+    if (ev.key === "Enter" || (ev.key === " " && document.activeElement !== _ptCoordInputEl)) {
+      if (ev.key === " ") {
+        // Spacebar with no active PT/op and no create tool: repeat last PT tool.
+        if (!_ptPhase && !_opPhase && !readActiveTool() && _lastPtTool) {
+          ev.preventDefault();
+          dispatchSync("setActiveTool", { toolId: _lastPtTool });
+          return;
+        }
+        ev.preventDefault();
+      }
+      if (_opPhase) {
+        opHandleEnter(viewer);
+        return;
+      }
       if (_ptPhase && document.activeElement !== _ptCoordInputEl) {
         ptHandleEnter(viewer);
         return;
@@ -1675,6 +2762,14 @@ export function initCreateMode(viewer: Viewer): void {
           }
         }
       });
+    }
+  });
+
+  // Release axis lock when Shift is released.
+  window.addEventListener("keyup", (ev) => {
+    if (ev.key === "Shift" && _ptAxisLock && _ptViewer) {
+      _ptAxisLock = null;
+      ptClearAxisLockLine(_ptViewer);
     }
   });
 
