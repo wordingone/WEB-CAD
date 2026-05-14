@@ -2131,6 +2131,42 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
 
 // Raycast scene geometry at clientX/Y, return first hit object.
 // For extrude profiles, also checks Line objects by screen-distance to their vertices.
+// Returns true for any op phase where the user is clicking to SELECT AN OBJECT
+// (not picking a ground-plane point). Used to suppress snap and drive hover highlight.
+// Add new object-pick phases here — the hover block and snap suppression both read this.
+function opPhaseIsObjectSelect(phase: OpPhase): boolean {
+  switch (phase.kind) {
+    case "extrude_select":
+    case "bool_a":
+    case "bool_b":
+    case "bool_op":
+    case "fillet_select":
+      return true;
+    case "dim_a":
+      return phase.tool === "volume-dim";
+    default:
+      return false;
+  }
+}
+
+// Returns true for any op phase that should suppress the snap cursor dot entirely —
+// includes object-select phases AND all selection-mode overlay phases (window/lasso/boundary).
+function opPhaseSupressesSnap(phase: OpPhase): boolean {
+  if (opPhaseIsObjectSelect(phase)) return true;
+  switch (phase.kind) {
+    case "sel_window_sub":
+    case "sel_window":
+    case "sel_lasso_sub":
+    case "sel_lasso":
+    case "sel_boundary_sub":
+    case "sel_boundary_pick":
+    case "sel_boundary_draw":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function opRaycastObject(
   viewer: Viewer,
   clientX: number,
@@ -3139,25 +3175,20 @@ export function initCreateMode(viewer: Viewer): void {
     if (_opPhase?.kind === "extrude_height") {
       opUpdateExtrudePreview(viewer, ev.clientX, ev.clientY, ev.shiftKey);
     }
-    if (_opPhase?.kind === "extrude_select" || _opPhase?.kind === "bool_a" || _opPhase?.kind === "fillet_select") {
+    if (_opPhase && opPhaseIsObjectSelect(_opPhase)) {
       const profileOnly = _opPhase.kind === "extrude_select";
       const hit = opRaycastObject(viewer, ev.clientX, ev.clientY, profileOnly, true);
-      opSetHover(hit ? hit.obj : null);
-    } else if (_opPhase?.kind === "bool_b") {
-      const hit = opRaycastObject(viewer, ev.clientX, ev.clientY, false, true);
-      const hoverable = hit && hit.obj !== _opPhase.objA ? hit.obj : null;
-      opSetHover(hoverable);
+      if (_opPhase.kind === "bool_b") {
+        opSetHover(hit && hit.obj !== _opPhase.objA ? hit.obj : null);
+      } else {
+        opSetHover(hit ? hit.obj : null);
+      }
     } else {
       opSetHover(null);
     }
 
-    // Snap cursor suppressed during object-selection op phases and all selection modes.
-    if (_opPhase?.kind === "extrude_select" || _opPhase?.kind === "bool_a" ||
-        _opPhase?.kind === "bool_b" || _opPhase?.kind === "bool_op" || _opPhase?.kind === "fillet_select" ||
-        _opPhase?.kind === "sel_window" || _opPhase?.kind === "sel_lasso" ||
-        _opPhase?.kind === "sel_window_sub" || _opPhase?.kind === "sel_lasso_sub" ||
-        _opPhase?.kind === "sel_boundary_sub" || _opPhase?.kind === "sel_boundary_pick" ||
-        _opPhase?.kind === "sel_boundary_draw") {
+    // Snap cursor suppressed during any object-selection phase and all selection-mode overlays.
+    if (_opPhase && opPhaseSupressesSnap(_opPhase)) {
       hideCursorDot();
       _snapTarget = null;
       return;
