@@ -1548,14 +1548,16 @@ export function resetPending(): void {
 // Rotate: pick_base  → hover/pick → rotate around Z by computed angle
 // Scale:  pick_base  → type/pick  → uniform scale
 
+type ScaleMode = "3d" | "1d" | "2d";
+
 type PTPhase =
-  | { kind: "start";         tool: "move" | "rotate" | "scale" }
+  | { kind: "start";         tool: "move" | "rotate" | "scale" | "scale-1d" | "scale-2d" }
   | { kind: "end_move";      start: THREE.Vector3 }
   | { kind: "rotate_axis_a" }
   | { kind: "rotate_axis_b"; axisA: THREE.Vector3 }
   | { kind: "angle_end";     base: THREE.Vector3; axisA: THREE.Vector3; axisDir: THREE.Vector3 }
-  | { kind: "scale_ref";     base: THREE.Vector3 }
-  | { kind: "scale_end";     base: THREE.Vector3; refPt: THREE.Vector3 };
+  | { kind: "scale_ref";     base: THREE.Vector3; mode: ScaleMode }
+  | { kind: "scale_end";     base: THREE.Vector3; refPt: THREE.Vector3; mode: ScaleMode };
 
 let _ptPhase: PTPhase | null = null;
 let _ptCoordInputEl: HTMLInputElement | null = null;
@@ -1567,7 +1569,7 @@ let _ptInitQuat: THREE.Quaternion | null = null;
 let _ptInitScale: THREE.Vector3 | null = null;
 let _ptAxisLock: "x" | "y" | "z" | null = null;
 let _ptAxisLockLine: THREE.Line | null = null;
-let _lastPtTool: "move" | "rotate" | "scale" | null = null;
+let _lastPtTool: "move" | "rotate" | "scale" | "scale-1d" | "scale-2d" | null = null;
 
 function ptGetTarget(): THREE.Object3D | null {
   return getSelected()?.transformTarget ?? null;
@@ -1740,6 +1742,32 @@ function ptCommitScale(obj: THREE.Object3D, base: THREE.Vector3, factor: number)
   obj.updateMatrixWorld(true);
 }
 
+// Scale along the nearest world axis (X, Y, or Z) inferred from `dir`.
+function ptCommitScale1D(obj: THREE.Object3D, base: THREE.Vector3, dir: THREE.Vector3, factor: number): void {
+  if (!Number.isFinite(factor) || factor <= 0) return;
+  const ax = Math.abs(dir.x), ay = Math.abs(dir.y), az = Math.abs(dir.z);
+  const axis: "x" | "y" | "z" = ax >= ay && ax >= az ? "x" : ay >= az ? "y" : "z";
+  const offset = obj.position.clone().sub(base);
+  offset[axis] *= factor;
+  obj.position.copy(base).add(offset);
+  obj.scale[axis] *= factor;
+  obj.updateMatrix();
+  obj.updateMatrixWorld(true);
+}
+
+// Scale uniformly in XY (plan view); Z is preserved.
+function ptCommitScale2D(obj: THREE.Object3D, base: THREE.Vector3, factor: number): void {
+  if (!Number.isFinite(factor) || factor <= 0) return;
+  const offset = obj.position.clone().sub(base);
+  offset.x *= factor;
+  offset.y *= factor;
+  obj.position.copy(base).add(offset);
+  obj.scale.x *= factor;
+  obj.scale.y *= factor;
+  obj.updateMatrix();
+  obj.updateMatrixWorld(true);
+}
+
 function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
   const phase = _ptPhase;
   if (!phase) return;
@@ -1761,8 +1789,14 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
       ptPrompt("Rotation axis — click start point of axis");
       ptHideCoordInput();
     } else {
-      _ptPhase = { kind: "scale_ref", base: pt };
-      ptPrompt("Scale — type factor (e.g. 2.0) or click reference start point");
+      const scaleMode: ScaleMode = phase.tool === "scale-1d" ? "1d" : phase.tool === "scale-2d" ? "2d" : "3d";
+      _ptPhase = { kind: "scale_ref", base: pt, mode: scaleMode };
+      const scalePrompt = scaleMode === "1d"
+        ? "Scale 1D — type factor or click reference start point  [snaps to nearest X/Y/Z axis]"
+        : scaleMode === "2d"
+        ? "Scale 2D — type factor or click reference start point  [Z height unchanged]"
+        : "Scale — type factor (e.g. 2.0) or click reference start point";
+      ptPrompt(scalePrompt);
       ptShowCoordInput("scale factor");
     }
     return;
@@ -1830,8 +1864,13 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
   }
 
   if (phase.kind === "scale_ref") {
-    _ptPhase = { kind: "scale_end", base: phase.base, refPt: worldPt.clone() };
-    ptPrompt("Scale end — click target point to define scale from reference distance");
+    _ptPhase = { kind: "scale_end", base: phase.base, refPt: worldPt.clone(), mode: phase.mode };
+    const endPrompt = phase.mode === "1d"
+      ? "Scale 1D — click target point  [axis inferred from reference direction]"
+      : phase.mode === "2d"
+      ? "Scale 2D — click target point  [Z unchanged]"
+      : "Scale end — click target point to define scale from reference distance";
+    ptPrompt(endPrompt);
     ptHideCoordInput();
     return;
   }
@@ -1843,7 +1882,14 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
       const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale.clone() };
       obj.position.copy(_ptInitPos);
       obj.scale.copy(_ptInitScale);
-      ptCommitScale(obj, phase.base, newDist / refDist);
+      const factor = newDist / refDist;
+      if (phase.mode === "1d") {
+        ptCommitScale1D(obj, phase.base, phase.refPt.clone().sub(phase.base), factor);
+      } else if (phase.mode === "2d") {
+        ptCommitScale2D(obj, phase.base, factor);
+      } else {
+        ptCommitScale(obj, phase.base, factor);
+      }
       pushTransformAction(obj, before);
     }
     ptFinish(viewer);
@@ -1902,9 +1948,18 @@ function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "scale_ref") {
     if (parts.length === 1 && Number.isFinite(parts[0]) && parts[0] > 0) {
+      // Direct factor: for 1D we need a direction — treat the factor as a scale_end
+      // along X (the default dominant axis) if no ref point has been clicked yet.
       const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       resetToInit();
-      ptCommitScale(obj, phase.base, parts[0]);
+      const f = parts[0];
+      if (phase.mode === "1d") {
+        ptCommitScale1D(obj, phase.base, new THREE.Vector3(1, 0, 0), f);
+      } else if (phase.mode === "2d") {
+        ptCommitScale2D(obj, phase.base, f);
+      } else {
+        ptCommitScale(obj, phase.base, f);
+      }
       pushTransformAction(obj, before);
       ptFinish(viewer);
     } else if (parts.length >= 2 && parts.every(Number.isFinite)) {
@@ -1918,7 +1973,13 @@ function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
     if (Number.isFinite(factor) && factor > 0) {
       const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       resetToInit();
-      ptCommitScale(obj, phase.base, factor);
+      if (phase.mode === "1d") {
+        ptCommitScale1D(obj, phase.base, phase.refPt.clone().sub(phase.base), factor);
+      } else if (phase.mode === "2d") {
+        ptCommitScale2D(obj, phase.base, factor);
+      } else {
+        ptCommitScale(obj, phase.base, factor);
+      }
       pushTransformAction(obj, before);
       ptFinish(viewer);
     }
@@ -1944,22 +2005,22 @@ function ptHandleEnter(viewer: Viewer): void {
   // angle_end / move / scale: Enter does nothing (user must click or type)
 }
 
-function ptStartTool(tool: "move" | "rotate" | "scale"): void {
+function ptStartTool(tool: "move" | "rotate" | "scale" | "scale-1d" | "scale-2d"): void {
   _lastPtTool = tool;
   _ptPhase = { kind: "start", tool };
   _ptInitPos = null; _ptInitQuat = null; _ptInitScale = null;
   _ptAxisLock = null;
-  const toolLabel = { move: "Move", rotate: "Rotate", scale: "Scale" }[tool];
+  const toolLabel: Record<string, string> = { move: "Move", rotate: "Rotate", scale: "Scale 3D", "scale-1d": "Scale 1D", "scale-2d": "Scale 2D" };
+  const label = toolLabel[tool] ?? "Scale";
   const obj = ptGetTarget();
   if (!obj) {
-    ptPrompt(`${toolLabel} — click to select an object`);
+    ptPrompt(`${label} — click to select an object`);
     if (tool !== "rotate") ptShowCoordInput("x, y  or  x, y, z");
   } else if (tool === "rotate") {
-    // Rotate jumps straight to axis picking — bypass the start-phase prompt.
     _ptPhase = { kind: "rotate_axis_a" };
     ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
   } else {
-    ptPrompt(`${toolLabel} — reference point: click, type x,y,z, or Enter for centroid`);
+    ptPrompt(`${label} — reference point: click, type x,y,z, or Enter for centroid`);
     ptShowCoordInput("x, y  or  x, y, z");
   }
 }
@@ -2967,9 +3028,9 @@ export function initCreateMode(viewer: Viewer): void {
 
   // When activeTool changes to a PT or op tool, start the state machine.
   subscribe("activeTool", (tool) => {
-    if (tool === "move" || tool === "rotate" || tool === "scale") {
+    if (tool === "move" || tool === "rotate" || tool === "scale" || tool === "scale-1d" || tool === "scale-2d") {
       if (_opPhase) opCancel(viewer);
-      ptStartTool(tool as "move" | "rotate" | "scale");
+      ptStartTool(tool as "move" | "rotate" | "scale" | "scale-1d" | "scale-2d");
     } else if (OP_TOOLS.has(tool)) {
       if (_ptPhase) ptCancel(viewer);
       opStartTool(viewer, tool);
@@ -2997,8 +3058,9 @@ export function initCreateMode(viewer: Viewer): void {
                 _ptPhase = { kind: "rotate_axis_a" };
                 ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
               } else {
-                const tl = { move: "Move", scale: "Scale" }[_ptPhase.tool] ?? _ptPhase.tool;
-                ptPrompt(`${tl} — reference point: click, type x,y,z, or Enter for centroid`);
+                const tlMap: Record<string, string> = { move: "Move", scale: "Scale 3D", "scale-1d": "Scale 1D", "scale-2d": "Scale 2D" };
+                const tlLabel = tlMap[_ptPhase.tool] ?? _ptPhase.tool;
+                ptPrompt(`${tlLabel} — reference point: click, type x,y,z, or Enter for centroid`);
               }
             }
           }, 0);
@@ -3276,7 +3338,8 @@ export function initCreateMode(viewer: Viewer): void {
     if (_ptPhase?.kind === "start") {
       // Update prompt when selection state may have changed.
       const ptObj = ptGetTarget();
-      const tl = { move: "Move", rotate: "Rotate", scale: "Scale" }[_ptPhase.tool];
+      const tlMap2: Record<string, string> = { move: "Move", rotate: "Rotate", scale: "Scale 3D", "scale-1d": "Scale 1D", "scale-2d": "Scale 2D" };
+      const tl = tlMap2[_ptPhase.tool] ?? _ptPhase.tool;
       if (!ptObj) ptPrompt(`${tl} — click to select an object`);
       else ptPrompt(`${tl} — reference point: click, type x,y,z, or Enter for centroid`);
     } else if (_ptPhase?.kind === "end_move") {
@@ -3346,11 +3409,18 @@ export function initCreateMode(viewer: Viewer): void {
       if (ptObj && _ptInitPos && _ptInitScale) {
         ptObj.position.copy(_ptInitPos);
         ptObj.scale.copy(_ptInitScale);
-        ptCommitScale(ptObj, _ptPhase.base, factor);
+        if (_ptPhase.mode === "1d") {
+          ptCommitScale1D(ptObj, _ptPhase.base, _ptPhase.refPt.clone().sub(_ptPhase.base), factor);
+        } else if (_ptPhase.mode === "2d") {
+          ptCommitScale2D(ptObj, _ptPhase.base, factor);
+        } else {
+          ptCommitScale(ptObj, _ptPhase.base, factor);
+        }
       }
       ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
       const lockTag = _ptAxisLock ? `  [${_ptAxisLock.toUpperCase()} LOCK]` : "";
-      ptPrompt(`Scale end — click  [factor: ${factor.toFixed(3)}]${lockTag}`);
+      const modeTag = _ptPhase.mode === "1d" ? " [1D]" : _ptPhase.mode === "2d" ? " [2D]" : "";
+      ptPrompt(`Scale${modeTag} end — click  [factor: ${factor.toFixed(3)}]${lockTag}`);
     }
 
     if (!tool) return;
