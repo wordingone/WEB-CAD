@@ -3102,20 +3102,29 @@ export function initCreateMode(viewer: Viewer): void {
       if (_ptPhase) {
         const obj = ptGetTarget();
         if (!obj) {
-          // No selection yet — let the click fall through to the viewer's selection raycaster.
-          // After selection resolves (next tick), update the prompt.
-          setTimeout(() => {
-            if (_ptPhase?.kind === "start" && ptGetTarget()) {
-              if (_ptPhase.tool === "rotate") {
-                _ptPhase = { kind: "rotate_axis_a" };
-                ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
-              } else {
-                const tlMap: Record<string, string> = { move: "Move", scale: "Scale 3D", "scale-1d": "Scale 1D", "scale-2d": "Scale 2D" };
-                const tlLabel = tlMap[_ptPhase.tool] ?? _ptPhase.tool;
-                ptPrompt(`${tlLabel} — reference point: click, type x,y,z, or Enter for centroid`);
-              }
+          // No selection yet — explicitly pick the hit object using our raycaster
+          // so we own the selection and can update the prompt immediately.
+          const hit = opRaycastObject(viewer, ev.clientX, ev.clientY);
+          if (hit) {
+            ev.stopImmediatePropagation();
+            viewer.selectObject(hit.obj);
+            opSetHover(null);
+            // Transition prompt now that target is set.
+            const ptTool = (_ptPhase as { kind: "start"; tool: string }).tool;
+            if (ptTool === "rotate") {
+              _ptPhase = { kind: "rotate_axis_a" };
+              ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
+              ptHideCoordInput();
+            } else if (ptTool === "scale-1d" || ptTool === "scale-2d") {
+              const lbl: Record<string, string> = { "scale-1d": "Scale 1D", "scale-2d": "Scale 2D" };
+              ptPrompt(`${lbl[ptTool]} — click anchor point, or Enter for centroid`);
+              ptShowCoordInput("x, y  or  x, y, z");
+            } else {
+              const lbl: Record<string, string> = { move: "Move", scale: "Scale 3D" };
+              ptPrompt(`${lbl[ptTool] ?? ptTool} — reference point: click, type x,y,z, or Enter for centroid`);
+              ptShowCoordInput("x, y  or  x, y, z");
             }
-          }, 0);
+          }
           return;
         }
         // Axis-constrained or XY-plane cursor position.
