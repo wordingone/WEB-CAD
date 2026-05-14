@@ -2147,42 +2147,48 @@ function opRaycastObject(
   const rc = new THREE.Raycaster();
   rc.setFromCamera(ndc, viewer.getCamera() as THREE.PerspectiveCamera);
 
-  // Line objects: check both vertex proximity AND segment proximity (edge snap).
-  // Vertex-only check misses the cursor when it falls between widely-spaced vertices
-  // (e.g., a large circle viewed from afar where vertices are 30-60px apart on screen).
+  // Pass 1 — screen-proximity for thin geometry (Lines + Points).
+  // Ray intersection misses zero-volume objects; proximity is robust for all view angles.
+  // Lines: vertex proximity + segment proximity (catches cursor between sparse vertices).
+  // Points: vertex proximity only (each point is a discrete position).
   const hitThresh = hoverMode ? 20 : 10;
-  let lineHit: { obj: THREE.Object3D; point: THREE.Vector3 } | null = null;
-  let lineHitD = hitThresh;
+  let thinHit: { obj: THREE.Object3D; point: THREE.Vector3 } | null = null;
+  let thinHitD = hitThresh;
   viewer.getScene().traverse((o) => {
     if (o.userData.noSnap) return;
     if (profileOnly && !EXTRUDABLE_CREATORS.has(o.userData.creator ?? "")) return;
-    if (!(o instanceof THREE.Line)) return;
+    const isLine = o instanceof THREE.Line;
+    const isPts = o instanceof THREE.Points;
+    if (!isLine && !isPts) return;
     const posAttr = o.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!posAttr) return;
     const count = posAttr.count;
-    const looped = o instanceof THREE.LineLoop;
-    // Vertex proximity.
+    // Vertex proximity (all thin geometry).
     for (let i = 0; i < count; i++) {
       const wp = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(o.matrixWorld);
       const sc = projectToScreen(viewer, wp.x, wp.y, wp.z);
       if (!sc) continue;
       const d = Math.hypot(sc.x - clientX, sc.y - clientY);
-      if (d < lineHitD) { lineHitD = d; lineHit = { obj: o, point: wp }; }
+      if (d < thinHitD) { thinHitD = d; thinHit = { obj: o, point: wp }; }
     }
-    // Segment proximity — catches cursor between vertices.
-    for (let i = 0; i < count - (looped ? 0 : 1); i++) {
-      const A = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(o.matrixWorld);
-      const B = new THREE.Vector3().fromBufferAttribute(posAttr, (i + 1) % count).applyMatrix4(o.matrixWorld);
-      const ep = closestPtOnSegToRay(viewer, clientX, clientY, A, B);
-      if (!ep) continue;
-      const sc = projectToScreen(viewer, ep.x, ep.y, ep.z);
-      if (!sc) continue;
-      const d = Math.hypot(sc.x - clientX, sc.y - clientY);
-      if (d < lineHitD) { lineHitD = d; lineHit = { obj: o, point: ep }; }
+    // Segment proximity — Lines only, catches cursor between widely-spaced vertices.
+    if (isLine) {
+      const looped = o instanceof THREE.LineLoop;
+      for (let i = 0; i < count - (looped ? 0 : 1); i++) {
+        const A = new THREE.Vector3().fromBufferAttribute(posAttr, i).applyMatrix4(o.matrixWorld);
+        const B = new THREE.Vector3().fromBufferAttribute(posAttr, (i + 1) % count).applyMatrix4(o.matrixWorld);
+        const ep = closestPtOnSegToRay(viewer, clientX, clientY, A, B);
+        if (!ep) continue;
+        const sc = projectToScreen(viewer, ep.x, ep.y, ep.z);
+        if (!sc) continue;
+        const d = Math.hypot(sc.x - clientX, sc.y - clientY);
+        if (d < thinHitD) { thinHitD = d; thinHit = { obj: o, point: ep }; }
+      }
     }
   });
-  if (lineHit) return lineHit;
+  if (thinHit) return thinHit;
 
+  // Pass 2 — ray intersection for solid meshes.
   const meshes: THREE.Mesh[] = [];
   viewer.getScene().traverse((o) => {
     if (o.userData.noSnap) return;
