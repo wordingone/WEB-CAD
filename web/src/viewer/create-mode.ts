@@ -2203,6 +2203,12 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
 // Returns true for any op phase where the user is clicking to SELECT AN OBJECT
 // (not picking a ground-plane point). Used to suppress snap and drive hover highlight.
 // Add new object-pick phases here — the hover block and snap suppression both read this.
+// PT-phase waiting for object click: "start" phase with no target yet selected.
+// In this state the user is hovering to pick an object, not picking a world point.
+function ptPhaseIsObjectSelect(): boolean {
+  return _ptPhase?.kind === "start" && !ptGetTarget();
+}
+
 function opPhaseIsObjectSelect(phase: OpPhase): boolean {
   switch (phase.kind) {
     case "extrude_select":
@@ -3265,12 +3271,15 @@ export function initCreateMode(viewer: Viewer): void {
       } else {
         opSetHover(hit ? hit.obj : null);
       }
+    } else if (ptPhaseIsObjectSelect()) {
+      const hit = opRaycastObject(viewer, ev.clientX, ev.clientY, false, true);
+      opSetHover(hit ? hit.obj : null);
     } else {
       opSetHover(null);
     }
 
     // Snap cursor suppressed during any object-selection phase and all selection-mode overlays.
-    if (_opPhase && opPhaseSupressesSnap(_opPhase)) {
+    if ((_opPhase && opPhaseSupressesSnap(_opPhase)) || ptPhaseIsObjectSelect()) {
       hideCursorDot();
       _snapTarget = null;
       return;
