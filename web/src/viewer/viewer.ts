@@ -897,6 +897,8 @@ export class Viewer {
     }
   }
 
+  getTargetObject(): THREE.Object3D | null { return this.targetObject; }
+
   setGumballEnabled(enabled: boolean): void {
     this._gumballEnabled = enabled;
     if (!enabled) {

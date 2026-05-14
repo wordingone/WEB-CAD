@@ -2989,6 +2989,14 @@ export function initCreateMode(viewer: Viewer): void {
         const hit = opRaycastObject(viewer, ev.clientX, ev.clientY);
         if (hit) {
           ev.stopImmediatePropagation();
+          // If the multi-set is empty, seed it with the current single selection
+          // so the first shift+click accumulates two objects (not just the new one).
+          if (getMultiSelected().length === 0) {
+            const cur = viewer.getTargetObject();
+            if (cur) {
+              addToMultiSelected({ topology: "mesh", uuid: cur.uuid, object: cur, transformTarget: cur });
+            }
+          }
           addToMultiSelected({ topology: "mesh", uuid: hit.obj.uuid, object: hit.obj, transformTarget: hit.obj });
           clearMultiSelHighlights();
           const multiSet = getMultiSelected();
