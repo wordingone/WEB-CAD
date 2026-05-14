@@ -162,32 +162,40 @@ const EXTRUDABLE_CREATORS = new Set(["rect", "circle", "polygon", "polyline", "c
 // Object hovered during an op-tool select phase — highlighted with emissive tint.
 let _opHoverObj: THREE.Object3D | null = null;
 let _opHoverSavedEmissive: number | null = null;
+// Highlight color used for both thin geometry (Line, Points) and mesh emissive during hover.
+const HOVER_THIN_COLOR  = 0x44aaff; // line / points hover tint
+const HOVER_MESH_EMIT   = 0x334455; // mesh emissive hover tint
+
 function opSetHover(obj: THREE.Object3D | null): void {
   if (_opHoverObj === obj) return;
-  // Un-highlight previous hover.
+  // Restore previous hover object's original material state.
   if (_opHoverObj && _opHoverSavedEmissive !== null) {
-    const prevMat = (_opHoverObj as THREE.Mesh | THREE.Line).material as THREE.Material;
     if (_opHoverObj instanceof THREE.Line) {
-      (prevMat as THREE.LineBasicMaterial).color.setHex(_opHoverSavedEmissive);
-    } else {
-      const m = prevMat as THREE.MeshStandardMaterial;
+      (_opHoverObj.material as THREE.LineBasicMaterial).color.setHex(_opHoverSavedEmissive);
+    } else if (_opHoverObj instanceof THREE.Points) {
+      (_opHoverObj.material as THREE.PointsMaterial).color.setHex(_opHoverSavedEmissive);
+    } else if (_opHoverObj instanceof THREE.Mesh) {
+      const m = (_opHoverObj.material as THREE.MeshStandardMaterial);
       if (m?.emissive) m.emissive.setHex(_opHoverSavedEmissive);
     }
     _opHoverSavedEmissive = null;
   }
   _opHoverObj = obj;
-  // Highlight new hover.
+  // Apply hover highlight to the new object.
   if (obj) {
-    const mat = (obj as THREE.Mesh | THREE.Line).material as THREE.Material;
     if (obj instanceof THREE.Line) {
-      const lm = mat as THREE.LineBasicMaterial;
+      const lm = obj.material as THREE.LineBasicMaterial;
       _opHoverSavedEmissive = lm.color.getHex();
-      lm.color.setHex(0x44aaff);
-    } else {
-      const m = mat as THREE.MeshStandardMaterial;
+      lm.color.setHex(HOVER_THIN_COLOR);
+    } else if (obj instanceof THREE.Points) {
+      const pm = obj.material as THREE.PointsMaterial;
+      _opHoverSavedEmissive = pm.color.getHex();
+      pm.color.setHex(HOVER_THIN_COLOR);
+    } else if (obj instanceof THREE.Mesh) {
+      const m = obj.material as THREE.MeshStandardMaterial;
       if (m?.emissive) {
-        _opHoverSavedEmissive = (m.emissive as THREE.Color).getHex();
-        (m.emissive as THREE.Color).setHex(0x334455);
+        _opHoverSavedEmissive = m.emissive.getHex();
+        m.emissive.setHex(HOVER_MESH_EMIT);
       }
     }
   }
@@ -3195,7 +3203,19 @@ export function initCreateMode(viewer: Viewer): void {
   // Cursor dot + rubber-band preview on every pointer move.
   vpBody.addEventListener("pointermove", (ev) => {
     const tool = readActiveTool();
-    if (!tool && !_ptPhase && !_opPhase) { hideCursorDot(); _snapTarget = null; return; }
+    if (!tool && !_ptPhase && !_opPhase) {
+      // Standard select-tool: highlight hovered object, suppress snap cursor.
+      const activeBtn = document.querySelector<HTMLElement>(".palette-btn.active");
+      if (activeBtn?.dataset.tool === "select") {
+        const hit = opRaycastObject(viewer, ev.clientX, ev.clientY, false, true);
+        opSetHover(hit ? hit.obj : null);
+      } else {
+        opSetHover(null);
+      }
+      hideCursorDot();
+      _snapTarget = null;
+      return;
+    }
 
     // Op-tool preview + hover — runs independent of ground-plane availability.
     // (readActiveTool() returns null for op tools, so this must run before the world check.)
@@ -3433,6 +3453,7 @@ export function initCreateMode(viewer: Viewer): void {
 
   vpBody.addEventListener("pointerleave", () => {
     hideCursorDot();
+    opSetHover(null);
   });
 
   // Finalize window / lasso drag selection on mouse-up.
