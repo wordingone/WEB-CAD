@@ -391,7 +391,9 @@ function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): Sn
   // THREE.Raycaster has poor precision against Lines in perspective view (threshold
   // tuning is fiddly). Instead, iterate each vertex of Line/LineLoop/LineSegments
   // objects and snap by screen-distance — same as stored-endpoint snap in section 1.
-  const snapExclude = _ptPhase ? ptGetTarget() : null;
+  // No snapExclude: modification tools (scale/move/rotate) must be able to snap to
+  // the transform target's own vertices/edges (Rhino-standard behaviour).
+  const snapExclude = null;
   if (snap.vertexSnapOn || snap.edgeSnapOn) {
     let lineVBest: SnapVertex | null = null;
     let lineVBestD = VERTEX_SNAP_PX;
@@ -2060,6 +2062,9 @@ function ptStartTool(tool: "move" | "rotate" | "scale" | "scale-1d" | "scale-2d"
   } else if (tool === "rotate") {
     _ptPhase = { kind: "rotate_axis_a" };
     ptPrompt("Rotation axis — click start point of axis  (Enter = centroid)");
+  } else if (tool === "scale-1d" || tool === "scale-2d") {
+    ptPrompt(`${label} — click anchor point, or Enter for centroid`);
+    ptShowCoordInput("x, y  or  x, y, z");
   } else {
     ptPrompt(`${label} — reference point: click, type x,y,z, or Enter for centroid`);
     ptShowCoordInput("x, y  or  x, y, z");
