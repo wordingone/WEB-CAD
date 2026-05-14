@@ -204,7 +204,7 @@ function opSetHover(obj: THREE.Object3D | null): void {
 function readActiveTool(): string | null {
   const btn = document.querySelector<HTMLElement>(".palette-btn.active");
   const id = btn?.dataset.tool ?? null;
-  if (!id || id === "select" || id === "move" || id === "rotate" || id === "scale") return null;
+  if (!id || id === "select" || id === "move" || id === "rotate" || id === "scale" || id === "scale-1d" || id === "scale-2d") return null;
   if (OP_TOOL_IDS.has(id)) return null; // handled by opPhase, not click-to-place
   return id;
 }
@@ -306,6 +306,32 @@ function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): Sn
   _lastSurfaceHit = null;
   const snap = getSnap();
   if (!snap.snapOn) return null;
+
+  // ── Occlusion pre-pass ──────────────────────────────────────────────────────
+  // Runs unconditionally so callers always know whether geometry blocks the
+  // ground plane under the cursor — even when vertex/edge snap is toggled off,
+  // or when the hit object is the current transform target (snapExclude).
+  // The transform target is intentionally INCLUDED here; it must occlude grid snap
+  // even though it is excluded from vertex/edge snap below (self-snap prevention).
+  {
+    const _occCanvas = viewer.getCanvas();
+    const _occRect = _occCanvas.getBoundingClientRect();
+    const _occNdc = new THREE.Vector2(
+      ((clientX - _occRect.left) / _occRect.width) * 2 - 1,
+      -((clientY - _occRect.top) / _occRect.height) * 2 + 1,
+    );
+    const _occRay = new THREE.Raycaster();
+    _occRay.setFromCamera(_occNdc, viewer.getCamera() as THREE.PerspectiveCamera);
+    const _occMeshes: THREE.Mesh[] = [];
+    viewer.getScene().traverse((o) => {
+      if (o.userData.noSnap) return;
+      if (!(o instanceof THREE.Mesh)) return;
+      if (!o.geometry || !o.geometry.getAttribute("position")) return;
+      _occMeshes.push(o);
+    });
+    const _occHits = _occRay.intersectObjects(_occMeshes, false);
+    if (_occHits.length > 0) _lastSurfaceHit = _occHits[0].point.clone();
+  }
 
   // ── 0. Point objects — highest priority: snap to placed point markers ───────
   if (snap.pointSnapOn) {
@@ -435,9 +461,6 @@ function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): Sn
   const hits = raycaster.intersectObjects(meshes, false);
   if (hits.length === 0) return null;
   const hit = hits[0];
-  // Record the surface hit for occlusion: if no vertex/edge snap fires on this face,
-  // callers will use this point instead of grid snap (geometry occludes the ground plane).
-  _lastSurfaceHit = hit.point.clone();
   if (!hit.face) return null;
   const mesh = hit.object as THREE.Mesh;
   const posAttr = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -1483,6 +1506,8 @@ function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: 
       preview.traverse((child) => { if (child instanceof THREE.Mesh) applyPreviewMat(child); });
       _previewMesh = preview as unknown as THREE.Mesh;
     }
+    // Preview geometry must not become a snap target for its own tool session.
+    preview.traverse((c) => { c.userData.noSnap = true; });
     viewer.getScene().add(preview);
   } catch {
     // Degenerate geometry — skip preview
@@ -1808,9 +1833,9 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
       const scaleMode: ScaleMode = phase.tool === "scale-1d" ? "1d" : phase.tool === "scale-2d" ? "2d" : "3d";
       _ptPhase = { kind: "scale_ref", base: pt, mode: scaleMode };
       const scalePrompt = scaleMode === "1d"
-        ? "Scale 1D — type factor or click reference start point  [snaps to nearest X/Y/Z axis]"
+        ? "Scale 1D — type factor or click anchor/origin point"
         : scaleMode === "2d"
-        ? "Scale 2D — type factor or click reference start point  [Z height unchanged]"
+        ? "Scale 2D — type factor or click anchor/origin point  [Z height unchanged]"
         : "Scale — type factor (e.g. 2.0) or click reference start point";
       ptPrompt(scalePrompt);
       ptShowCoordInput("scale factor");
@@ -1882,7 +1907,7 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
   if (phase.kind === "scale_ref") {
     _ptPhase = { kind: "scale_end", base: phase.base, refPt: worldPt.clone(), mode: phase.mode };
     const endPrompt = phase.mode === "1d"
-      ? "Scale 1D — click target point  [axis inferred from reference direction]"
+      ? "Scale 1D — click target point  [direction defined by first two clicks]"
       : phase.mode === "2d"
       ? "Scale 2D — click target point  [Z unchanged]"
       : "Scale end — click target point to define scale from reference distance";
