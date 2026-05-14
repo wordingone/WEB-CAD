@@ -219,6 +219,10 @@ let _snapTarget: SnapVertex | null = null;
 export function getSnapTarget(): SnapVertex | null { return _snapTarget; }
 // Last edge direction captured from an edge snap — used for smart Shift-lock.
 let _lastSnapEdgeDir: THREE.Vector3 | null = null;
+// Last mesh surface hit recorded inside nearestSnapVertex section 3.
+// When the cursor ray hits geometry before the ground plane and no vertex/edge
+// snap fires, callers fall back to this point instead of grid snap.
+let _lastSurfaceHit: THREE.Vector3 | null = null;
 
 // ── Host-aware placement (door / window / opening) ───────────────────────────
 // On click, raycast against scene objects before committing the tool. If no valid
@@ -299,6 +303,7 @@ function closestPtOnSegToRay(
 }
 
 function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): SnapVertex | null {
+  _lastSurfaceHit = null;
   const snap = getSnap();
   if (!snap.snapOn) return null;
 
@@ -430,6 +435,9 @@ function nearestSnapVertex(viewer: Viewer, clientX: number, clientY: number): Sn
   const hits = raycaster.intersectObjects(meshes, false);
   if (hits.length === 0) return null;
   const hit = hits[0];
+  // Record the surface hit for occlusion: if no vertex/edge snap fires on this face,
+  // callers will use this point instead of grid snap (geometry occludes the ground plane).
+  _lastSurfaceHit = hit.point.clone();
   if (!hit.face) return null;
   const mesh = hit.object as THREE.Mesh;
   const posAttr = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -3091,6 +3099,8 @@ export function initCreateMode(viewer: Viewer): void {
           const sv = nearestSnapVertex(viewer, ev.clientX, ev.clientY);
           if (sv) {
             clickPt = new THREE.Vector3(sv.x, sv.y, sv.z);
+          } else if (_lastSurfaceHit) {
+            clickPt = _lastSurfaceHit.clone();
           } else {
             const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
             if (!world) return;
@@ -3166,7 +3176,14 @@ export function initCreateMode(viewer: Viewer): void {
     ev.stopImmediatePropagation();
     _lastPointerClient = { x: ev.clientX, y: ev.clientY };
     const vertex = !ev.altKey ? nearestSnapVertex(viewer, ev.clientX, ev.clientY) : null;
-    let snapped: { x: number; y: number; z?: number } = vertex ?? snapPoint(world.x, world.y);
+    let snapped: { x: number; y: number; z?: number };
+    if (vertex) {
+      snapped = vertex;
+    } else if (!ev.altKey && _lastSurfaceHit) {
+      snapped = { x: _lastSurfaceHit.x, y: _lastSurfaceHit.y, z: _lastSurfaceHit.z };
+    } else {
+      snapped = snapPoint(world.x, world.y);
+    }
     // Shift-hold: axis-lock from last pending point, or smart-track reference if no pending.
     const clickShiftBase: { x: number; y: number; z?: number } | null =
       _pending.length > 0 ? _pending[_pending.length - 1] : _smartTrackPt ?? null;
@@ -3306,7 +3323,10 @@ export function initCreateMode(viewer: Viewer): void {
         snapped = vertex;
       } else {
         _snapTarget = null;
-        snapped = snapPoint(world.x, world.y);
+        // Geometry between cursor and ground plane — use surface hit; skip grid snap.
+        snapped = _lastSurfaceHit
+          ? { x: _lastSurfaceHit.x, y: _lastSurfaceHit.y, z: _lastSurfaceHit.z }
+          : snapPoint(world.x, world.y);
       }
     }
 
