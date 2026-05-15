@@ -29,7 +29,7 @@ import type { ChoiceOption } from "../commands/dictionary";
 import { gridStore } from "../geometry/grids";
 import { levelStore } from "../geometry/levels";
 import { refLineStore } from "../geometry/ref-lines";
-import { getSelected, addToMultiSelected, clearMultiSelected, getMultiSelected } from "./selection-state";
+import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected } from "./selection-state";
 
 // Default heights / sizes from tier1-conventions.
 const DEFAULT_WALL_HEIGHT = 3;
@@ -98,6 +98,8 @@ let _smartTrackPt: { x: number; y: number } | null = null;
 let _smartTrackTimer: ReturnType<typeof setTimeout> | null = null;
 let _smartTrackCandidate: { x: number; y: number; id: string } | null = null;
 let _smartTrackMarker: THREE.Mesh | null = null;
+// Sketch shift axis lock — latched on first dominant move, cleared on Shift release or tool change.
+let _shiftAxisChoice: "x" | "y" | "z" | null = null;
 // Viewer reference set once by initCreateMode — used by resetPending.
 let _viewer: Viewer | null = null;
 
@@ -1584,6 +1586,7 @@ export function resetPending(): void {
   if (_viewer) { clearTemporary(_viewer); clearSmartTrack(_viewer); }
   hideCursorDot();
   _pending = [];
+  _shiftAxisChoice = null;
 }
 
 // ── Precision Transform state machine ────────────────────────────────────────
@@ -1726,8 +1729,10 @@ function unprojectToAxisLine(
   const rd = raycaster.ray.direction.clone();
   const w = ro.sub(basePt); // w = rayOrigin - basePt
   const b = rd.dot(axisDir);
-  const denom = b * b - 1; // axisDir normalized → axisDir·axisDir=1
-  if (Math.abs(denom) < 1e-8) return null;
+  // Closest-point-on-axis formula: t = (b*(rd·w) - (axisDir·w)) / (1 - b²)
+  // denom = 1 - b² (NOT b²-1; wrong sign flips t, mirroring the result across basePt)
+  const denom = 1 - b * b;
+  if (Math.abs(denom) < 1e-8) return null; // ray nearly parallel to axis — degenerate
   const t = (b * w.dot(rd) - w.dot(axisDir)) / denom;
   return basePt.clone().addScaledVector(axisDir, t);
 }
@@ -1742,6 +1747,7 @@ function ptFinish(viewer: Viewer): void {
   ptHideCoordInput();
   hideCursorDot();
   ptClearPreviewLine(viewer);
+  viewer.setGumballEnabled(true);
   dispatchSync("setActiveTool", { toolId: "select" });
 }
 
@@ -1849,6 +1855,8 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
     _ptPhase = { kind: "rotate_axis_b", axisA: worldPt.clone() };
     ptPrompt("Rotation axis — click end point of axis");
     ptSetPreviewLine(viewer, worldPt, worldPt.clone().add(new THREE.Vector3(0, 0, 0.01)));
+    // If axis lock was pre-set during rotate_axis_a, show the lock line now that we have a base.
+    if (_ptAxisLock) ptSetAxisLockLine(viewer, worldPt);
     return;
   }
 
@@ -1856,10 +1864,7 @@ function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
     // Apply Shift axis lock to constrain the rotation axis to a cardinal direction.
     let endPt = worldPt.clone();
     if (_ptAxisLock) {
-      const lockDir = ptEffectiveAxisDir();
-      const constrained = unprojectToAxisLine(viewer, 0, 0, phase.axisA, lockDir);
-      // If lock is active, use the lock direction from axisA instead.
-      endPt = phase.axisA.clone().add(lockDir);
+      endPt = phase.axisA.clone().add(ptEffectiveAxisDir());
     }
     const axisDir = endPt.clone().sub(phase.axisA);
     if (axisDir.length() < 1e-6) {
@@ -2044,8 +2049,12 @@ function ptHandleEnter(viewer: Viewer): void {
   } else if (phase.kind === "rotate_axis_b") {
     // Enter on axis end: use centroid + Z unit as a default Z axis.
     ptHandlePoint(viewer, phase.axisA.clone().add(new THREE.Vector3(0, 0, 1)));
+  } else if (phase.kind === "end_move") {
+    // Enter during move: cancel — restore to pre-move position.
+    if (_ptInitPos) { obj.position.copy(_ptInitPos); obj.updateMatrix(); obj.updateMatrixWorld(true); }
+    ptFinish(viewer);
   }
-  // angle_end / move / scale: Enter does nothing (user must click or type)
+  // angle_end / scale: Enter does nothing (user must click or type)
 }
 
 function ptStartTool(tool: "move" | "rotate" | "scale" | "scale-1d" | "scale-2d"): void {
@@ -2125,6 +2134,7 @@ function opFinish(viewer: Viewer): void {
   ptClearPrompt();
   ptHideCoordInput();
   hideCursorDot();
+  clearSketchShiftLine(viewer);
   setChooserHint(null);
   removeSelOverlay();
   _rawChooserDefault = null;
@@ -2343,6 +2353,7 @@ function opRaycastObject(
     if (o.userData.noSnap) return;
     if (!(o instanceof THREE.Mesh)) return;
     if (!o.geometry?.getAttribute("position")) return;
+    if (profileOnly && !EXTRUDABLE_CREATORS.has(o.userData.creator ?? "")) return;
     meshes.push(o);
   });
   const hits = rc.intersectObjects(meshes, false);
@@ -2608,13 +2619,13 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
   };
   restoreEmissive(objA); restoreEmissive(objB);
 
-  const mA = objA as THREE.Mesh;
-  const mB = objB as THREE.Mesh;
-  if (!mA.geometry || !mB.geometry) {
-    ptPrompt("Boolean — both objects must be solid meshes");
+  if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh)) {
+    ptPrompt("Boolean — both objects must be solid meshes, not curves or points");
     setTimeout(() => ptClearPrompt(), 2000);
     opFinish(viewer); return;
   }
+  const mA = objA as THREE.Mesh;
+  const mB = objB as THREE.Mesh;
 
   const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
   const tags: Record<string, string> = { union: "boolean-union", difference: "boolean-difference", split: "boolean-split" };
@@ -3081,7 +3092,9 @@ export function initCreateMode(viewer: Viewer): void {
   // When activeTool changes to a PT or op tool, start the state machine.
   subscribe("activeTool", (tool) => {
     if (tool === "move" || tool === "rotate" || tool === "scale" || tool === "scale-1d" || tool === "scale-2d") {
+      if (_ptPhase) ptCancel(viewer); // restore any live-preview transform before switching
       if (_opPhase) opCancel(viewer);
+      viewer.setGumballEnabled(false);
       ptStartTool(tool as "move" | "rotate" | "scale" | "scale-1d" | "scale-2d");
     } else if (OP_TOOLS.has(tool)) {
       if (_ptPhase) ptCancel(viewer);
@@ -3108,6 +3121,11 @@ export function initCreateMode(viewer: Viewer): void {
           if (hit) {
             ev.stopImmediatePropagation();
             viewer.selectObject(hit.obj);
+            // Mirror what viewer's own click handler does: update the selection-state
+            // singleton so ptGetTarget() → getSelected() returns the object on the
+            // very next click (viewer.selectObject alone only updates viewer.targetObject).
+            setSelected({ topology: "mesh", uuid: hit.obj.uuid, object: hit.obj, transformTarget: hit.obj });
+            window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: hit.obj.uuid } }));
             opSetHover(null);
             // Transition prompt now that target is set.
             const ptTool = (_ptPhase as { kind: "start"; tool: string }).tool;
@@ -3128,10 +3146,19 @@ export function initCreateMode(viewer: Viewer): void {
           return;
         }
         // Axis-constrained or XY-plane cursor position.
-        const axisBase = ptGetAxisBase();
+        const axisBase = _ptPhase.kind === "rotate_axis_b" ? _ptPhase.axisA : ptGetAxisBase();
         let clickPt: THREE.Vector3 | null = null;
         if (_ptAxisLock && axisBase) {
-          clickPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, axisBase, ptEffectiveAxisDir());
+          const rawPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, axisBase, ptEffectiveAxisDir());
+          if (rawPt) {
+            if (getSnap().snapOn && getSnap().gridOn) {
+              const step = getSnap().step;
+              if (_ptAxisLock === "x") rawPt.x = Math.round(rawPt.x / step) * step;
+              else if (_ptAxisLock === "y") rawPt.y = Math.round(rawPt.y / step) * step;
+              else rawPt.z = Math.round(rawPt.z / step) * step;
+            }
+            clickPt = rawPt;
+          }
         }
         if (!clickPt) {
           // Try geometry vertex/edge snap first.
@@ -3227,11 +3254,9 @@ export function initCreateMode(viewer: Viewer): void {
     const clickShiftBase: { x: number; y: number; z?: number } | null =
       _pending.length > 0 ? _pending[_pending.length - 1] : _smartTrackPt ?? null;
     if (ev.shiftKey && !ev.altKey && clickShiftBase) {
-      const dx = snapped.x - clickShiftBase.x;
-      const dy = snapped.y - clickShiftBase.y;
-      const dz = screenYtoDz(viewer, ev.clientY, clickShiftBase);
       const baseZ = clickShiftBase.z ?? 0;
-      if (Math.abs(dz) > Math.abs(dx) && Math.abs(dz) > Math.abs(dy)) {
+      if (_shiftAxisChoice === "z") {
+        const dz = screenYtoDz(viewer, ev.clientY, clickShiftBase);
         const step = getSnap().step;
         const rawZ = baseZ + dz;
         const lockedZ = getSnap().snapOn && getSnap().gridOn
@@ -3239,8 +3264,9 @@ export function initCreateMode(viewer: Viewer): void {
         snapped = { x: clickShiftBase.x, y: clickShiftBase.y, z: lockedZ };
       } else {
         const axisSnapped = shiftAxisSnap(clickShiftBase, snapped, getSnap().step);
-        snapped = { ...snapped, x: axisSnapped.x, y: axisSnapped.y };
+        snapped = { x: axisSnapped.x, y: axisSnapped.y, z: baseZ }; // lock Z to base
       }
+      _shiftAxisChoice = null; // clear after click so next segment can pick a new axis
     }
     // For host-placement tools (door/window/opening) raycast to find a valid host.
     // Reject the click and prompt if no host is found.
@@ -3343,7 +3369,19 @@ export function initCreateMode(viewer: Viewer): void {
 
     const world = unprojectToXY(viewer, ev.clientX, ev.clientY);
     if (!world) {
-      // No ground-plane hit (near-horizontal camera) — show dot at raw mouse position.
+      // No ground-plane hit (near-horizontal camera).
+      // PT axis lock may still resolve a constrained position along the locked axis.
+      if (_ptAxisLock && _ptPhase && _ptPhase.kind !== "start") {
+        const axisBase = ptGetAxisBase();
+        if (axisBase) {
+          const constrained = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, axisBase, ptEffectiveAxisDir());
+          if (constrained) {
+            const screen = projectToScreen(viewer, constrained.x, constrained.y, constrained.z);
+            moveCursorDot(viewer, constrained, screen?.x ?? ev.clientX, screen?.y ?? ev.clientY, false);
+            return;
+          }
+        }
+      }
       moveCursorDot(viewer, { x: 0, y: 0 }, ev.clientX, ev.clientY);
       return;
     }
@@ -3403,20 +3441,51 @@ export function initCreateMode(viewer: Viewer): void {
       // Z from cursor screen-Y relative to the base point's projected screen position.
       const dz = screenYtoDz(viewer, ev.clientY, shiftBase);
       const baseZ = shiftBase.z ?? 0;
-      if (Math.abs(dz) > Math.abs(dx) && Math.abs(dz) > Math.abs(dy)) {
+      // Latch axis choice on first dominant movement — prevents oscillation between X/Y/Z.
+      if (!_shiftAxisChoice) {
+        const moved = Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4 || Math.abs(dz) > 1e-4;
+        if (moved) {
+          _shiftAxisChoice = (Math.abs(dz) > Math.abs(dx) && Math.abs(dz) > Math.abs(dy)) ? "z"
+            : Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+        }
+      }
+      if (_shiftAxisChoice === "z") {
         const step = getSnap().step;
         const rawZ = baseZ + dz;
         const lockedZ = getSnap().snapOn && getSnap().gridOn
           ? Math.round(rawZ / step) * step : Math.round(rawZ * 1000) / 1000;
         snapped = { x: shiftBase.x, y: shiftBase.y, z: lockedZ };
         updateSketchShiftLine(viewer, new THREE.Vector3(shiftBase.x, shiftBase.y, baseZ), "z");
+      } else if (_shiftAxisChoice) {
+        const axisSnapped = shiftAxisSnap(shiftBase, snapped, getSnap().step);
+        snapped = { x: axisSnapped.x, y: axisSnapped.y, z: baseZ }; // lock Z to base
+        updateSketchShiftLine(viewer, new THREE.Vector3(shiftBase.x, shiftBase.y, baseZ), _shiftAxisChoice);
       } else {
-        const lockAxis: "x" | "y" = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
-        snapped = shiftAxisSnap(shiftBase, snapped, getSnap().step);
-        updateSketchShiftLine(viewer, new THREE.Vector3(shiftBase.x, shiftBase.y, baseZ), lockAxis);
+        clearSketchShiftLine(viewer);
       }
     } else {
+      _shiftAxisChoice = null;
       clearSketchShiftLine(viewer);
+    }
+    // PT axis lock: override cursor dot + snapped position to the constrained axis point.
+    if (_ptAxisLock && _ptPhase && _ptPhase.kind !== "start") {
+      const axisBase = _ptPhase.kind === "rotate_axis_b" ? _ptPhase.axisA : ptGetAxisBase();
+      if (axisBase) {
+        const axisDir = ptEffectiveAxisDir();
+        const constrained = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, axisBase, axisDir);
+        if (constrained) {
+          // Grid-snap the locked coordinate only; perpendicular coords are already
+          // fixed to axisBase by the axis projection.
+          if (getSnap().snapOn && getSnap().gridOn) {
+            const step = getSnap().step;
+            if (_ptAxisLock === "x") constrained.x = Math.round(constrained.x / step) * step;
+            else if (_ptAxisLock === "y") constrained.y = Math.round(constrained.y / step) * step;
+            else constrained.z = Math.round(constrained.z / step) * step;
+          }
+          _snapTarget = null;
+          snapped = { x: constrained.x, y: constrained.y, z: constrained.z };
+        }
+      }
     }
     // Project snapped world position back to screen so the dot visually snaps (#327).
     const screen = projectToScreen(viewer, snapped.x, snapped.y, snapped.z ?? 0);
@@ -3434,8 +3503,18 @@ export function initCreateMode(viewer: Viewer): void {
       // Compute axis-constrained cursor world point.
       let cursorPt: THREE.Vector3;
       if (_ptAxisLock) {
-        cursorPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, _ptPhase.start, ptEffectiveAxisDir())
-          ?? new THREE.Vector3(snapped.x, snapped.y, 0);
+        const rawPt = unprojectToAxisLine(viewer, ev.clientX, ev.clientY, _ptPhase.start, ptEffectiveAxisDir());
+        if (rawPt) {
+          if (getSnap().snapOn && getSnap().gridOn) {
+            const step = getSnap().step;
+            if (_ptAxisLock === "x") rawPt.x = Math.round(rawPt.x / step) * step;
+            else if (_ptAxisLock === "y") rawPt.y = Math.round(rawPt.y / step) * step;
+            else rawPt.z = Math.round(rawPt.z / step) * step;
+          }
+          cursorPt = rawPt;
+        } else {
+          cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+        }
       } else {
         cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
       }
@@ -3466,8 +3545,9 @@ export function initCreateMode(viewer: Viewer): void {
       ptPrompt(`Rotation axis — click end point  [dir ${dir.x.toFixed(2)}, ${dir.y.toFixed(2)}, ${dir.z.toFixed(2)}]${lockTag}`);
     } else if (_ptPhase?.kind === "angle_end") {
       const cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
-      const dx = cursorPt.x - _ptPhase.base.x;
-      const dy = cursorPt.y - _ptPhase.base.y;
+      // Use raw ground-plane XY for angle — axis-lock may have zeroed dx/dy if Z-locked.
+      const dx = world.x - _ptPhase.base.x;
+      const dy = world.y - _ptPhase.base.y;
       const raw = Math.atan2(dy, dx) * 180 / Math.PI;
       const snap2 = getSnap();
       const deg = (snap2.snapOn && snap2.polarOn)
@@ -3481,6 +3561,11 @@ export function initCreateMode(viewer: Viewer): void {
       }
       ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
       ptPrompt(`Rotation angle — hover and click  [${Math.round(deg)}°]  or type degrees`);
+    } else if (_ptPhase?.kind === "scale_ref") {
+      const cursorPt = new THREE.Vector3(snapped.x, snapped.y, snapped.z ?? 0);
+      ptSetPreviewLine(viewer, _ptPhase.base, cursorPt);
+      const dist = cursorPt.distanceTo(_ptPhase.base);
+      ptPrompt(`Scale — click reference start point  [dist from anchor: ${dist.toFixed(3)} m]`);
     } else if (_ptPhase?.kind === "scale_end") {
       let cursorPt: THREE.Vector3;
       if (_ptAxisLock) {
@@ -3551,13 +3636,18 @@ export function initCreateMode(viewer: Viewer): void {
   // Smart snap: if the last snap was an edge snap, Shift uses that edge direction.
   // Also constrains the rotation axis direction during rotate_axis_b.
   window.addEventListener("keydown", (ev) => {
-    if (_ptPhase && _ptPhase.kind !== "start" && _ptPhase.kind !== "rotate_axis_a"
+    if (_ptPhase && _ptPhase.kind !== "start"
         && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey
         && document.activeElement !== _ptCoordInputEl) {
       const key = ev.key.toLowerCase();
       if (key === "x" || key === "y" || key === "z") {
         ev.preventDefault();
         _ptAxisLock = key as "x" | "y" | "z";
+        // Cardinal key lock — discard any stale edge direction so ptEffectiveAxisDir
+        // returns the cardinal axis, not a previous snap-edge direction.
+        _lastSnapEdgeDir = null;
+        // For rotate_axis_a we don't have a base point yet — latch the lock so it's
+        // immediately applied when the user clicks and transitions to rotate_axis_b.
         const basePt = _ptPhase.kind === "rotate_axis_b" ? _ptPhase.axisA : ptGetAxisBase();
         if (basePt) ptSetAxisLockLine(viewer, basePt);
         return;
@@ -3620,6 +3710,7 @@ export function initCreateMode(viewer: Viewer): void {
         ptClearAxisLockLine(_ptViewer);
       }
       if (_viewer) clearSketchShiftLine(_viewer);
+      _shiftAxisChoice = null;
     }
   });
 
