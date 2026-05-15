@@ -84,26 +84,26 @@ export function syncToolActiveClass(): void {
 export function syncThemeAttribute(): void {
   subscribe("night", (n) => {
     document.documentElement.setAttribute("data-mode", n ? "night" : "day");
-    try { localStorage.setItem("gemma-architect.theme", n ? "night" : "day"); } catch { /* private mode */ }
+    try { localStorage.setItem("gemma-cad.theme", n ? "night" : "day"); } catch { /* private mode */ }
   });
 }
 
 // Helper: hydrate from localStorage on first load.
 export function hydrateFromStorage(): void {
   try {
-    const v = localStorage.getItem("gemma-architect.theme");
+    const v = localStorage.getItem("gemma-cad.theme") ?? localStorage.getItem("gemma-architect.theme");
     if (v === "night") setState("night", true);
     else if (v === "day") setState("night", false);
   } catch { /* ignore */ }
   try {
-    const u = localStorage.getItem("gemma-architect.units");
+    const u = localStorage.getItem("gemma-cad.units") ?? localStorage.getItem("gemma-architect.units");
     if (u === "imperial" || u === "metric") setState("unitSystem", u);
   } catch { /* ignore */ }
 }
 
 export function syncUnitsToStorage(): void {
   subscribe("unitSystem", (sys) => {
-    try { localStorage.setItem("gemma-architect.units", sys); } catch { /* private mode */ }
+    try { localStorage.setItem("gemma-cad.units", sys); } catch { /* private mode */ }
   });
 }
 

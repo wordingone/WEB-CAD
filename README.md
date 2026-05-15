@@ -1,4 +1,4 @@
-# gemma-architect
+# Gemma-CAD
 
 Browser-native parametric architectural design from natural-language prompts.
 Type a sentence; render a building; export an IFC4 file. No server,
