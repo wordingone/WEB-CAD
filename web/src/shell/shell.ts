@@ -42,6 +42,8 @@ const MENUS: MenuItem[] = [
     { separator: true },
     { label: "Toggle theme",    shortcut: "⌃\\", onAction: () => document.getElementById("blueprint-toggle")?.click() },
     { label: "Command palette…",shortcut: "⌘K",  onAction: () => document.getElementById("ribbon-palette-btn")?.click() },
+    { separator: true },
+    { label: "Construction Plane…", onAction: () => (window as unknown as { __dispatch?: (v: string, a?: unknown) => unknown }).__dispatch?.("SdToggleCPlaneGizmo") },
   ]},
   { label: "Sketch", entries: [
     { label: "Line",      shortcut: "L", toolId: "line" },

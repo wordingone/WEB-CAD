@@ -1084,6 +1084,15 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- canonical_name: SdToggleCPlaneGizmo
+  kernel_op: toggleCPlaneGizmo
+  args: []
+  topology_role: view
+  kg_predicates: []
+  synonyms: ["view.cplane.toggle", "toggle cplane", "toggle construction plane gizmo", "show cplane", "hide cplane", "cplane gizmo"]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
 - canonical_name: SdRenderMode
   kernel_op: setRenderMode
   args:
