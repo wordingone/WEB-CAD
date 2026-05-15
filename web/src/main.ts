@@ -1838,6 +1838,11 @@ registerHandler("SdSetCPlane", (args) => {
   return { mode, kind: newCPlane.kind };
 });
 
+registerHandler("SdToggleCPlaneGizmo", () => {
+  viewer.toggleCPlaneGizmo();
+  return { toggled: true };
+});
+
 registerHandler("SdResetCPlane", () => {
   const reset: CPlane = { ...WORLD_XY };
   viewer.activeCPlane = reset;

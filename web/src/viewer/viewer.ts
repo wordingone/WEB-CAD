@@ -15,6 +15,7 @@ import { getSnap, subscribeSnap } from "./snap-state.js";
 import { showHandlesFor, clearHandles, isSubObjectHandle, getHandleParent, refitParentGeometry } from "./sub-object-handles.js";
 import { getCurrentDispatchCtx } from "../commands/dispatch.js";
 import { WORLD_XY, resolveCPlane, type CPlane } from "./cplane.js";
+import { CPlaneGizmo } from "./cplane-gizmo.js";
 
 type ViewName = "top" | "persp" | "front" | "right";
 type Pane = {
@@ -179,6 +180,8 @@ export class Viewer {
   // Construction plane (W-1). Updated by setView(); overridden by SdSetCPlane (W-4).
   activeView:   string = "persp";
   activeCPlane: CPlane = WORLD_XY;
+  // CPlane gizmo (#361) — grid + axis lines rendered at the active construction plane.
+  private _cplaneGizmo: CPlaneGizmo = new CPlaneGizmo();
 
   constructor(canvas: HTMLCanvasElement, viewportAreaEl: HTMLElement) {
     this.canvas = canvas;
@@ -228,6 +231,13 @@ export class Viewer {
     }
     this.grid.userData.noSnap = true;
     this.scene.add(this.grid);
+
+    // CPlane gizmo (#361) — subscribe to cplane-changed, update on each event.
+    this.scene.add(this._cplaneGizmo.group);
+    window.addEventListener("viewer:cplane-changed", (e) => {
+      const cplane = (e as CustomEvent).detail?.cplane as CPlane | undefined;
+      if (cplane) this._cplaneGizmo.update(cplane);
+    });
 
     this.axes = new THREE.AxesHelper(2);
     this.axes.userData.noSnap = true;
@@ -898,6 +908,10 @@ export class Viewer {
   }
 
   getTargetObject(): THREE.Object3D | null { return this.targetObject; }
+
+  toggleCPlaneGizmo(): void {
+    this._cplaneGizmo.toggle();
+  }
 
   setGumballEnabled(enabled: boolean): void {
     this._gumballEnabled = enabled;
