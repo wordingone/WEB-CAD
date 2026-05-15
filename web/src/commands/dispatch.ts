@@ -9,7 +9,7 @@
 // Resolution order:
 //   1. canonical_name (exact match in registry)
 //   2. alias-index lookup (via dictionary.ts) — maps synonyms → canonical
-//   3. runtime alias-json from ~/.gemma-architect/aliases.json (deep-merge
+//   3. runtime alias-json from ~/.gemma-cad/aliases.json (deep-merge
 //      over compiled defaults; reloads on Window > Reload aliases)
 //
 // Validation: every dispatch call validates against the spatial dictionary
@@ -105,7 +105,7 @@ const runtimeAliases = new Map<string, string>(); // synonym(lower) → canonica
 
 /**
  * Replace runtime aliases with the given map. Called by main.ts on
- * boot (best-effort fetch of ~/.gemma-architect/aliases.json) and
+ * boot (best-effort fetch of ~/.gemma-cad/aliases.json) and
  * from the Window > Reload aliases menu item.
  */
 export function setRuntimeAliases(aliases: Record<string, string>): void {
@@ -412,7 +412,7 @@ export function installDefaultHandlers(): void {
 }
 
 /**
- * Best-effort runtime fetch of ~/.gemma-architect/aliases.json.
+ * Best-effort runtime fetch of ~/.gemma-cad/aliases.json.
  * Shipping the loader here so main.ts can boot dispatch in one call.
  * Runs only in browser (skips in test/node).
  */
