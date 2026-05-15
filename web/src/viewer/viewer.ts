@@ -16,6 +16,7 @@ import { showHandlesFor, clearHandles, isSubObjectHandle, getHandleParent, refit
 import { getCurrentDispatchCtx } from "../commands/dispatch.js";
 import { WORLD_XY, resolveCPlane, type CPlane } from "./cplane.js";
 import { CPlaneGizmo } from "./cplane-gizmo.js";
+import { applyDrafting, removeDrafting, isDrafting } from "../geometry/drafting.js";
 
 type ViewName = "top" | "persp" | "front" | "right";
 type Pane = {
@@ -239,6 +240,21 @@ export class Viewer {
     window.addEventListener("viewer:cplane-changed", (e) => {
       const cplane = (e as CustomEvent).detail?.cplane as CPlane | undefined;
       if (cplane) this._cplaneGizmo.update(cplane);
+    });
+
+    // Layer panel child-row click → programmatic selection by UUID.
+    window.addEventListener("viewer:select-uuid", (e) => {
+      const uuid = (e as CustomEvent).detail?.uuid as string | undefined;
+      if (!uuid) return;
+      const obj = this.scene.getObjectByProperty("uuid", uuid) ?? null;
+      this.selectObject(obj);
+      if (obj) {
+        setSelected({ topology: "mesh", uuid: obj.uuid, object: obj, transformTarget: obj });
+        window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: obj.uuid } }));
+      } else {
+        clearSelected();
+        window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
+      }
     });
 
     this.axes = new THREE.AxesHelper(2);
@@ -2607,14 +2623,17 @@ export class Viewer {
       if (!this._thumbMatGhosted) this._thumbMatGhosted = new THREE.MeshBasicMaterial({ color: 0x9ec5d8, transparent: true, opacity: 0.28, side: THREE.DoubleSide });
       this.scene.overrideMaterial = this._thumbMatGhosted;
     }
-    // technical: no overrideMaterial — applyDrafting already set individual mesh materials.
-    // Use a white clear color so the thumbnail background matches the paper fill.
+    // technical: apply drafting overlays for the thumbnail if the scene doesn't already have them
+    // (model viewport may be in a different render mode). Apply/remove is atomic within one render call.
+    const needDraftingForThumb = displayMode === "technical" && !isDrafting(this.scene);
+    if (needDraftingForThumb) applyDrafting(this.scene);
     const prevClearColor = new THREE.Color();
     this._thumbRenderer.getClearColor(prevClearColor);
     const prevClearAlpha = this._thumbRenderer.getClearAlpha();
     if (displayMode === "technical") this._thumbRenderer.setClearColor(0xffffff, 1);
     this._thumbRenderer.render(this.scene, cam);
     this.scene.overrideMaterial = prevOverride;
+    if (needDraftingForThumb) removeDrafting(this.scene);
     if (displayMode === "technical") this._thumbRenderer.setClearColor(prevClearColor, prevClearAlpha);
     const ctx = dest.getContext("2d");
     if (ctx) ctx.drawImage(this._thumbCanvas!, 0, 0, w, h);
