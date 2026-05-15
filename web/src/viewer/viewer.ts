@@ -2585,7 +2585,6 @@ export class Viewer {
         canvas: this._thumbCanvas,
         antialias: false,
         alpha: false,
-        preserveDrawingBuffer: true,
       });
       this._thumbRenderer.setPixelRatio(1);
       this._thumbRenderer.autoClear = true;
