@@ -82,7 +82,11 @@ const VIEWPORT_LABELS: Record<ViewportId, string> = {
 
 // --- Scale ratios ---------------------------------------------------------
 
-const SCALE_PRESETS = ["1:50", "1:100", "1:200", "1:500", "NTS"] as const;
+const SCALE_PRESETS = [
+  "1:1", "1:5", "1:10", "1:20", "1:25", "1:50",
+  "1:100", "1:200", "1:500", "1:1000",
+  "NTS", "Custom",
+] as const;
 export type ScaleId = typeof SCALE_PRESETS[number] | string; // strings accepted for custom
 
 function parseScale(s: ScaleId): number {
@@ -1101,15 +1105,46 @@ class LayoutController {
     const sSel = document.createElement("select");
     sSel.className = "paper-cell-select";
     sSel.setAttribute("aria-label", "Scale");
+    const isCustomScale = !SCALE_PRESETS.includes(p.scale as typeof SCALE_PRESETS[number]);
     for (const s of SCALE_PRESETS) {
       const opt = document.createElement("option");
       opt.value = s; opt.textContent = s;
-      if (s === p.scale) opt.selected = true;
+      if (s === p.scale || (s === "Custom" && isCustomScale)) opt.selected = true;
       sSel.appendChild(opt);
     }
+
+    const sCustomInput = document.createElement("input");
+    sCustomInput.type = "text";
+    sCustomInput.className = "paper-cell-scale-input";
+    sCustomInput.setAttribute("aria-label", "Custom scale");
+    sCustomInput.placeholder = "1:150";
+    sCustomInput.value = isCustomScale ? p.scale : "";
+    sCustomInput.style.display = isCustomScale ? "" : "none";
+
+    const applyCustomScale = () => {
+      const raw = sCustomInput.value.trim();
+      if (/^1:\d+(\.\d+)?$/.test(raw)) {
+        p.scale = raw;
+        this.renderPanel(p);
+      } else {
+        sCustomInput.value = p.scale;
+      }
+    };
+    sCustomInput.addEventListener("blur", applyCustomScale);
+    sCustomInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); applyCustomScale(); }
+    });
+
     sSel.addEventListener("change", () => {
-      p.scale = sSel.value;
-      this.renderPanel(p);
+      if (sSel.value === "Custom") {
+        sCustomInput.style.display = "";
+        sCustomInput.focus();
+        sCustomInput.select();
+      } else {
+        sCustomInput.style.display = "none";
+        p.scale = sSel.value;
+        this.renderPanel(p);
+      }
     });
 
     const dmSel = document.createElement("select");
@@ -1130,6 +1165,7 @@ class LayoutController {
 
     header.appendChild(vSel);
     header.appendChild(sSel);
+    header.appendChild(sCustomInput);
     header.appendChild(dmSel);
     el.appendChild(header);
 

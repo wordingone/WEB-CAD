@@ -215,6 +215,20 @@ html[data-mode="night"] .paper-stage {
   padding: calc(2px * var(--iz, 1)) calc(4px * var(--iz, 1));
   border-radius: calc(3px * var(--iz, 1));
 }
+.paper-cell-scale-input {
+  font-family: var(--mono);
+  font-size: calc(11px * var(--iz, 1));
+  background: oklch(0.28 0 0 / 0.7);
+  border: 1px solid oklch(1 0 0 / 0.2);
+  color: #e0e0e0;
+  padding: calc(2px * var(--iz, 1)) calc(4px * var(--iz, 1));
+  border-radius: calc(3px * var(--iz, 1));
+  width: calc(64px * var(--iz, 1));
+  outline: none;
+}
+.paper-cell-scale-input:focus {
+  border-color: oklch(0.7 0.15 240);
+}
 /* Scale bar: fixed at bottom-right, out of flow */
 .paper-cell-scalebar {
   position: absolute;
