@@ -138,6 +138,25 @@ export function removeDrafting(root: THREE.Object3D): void {
   });
 }
 
+// Temporarily hide drafting overlays and restore original materials, call cb, then revert.
+// Used by renderThumbnailTo so shaded/wireframe/ghosted thumbnails are not contaminated by
+// the model viewport's technical-mode scene mutations.
+export function withoutDrafting(root: THREE.Object3D, cb: () => void): void {
+  const overlays: THREE.Object3D[] = [];
+  const matSwaps: Array<[THREE.Mesh, THREE.Material | THREE.Material[]]> = [];
+  root.traverse((obj) => {
+    if (obj.userData[TAG] === "overlay") { overlays.push(obj); obj.visible = false; }
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh && mesh.userData[TAG_FLAT_BACKUP]) {
+      matSwaps.push([mesh, mesh.material]);
+      mesh.material = mesh.userData[TAG_FLAT_BACKUP] as THREE.Material | THREE.Material[];
+    }
+  });
+  cb();
+  for (const [mesh, mat] of matSwaps) mesh.material = mat;
+  for (const ov of overlays) ov.visible = true;
+}
+
 // Convenience — read the toggle state of a root (true = drafting applied).
 export function isDrafting(root: THREE.Object3D): boolean {
   let found = false;
