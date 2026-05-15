@@ -86,7 +86,7 @@ export class ChatPanel {
       <div class="chat-compose">
         <button class="chat-attach-btn" type="button" title="Attach sketch image (or paste / drop)">⊕</button>
         <textarea class="chat-input"
-          placeholder="Ask Gemma·Architect — create geometry, inspect the scene, explain commands…"
+          placeholder="Ask Gemma — create geometry, inspect the scene, explain commands…"
           rows="2"></textarea>
         <button class="btn btn-accent btn-sm chat-send-btn" type="button">SEND</button>
       </div>

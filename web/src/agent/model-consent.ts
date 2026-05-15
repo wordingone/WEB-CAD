@@ -128,7 +128,7 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
       Gemma 4 (E4B) — model download required
     </div>
     <div style="font:13px/1.55 var(--font-ui,'Inter',sans-serif);opacity:.75;margin-bottom:20px;">
-      Gemma·Architect runs the AI entirely in your browser.
+      Gemma runs the AI entirely in your browser.
       The first time you use it, it needs to download model files
       (<strong style="opacity:1;">≈ 4 GB</strong>) from HuggingFace.
       Files are cached — subsequent sessions load instantly.
