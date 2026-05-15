@@ -84,6 +84,9 @@ function shiftAxisSnap(
 }
 // Last pointer screen position — used by inline chip after level/datum placement.
 let _lastPointerClient: { x: number; y: number } = { x: 0, y: 0 };
+let _lastCreateClickTs = 0;
+let _lastCreateClickX = 0;
+let _lastCreateClickY = 0;
 // Temporary scene objects — removed when the tool completes or is cancelled.
 let _previewMesh: THREE.Mesh | null = null;
 let _markerMesh: THREE.Points | null = null;
@@ -951,12 +954,17 @@ function buildPolygon(center: { x: number; y: number }, radial: { x: number; y: 
 }
 
 function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Object3D; chain: string } {
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
+  const first = pts[0], last = pts[pts.length - 1];
+  const pdx = last.x - first.x, pdy = last.y - first.y;
+  const isClosed = pts.length >= 3 && pdx * pdx + pdy * pdy < 0.25;
+  const corePts = isClosed ? pts.slice(0, -1) : pts;
+  const drawPts = isClosed ? [...corePts, corePts[0]] : corePts;
+  const xs = corePts.map((p) => p.x);
+  const ys = corePts.map((p) => p.y);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   const geom = new THREE.BufferGeometry();
-  const flat = pts.flatMap((p) => [p.x - cx, p.y - cy, 0]);
+  const flat = drawPts.flatMap((p) => [p.x - cx, p.y - cy, 0]);
   geom.setAttribute("position", new THREE.Float32BufferAttribute(flat, 3));
   const mat = new THREE.LineBasicMaterial({ color: 0x1565c0 });
   const mesh = new THREE.Line(geom, mat);
@@ -964,9 +972,9 @@ function buildPolyline(pts: Array<{ x: number; y: number }>): { mesh: THREE.Obje
   mesh.renderOrder = 1;
   mesh.userData.kind = "polyline";
   mesh.userData.creator = "polyline";
-  mesh.userData.controlPoints = pts.map((p) => new THREE.Vector3(p.x - cx, p.y - cy, 0));
-  const worldVerts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
-  const chain = `const poly = drawPolyline([${worldVerts}]).sketchOnPlane("XY").extrude(0.002);`;
+  mesh.userData.controlPoints = corePts.map((p) => new THREE.Vector3(p.x - cx, p.y - cy, 0));
+  const worldVerts = corePts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
+  const chain = `const poly = drawPolyline([${worldVerts}]${isClosed ? ", { close: true }" : ""}).sketchOnPlane("XY").extrude(0.002);`;
   return { mesh, chain };
 }
 
@@ -992,13 +1000,17 @@ function buildExtrude(base: { x: number; y: number }, top: { x: number; y: numbe
 }
 
 function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.Object3D; chain: string } {
-  const xs = pts.map((p) => p.x);
-  const ys = pts.map((p) => p.y);
+  const first = pts[0], last = pts[pts.length - 1];
+  const cdx = last.x - first.x, cdy = last.y - first.y;
+  const isClosed = pts.length >= 3 && cdx * cdx + cdy * cdy < 0.25;
+  const curvePts = isClosed ? pts.slice(0, -1) : pts;
+  const xs = curvePts.map((p) => p.x);
+  const ys = curvePts.map((p) => p.y);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-  const vecs = pts.map((p) => new THREE.Vector3(p.x - cx, p.y - cy, 0));
-  const curve = new THREE.CatmullRomCurve3(vecs, false, "catmullrom", 0.5);
-  const sampled = curve.getPoints(Math.max(pts.length * 16, 64));
+  const vecs = curvePts.map((p) => new THREE.Vector3(p.x - cx, p.y - cy, 0));
+  const curve = new THREE.CatmullRomCurve3(vecs, isClosed, "catmullrom", 0.5);
+  const sampled = curve.getPoints(Math.max(curvePts.length * 16, 64));
   const geom = new THREE.BufferGeometry().setFromPoints(sampled);
   const mat = new THREE.LineBasicMaterial({ color: 0x1565c0 });
   const mesh = new THREE.Line(geom, mat);
@@ -1007,8 +1019,8 @@ function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.Object3
   mesh.userData.kind = "curve";
   mesh.userData.creator = "curve";
   mesh.userData.controlPoints = vecs;
-  const worldPts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
-  const chain = `const curv = drawSpline([${worldPts}]).sketchOnPlane("XY").extrude(0.002);`;
+  const worldPts = curvePts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
+  const chain = `const curv = drawSpline([${worldPts}]${isClosed ? ", { close: true }" : ""}).sketchOnPlane("XY").extrude(0.002);`;
   return { mesh, chain };
 }
 
@@ -1409,12 +1421,12 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   window:   { clicks: 1, handler: ([p]) => buildWindow(p) },
   column:   { clicks: 1, handler: ([p]) => buildColumn(p) },
   // T4 tool implementations — see buildStair / buildPolygon / buildPolyline /
-  // buildExtrude for design notes. polyline is fixed at 4 clicks for the demo
-  // (variable click-count would require a sentinel-terminate UX change to the
-  // emitClickWorld pipeline).
+  // buildExtrude for design notes. polyline/curve: unlimited clicks (-1),
+  // committed by Enter or double-click; closed automatically when last click
+  // snaps back to the first point.
   stair:    { clicks: 2, handler: ([a, b]) => buildStair(a, b) },
   polygon:  { clicks: 2, handler: ([a, b]) => buildPolygon(a, b) },
-  polyline: { clicks: 4, handler: (pts) => buildPolyline(pts) },
+  polyline: { clicks: -1, handler: (pts) => buildPolyline(pts) },
   curve:    { clicks: -1, handler: (pts) => buildCurve(pts) },
   point:    { clicks: 1, handler: ([p]) => buildPoint(p) },
   extrude:      { clicks: 3, handler: ([c1, c2, c3]) => buildBox(c1, c2, c3) },
@@ -1667,8 +1679,11 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   if (_pending.length === 1 && handler.clicks !== 1) {
     setMarker(viewer, world);
   }
-  // Unlimited tools: never auto-commit; wait for Enter.
-  if (handler.clicks === -1) return null;
+  // Unlimited tools: update hint, never auto-commit; wait for Enter or double-click.
+  if (handler.clicks === -1) {
+    setPickerHint(`${tool} — ${_pending.length} point${_pending.length > 1 ? "s" : ""}  [double-click or Enter] commit  [Esc] cancel`);
+    return null;
+  }
   if (_pending.length < handler.clicks) return null;
 
   // All clicks collected — build final mesh.
@@ -3225,6 +3240,11 @@ export function initCreateMode(viewer: Viewer): void {
     } else {
       if (_ptPhase) ptCancel(viewer);
       if (_opPhase) opCancel(viewer);
+      // Unlimited-click tools: show entry hint immediately on activation.
+      const h = tool ? TOOL_HANDLERS[tool] : null;
+      if (h?.clicks === -1) {
+        setPickerHint(`${tool} — click points  [double-click or Enter] commit  [Esc] cancel`);
+      }
     }
   });
 
@@ -3410,6 +3430,21 @@ export function initCreateMode(viewer: Viewer): void {
     // For level placement, raycast against scene geometry to inherit Z elevation (AC B.1).
     // For shift-Z-locked clicks, preserve the locked Z; level tool always overrides.
     const z = tool === "level" ? getGeometryZ(viewer, ev.clientX, ev.clientY) : snapped.z;
+    // Double-click to commit unlimited-click tools (polyline/curve).
+    const clickHandler = TOOL_HANDLERS[tool];
+    if (clickHandler?.clicks === -1 && _pending.length >= 2) {
+      const now = performance.now();
+      const ddx = ev.clientX - _lastCreateClickX, ddy = ev.clientY - _lastCreateClickY;
+      if (now - _lastCreateClickTs < 500 && ddx * ddx + ddy * ddy < 100) {
+        _lastCreateClickTs = 0;
+        commitUnlimited(viewer);
+        _pendingHostId = null;
+        return;
+      }
+    }
+    _lastCreateClickTs = performance.now();
+    _lastCreateClickX = ev.clientX;
+    _lastCreateClickY = ev.clientY;
     emitClickWorld(viewer, { ...snapped, z }, { tool });
     _pendingHostId = null;
   }, { capture: true });
