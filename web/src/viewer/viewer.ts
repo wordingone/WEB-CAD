@@ -873,19 +873,29 @@ export class Viewer {
       this.selectSubObject(transformTarget);
       return;
     }
-    this.selectObject(transformTarget);
-    // Update selection-state singleton so Inspect tab and transforms.ts subscribe handlers see the change.
     if (transformTarget) {
+      this.selectObject(transformTarget);
       setSelected({
         topology: "mesh",
         uuid: transformTarget.uuid,
         object: transformTarget,
         transformTarget,
       });
+      window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid } }));
     } else {
-      clearSelected();
+      // Defer deselect to pointerup so orbit drags don't clear the gumball.
+      const px0 = e.clientX, py0 = e.clientY;
+      const host = e.currentTarget as HTMLElement;
+      const clearOnUp = (up: PointerEvent) => {
+        host.removeEventListener("pointerup", clearOnUp);
+        if ((up.clientX - px0) ** 2 + (up.clientY - py0) ** 2 < 64) {
+          this.selectObject(null);
+          clearSelected();
+          window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
+        }
+      };
+      host.addEventListener("pointerup", clearOnUp);
     }
-    window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid } }));
   }
 
   /** Attach the Rhino-style Gumball to an object (null = detach). The
