@@ -48,7 +48,8 @@ import { syncToolActiveClass, getState, setState, syncUnitsToStorage, hydrateFro
 import { initCreateMode, emitClickWorld, getSnapTarget } from "./viewer/create-mode";
 import { initSectionHandles } from "./viewer/section-handles";
 import { undo, redo, pushAction, pushTransformAction, pushBatchAction, captureTransform } from "./history";
-import { registerHandler, dispatchSync, installDefaultHandlers } from "./commands/dispatch";
+import { registerHandler, dispatch, dispatchSync, installDefaultHandlers } from "./commands/dispatch";
+import { listClusters, getClusterByName, type SkillClusterStep } from "./skills/skill-store";
 import { resolveCPlane, WORLD_XY, WORLD_XZ, WORLD_YZ, type CPlane } from "./viewer/cplane";
 import { clearCommandSession, getActiveCommandSession } from "./commands/command-session";
 import { runIteration, runDesignLoop } from "./chat/chat-panel";
@@ -1899,6 +1900,65 @@ registerHandler("SdSetUnits", (args) => {
   const valid = sys === "metric" || sys === "imperial" ? sys : "metric";
   setState("unitSystem", valid);
   return { ok: true, unitSystem: valid };
+});
+
+// Translate position/point fields in a cluster step's params by an anchor offset.
+// Steps that reference another object by UUID are returned unchanged (translation not safe).
+function _translateClusterStep(params: Record<string, unknown>, anchor: number[]): Record<string, unknown> {
+  if (typeof params["hostUuid"] === "string" || typeof params["uuid"] === "string") {
+    return params; // UUID-referencing step — skip translation
+  }
+  const [dx, dy, dz] = anchor;
+  const out = { ...params };
+  const POINT_KEYS = ["position", "origin", "point", "start", "end", "center", "anchor"];
+  const POLYLINE_KEYS = ["points", "profile", "path", "spine"];
+  for (const key of POINT_KEYS) {
+    const v = out[key];
+    if (Array.isArray(v) && v.length >= 2 && (v as unknown[]).every(x => typeof x === "number")) {
+      out[key] = [(v[0] as number) + dx, (v[1] as number) + dy, v.length >= 3 ? (v[2] as number) + dz : 0];
+    }
+  }
+  for (const key of POLYLINE_KEYS) {
+    const v = out[key];
+    if (Array.isArray(v) && v.length > 0 && Array.isArray(v[0])) {
+      out[key] = (v as number[][]).map(pt => {
+        if (!pt.every(x => typeof x === "number")) return pt;
+        const translated: number[] = [(pt[0] ?? 0) + dx, (pt[1] ?? 0) + dy];
+        if (pt.length >= 3) translated.push((pt[2] ?? 0) + dz);
+        return translated;
+      });
+    }
+  }
+  return out;
+}
+
+registerHandler("SdRunCluster", async (args) => {
+  const name = args["name"] as string;
+  const repeat = Math.max(1, typeof args["repeat"] === "number" ? (args["repeat"] as number) : 1);
+  const anchorRaw = args["anchor"];
+  const anchor = Array.isArray(anchorRaw) && anchorRaw.length >= 2
+    ? (anchorRaw as number[])
+    : null;
+  const cluster = await getClusterByName(name);
+  if (!cluster) return { ok: false, error: `No cluster named "${name}"` };
+  const skipped: string[] = [];
+  for (let r = 0; r < repeat; r++) {
+    for (const step of cluster.steps as SkillClusterStep[]) {
+      const rawParams = step.params as Record<string, unknown>;
+      const params = anchor ? _translateClusterStep(rawParams, anchor) : rawParams;
+      if (anchor && params === rawParams && (typeof rawParams["hostUuid"] === "string" || typeof rawParams["uuid"] === "string")) {
+        skipped.push(step.verb);
+      }
+      await dispatch(step.verb, params);
+      await new Promise(res => setTimeout(res, 50));
+    }
+  }
+  return { ok: true, ran: cluster.steps.length * repeat, skipped };
+});
+
+registerHandler("SdListClusters", async () => {
+  const clusters = await listClusters();
+  return { clusters: clusters.map(c => ({ name: c.name, steps: c.steps.length, createdAt: c.createdAt })) };
 });
 
 // Install shim handlers for every dictionary verb that doesn't have a native
