@@ -46,7 +46,7 @@ import {
 import { SAMPLES } from "./io/sample-files";
 import type { WorkerOut } from "./worker";
 import { syncToolActiveClass, getState, setState, syncUnitsToStorage, hydrateFromStorage } from "./app-state";
-import { initCreateMode, emitClickWorld, getSnapTarget } from "./viewer/create-mode";
+import { initCreateMode, emitClickWorld, getSnapTarget, makeLevelSprite, updateLevelSprite } from "./viewer/create-mode";
 import { initSectionHandles } from "./viewer/section-handles";
 import { undo, redo, pushTransformAction, pushBatchAction, captureTransform, clearHistory } from "./history";
 import { registerHandler, dispatch, dispatchSync, installDefaultHandlers } from "./commands/dispatch";
@@ -112,6 +112,21 @@ paramCollapseBtn.addEventListener("click", () => {
 });
 
 const viewer = new Viewer(canvas, viewportAreaEl);
+// Keep level plane labels in sync when level names are edited via the sidebar.
+// Also update the working plane Z so the grid tracks the active level's elevation.
+levelStore.subscribe(() => {
+  viewer.forEachSceneChild((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.userData.creator !== "IfcLevel") return;
+    const level = levelStore.get(mesh.userData.levelId as string);
+    if (!level) return;
+    const sprite = mesh.children.find((c) => c.userData.isLevelLabel) as THREE.Sprite | undefined;
+    if (sprite) updateLevelSprite(sprite, level.name);
+  });
+  const active = levelStore.getActive();
+  if (active) viewer.setWorkingPlaneZ(active.elevation);
+  syncLevelOpacities();
+});
 // Expose for in-browser debug + DevTools poking — read-only handle to scene state.
 (window as unknown as { __viewer: Viewer }).__viewer = viewer;
 // Expose dispatchSync + async dispatch for CDP-driven verification scripts.
@@ -1342,15 +1357,41 @@ registerHandler("SdLevel", (args) => {
   // Register in levelStore so UI panel + active-level routing knows about it.
   const level = levelStore.findOrCreate(name, elev, height);
   const geom   = new THREE.BoxGeometry(extent, extent, 0.02);
-  const mat    = new THREE.MeshBasicMaterial({ color: 0x44aa88, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+  const mat    = new THREE.MeshBasicMaterial({ color: 0x44aa88, transparent: true, opacity: 0.05, side: THREE.DoubleSide });
   const mesh   = new THREE.Mesh(geom, mat);
   mesh.position.z = elev;
   mesh.userData.kind = "brep";
-  mesh.userData.creator = "SdLevel";
+  mesh.userData.creator = "IfcLevel";
   mesh.userData.levelId = level.id;
+  mesh.userData.noSnap = true;
+  const label = makeLevelSprite(level.name);
+  label.position.set(extent / 2 - 2.5, extent / 2 - 2.5, 0.3);
+  mesh.add(label);
+  levelStore.setActive(level.id);
   viewer.addMesh(mesh, "brep");
+  syncLevelOpacities();
   return { created: "level", elevation: elev, levelId: level.id };
 });
+
+// Dim non-active level planes; brighten the active one. Called whenever the active level changes.
+function syncLevelOpacities(): void {
+  const activeId = levelStore.getActive().id;
+  viewer.forEachSceneChild((child) => {
+    if (child.userData?.creator !== "IfcLevel") return;
+    const isActive = child.userData.levelId === activeId;
+    const mat = (child as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    if (mat?.opacity !== undefined) {
+      mat.opacity = isActive ? 0.05 : 0.02;
+      mat.needsUpdate = true;
+    }
+    for (const ch of child.children) {
+      if (ch.userData?.isLevelLabel) {
+        (ch as THREE.Sprite).material.opacity = isActive ? 1.0 : 0.4;
+        (ch as THREE.Sprite).material.needsUpdate = true;
+      }
+    }
+  });
+}
 
 registerHandler("setActiveLevel", (args) => {
   const id = args.id as string | undefined;
@@ -1358,7 +1399,7 @@ registerHandler("setActiveLevel", (args) => {
   const ok = levelStore.setActive(id);
   if (!ok) return { error: `level not found: ${id}` };
   const level = levelStore.get(id);
-  if (level) viewer.setTargetElevation(level.elevation);
+  syncLevelOpacities();
   return { ok: true, activeLevel: id, elevation: level?.elevation };
 });
 

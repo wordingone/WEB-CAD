@@ -90,7 +90,7 @@ let _lastCreateClickX = 0;
 let _lastCreateClickY = 0;
 // Temporary scene objects — removed when the tool completes or is cancelled.
 let _previewMesh: THREE.Mesh | null = null;
-let _markerMesh: THREE.Points | null = null;
+let _markerMesh: THREE.Points | THREE.Sprite | null = null;
 // Axis-constraint indicator line shown when Shift is held during sketch drawing.
 let _sketchShiftAxisLine: THREE.Line | null = null;
 // Cursor dot — CSS overlay div that tracks the pointer when a sketch tool is active.
@@ -538,8 +538,9 @@ function projectToScreen(viewer: Viewer, x: number, y: number, z = 0): { x: numb
 }
 
 // Unproject canvas-space (px) to world coords on the view-derived working plane.
-// For top/persp views this is Z=0 (XY plane). Front/back use Y=0 (XZ plane).
-// Left/right use X=0 (YZ plane). Uses the active camera so ortho views unproject correctly.
+// For top/persp views this is the active level's XY plane (Z = active elevation).
+// Front/back use Y=0 (XZ plane). Left/right use X=0 (YZ plane).
+// Uses the active camera so ortho views unproject correctly.
 function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.Vector3 | null {
   const canvas = viewer.getCanvas();
   const rect = canvas.getBoundingClientRect();
@@ -550,14 +551,28 @@ function unprojectToXY(viewer: Viewer, clientX: number, clientY: number): THREE.
   const camera = viewer.getActiveCamera();
   const raycaster = new THREE.Raycaster();
   raycaster.setFromCamera(ndc, camera);
-  // View-derived working plane: XY for top/default, XZ for front/back, YZ for right/left.
+  // View-derived working plane: XY at active level elevation for top/default,
+  // XZ (Y=0) for front/back, YZ (X=0) for right/left.
   let planeNormal: THREE.Vector3;
+  let planeConstant: number;
   switch (viewer.activeView) {
-    case "front": case "back":  planeNormal = new THREE.Vector3(0, 1, 0); break;
-    case "right": case "left":  planeNormal = new THREE.Vector3(1, 0, 0); break;
-    default:                    planeNormal = new THREE.Vector3(0, 0, 1); break;
+    case "front": case "back":
+      planeNormal = new THREE.Vector3(0, 1, 0);
+      planeConstant = 0;
+      break;
+    case "right": case "left":
+      planeNormal = new THREE.Vector3(1, 0, 0);
+      planeConstant = 0;
+      break;
+    default: {
+      // XY plane at the active level's elevation so cursor XY matches snap XY.
+      const elev = levelStore.getActive().elevation;
+      planeNormal = new THREE.Vector3(0, 0, 1);
+      planeConstant = -elev;
+      break;
+    }
   }
-  const plane = new THREE.Plane(planeNormal, 0);
+  const plane = new THREE.Plane(planeNormal, planeConstant);
   const point = new THREE.Vector3();
   const hit = raycaster.ray.intersectPlane(plane, point);
   if (hit) return point;
@@ -625,9 +640,9 @@ function snapWorldForView(viewer: Viewer, world: THREE.Vector3): { x: number; y:
       z: doSnap ? Math.round(world.z / s) * s : world.z,
     };
   }
-  // Top / perspective: full XY grid snap with origin+rotation support.
+  // Top / perspective / iso / bottom: XY grid snap, Z = active level elevation.
   const snapped = snapPoint(world.x, world.y);
-  return { x: snapped.x, y: snapped.y, z: 0 };
+  return { x: snapped.x, y: snapped.y, z: levelStore.getActive().elevation };
 }
 
 // Raycast against scene geometry to inherit Z elevation (for level placement, AC B.1).
@@ -675,16 +690,26 @@ function showLevelChip(
   nameIn.type = "text";
   nameIn.placeholder = "Name";
   nameIn.style.cssText = "width:90px; font-size:11px; padding:2px 4px; background:var(--chrome,#1a1a1a); border:1px solid var(--hairline,#444); color:var(--ink-body,#ddd); border-radius:3px;";
+  const _chipImperial = (window as unknown as { __appState?: { unitSystem?: string } }).__appState?.unitSystem === "imperial"
+    || document.documentElement.dataset.unitSystem === "imperial";
+  const _FT = 3.28084;
+  const _defaultHtM = 3.0;
+  const _defaultHtDisplay = _chipImperial ? (_defaultHtM * _FT).toFixed(1) : _defaultHtM.toFixed(1);
+  const _htUnit = _chipImperial ? "ft" : "m";
   const hIn = document.createElement("input");
   hIn.type = "number";
-  hIn.step = "0.1";
-  hIn.placeholder = "Ht (m)";
-  hIn.value = "3.0";
-  hIn.style.cssText = "width:58px; font-size:11px; padding:2px 4px; background:var(--chrome,#1a1a1a); border:1px solid var(--hairline,#444); color:var(--ink-body,#ddd); border-radius:3px;";
+  hIn.step = _chipImperial ? "0.5" : "0.1";
+  hIn.placeholder = `Ht (${_htUnit})`;
+  hIn.value = _defaultHtDisplay;
+  hIn.style.cssText = "width:48px; font-size:11px; padding:2px 4px; background:var(--chrome,#1a1a1a); border:1px solid var(--hairline,#444); color:var(--ink-body,#ddd); border-radius:3px;";
+  const htUnitLbl = document.createElement("span");
+  htUnitLbl.textContent = _htUnit;
+  htUnitLbl.style.cssText = "font-size:10px; color:var(--ink-faint); flex-shrink:0;";
 
   const commit = () => {
     const name = nameIn.value.trim();
-    const height = parseFloat(hIn.value);
+    const rawHt = parseFloat(hIn.value);
+    const height = _chipImperial && !isNaN(rawHt) ? rawHt / _FT : rawHt;
     levelStore.update(levelId, {
       ...(name ? { name } : {}),
       ...(!isNaN(height) ? { height } : {}),
@@ -698,6 +723,7 @@ function showLevelChip(
 
   chip.appendChild(nameIn);
   chip.appendChild(hIn);
+  chip.appendChild(htUnitLbl);
   document.body.appendChild(chip);
   setTimeout(() => nameIn.focus(), 10);
 
@@ -1283,18 +1309,58 @@ function buildGridLine(a: { x: number; y: number }, b: { x: number; y: number })
   return { mesh: line, chain };
 }
 
+function _drawLevelCanvas(name: string): HTMLCanvasElement {
+  const W = 192, H = 48;
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = "500 20px system-ui,sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(255,255,255,0.7)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "#6b9a80";
+  ctx.fillText(name, W / 2, H / 2);
+  ctx.shadowBlur = 0;
+  ctx.fillText(name, W / 2, H / 2);
+  return canvas;
+}
+
+/** Creates a billboard Sprite label for a level plane (camera-facing, no depth write). */
+export function makeLevelSprite(name: string): THREE.Sprite {
+  const tex = new THREE.CanvasTexture(_drawLevelCanvas(name));
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, alphaTest: 0.01, depthTest: false, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(4, 1, 1);
+  sprite.userData.isLevelLabel = true;
+  return sprite;
+}
+
+/** Refreshes the canvas texture on an existing level label sprite when the name changes. */
+export function updateLevelSprite(sprite: THREE.Sprite, name: string): void {
+  const mat = sprite.material as THREE.SpriteMaterial;
+  if (mat.map) mat.map.dispose();
+  mat.map = new THREE.CanvasTexture(_drawLevelCanvas(name));
+  mat.needsUpdate = true;
+}
+
 function buildLevel(p: { x: number; y: number; z?: number }): { mesh: THREE.Object3D; chain: string; levelId: string } {
   const elevation = p.z ?? 0;
   const name = `Level ${levelStore.all().length}`;
   const level = levelStore.findOrCreate(name, elevation, 3.0);
   const extent = 20;
   const geom = new THREE.BoxGeometry(extent, extent, 0.02);
-  const mat = new THREE.MeshBasicMaterial({ color: 0x44aa88, transparent: true, opacity: 0.15, side: THREE.DoubleSide });
+  const mat = new THREE.MeshBasicMaterial({ color: 0x44aa88, transparent: true, opacity: 0.04, side: THREE.DoubleSide });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(p.x, p.y, elevation);
   mesh.userData.kind = "brep";
   mesh.userData.creator = "IfcLevel";
   mesh.userData.levelId = level.id;
+  mesh.userData.noSnap = true;
+  const label = makeLevelSprite(level.name);
+  label.position.set(extent / 2 - 2.5, extent / 2 - 2.5, 0.3);
+  mesh.add(label);
   const chain = `IfcLevel({elevation:${elevation},name:"${name}",height:3.0})`;
   return { mesh, chain, levelId: level.id };
 }
@@ -1420,38 +1486,51 @@ function buildClipPlane(
   };
 }
 
+// Inject the clicked Z into the mesh after the builder returns.
+// All XY-plane builders hardcode position.z=0; this wrapper lifts them to the
+// active level elevation using the first clicked point's z.
+function atZ<T extends { mesh: THREE.Object3D; chain: string }>(
+  fn: (pts: Array<{ x: number; y: number; z?: number }>) => T,
+): (pts: Array<{ x: number; y: number; z?: number }>) => T {
+  return (pts) => {
+    const r = fn(pts);
+    r.mesh.position.z = pts[0]?.z ?? 0;
+    return r;
+  };
+}
+
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
-  wall:     { clicks: 2, handler: ([a, b]) => buildWall(a, b) },
-  rect:     { clicks: 2, handler: ([a, b]) => buildRect(a, b) },
-  circle:   { clicks: 2, handler: ([a, b]) => buildCircle(a, b) },
-  line:     { clicks: 2, handler: ([a, b]) => buildLine(a, b) },
-  slab:     { clicks: 2, handler: ([a, b]) => buildSlab(a, b) },
-  door:     { clicks: 1, handler: ([p]) => buildDoor(p) },
-  window:   { clicks: 1, handler: ([p]) => buildWindow(p) },
-  column:   { clicks: 1, handler: ([p]) => buildColumn(p) },
+  wall:     { clicks: 2, handler: atZ(([a, b]) => buildWall(a, b)) },
+  rect:     { clicks: 2, handler: atZ(([a, b]) => buildRect(a, b)) },
+  circle:   { clicks: 2, handler: atZ(([a, b]) => buildCircle(a, b)) },
+  line:     { clicks: 2, handler: atZ(([a, b]) => buildLine(a, b)) },
+  slab:     { clicks: 2, handler: atZ(([a, b]) => buildSlab(a, b)) },
+  door:     { clicks: 1, handler: atZ(([p]) => buildDoor(p)) },
+  window:   { clicks: 1, handler: atZ(([p]) => buildWindow(p)) },
+  column:   { clicks: 1, handler: atZ(([p]) => buildColumn(p)) },
   // T4 tool implementations — see buildStair / buildPolygon / buildPolyline /
   // buildExtrude for design notes. polyline/curve: unlimited clicks (-1),
   // committed by Enter or double-click; closed automatically when last click
   // snaps back to the first point.
-  stair:    { clicks: 2, handler: ([a, b]) => buildStair(a, b) },
-  polygon:  { clicks: 2, handler: ([a, b]) => buildPolygon(a, b) },
-  polyline: { clicks: -1, handler: (pts) => buildPolyline(pts) },
-  curve:    { clicks: -1, handler: (pts) => buildCurve(pts) },
-  point:    { clicks: 1, handler: ([p]) => buildPoint(p) },
-  extrude:      { clicks: 3, handler: ([c1, c2, c3]) => buildBox(c1, c2, c3) },
-  beam:         { clicks: 2, handler: ([a, b]) => buildBeam(a, b) },
-  roof:         { clicks: 2, handler: ([a, b]) => buildRoof(a, b) },
-  space:        { clicks: 2, handler: ([a, b]) => buildSpace(a, b) },
-  foundation:   { clicks: 2, handler: ([a, b]) => buildFoundation(a, b) },
-  ceiling:      { clicks: 2, handler: ([a, b]) => buildCeiling(a, b) },
-  curtainwall:  { clicks: 2, handler: ([a, b]) => buildCurtainWall(a, b) },
-  skylight:     { clicks: 2, handler: ([a, b]) => buildSkylight(a, b) },
-  opening:      { clicks: 1, handler: ([p]) => buildOpening(p) },
-  ramp:         { clicks: 2, handler: ([a, b]) => buildRamp(a, b) },
-  railing:      { clicks: 2, handler: ([a, b]) => buildRailing(a, b) },
-  grid:         { clicks: 2, handler: ([a, b]) => buildGridLine(a, b) },
-  level:        { clicks: 1, handler: ([p]) => buildLevel(p) },
-  datum:        { clicks: 2, handler: ([a, b]) => buildReferenceLine(a, b) },
+  stair:    { clicks: 2, handler: atZ(([a, b]) => buildStair(a, b)) },
+  polygon:  { clicks: 2, handler: atZ(([a, b]) => buildPolygon(a, b)) },
+  polyline: { clicks: -1, handler: atZ((pts) => buildPolyline(pts)) },
+  curve:    { clicks: -1, handler: atZ((pts) => buildCurve(pts)) },
+  point:    { clicks: 1, handler: atZ(([p]) => buildPoint(p)) },
+  extrude:      { clicks: 3, handler: atZ(([c1, c2, c3]) => buildBox(c1, c2, c3)) },
+  beam:         { clicks: 2, handler: atZ(([a, b]) => buildBeam(a, b)) },
+  roof:         { clicks: 2, handler: atZ(([a, b]) => buildRoof(a, b)) },
+  space:        { clicks: 2, handler: atZ(([a, b]) => buildSpace(a, b)) },
+  foundation:   { clicks: 2, handler: atZ(([a, b]) => buildFoundation(a, b)) },
+  ceiling:      { clicks: 2, handler: atZ(([a, b]) => buildCeiling(a, b)) },
+  curtainwall:  { clicks: 2, handler: atZ(([a, b]) => buildCurtainWall(a, b)) },
+  skylight:     { clicks: 2, handler: atZ(([a, b]) => buildSkylight(a, b)) },
+  opening:      { clicks: 1, handler: atZ(([p]) => buildOpening(p)) },
+  ramp:         { clicks: 2, handler: atZ(([a, b]) => buildRamp(a, b)) },
+  railing:      { clicks: 2, handler: atZ(([a, b]) => buildRailing(a, b)) },
+  grid:         { clicks: 2, handler: ([a, b]) => buildGridLine(a, b) },   // grid always at Z=0
+  level:        { clicks: 1, handler: ([p]) => buildLevel(p) },            // level uses getGeometryZ
+  datum:        { clicks: 2, handler: ([a, b]) => buildReferenceLine(a, b) }, // datum always at Z=0
   section:      { clicks: 2, handler: ([a, b]) => buildSectionBox(a, b) },
   clip:         { clicks: 2, handler: ([a, b]) => buildClipPlane(a, b) },
 };
@@ -1467,21 +1546,36 @@ const TOOL_TODOS: Record<string, string> = {
 
 // --- Temporary scene object management ---
 
-function setMarker(viewer: Viewer, pt: { x: number; y: number }): void {
+function setMarker(viewer: Viewer, pt: { x: number; y: number; z?: number }): void {
   clearMarker(viewer);
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute("position", new THREE.Float32BufferAttribute([pt.x, pt.y, 0.05], 3));
-  const mat = new THREE.PointsMaterial({ size: 8, sizeAttenuation: false, color: 0xff8800, depthTest: false });
-  _markerMesh = new THREE.Points(geom, mat);
-  _markerMesh.renderOrder = 999;
-  viewer.getScene().add(_markerMesh);
+  const z = pt.z ?? 0;
+  // Black-ring / white-fill dot — matches the snap cursor style.
+  const c = document.createElement("canvas"); c.width = 32; c.height = 32;
+  const ctx = c.getContext("2d");
+  if (!ctx) return; // no canvas2d support (test env) — skip visual marker
+  ctx.clearRect(0, 0, 32, 32);
+  ctx.beginPath(); ctx.arc(16, 16, 10, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff"; ctx.fill();
+  ctx.strokeStyle = "#000000"; ctx.lineWidth = 2.5; ctx.stroke();
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.set(pt.x, pt.y, z + 0.05);
+  sprite.scale.set(0.35, 0.35, 1);
+  sprite.renderOrder = 999;
+  _markerMesh = sprite;
+  viewer.getScene().add(sprite);
 }
 
 function clearMarker(viewer: Viewer): void {
   if (!_markerMesh) return;
   viewer.getScene().remove(_markerMesh);
-  _markerMesh.geometry.dispose();
-  (_markerMesh.material as THREE.Material).dispose();
+  if ("geometry" in _markerMesh) _markerMesh.geometry.dispose();
+  const mat = (_markerMesh as THREE.Sprite).material ?? (_markerMesh as THREE.Points).material;
+  if (mat) {
+    (mat as THREE.SpriteMaterial).map?.dispose();
+    (mat as THREE.Material).dispose();
+  }
   _markerMesh = null;
 }
 

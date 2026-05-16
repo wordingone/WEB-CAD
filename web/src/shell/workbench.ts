@@ -744,7 +744,6 @@ function buildSceneTab(scenePanel: HTMLElement | null): HTMLElement {
   const refBody = el("div");
   refBody.appendChild(buildLevelsTab());
   refBody.appendChild(buildGridsTab());
-  refBody.appendChild(buildDatumsTab());
   addSubsection("REFERENCE GEOMETRY", refBody);
   addSubsection("PARITY", buildParitySubsection());
   addSubsection("VIEW STATE", buildViewStateSection());
@@ -1022,6 +1021,50 @@ function buildLevelsTab(): HTMLElement {
     elevEl.textContent = formatLength(Math.abs(lvl.elevation)).replace(/^/, lvl.elevation >= 0 ? "+" : "−");
     elevEl.style.cssText = "font-size:9px; color:var(--ink-dim); white-space:nowrap;";
 
+    const heightEl = el("div", "level-height-display");
+    heightEl.textContent = `h: ${formatLength(lvl.height)}`;
+    heightEl.title = "Floor-to-floor height — click to edit";
+    heightEl.style.cssText = "font-size:9px; color:var(--ink-faint); white-space:nowrap; cursor:pointer; padding:0 2px;";
+    heightEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const imperial = getState("unitSystem") === "imperial";
+      const FT = 3.28084;
+      const inp = document.createElement("input");
+      inp.type = "number";
+      inp.min = "0.01";
+      inp.step = "0.5";
+      inp.value = imperial ? (lvl.height * FT).toFixed(2) : lvl.height.toFixed(2);
+      inp.title = imperial ? "Floor-to-floor height (ft)" : "Floor-to-floor height (m)";
+      inp.style.cssText = "width:46px; font-size:9px; padding:1px 3px; background:var(--chrome,#1a1a1a); border:1px solid var(--accent,#5080ff); color:var(--ink-body,#ddd); border-radius:2px;";
+      const unitLabel = document.createElement("span");
+      unitLabel.textContent = imperial ? "ft" : "m";
+      unitLabel.style.cssText = "font-size:9px; color:var(--ink-faint); margin-left:2px; flex-shrink:0;";
+      const inpWrap = el("div", "level-height-input-wrap");
+      inpWrap.style.cssText = "display:flex; align-items:center;";
+      inpWrap.appendChild(inp);
+      inpWrap.appendChild(unitLabel);
+      heightEl.replaceWith(inpWrap);
+      inp.focus(); inp.select();
+      let committed = false;
+      const commit = () => {
+        if (committed) return;
+        committed = true;
+        const raw = parseFloat(inp.value);
+        if (!isNaN(raw) && raw > 0) {
+          const hM = imperial ? raw / FT : raw;
+          levelStore.update(lvl.id, { height: hM });
+          // levelStore.update notifies subscribers → render() rebuilds the tab
+        } else if (inpWrap.parentNode) {
+          inpWrap.replaceWith(heightEl);
+        }
+      };
+      inp.addEventListener("blur", commit);
+      inp.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); inp.blur(); }
+        if (ev.key === "Escape") { committed = true; if (inpWrap.parentNode) inpWrap.replaceWith(heightEl); ev.stopPropagation(); }
+      });
+    });
+
     const chip = el("div", "level-active-chip");
     chip.textContent = "ACTIVE";
     chip.style.cssText = `font-size:8px; padding:1px 4px; border-radius:2px; background:var(--accent,#5080ff); color:#fff; display:${lvl.active ? "block" : "none"};`;
@@ -1029,6 +1072,7 @@ function buildLevelsTab(): HTMLElement {
     row.appendChild(eye);
     row.appendChild(nameEl);
     row.appendChild(elevEl);
+    row.appendChild(heightEl);
     row.appendChild(chip);
 
     if (lvl.id !== "level/0") {
