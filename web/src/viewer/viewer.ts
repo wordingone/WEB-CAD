@@ -2488,6 +2488,8 @@ export class Viewer {
       perspPane.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
       perspPane.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
       perspPane.controls.zoomSpeed = 1;
+      // #715: sync gizmo camera back to persp.
+      for (const g of this.gizmos) g.camera = this.camera;
     }
     this.camera.position.set(center.x + dir.x * dist, center.y + dir.y * dist, center.z + dir.z * dist);
     this.camera.updateProjectionMatrix();
@@ -2517,6 +2519,8 @@ export class Viewer {
         perspPane.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
         perspPane.controls.zoomSpeed = 1;
         perspPane.controls.update();
+        // #715: sync gizmo camera so TransformControls uses persp size math.
+        for (const g of this.gizmos) g.camera = this.camera;
       }
       return;
     }
@@ -2579,6 +2583,8 @@ export class Viewer {
       perspPane.controls.zoomSpeed = 1;
       perspPane.controls.target.set(cx, cy, cz);
       perspPane.controls.update();
+      // #715: sync gizmo camera so TransformControls uses ortho size math.
+      for (const g of this.gizmos) g.camera = oc;
     } else {
       // extents — restore perspective camera if needed.
       if (perspPane && perspPane.camera !== this.camera) {
@@ -2589,6 +2595,8 @@ export class Viewer {
         perspPane.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
         perspPane.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
         perspPane.controls.zoomSpeed = 1;
+        // #715: sync gizmo camera back to persp.
+        for (const g of this.gizmos) g.camera = this.camera;
       }
       this.camera.position.set(cx + dir.x * dist, cy + dir.y * dist, cz + dir.z * dist);
       this.camera.updateProjectionMatrix();
