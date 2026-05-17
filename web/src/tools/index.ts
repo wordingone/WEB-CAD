@@ -19,6 +19,7 @@ import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptClearPro
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, getOpPhase, setSelDragging, _selDragging, EXTRUDABLE_CREATORS, opGetScreenYtoDz } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
 import { setStructuralViewer, buildWall, rebuildWallInPlace, attemptWallJoins, buildSlab, buildColumn, buildStair, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlane, buildBox, buildExtrude } from "./structural";
+import { onElementCommitted } from "./join-groups";
 import { buildRect, buildCircle, buildLine, buildPolygon, buildPolyline, buildCurve, buildRamp, buildRailing, buildPoint } from "./sketch";
 import { buildDoor, buildWindow, buildOpening } from "./openings";
 
@@ -358,6 +359,7 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
   const out = handler.handler(_pending);
   _pending = [];
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh");
+  if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
   _createSequence.push(out.chain);
   pushAction(out.mesh, out.chain);
   hideCursorDot();
@@ -391,6 +393,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   const out = handler.handler(_pending);
   _pending = [];
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep");
+  if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
   if (out.mesh.userData.creator === "wall") attemptWallJoins(out.mesh as THREE.Mesh, viewer);
   _createSequence.push(out.chain);
   pushAction(out.mesh, out.chain);
