@@ -7,8 +7,11 @@ import * as THREE from "three";
 import { Brush, Evaluator, ADDITION } from "three-bvh-csg";
 
 // Structural types eligible for boolean union.
+// Walls are excluded: their junctions are solved parametrically by wall-corners.ts.
+// Including walls in CSG causes broken geometry when non-indexed wallPrism meshes
+// are unioned with slabs via three-bvh-csg.
 const JOIN_CREATORS = new Set([
-  "wall", "slab", "column", "beam", "stair", "roof",
+  "slab", "column", "beam", "stair", "roof",
   "foundation", "curtainwall", "ceiling",
 ]);
 
@@ -59,33 +62,8 @@ function _worldBrush(mesh: THREE.Mesh): Brush {
   return brush;
 }
 
-/**
- * Build a CSG Brush for a mesh. Wall brushes get a tiny epsilon extension (1cm per side)
- * so endpoint-to-endpoint junctions have guaranteed overlap for three-bvh-csg.
- * At architectural scale this is invisible — 0.2% of a 5m wall.
- */
+/** Build a world-space CSG Brush from a mesh's literal geometry (no extension). */
 function _brushForCsg(mesh: THREE.Mesh): Brush {
-  if (mesh.userData?.creator === "wall") {
-    const params = (mesh.geometry as THREE.BoxGeometry).parameters;
-    if (params?.width) {
-      const EXT = 0.02; // 1cm each side
-      const extGeom = new THREE.BoxGeometry(
-        params.width + EXT,
-        params.height,
-        params.depth,
-      );
-      extGeom.translate(0, 0, params.depth / 2);
-      mesh.updateMatrixWorld(true);
-      extGeom.applyMatrix4(mesh.matrixWorld);
-      const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      const brush = new Brush(extGeom, mat);
-      brush.position.set(0, 0, 0);
-      brush.rotation.set(0, 0, 0);
-      brush.scale.set(1, 1, 1);
-      brush.updateMatrixWorld(true);
-      return brush;
-    }
-  }
   return _worldBrush(mesh);
 }
 
