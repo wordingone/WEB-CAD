@@ -36,105 +36,190 @@ function round(n: number, digits = 4): number {
   return Math.round(n * f) / f;
 }
 
+// ── Wall miter-join helpers ──────────────────────────────────────────────────
+// Each wall stores its 4 footprint corners (world XY) in userData.corners as:
+//   [0]=startLeft  [1]=startRight  [2]=endRight  [3]=endLeft
+// "left" = left side when walking ep0 → ep1; normal = rot90CCW(dir).
+// Geometry is ExtrudeGeometry in mesh-local space (mesh.position = centroid).
+
+type WVec2 = { x: number; y: number };
+type WCorners = [WVec2, WVec2, WVec2, WVec2];
+
+function wCorners(a: WVec2, b: WVec2, t: number): WCorners {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-6) return [a, a, b, b] as WCorners;
+  const nx = (-dy / len) * (t / 2), ny = (dx / len) * (t / 2);
+  return [
+    { x: a.x + nx, y: a.y + ny },
+    { x: a.x - nx, y: a.y - ny },
+    { x: b.x - nx, y: b.y - ny },
+    { x: b.x + nx, y: b.y + ny },
+  ];
+}
+
+function lineIsect2(p: WVec2, d: WVec2, q: WVec2, e: WVec2): WVec2 | null {
+  const den = d.x * e.y - d.y * e.x;
+  if (Math.abs(den) < 1e-10) return null;
+  const rx = q.x - p.x, ry = q.y - p.y;
+  const t = (rx * e.y - ry * e.x) / den;
+  return { x: p.x + t * d.x, y: p.y + t * d.y };
+}
+
+function wallExtrudeGeom(corners: WCorners, h: number, cx: number, cy: number): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape([
+    new THREE.Vector2(corners[0].x - cx, corners[0].y - cy),
+    new THREE.Vector2(corners[1].x - cx, corners[1].y - cy),
+    new THREE.Vector2(corners[2].x - cx, corners[2].y - cy),
+    new THREE.Vector2(corners[3].x - cx, corners[3].y - cy),
+  ]);
+  return new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+}
+
+function applyWallCorners(mesh: THREE.Mesh, corners: WCorners, ep0: WVec2, ep1: WVec2): void {
+  const cx = (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4;
+  const cy = (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4;
+  mesh.geometry.dispose();
+  mesh.geometry = wallExtrudeGeom(corners, DEFAULT_WALL_HEIGHT, cx, cy);
+  mesh.position.set(cx, cy, 0);
+  mesh.rotation.set(0, 0, 0);
+  mesh.userData.corners = corners;
+  const midX = (ep0.x + ep1.x) / 2, midY = (ep0.y + ep1.y) / 2;
+  mesh.userData.endpoints = [
+    { x: ep0.x, y: ep0.y, z: 0, id: makeSnapId(ep0.x, ep0.y, 0) },
+    { x: ep1.x, y: ep1.y, z: 0, id: makeSnapId(ep1.x, ep1.y, 0) },
+    { x: midX, y: midY, z: 0, id: makeSnapId(midX, midY, 0) },
+  ] as SnapVertex[];
+}
+
+// Compute miter corners at shared endpoint P.
+// dN / dE: forward directions (ep0→ep1) of new and existing wall.
+// extN / extE: direction to extend each wall's edges PAST P into corner space.
+//   join at ep1 → ext = +fwd;  join at ep0 → ext = -fwd.
+// Returns iLL (left-edge intersection) and iRR (right-edge intersection).
+function computeMiter(
+  P: WVec2, t: number,
+  dN: WVec2, dE: WVec2,
+  extN: WVec2, extE: WVec2,
+): { iLL: WVec2; iRR: WVec2 } | null {
+  const nN = { x: -dN.y, y: dN.x };
+  const nE = { x: -dE.y, y: dE.x };
+  const pNL = { x: P.x + (t / 2) * nN.x, y: P.y + (t / 2) * nN.y };
+  const pNR = { x: P.x - (t / 2) * nN.x, y: P.y - (t / 2) * nN.y };
+  const pEL = { x: P.x + (t / 2) * nE.x, y: P.y + (t / 2) * nE.y };
+  const pER = { x: P.x - (t / 2) * nE.x, y: P.y - (t / 2) * nE.y };
+  const iLL = lineIsect2(pNL, extN, pEL, extE);
+  const iRR = lineIsect2(pNR, extN, pER, extE);
+  if (!iLL || !iRR) return null;
+  const MAX = 12 * t;
+  if (Math.hypot(iLL.x - P.x, iLL.y - P.y) > MAX) return null;
+  if (Math.hypot(iRR.x - P.x, iRR.y - P.y) > MAX) return null;
+  return { iLL, iRR };
+}
+
+// ── Public wall API ──────────────────────────────────────────────────────────
+
 export function buildWall(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  const midX = (a.x + b.x) / 2;
-  const midY = (a.y + b.y) / 2;
-  const angDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-  const t = DEFAULT_WALL_THICKNESS;
-  const h = DEFAULT_WALL_HEIGHT;
-  const geom = new THREE.BoxGeometry(length, t, h);
-  geom.translate(0, 0, h / 2);
+  const t = DEFAULT_WALL_THICKNESS, h = DEFAULT_WALL_HEIGHT;
+  const corners = wCorners(a, b, t);
+  const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+  const geom = wallExtrudeGeom(corners, h, cx, cy);
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.55, metalness: 0.05 });
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.set(midX, midY, 0);
-  mesh.rotation.z = (angDeg * Math.PI) / 180;
+  mesh.position.set(cx, cy, 0);
   mesh.userData.kind = "brep";
   mesh.userData.creator = "wall";
+  mesh.userData.corners = corners;
   mesh.userData.endpoints = [
     { x: a.x, y: a.y, z: 0, id: makeSnapId(a.x, a.y, 0) },
     { x: b.x, y: b.y, z: 0, id: makeSnapId(b.x, b.y, 0) },
-    { x: midX, y: midY, z: 0, id: makeSnapId(midX, midY, 0) },
+    { x: cx, y: cy, z: 0, id: makeSnapId(cx, cy, 0) },
   ] as SnapVertex[];
-  const chain = `const wall = makeBox(${round(length)}, ${round(t)}, ${round(h)}).rotate(${round(angDeg)}, [0, 0, 0], [0, 0, 1]).translate([${round(midX)}, ${round(midY)}, 0]);`;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  const angDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const chain = `const wall = makeBox(${round(length)}, ${round(t)}, ${round(h)}).rotate(${round(angDeg)}, [0, 0, 0], [0, 0, 1]).translate([${round(cx)}, ${round(cy)}, 0]);`;
   return { mesh, chain };
 }
 
 export function rebuildWallInPlace(mesh: THREE.Mesh, a: { x: number; y: number }, b: { x: number; y: number }): void {
   const dx = b.x - a.x, dy = b.y - a.y;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  if (length < 0.01) return;
-  const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
-  const angDeg = Math.atan2(dy, dx) * 180 / Math.PI;
-  const t = DEFAULT_WALL_THICKNESS, h = DEFAULT_WALL_HEIGHT;
-  mesh.geometry.dispose();
-  const geom = new THREE.BoxGeometry(length, t, h);
-  geom.translate(0, 0, h / 2);
-  mesh.geometry = geom;
-  mesh.position.set(midX, midY, 0);
-  mesh.rotation.z = angDeg * Math.PI / 180;
-  mesh.userData.endpoints = [
-    { x: a.x, y: a.y, z: 0, id: makeSnapId(a.x, a.y, 0) },
-    { x: b.x, y: b.y, z: 0, id: makeSnapId(b.x, b.y, 0) },
-    { x: midX, y: midY, z: 0, id: makeSnapId(midX, midY, 0) },
-  ] as SnapVertex[];
-}
-
-function extendExistingWallEnd(mesh: THREE.Mesh, existEps: SnapVertex[], joinIdx: number, t: number): void {
-  const jx = existEps[joinIdx].x, jy = existEps[joinIdx].y;
-  const ox = existEps[1 - joinIdx].x, oy = existEps[1 - joinIdx].y;
-  const edx = jx - ox, edy = jy - oy;
-  const elen = Math.sqrt(edx * edx + edy * edy);
-  if (elen < 0.01) return;
-  const f = (t / 2) / elen;
-  const extPt = { x: jx + edx * f, y: jy + edy * f };
-  const other = { x: ox, y: oy };
-  rebuildWallInPlace(mesh, joinIdx === 0 ? extPt : other, joinIdx === 0 ? other : extPt);
+  if (Math.sqrt(dx * dx + dy * dy) < 0.01) return;
+  const corners = wCorners(a, b, DEFAULT_WALL_THICKNESS);
+  applyWallCorners(mesh, corners, a, b);
 }
 
 export function attemptWallJoins(newMesh: THREE.Mesh, viewer: Viewer): void {
   const t = DEFAULT_WALL_THICKNESS;
   const eps = newMesh.userData.endpoints as SnapVertex[];
   if (!eps || eps.length < 2) return;
-  let aX = eps[0].x, aY = eps[0].y;
-  let bX = eps[1].x, bY = eps[1].y;
-  const dx = bX - aX, dy = bY - aY;
+  const ep0N: WVec2 = { x: eps[0].x, y: eps[0].y };
+  const ep1N: WVec2 = { x: eps[1].x, y: eps[1].y };
+  const dx = ep1N.x - ep0N.x, dy = ep1N.y - ep0N.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.01) return;
-  const dirX = dx / len, dirY = dy / len;
-  const JOIN_TOL = t;
+  const dN: WVec2 = { x: dx / len, y: dy / len };
+
+  let newCorners = wCorners(ep0N, ep1N, t);
+  const JOIN_TOL = t * 1.5;
   let aJoined = false, bJoined = false;
+
   for (const obj of viewer.getScene().children) {
+    if (aJoined && bJoined) break;
     if (!(obj instanceof THREE.Mesh) || obj === newMesh || obj.userData?.creator !== "wall") continue;
     const existEps = obj.userData.endpoints as SnapVertex[] | undefined;
-    if (!existEps) continue;
+    if (!existEps || existEps.length < 2) continue;
+    const existCorners = obj.userData.corners as WCorners | undefined;
+    if (!existCorners) continue;
+
+    const ep0E: WVec2 = { x: existEps[0].x, y: existEps[0].y };
+    const ep1E: WVec2 = { x: existEps[1].x, y: existEps[1].y };
+    const edx = ep1E.x - ep0E.x, edy = ep1E.y - ep0E.y;
+    const elen = Math.sqrt(edx * edx + edy * edy);
+    if (elen < 0.01) continue;
+    const dE: WVec2 = { x: edx / elen, y: edy / elen };
+
     for (let ei = 0; ei < 2; ei++) {
       const ex = existEps[ei].x, ey = existEps[ei].y;
-      if (!bJoined && Math.hypot(bX - ex, bY - ey) < JOIN_TOL) {
-        bX = ex + dirX * (t / 2);
-        bY = ey + dirY * (t / 2);
-        bJoined = true;
-        if (!newMesh.userData.joins) newMesh.userData.joins = [];
-        if (!obj.userData.joins) obj.userData.joins = [];
-        newMesh.userData.joins.push({ partnerUuid: obj.uuid, myEndIdx: 1, partnerEndIdx: ei });
-        obj.userData.joins.push({ partnerUuid: newMesh.uuid, myEndIdx: ei, partnerEndIdx: 1 });
-        extendExistingWallEnd(obj as THREE.Mesh, existEps, ei, t);
-      } else if (!aJoined && Math.hypot(aX - ex, aY - ey) < JOIN_TOL) {
-        aX = ex - dirX * (t / 2);
-        aY = ey - dirY * (t / 2);
-        aJoined = true;
-        if (!newMesh.userData.joins) newMesh.userData.joins = [];
-        if (!obj.userData.joins) obj.userData.joins = [];
-        newMesh.userData.joins.push({ partnerUuid: obj.uuid, myEndIdx: 0, partnerEndIdx: ei });
-        obj.userData.joins.push({ partnerUuid: newMesh.uuid, myEndIdx: ei, partnerEndIdx: 0 });
-        extendExistingWallEnd(obj as THREE.Mesh, existEps, ei, t);
+      const P: WVec2 = { x: ex, y: ey };
+      // ext directions: joining at wall's ep1 → +fwd; joining at ep0 → -fwd
+      const extE: WVec2 = ei === 1
+        ? dE
+        : { x: -dE.x, y: -dE.y };
+
+      // Check new wall's ep1 (b-end) against existing endpoint ei
+      if (!bJoined && Math.hypot(ep1N.x - ex, ep1N.y - ey) < JOIN_TOL) {
+        const extN: WVec2 = dN; // new wall joins at ep1 → extend in +dN
+        const m = computeMiter(P, t, dN, dE, extN, extE);
+        if (m) {
+          newCorners[2] = m.iRR;  // endRight of new wall
+          newCorners[3] = m.iLL;  // endLeft
+          const ec = existCorners.slice() as WCorners;
+          if (ei === 1) { ec[2] = m.iRR; ec[3] = m.iLL; }
+          else          { ec[0] = m.iLL; ec[1] = m.iRR; }
+          applyWallCorners(obj as THREE.Mesh, ec, ep0E, ep1E);
+          bJoined = true;
+        }
+      }
+
+      // Check new wall's ep0 (a-end) against existing endpoint ei
+      if (!aJoined && Math.hypot(ep0N.x - ex, ep0N.y - ey) < JOIN_TOL) {
+        const extN: WVec2 = { x: -dN.x, y: -dN.y }; // new wall joins at ep0 → extend in -dN
+        const m = computeMiter(P, t, dN, dE, extN, extE);
+        if (m) {
+          newCorners[0] = m.iLL;  // startLeft of new wall
+          newCorners[1] = m.iRR;  // startRight
+          const ec = existCorners.slice() as WCorners;
+          if (ei === 1) { ec[2] = m.iRR; ec[3] = m.iLL; }
+          else          { ec[0] = m.iLL; ec[1] = m.iRR; }
+          applyWallCorners(obj as THREE.Mesh, ec, ep0E, ep1E);
+          aJoined = true;
+        }
       }
     }
-    if (aJoined && bJoined) break;
   }
-  if (aJoined || bJoined) rebuildWallInPlace(newMesh, { x: aX, y: aY }, { x: bX, y: bY });
+
+  if (aJoined || bJoined) applyWallCorners(newMesh, newCorners, ep0N, ep1N);
 }
 
 export function buildSlab(a: { x: number; y: number }, b: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
