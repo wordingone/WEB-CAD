@@ -3009,6 +3009,7 @@ initShellChrome({
   onModeChange: (k) => {
     activateMode(k, workbenchEl);
     setRibbonMode(k as "model" | "layout" | "research");
+    viewer.setGumballEnabled(k === "model");
     if (k === "layout") applyDrafting(viewer.getScene());
     else removeDrafting(viewer.getScene());
   },
