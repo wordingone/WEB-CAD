@@ -13,6 +13,7 @@
 //   --out PATH        JSONL output path (default: stdout only).
 
 import { appendFileSync } from "fs";
+import { CDP_PORT, DEV_PORT } from "./ports.ts";
 
 // ── Prompt suite (5 variants per #413 AC) ─────────────────────────────────────
 
@@ -68,16 +69,16 @@ if (suite.length === 0) {
 
 // ── CDP connection ────────────────────────────────────────────────────────────
 
-const targets = await fetch("http://localhost:9222/json")
+const targets = await fetch(`http://localhost:${CDP_PORT}/json`)
   .then((r) => r.json() as Promise<Array<{ url?: string; type?: string; webSocketDebuggerUrl?: string }>>)
   .catch(() => null);
 if (!targets) {
-  console.error("ERROR: Cannot reach CDP at :9222 — start shared browser first.");
+  console.error(`ERROR: Cannot reach CDP at :${CDP_PORT} — start shared browser first.`);
   process.exit(1);
 }
-const target = targets.find((t) => t.url?.includes("localhost:5175") && t.type === "page");
+const target = targets.find((t) => t.url?.includes(`localhost:${DEV_PORT}`) && t.type === "page");
 if (!target?.webSocketDebuggerUrl) {
-  console.error("ERROR: No :5175 page tab found. Start dev server first.");
+  console.error(`ERROR: No :${DEV_PORT} page tab found. Start dev server first.`);
   process.exit(1);
 }
 

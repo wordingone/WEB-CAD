@@ -26,6 +26,7 @@
 
 import { readdirSync, readFileSync } from "fs";
 import { WebSocket } from "ws";
+import { CDP_PORT, DEV_PORT } from "./ports.mjs";
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 function arg(name, def) {
@@ -71,10 +72,10 @@ if (dryRun) {
 }
 
 // ── CDP connection ────────────────────────────────────────────────────────────
-const targets = await fetch("http://localhost:9222/json").then(r => r.json());
-const target  = targets.find(t => t.url?.includes("localhost:5175") && t.type === "page");
+const targets = await fetch(`http://localhost:${CDP_PORT}/json`).then(r => r.json());
+const target  = targets.find(t => t.url?.includes(`localhost:${DEV_PORT}`) && t.type === "page");
 if (!target) {
-  console.error("ERROR: no :5175 page target found — is the shared browser running?");
+  console.error(`ERROR: no :${DEV_PORT} page target found — is the shared browser running?`);
   process.exit(1);
 }
 

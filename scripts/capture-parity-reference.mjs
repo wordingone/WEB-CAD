@@ -18,6 +18,7 @@
 //   --out  → B:/M/avir/leo/state/
 
 import { writeFileSync, mkdirSync } from "fs";
+import { CDP_PORT, DEV_PORT, CDP_BASE } from "./ports.mjs";
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 
@@ -35,10 +36,10 @@ mkdirSync(OUT_DIR, { recursive: true });
 
 // ── CDP connection ────────────────────────────────────────────────────────────
 
-const targets = await fetch("http://localhost:9222/json").then(r => r.json());
-const target = targets.find(t => t.url?.includes("localhost:5175") && t.type === "page");
+const targets = await fetch(`${CDP_BASE}/json`).then(r => r.json());
+const target = targets.find(t => t.url?.includes(`localhost:${DEV_PORT}`) && t.type === "page");
 if (!target) {
-  console.error("ERROR: no :5175 page target in shared browser. Is bun run web:dev running?");
+  console.error(`ERROR: no :${DEV_PORT} page target in shared browser. Is bun run web:dev running?`);
   process.exit(1);
 }
 console.log(`Connecting to: ${target.url}`);
