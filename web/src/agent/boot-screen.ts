@@ -32,6 +32,7 @@ let _startTime = 0;
 let _rafId = 0;
 let _watchdogId: ReturnType<typeof setTimeout> | null = null;
 let _firstLoadingReceived = false;
+let _stalledShown = false;
 
 // Download trace — in-memory log of all agentmodel:* events for STALLED diagnostics.
 type TraceEntry = { t: number; event: string; bytes?: number; total?: number; phase?: string };
@@ -55,9 +56,17 @@ export function initBootScreen(): void {
 // ---------------------------------------------------------------------------
 // Stall display
 
+function _recoverFromStall(): void {
+  if (!_stalledShown || !_statusEl) return;
+  _stalledShown = false;
+  _statusEl.textContent = '';
+  _statusEl.style.display = 'none';
+}
+
 function _showStalled(): void {
   if (_done) return;
   _watchdogId = null;
+  _stalledShown = true;
   if (!_statusEl) return;
   Object.assign(_statusEl.style, { color: '#ff9900', display: 'block' });
   _statusEl.textContent = 'DOWNLOAD STALLED — check your connection and refresh';
@@ -94,25 +103,31 @@ function _wireEvents(): void {
     const d = (ev as CustomEvent<{
       bytes?: number; total?: number; throughputBytesPerSec?: number; file?: string; phase?: string;
     }>).detail ?? {};
-    const prevLoaded = _loadedBytes;
     if ((d.bytes ?? 0) > 0) _loadedBytes = Math.max(_loadedBytes, d.bytes!);
     if (d.throughputBytesPerSec) _throughput = d.throughputBytesPerSec;
     if (d.file) _currentFile = d.file;
     if (!_totalBytes && d.total) _totalBytes = d.total;
     _traceEvent('loading', { bytes: d.bytes, total: d.total, phase: d.phase });
+    // Any loading event proves the pipeline is alive — clear a false-positive stall.
+    _recoverFromStall();
     // Sliding-window: switch from 90s initial grace to 30s window only on first event
     // with real bytes (pre-manifest loading events fire with empty detail and must not
     // trigger the transition).
     // After first real bytes: reset 30s window on ANY loading event, including shard-boundary
     // events where bytes=0 (new shard starting) — these prove the connection is alive.
     // Without this, inter-shard gaps on slow CDN nodes exceed 30s and fire false STALLED.
+    //
+    // model-init phase: ORT/WebGPU deserialization is CPU/GPU-bound, not network-bound.
+    // It takes 60-180s and fires no intermediate progress — use 180s window so a genuine
+    // init stall still surfaces, but normal GPU load doesn't false-trigger STALLED.
+    const watchdogMs = d.phase === 'model-init' ? 180_000 : 30_000;
     if (!_firstLoadingReceived && _loadedBytes > 0) {
       _firstLoadingReceived = true;
       if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
-      _watchdogId = setTimeout(_showStalled, 30_000);
+      _watchdogId = setTimeout(_showStalled, watchdogMs);
     } else if (_firstLoadingReceived) {
       if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
-      _watchdogId = setTimeout(_showStalled, 30_000);
+      _watchdogId = setTimeout(_showStalled, watchdogMs);
     }
     _updateProgress();
   });
@@ -126,6 +141,7 @@ function _wireEvents(): void {
     if (d.throughputBytesPerSec) _throughput = d.throughputBytesPerSec;
     _currentFile = 'drafter';
     _traceEvent('drafter:loading', { bytes: d.bytes, total: d.total });
+    _recoverFromStall();
     // Also slide the watchdog window on drafter progress (drafter = active connection).
     if (_loadedBytes > prevLoaded) {
       if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
@@ -140,7 +156,9 @@ function _wireEvents(): void {
   }, { once: true });
   window.addEventListener('agentmodel:boot-complete', () => {
     _traceEvent('boot-complete');
-    _onDone();
+    // returning-user path installs its own boot-complete listener with READY_HOLD_MS delay;
+    // calling _onDone() here would bypass that hold and fade the overlay immediately.
+    if (!_isReturningUser) _onDone();
   }, { once: true });
   window.addEventListener('agentmodel:error', (ev: Event) => {
     _traceEvent('error');
@@ -213,7 +231,14 @@ function _onReturningUser(): void {
     _statusEl.style.color = '#6ef2b0';
     _statusEl.style.display = 'block';
   }
-  setTimeout(_onDone, READY_HOLD_MS);
+  // Wait for boot-complete before dismissing the overlay. returning-user fires when
+  // cached weights are *detected* in Cache API, not when the model is loaded into the
+  // ORT/WebGPU runtime — dismissing here causes "Model is still loading" on first prompt.
+  // boot-complete fires after model-ready + warmup-done + drafter-done, so inference is
+  // guaranteed usable when the overlay fades.
+  window.addEventListener('agentmodel:boot-complete', () => {
+    setTimeout(_onDone, READY_HOLD_MS);
+  }, { once: true });
 }
 
 function _onDone(): void {
