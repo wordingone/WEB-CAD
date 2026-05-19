@@ -559,16 +559,24 @@ export function buildStairOnPolyline(
     zCurrent += n * riser;
 
     if (seg < pts.length - 2) {
+      // Offset landing center by stairW/2 in current segment direction so
+      // it starts at pB instead of overlapping the flight end.
+      const segLen2 = Math.sqrt(dx * dx + dy * dy) || 1;
       const landing = new THREE.Mesh(
         new THREE.BoxGeometry(stairW, stairW, landingT),
         _stepMat(),
       );
-      landing.position.set(pB.x, pB.y, zCurrent + landingT / 2);
+      landing.position.set(
+        pB.x + (dx / segLen2) * (stairW / 2),
+        pB.y + (dy / segLen2) * (stairW / 2),
+        zCurrent + landingT / 2,
+      );
       landing.userData.kind = "brep";
       landing.userData.creator = "stair";
       landing.userData.ifcClass = "IfcSlab";
       landing.userData.parentId = stairId;
       group.add(landing);
+      zCurrent += landingT; // next flight starts above the landing
     }
   }
 
@@ -638,8 +646,33 @@ export function buildStairOnCurve(
     return { x: px, y: py, angRad };
   }
 
+  // Landings at each intermediate control point arc position.
+  const landingT = DEFAULT_SLAB_THICKNESS;
+  const _ctrlArcLens: number[] = [];
+  for (let k = 0; k < ctrlPts.length; k++) {
+    const ctrlSampleIdx = Math.min(Math.round((k / (ctrlPts.length - 1)) * sampleCount), arcLens.length - 1);
+    _ctrlArcLens.push(arcLens[ctrlSampleIdx]);
+  }
+  const _landingStepIndices = new Set<number>();
+  for (let k = 1; k < ctrlPts.length - 1; k++) {
+    const stepIdx = Math.round(_ctrlArcLens[k] / actualT);
+    _landingStepIndices.add(Math.min(stepIdx, nRisers - 1));
+    const pos = sampleAt(_ctrlArcLens[k]);
+    const zLanding = stepIdx * riser;
+    const ldg = new THREE.Mesh(new THREE.BoxGeometry(stairW * 1.2, stairW * 1.2, landingT), _stepMat());
+    ldg.position.set(pos.x, pos.y, zLanding + landingT / 2);
+    ldg.rotation.z = pos.angRad;
+    ldg.userData.kind = "brep";
+    ldg.userData.creator = "stair";
+    ldg.userData.ifcClass = "IfcSlab";
+    ldg.userData.parentId = stairId;
+    group.add(ldg);
+  }
+
   // Each step is a single-riser box at its correct height (not cumulative).
+  // Skip steps whose index matches a landing position to avoid Z-overlap.
   for (let i = 0; i < nRisers; i++) {
+    if (_landingStepIndices.has(i)) continue;
     const s = sampleAt((i + 0.5) * actualT);
     const stepBot = i * riser;
     const step = new THREE.Mesh(new THREE.BoxGeometry(actualT, stairW, riser), _stepMat());
