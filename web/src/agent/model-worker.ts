@@ -174,13 +174,16 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const proc = processor as any;
+          // ~4000-token probe matches real system-prompt length — catches SafeInt overflow
+          // on WebGPU backends (Playwright Chromium 1217) that pass short probes but fail
+          // on real inference inputs. Falls back to CPU on throw.
           const probeText = proc.tokenizer.apply_chat_template(
-            [{ role: "user", content: "test" }],
+            [{ role: "user", content: "x ".repeat(2000) }],
             { tokenize: false, add_generation_prompt: true },
           ) as string;
           const probeIn = await proc(probeText);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await (model as any).generate({ ...probeIn, max_new_tokens: 20 });
+          await (model as any).generate({ ...probeIn, max_new_tokens: 1 });
         } catch {
           continue; // WebGPU probe failed → try CPU
         }
