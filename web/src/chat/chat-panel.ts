@@ -150,9 +150,10 @@ function estimateMaxTokens(prompt: string): number {
   // Multi-step design requests need headroom for plan + multiple tool_calls.
   // Covers all 10 P8a benchmark prompt categories (fire-station→station,
   // hospitality-cabin→cabin, walkup-4story→apartment, community-center→center/hall).
-  // 1024 (was 2048 #1048, was 4096 #1058): system prompt trimmed to ~1000 tok (#1194)
-  // so peak KV = (1000+1024)×72KB ≈ 146MB; house plan fits in ~900 tok with short prompt.
-  if (/\b(design|pavilion|room|building|house|complex|floor|facade|station|cabin|apartment|center|hall|clinic|library|residence|create|model)\b/.test(p)) return 1024;
+  // 2048 (was 1024 #1194, was 2048 #1048, was 4096 #1058): iter 2 log showed out=1024==
+  // max_new_tokens — house response truncated mid SdSlab. 25 calls × ~35 tok + plan ≈ 1100 tok;
+  // 2048 gives headroom. WebGPU VRAM budget unaffected by output cap.
+  if (/\b(design|pavilion|room|building|house|complex|floor|facade|station|cabin|apartment|center|hall|clinic|library|residence|create|model)\b/.test(p)) return 2048;
   // Default: single geometry command fits in 512.
   return 512;
 }
