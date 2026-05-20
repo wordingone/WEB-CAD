@@ -190,19 +190,67 @@ export function opFinish(viewer: Viewer, resetTool = true): void {
   if (resetTool) dispatchSync("setActiveTool", { toolId: "select" });
 }
 
+// Clones a mesh's material before setting emissive highlight so shared materials
+// (e.g. IFC walls sharing one MeshStandardMaterial) are not globally tinted.
+function _applyBoolHighlight(obj: THREE.Object3D, hex: number): void {
+  // Line objects (curves, polylines, circles as sketches) use LineBasicMaterial.color
+  if (obj instanceof THREE.Line) {
+    const lm = obj.material as THREE.LineBasicMaterial;
+    obj.userData._savedLineColor = lm.color.getHex();
+    lm.color.setHex(hex);
+    return;
+  }
+  const m = obj as THREE.Mesh;
+  const mats = Array.isArray(m.material) ? m.material : (m.material ? [m.material] : []);
+  const idx = mats.findIndex((mt) => !!(mt as THREE.MeshStandardMaterial).emissive);
+  if (idx < 0) return;
+  const orig = mats[idx] as THREE.MeshStandardMaterial;
+  const cloned = orig.clone();
+  cloned.emissive.setHex(hex);
+  cloned.emissiveIntensity = 1;
+  if (Array.isArray(m.material)) {
+    const next = [...m.material]; next[idx] = cloned; m.material = next;
+  } else {
+    m.material = cloned;
+  }
+  m.userData._savedEmissive = orig.emissive.getHex();
+  m.userData._savedMaterial = orig;
+}
+
+function _restoreBoolHighlight(obj: THREE.Object3D): void {
+  // Restore Line objects
+  if (obj instanceof THREE.Line) {
+    if (obj.userData._savedLineColor !== undefined) {
+      (obj.material as THREE.LineBasicMaterial).color.setHex(obj.userData._savedLineColor as number);
+      delete obj.userData._savedLineColor;
+    }
+    return;
+  }
+  const m = obj as THREE.Mesh;
+  if (m.userData._savedEmissive === undefined) return;
+  const orig = m.userData._savedMaterial as THREE.Material | undefined;
+  if (orig) {
+    if (Array.isArray(m.material)) {
+      m.material = m.material.map((mt) =>
+        (mt as THREE.MeshStandardMaterial).emissiveIntensity === 1 &&
+        (mt as THREE.MeshStandardMaterial).emissive ? orig : mt,
+      );
+    } else {
+      m.material = orig;
+    }
+    delete m.userData._savedMaterial;
+  } else {
+    const mats = Array.isArray(m.material) ? m.material : [m.material];
+    const std = mats.find((mt): mt is THREE.MeshStandardMaterial => !!(mt as THREE.MeshStandardMaterial).emissive);
+    if (std) std.emissive.setHex(m.userData._savedEmissive as number);
+  }
+  delete m.userData._savedEmissive;
+}
+
 export function opCancel(viewer: Viewer, resetTool = true): void {
   opSetHover(null);
-  const restoreEmissive = (obj: THREE.Object3D) => {
-    const m = obj as THREE.Mesh;
-    if (m.userData._savedEmissive === undefined) return;
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    const firstStd = mats.find((mat): mat is THREE.MeshStandardMaterial =>
-      !!(mat as THREE.MeshStandardMaterial).emissive);
-    if (firstStd) firstStd.emissive.setHex(m.userData._savedEmissive as number);
-    delete m.userData._savedEmissive;
-  };
-  if (_opPhase?.kind === "bool_b") restoreEmissive(_opPhase.objA);
-  if (_opPhase?.kind === "bool_op") { restoreEmissive(_opPhase.objA); restoreEmissive(_opPhase.objB); }
+  if (_opPhase?.kind === "bool_b") _restoreBoolHighlight(_opPhase.objA);
+  if (_opPhase?.kind === "bool_op") { _restoreBoolHighlight(_opPhase.objA); _restoreBoolHighlight(_opPhase.objB); }
   opFinish(viewer, resetTool);
 }
 
@@ -522,6 +570,27 @@ function snapEndpointsFromProfile(pts: Array<{x: number; y: number}>, h: number)
   return eps;
 }
 
+// Build explicit edge pairs for section-1d snap, avoiding the spurious diagonal
+// segments that arise when section-1d iterates the interleaved [z=0,z=h] endpoint array.
+// Encodes vertical edges (z=0↔z=h at each profile point) and horizontal ring edges
+// (adjacent profile points at z=0 and at z=h).
+type EdgePtPair = [{ x: number; y: number; z: number }, { x: number; y: number; z: number }];
+function snapEdgePairsFromProfile(pts: Array<{x: number; y: number}>, h: number): EdgePtPair[] {
+  const pairs: EdgePtPair[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    // Vertical edge
+    pairs.push([{ x: p.x, y: p.y, z: 0 }, { x: p.x, y: p.y, z: h }]);
+    // Horizontal ring edges at z=0 and z=h (adjacent profile points)
+    if (i < pts.length - 1) {
+      const q = pts[i + 1];
+      pairs.push([{ x: p.x, y: p.y, z: 0 }, { x: q.x, y: q.y, z: 0 }]);
+      pairs.push([{ x: p.x, y: p.y, z: h }, { x: q.x, y: q.y, z: h }]);
+    }
+  }
+  return pairs;
+}
+
 function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
   const creator = profile.userData.creator as string | undefined;
   const box = new THREE.Box3().setFromObject(profile);
@@ -538,11 +607,13 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
     mesh.position.set(ctr.x, ctr.y, 0);
     // Cardinal snap points on top + bottom circles (N/S/E/W + center)
     const cx = ctr.x, cy = ctr.y;
-    mesh.userData.endpoints = snapEndpointsFromProfile([
+    const circlePts = [
       { x: cx, y: cy },
       { x: cx + r, y: cy }, { x: cx - r, y: cy },
       { x: cx, y: cy + r }, { x: cx, y: cy - r },
-    ], h);
+    ];
+    mesh.userData.endpoints = snapEndpointsFromProfile(circlePts, h);
+    mesh.userData.edgePairs = snapEdgePairsFromProfile(circlePts, h);
     return mesh;
   }
 
@@ -567,6 +638,7 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
         const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05 });
         const mesh = new THREE.Mesh(geom, mat);
         mesh.userData.endpoints = snapEndpointsFromProfile(snapPts2d, h);
+        mesh.userData.edgePairs = snapEdgePairsFromProfile(snapPts2d, h);
         return mesh;
       } else {
         const verts: number[] = [];
@@ -585,6 +657,7 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
         const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(geom, mat);
         mesh.userData.endpoints = snapEndpointsFromProfile(snapPts2d, h);
+        mesh.userData.edgePairs = snapEdgePairsFromProfile(snapPts2d, h);
         return mesh;
       }
     }
@@ -602,7 +675,9 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
       const geom = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
       const mat = new THREE.MeshStandardMaterial({ color: 0xd0a868, roughness: 0.55, metalness: 0.05 });
       const mesh = new THREE.Mesh(geom, mat);
-      mesh.userData.endpoints = snapEndpointsFromProfile(cpWorld.map((v) => ({ x: v.x, y: v.y })), h);
+      const polPts = cpWorld.map((v) => ({ x: v.x, y: v.y }));
+      mesh.userData.endpoints = snapEndpointsFromProfile(polPts, h);
+      mesh.userData.edgePairs = snapEdgePairsFromProfile(polPts, h);
       return mesh;
     }
   }
@@ -626,7 +701,9 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
       geom.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({ color: 0x88aacc, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
       const mesh = new THREE.Mesh(geom, mat);
-      mesh.userData.endpoints = snapEndpointsFromProfile(worldPts.map((p) => ({ x: p.x, y: p.y })), h);
+      const linPts = worldPts.map((p) => ({ x: p.x, y: p.y }));
+      mesh.userData.endpoints = snapEndpointsFromProfile(linPts, h);
+      mesh.userData.edgePairs = snapEdgePairsFromProfile(linPts, h);
       return mesh;
     }
   }
@@ -639,11 +716,13 @@ function opBuildExtrudeMesh(profile: THREE.Object3D, h: number): THREE.Mesh {
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(ctr.x, ctr.y, 0);
   const cx = ctr.x, cy = ctr.y, hw = w / 2, hd = d / 2;
-  mesh.userData.endpoints = snapEndpointsFromProfile([
+  const boxPts = [
     { x: cx - hw, y: cy - hd }, { x: cx + hw, y: cy - hd },
     { x: cx + hw, y: cy + hd }, { x: cx - hw, y: cy + hd },
     { x: cx, y: cy },
-  ], h);
+  ];
+  mesh.userData.endpoints = snapEndpointsFromProfile(boxPts, h);
+  mesh.userData.edgePairs = snapEdgePairsFromProfile(boxPts, h);
   return mesh;
 }
 
@@ -917,16 +996,7 @@ export function opUpdateSelectHoverPreview(viewer: Viewer, profile: THREE.Object
 // ── Boolean operation ─────────────────────────────────────────────────────────
 
 function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "split"): void {
-  const restoreEmissive = (obj: THREE.Object3D) => {
-    const m = obj as THREE.Mesh;
-    if (m.userData._savedEmissive === undefined) return;
-    const mats = Array.isArray(m.material) ? m.material : [m.material];
-    const std = mats.find((mat): mat is THREE.MeshStandardMaterial =>
-      !!(mat as THREE.MeshStandardMaterial).emissive);
-    if (std) std.emissive.setHex(m.userData._savedEmissive as number);
-    delete m.userData._savedEmissive;
-  };
-  restoreEmissive(objA); restoreEmissive(objB);
+  _restoreBoolHighlight(objA); _restoreBoolHighlight(objB);
 
   if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh)) {
     ptPrompt("Boolean — both objects must be solid meshes, not curves or points");
@@ -1025,7 +1095,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     opClearPreview(viewer);
     _selectHoverProfile = null;
     _opPhase = { kind: "extrude_height", profile: hit.obj, cx: ctr.x, cy: ctr.y, w: size.x, d: size.y };
-    ptPrompt("Extrude height — move cursor up/down to set height, click to commit  [Escape = cancel]");
+    ptPrompt(`Extrude height — profile: ${creator} — move cursor up/down to set height, click to commit  [Escape = cancel]`);
     return true;
   }
 
@@ -1066,9 +1136,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     opSetHover(null);
     const mA = objA as THREE.Mesh;
-    const mAMats = Array.isArray(mA.material) ? mA.material : (mA.material ? [mA.material] : []);
-    const mAStd = mAMats.find((mt): mt is THREE.MeshStandardMaterial => !!(mt as THREE.MeshStandardMaterial).emissive);
-    if (mAStd) { mA.userData._savedEmissive = mAStd.emissive.getHex(); mAStd.emissive.setHex(0x003399); }
+    _applyBoolHighlight(mA, 0x003399);
     _opPhase = { kind: "bool_b", objA };
     ptPrompt("Boolean — click the second solid (first highlighted in blue)");
     return true;
@@ -1097,9 +1165,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     opSetHover(null);
     const mB = objB as THREE.Mesh;
-    const mBMats = Array.isArray(mB.material) ? mB.material : (mB.material ? [mB.material] : []);
-    const mBStd = mBMats.find((m): m is THREE.MeshStandardMaterial => !!(m as THREE.MeshStandardMaterial).emissive);
-    if (mBStd) { mB.userData._savedEmissive = mBStd.emissive.getHex(); mBStd.emissive.setHex(0xcc6600); }
+    _applyBoolHighlight(mB, 0xcc6600);
     _opPhase = { kind: "bool_op", objA: phase.objA, objB };
     opShowBoolChooser(viewer, phase.objA, objB);
     ptPrompt("Boolean — choose operation");
@@ -1523,10 +1589,20 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
     );
     if (edgeId >= 0) {
-      dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r });
+      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r }) as { error?: string } | null;
+      if (res?.error) {
+        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+        setTimeout(() => opFinish(viewer), 1400);
+        return;
+      }
     } else {
-      // Fallback: direct chamfer when edge not found in enumeration (degenerate geometry).
+      // Fallback: direct chamfer when edge not found in enumeration.
       const filleted = chamferEdge(meshTarget, phase.edgeA, phase.edgeB, r);
+      if (filleted.userData._chamferError) {
+        ptPrompt("Fillet — edge cannot be chamfered (curved or non-manifold surface); select a straight edge on a flat face");
+        setTimeout(() => opFinish(viewer), 1600);
+        return;
+      }
       viewer.getScene().remove(meshTarget); // audit-undo-ok: tracked by pushReplaceAction below
       viewer.addMesh(filleted, "brep", { noHistory: true });
       pushReplaceAction(filleted, [meshTarget], "fillet");
@@ -1637,7 +1713,8 @@ export function opStartTool(viewer: Viewer, tool: string): void {
       const size = new THREE.Vector3(); box.getSize(size);
       const ctr = new THREE.Vector3(); box.getCenter(ctr);
       _opPhase = { kind: "extrude_height", profile: sel!, cx: ctr.x, cy: ctr.y, w: size.x, d: size.y };
-      ptPrompt("Extrude height — move cursor up/down to set height, click to commit  [Escape = cancel]");
+      const creator = (sel!.userData.creator as string | undefined) ?? "shape";
+      ptPrompt(`Extrude height — profile: ${creator} — move cursor up/down to set height, click to commit  [Escape = cancel]`);
     } else {
       _opPhase = { kind: "extrude_select" };
       ptPrompt("Extrude — click a curve, rectangle, circle, or polygon profile");
