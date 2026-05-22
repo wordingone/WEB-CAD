@@ -208,6 +208,13 @@ while (Date.now() < bootDeadline) {
     bootArcState = arcState;
     break;
   }
+  if (arcState === "generating" || arcState === "recycling" || arcState === "recovering") {
+    // Passed through 'ready' faster than the 5s poll window — boot is complete.
+    bootComplete = true;
+    bootArcState = arcState;
+    console.log(`  → boot detected via '${arcState}' (missed ready window) — will wait for ready before turn 1`);
+    break;
+  }
   if (arcState === "failed") {
     bootArcState = arcState;
     console.error(`  ✗ Model failed to boot`);
@@ -226,6 +233,36 @@ if (arcInvalidTransitions.length) {
   for (const t of arcInvalidTransitions) console.log(`   → ${t}`);
 }
 console.log(`   buffer_manager errors during boot: ${bufferManagerErrors.length}`);
+
+// ── Wait for ready if boot was detected via generating/recycling ───────────────
+// When the app auto-fires a starter prompt immediately after model load, the state
+// can pass through 'ready' faster than the 5s poll window. Catch-up wait: poll until
+// the in-flight generation finishes and arc returns to 'ready', THEN send turn 1.
+
+if (bootComplete && bootArcState !== "ready") {
+  console.log(`\n[+${Date.now()-startMs}ms] Pre-turn wait: model is '${bootArcState}', waiting for ready (${TURN_TIMEOUT_MS/60000}-min cap)...`);
+  const preReadyDeadline = Date.now() + TURN_TIMEOUT_MS;
+  while (Date.now() < preReadyDeadline) {
+    await delay(5000);
+    const s = await evaluate("window.__arc?.state ?? 'unknown'");
+    const e = Date.now() - startMs;
+    console.log(`  [+${e}ms] __arc.state=${s}`);
+    if (s === "ready") {
+      bootArcState = "ready";
+      console.log(`  ✓ Model ready — proceeding to turn 1`);
+      break;
+    }
+    if (s === "failed") {
+      bootArcState = "failed";
+      bootComplete = false;
+      console.error(`  ✗ Model failed during pre-turn wait`);
+      break;
+    }
+  }
+  if (bootArcState !== "ready" && bootArcState !== "failed") {
+    console.warn(`  ⚠ Pre-turn wait expired (model still '${bootArcState}') — proceeding anyway`);
+  }
+}
 
 // ── Run 5 prompts ──────────────────────────────────────────────────────────────
 
