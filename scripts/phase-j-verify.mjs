@@ -28,8 +28,8 @@ const NO_RELOAD   = process.argv.includes("--no-reload");
 // Model re-downloads (~2.5GB) — run once per PR cycle, not every iteration.
 const COLD_CACHE  = process.argv.includes("--cold") && !NO_RELOAD;
 const PROMPT_N    = Number(process.argv.find(a => a.startsWith("--prompts="))?.split("=")[1] ?? 5);
-const BOOT_TIMEOUT_MS  = COLD_CACHE ? 35 * 60 * 1000 : 10 * 60 * 1000;  // 35 min cold (2.5GB re-download), 10 min warm
-const TURN_TIMEOUT_MS  =  3 * 60 * 1000;  // 3 min per turn
+const BOOT_TIMEOUT_MS  = COLD_CACHE ? 65 * 60 * 1000 : 10 * 60 * 1000;  // 65 min cold (local override — 2.5GB re-download), 10 min warm
+const TURN_TIMEOUT_MS  =  5 * 60 * 1000;  // 5 min per turn — extended for E4B natural generation (~180-250s per architectural prompt)
 
 const DEMO_PROMPTS = [
   "Design a house",
@@ -131,7 +131,7 @@ eventHandlers.push(evt => {
   if (evt.method === "Runtime.consoleAPICalled") {
     const level = evt.params?.type ?? "log";
     const args  = (evt.params?.args ?? []).map(a => a.value ?? a.description ?? "").join(" ");
-    if (level === "error" || args.includes("[ARC] invalid transition") || args.includes("buffer_manager")) {
+    if (level === "error" || args.includes("[ARC] invalid transition") || args.includes("buffer_manager") || args.includes("[#1463]")) {
       consoleErrors.push({ ts: ts(), level, text: args.slice(0, 300) });
       if (args.includes("[ARC] invalid transition")) {
         arcInvalidTransitions.push(args);
