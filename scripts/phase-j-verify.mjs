@@ -29,7 +29,7 @@ const NO_RELOAD   = process.argv.includes("--no-reload");
 const COLD_CACHE  = process.argv.includes("--cold") && !NO_RELOAD;
 const PROMPT_N    = Number(process.argv.find(a => a.startsWith("--prompts="))?.split("=")[1] ?? 5);
 const BOOT_TIMEOUT_MS  = COLD_CACHE ? 65 * 60 * 1000 : 10 * 60 * 1000;  // 65 min cold (local override — 2.5GB re-download), 10 min warm
-const TURN_TIMEOUT_MS  =  3 * 60 * 1000;  // 3 min per turn
+const TURN_TIMEOUT_MS  =  5 * 60 * 1000;  // 5 min — belt-and-suspenders for 512-token cap at ~2.8 tps (~181s+overhead)
 
 const DEMO_PROMPTS = [
   "Design a house",
