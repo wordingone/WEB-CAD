@@ -195,7 +195,11 @@ export class ChatPanel {
   private _continuationSuppressed = false;
   private _continuationCount = 0;
   private _fatalBubbleShown = false;
+  private _modelDeadBubbleShown = false;
   private _watchdogTimeoutPending = false;
+  // §#1666-AC3: true during worker-recycle window (worker-recycled → boot-complete).
+  // Promoted from constructor local so _send() can guard the finally re-enable path.
+  private _recyclePending = false;
   private _contextChipEl!: HTMLDivElement;
 
   constructor(private _root: HTMLElement) {
@@ -292,6 +296,7 @@ export class ChatPanel {
         chip.dataset.promptChip = "1";
         chip.textContent = resolveStr(s.label);
         chip.addEventListener("click", () => {
+          if (this._recyclePending) return; // §#1666-AC3: block chip during recycle window
           this._inputEl.value = resolveStr(s.prompt);
           this._inputEl.focus();
           void this._send();
@@ -320,9 +325,8 @@ export class ChatPanel {
     // Skip if a send is already in flight (sendBtn already disabled with "…" text — let the
     // in-progress send finish or fail by its own path).
     const _savedPlaceholder = this._inputEl.placeholder;
-    let _recyclePending = false;
     window.addEventListener("agentmodel:worker-recycled", () => {
-      _recyclePending = true;
+      this._recyclePending = true;
       this._inputEl.disabled = true;
       this._inputEl.placeholder = "restarting model…";
       // Don't clobber an in-progress send (text "…"). Only override when idle ("SEND").
@@ -332,8 +336,8 @@ export class ChatPanel {
       }
     });
     window.addEventListener("agentmodel:boot-complete", () => {
-      if (!_recyclePending) return;
-      _recyclePending = false;
+      if (!this._recyclePending) return;
+      this._recyclePending = false;
       this._inputEl.disabled = false;
       this._inputEl.placeholder = _savedPlaceholder;
       if (this._sendBtn.textContent === "WAIT") {
@@ -679,6 +683,19 @@ export class ChatPanel {
         return;
       }
       if (isGpuFatal) this._fatalBubbleShown = true;
+      // §#1666: model-not-loaded = worker init race; show ONE persistent banner, block sends.
+      const isModelNotLoaded = err.message === "model not loaded";
+      if (isModelNotLoaded && this._modelDeadBubbleShown) {
+        (window as unknown as _GemmaW).__gemmaSession.errorCount++;
+        return;
+      }
+      if (isModelNotLoaded) {
+        this._modelDeadBubbleShown = true;
+        this._pushMsg({ role: "assistant", content: "", error: "Model session ended — reload the page to continue.", recovery: "reload" });
+        (window as unknown as _GemmaW).__gemmaSession.errorCount++;
+        _emitTelemetryError(err.message, { isModelNotLoaded: true });
+        return;
+      }
       // #1428: model-load-failed errors (WebGPU unsupported or other fatal load) also warrant
       // a reload button — the model is in an unrecoverable state; refresh is the only fix.
       const isModelLoadFailed = err.message.startsWith("Model failed to load");
@@ -692,8 +709,11 @@ export class ChatPanel {
       // §#1628: report to Sentry (PII-scrubbed in emitError).
       _emitTelemetryError(err.message, { isGpuFatal, isModelLoadFailed, isTimeout });
     } finally {
-      this._sendBtn.disabled = false;
-      this._sendBtn.textContent = "SEND";
+      // §#1666-AC3: do not re-enable during recycle window — boot-complete handler owns that.
+      if (!this._modelDeadBubbleShown && !this._recyclePending) {
+        this._sendBtn.disabled = false;
+        this._sendBtn.textContent = "SEND";
+      }
     }
   }
 
