@@ -684,12 +684,12 @@ Assistant: 26ft × 20ft, 2 floors × 9.0ft walls, pitched roof. Ground: slab + 4
 6. SdWall — east ground, profile=[[26,0],[26,20]], thickness=0.67, height=9.0
 7. SdWall — north ground, profile=[[26,20],[0,20]], thickness=0.67, height=9.0
 8. SdWall — west ground, profile=[[0,20],[0,0]], thickness=0.67, height=9.0
-9. SdDoor — south entry, position=[13,0,0], width=3.0, height=7.0, sillH=0
+9. SdDoor — south entry, position=[13,0,0], sillH=0
 10. SdWindow — south, position=[5,0,0], windowType=eg
 11. SdWindow — east, position=[26,10,0], windowType=eg
 12. SdWindow — north, position=[13,20,0], windowType=eg
 13. SdWindow — west, position=[0,10,0], windowType=eg
-14. SdStair — NE corner, start=[23,16], end=[23,8], type=straight, riser=0.583, tread=0.917, width=3.0, targetHeight=9.0
+14. SdStair — NE corner, start=[23,16], end=[23,8], type=straight, targetHeight=9.0
 15. setActiveLevel — id=level/1
 16. SdSlab — upper, profile=[[0,0],[26,0],[26,20],[0,20]], thickness=0.67
 17. SdWall — south upper, profile=[[0,0],[26,0]], thickness=0.67, height=9.0
@@ -710,12 +710,12 @@ Assistant: 26ft × 20ft, 2 floors × 9.0ft walls, pitched roof. Ground: slab + 4
 <tool_call>{"name":"SdWall","arguments":{"profile":[[26,0],[26,20]],"thickness":0.67,"height":9.0},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWall","arguments":{"profile":[[26,20],[0,20]],"thickness":0.67,"height":9.0},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWall","arguments":{"profile":[[0,20],[0,0]],"thickness":0.67,"height":9.0},"metadata":{"source":"agent"}}</tool_call>
-<tool_call>{"name":"SdDoor","arguments":{"position":[13,0,0],"width":3.0,"height":7.0,"sillH":0},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdDoor","arguments":{"position":[13,0,0],"sillH":0},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWindow","arguments":{"position":[5,0,0],"windowType":"eg"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWindow","arguments":{"position":[26,10,0],"windowType":"eg"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWindow","arguments":{"position":[13,20,0],"windowType":"eg"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWindow","arguments":{"position":[0,10,0],"windowType":"eg"},"metadata":{"source":"agent"}}</tool_call>
-<tool_call>{"name":"SdStair","arguments":{"start":[23,16],"end":[23,8],"type":"straight","riser":0.583,"tread":0.917,"width":3.0,"targetHeight":9.0},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdStair","arguments":{"start":[23,16],"end":[23,8],"type":"straight","targetHeight":9.0},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"setActiveLevel","arguments":{"id":"level/1"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdSlab","arguments":{"profile":[[0,0],[26,0],[26,20],[0,20]],"thickness":0.67},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWall","arguments":{"profile":[[0,0],[26,0]],"thickness":0.67,"height":9.0},"metadata":{"source":"agent"}}</tool_call>
