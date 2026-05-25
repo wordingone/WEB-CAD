@@ -188,17 +188,11 @@ if (typeof window !== "undefined") {
 
 // §#1505: Scene-VRAM pressure threshold — creator-tagged objects beyond this count
 // indicate enough THREE.js GPU buffers to compete with LLM KV-cache on the next turn.
-// Triggers proactive worker recycle (KV-cache flush) before inference begins.
+// Triggers proactive geometry buffer disposal before inference begins (WEB-CAD#66 Option A).
 const SCENE_VRAM_RECYCLE_THRESHOLD = 12;
-// §#66: Total scene-children high-water mark (belt-and-suspenders alongside creator-tagged
-// check). Baseline pre-turn scene has ~13 children (lights, grid, axes). Any session that
-// has grown to 20+ direct scene.children has enough GPU buffer pressure to warrant a flush.
-// Fires when the creator-tagged check fails to trigger (root cause under investigation —
-// console.info("[VRAM-GATE]" lines reveal actual runtime counts per Phase J run).
-const SCENE_VRAM_HIGH_WATER = 20;
 
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
-// Used by both the turn-count gate and the scene-VRAM gate.
+// Used by the turn-count gate (every MODEL_WORKER_RECYCLE_AFTER turns).
 async function _doPlannedRecycle(reason: string): Promise<void> {
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, 5000);
@@ -223,25 +217,53 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
   emitRecycle(_arc.recycleCount, reason);
 }
 
+// §#66 Option A: Dispose GPU geometry/material buffers for creator-tagged scene objects.
+// After T1 builds a large scene (walls, slabs, etc.), accumulated WebGL/WebGPU VBOs
+// compete with the LLM KV-cache for VRAM, causing T2 inference to slow to <1 tps and
+// hit the 60s watchdog. Disposing the VBOs frees VRAM synchronously; THREE.js re-uploads
+// from CPU-side typed arrays on the next render() call. No worker restart → recycleCount=0.
+function _disposeCreatorGeometryBuffers(): void {
+  type SceneChild = {
+    userData?: Record<string, unknown>;
+    geometry?: { dispose: () => void };
+    material?: { dispose: () => void } | Array<{ dispose?: () => void }>;
+  };
+  const sceneArr = (window as unknown as { __viewer?: { scene?: { children?: SceneChild[] } } })
+    .__viewer?.scene?.children;
+  if (!sceneArr?.length) return;
+  let disposed = 0;
+  for (const child of sceneArr) {
+    if (child.userData?.creator == null) continue;
+    if (child.geometry && typeof child.geometry.dispose === "function") {
+      child.geometry.dispose();
+      disposed++;
+    }
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        (child.material as Array<{ dispose?: () => void }>).forEach(m => m?.dispose?.());
+      } else if (typeof (child.material as { dispose?: () => void }).dispose === "function") {
+        (child.material as { dispose: () => void }).dispose();
+      }
+    }
+  }
+  console.info(`[VRAM-DISPOSE] freed GPU buffers for ${disposed} creator-tagged scene objects (THREE.js re-uploads on next render)`);
+}
+
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
 
-  // §#1505/#66: VRAM-aware early recycle — count scene objects to estimate GPU buffer pressure.
-  // Two complementary checks (OR logic): creator-tagged objects above threshold, OR total
-  // scene children above high-water mark. Belt-and-suspenders because Phase J forensics
-  // showed the creator-tagged check silently failing despite all conditions being met
-  // (root cause unknown — debug log below reveals runtime values each run).
+  // §#1505/#66: VRAM-aware early flush — count creator-tagged scene objects to estimate
+  // GPU buffer pressure. Above threshold, dispose() their geometry/material buffers to
+  // free VRAM before LLM inference begins. Disposal is synchronous and non-destructive:
+  // objects remain in the scene graph; THREE.js re-uploads from CPU arrays on next render.
   {
     type CreatorChild = { userData?: Record<string, unknown> };
     const _sceneArr = (window as unknown as { __viewer?: { scene?: { children?: CreatorChild[] } } })
       .__viewer?.scene?.children;
-    const _totalCount   = _sceneArr?.length ?? 0;
     const _creatorCount = _sceneArr?.filter(c => c.userData?.creator != null).length ?? 0;
-    console.info(`[VRAM-GATE] total=${_totalCount} creator=${_creatorCount} turnCount=${_arc.turnCount} ` +
-      `creatorThreshold=${SCENE_VRAM_RECYCLE_THRESHOLD} highWater=${SCENE_VRAM_HIGH_WATER}`);
-    if ((_creatorCount >= SCENE_VRAM_RECYCLE_THRESHOLD || _totalCount >= SCENE_VRAM_HIGH_WATER) &&
-        _arc.turnCount > 0) {
-      await _doPlannedRecycle("scene-vram");
+    console.info(`[VRAM-GATE] creator=${_creatorCount} turnCount=${_arc.turnCount} threshold=${SCENE_VRAM_RECYCLE_THRESHOLD}`);
+    if (_creatorCount >= SCENE_VRAM_RECYCLE_THRESHOLD && _arc.turnCount > 0) {
+      _disposeCreatorGeometryBuffers();
       return;
     }
   }
