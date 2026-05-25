@@ -775,7 +775,13 @@ if (pageCompactEvents.length > 0) {
 }
 
 // §#1637: must run before ws.close(). Gate: boot_capability_modal_shown must be false for dgpu users.
-const bootCapabilityModalShown = await evaluate(`document.querySelector('.bcg-modal') !== null`).catch(() => null);
+// window.__bcg is set by initCapabilityGate().then() in boot-capability-gate.ts after gate resolves.
+const _bcgRaw = await evaluate(`JSON.stringify(window.__bcg ?? null)`).catch(() => null);
+const _bcg = (() => { try { return _bcgRaw ? JSON.parse(_bcgRaw) : null; } catch { return null; } })();
+const bootCapabilityModalShown = _bcg?.modalShown ?? (await evaluate(`document.querySelector('.bcg-modal') !== null`).catch(() => null));
+const bootCapabilityModalChoice = _bcg?.path ?? null;
+const bootTier = _bcg?.tier ?? null;
+const tier4CreateTabDisabled = await evaluate(`document.querySelector('.dock-tab[data-tab="prompt"]')?.classList.contains('dock-tab--disabled') ?? false`).catch(() => null);
 
 // §#1667: read final goal token state before ws.close().
 const _budgetRaw = await evaluate(`JSON.stringify({exceeded_at_turn:window.__budget_exceeded_at_turn??null,tokens_used:window.__goal_tokens_used??0,token_budget:window.__goal_token_budget??null})`).catch(() => null);
@@ -952,6 +958,10 @@ const receipt = {
   scene_restore_offered_on_boot: restorePromptShown ?? null,
   // §#1637: populated before ws.close() — see bootCapabilityModalShown variable above.
   boot_capability_modal_shown: bootCapabilityModalShown,
+  boot_capability_modal_choice: bootCapabilityModalChoice,
+  boot_tier: bootTier,
+  tier_4_create_tab_disabled: tier4CreateTabDisabled,
+  wasm_ep_backend_active: bootCapabilityModalChoice === "wasm-fallback",
   // §#1666: 1-indexed turn where model died (generate-error "model not loaded"), null if clean.
   model_died_at_turn: modelDiedAtTurn,
   // §#1666-NEVER: unreachable-path counter — always 0 post-AC3 (throw removed in PR #1673).

@@ -324,25 +324,33 @@ export function initCapabilityGate(overlayContainer: HTMLElement): void {
     _gatePromise = Promise.resolve<UserPath>("wasm-fallback");
     _resolvedPath = "wasm-fallback";
     resolvedBootPath = "wasm-fallback";
-    return;
+  } else {
+    _gatePromise = (async (): Promise<UserPath> => {
+      const { classification, deviceLabel } = await detectAdapterClass();
+      // §#1637-Leo: unknown defaults to dgpu-path (no modal). False-negative (slower inference
+      // for one user) is much cheaper than false-positive (blocking a healthy user).
+      if (classification === "dgpu" || classification === "unknown") {
+        _resolvedPath = "dgpu-proceed";
+        resolvedBootPath = "dgpu-proceed";
+        return "dgpu-proceed";
+      }
+      // Show modal for igpu / software / no-webgpu
+      _injectStyles();
+      _modalShown = true;
+      wasCapabilityModalShown = true;
+      const path = await _buildModal(overlayContainer, classification, deviceLabel);
+      _resolvedPath = path;
+      resolvedBootPath = path;
+      return path;
+    })();
   }
 
-  _gatePromise = (async (): Promise<UserPath> => {
-    const { classification, deviceLabel } = await detectAdapterClass();
-    // §#1637-Leo: unknown defaults to dgpu-path (no modal). False-negative (slower inference
-    // for one user) is much cheaper than false-positive (blocking a healthy user).
-    if (classification === "dgpu" || classification === "unknown") {
-      _resolvedPath = "dgpu-proceed";
-      resolvedBootPath = "dgpu-proceed";
-      return "dgpu-proceed";
-    }
-    // Show modal for igpu / software / no-webgpu
-    _injectStyles();
-    _modalShown = true;
-    wasCapabilityModalShown = true;
-    const path = await _buildModal(overlayContainer, classification, deviceLabel);
-    _resolvedPath = path;
-    resolvedBootPath = path;
-    return path;
-  })();
+  // Expose resolved path as window global for harness receipt instrumentation (§#1637).
+  _gatePromise.then((path) => {
+    (window as unknown as Record<string, unknown>).__bcg = {
+      modalShown: wasCapabilityModalShown,
+      path,
+      tier: pathToTier(path),
+    };
+  });
 }
