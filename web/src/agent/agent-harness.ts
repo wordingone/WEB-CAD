@@ -389,7 +389,10 @@ function initWorkerIfNeeded(): Worker {
             _metrics.push({ name, start_ms: s, end_ms: e, duration_ms: dur, expected_ms: expected, ratio });
             console.info(`[METRIC] boot:${name} duration_ms=${Math.round(dur)} expected_ms=${expected ?? "n/a"} ratio=${ratio != null ? ratio.toFixed(2) : "n/a"}`);
           };
-          _addPhase("model_load", "from_pretrained_start", "from_pretrained_end", _isWarm ? _bl.opfs_load : _bl.model_download);
+          const _modelLoadExpected = _isWarm
+            ? (_bl as typeof WARM_CACHE_BASELINES_MS).opfs_load
+            : (_bl as typeof COLD_CACHE_BASELINES_MS).model_download;
+          _addPhase("model_load", "from_pretrained_start", "from_pretrained_end", _modelLoadExpected);
           _addPhase("warmup", "warmup_start", "warmup_end", _bl.warmup);
           // Total boot from worker creation to boot-complete
           const _bootEndMs = Date.now();
