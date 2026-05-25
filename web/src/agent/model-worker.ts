@@ -96,6 +96,38 @@ async function _flushWgpuQueue(tag: string): Promise<void> {
   }
 }
 
+// §#88: conversation trimming — drop oldest turns when input token count exceeds the
+// VRAM-safe ceiling. Preserves system prompt (first message) + latest user message (last).
+// Uses char/token ratio from the current tokenization to estimate how many messages to drop.
+function _trimConversationMessages(
+  messages: Array<{ role: string; content: string }>,
+  currentTokenCount: number,
+  tokenCeiling: number,
+): Array<{ role: string; content: string }> {
+  if (currentTokenCount <= tokenCeiling) return messages;
+  const totalChars = messages.reduce((s, m) => s + m.content.length, 0);
+  if (totalChars === 0) return messages;
+  // Target char count proportional to token ceiling (preserve ratio)
+  const targetChars = Math.floor((tokenCeiling / currentTokenCount) * totalChars);
+  // Preserve system prompt (index 0 if role=system) + latest user message (last)
+  const hasSystem = messages.length > 0 && messages[0].role === "system";
+  const keepFixed = hasSystem ? [messages[0]] : [];
+  const rest = messages.slice(hasSystem ? 1 : 0);
+  if (rest.length <= 1) return messages; // nothing to drop — only latest user message
+  const latestUser = rest[rest.length - 1];
+  const middle = rest.slice(0, -1); // oldest eligible pairs
+  const fixedChars = [...keepFixed, latestUser].reduce((s, m) => s + m.content.length, 0);
+  let currentTotal = fixedChars + middle.reduce((s, m) => s + m.content.length, 0);
+  // Drop oldest messages until total is within target
+  let dropCount = 0;
+  while (dropCount < middle.length && currentTotal > targetChars) {
+    currentTotal -= middle[dropCount].content.length;
+    dropCount++;
+  }
+  if (dropCount === 0) return messages;
+  return [...keepFixed, ...middle.slice(dropCount), latestUser];
+}
+
 function checkBootComplete(): void {
   if (_bootModelReady && _bootWarmupDone && _bootDrafterDone) {
     post({ type: "boot-complete" });
@@ -839,13 +871,40 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
   // Tokenize (pass image/video lists separately for processor's vision encoder).
   // Video: proc(chatText, images=null, videos=[[frame, ...]]) per transformers.js v4 API.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inputs: any = hasVideo
+  let inputs: any = hasVideo
     ? await proc(chatText, null, [videoFrames])
     : await proc(chatText, imageList.length > 0 ? imageList : null);
   const tProc = performance.now();
-  const inputLength: number = inputs.input_ids?.dims?.[1] ?? 0;
+  let inputLength: number = inputs.input_ids?.dims?.[1] ?? 0;
   // §C-budget (#1439): emit token budget ratio so main thread can show a chip when context is near-full.
   post({ type: "context-budget", inputLength, limit: WEBGPU_CONTEXT_LIMIT });
+
+  // §#88: conversation trimming — VRAM guard for long multi-turn sessions.
+  // T3 failure class: full conversation history (T1 27-dispatch output + T2) pushes the KV
+  // cache allocation over available VRAM even when inputLength < WEBGPU_CONTEXT_LIMIT.
+  // The GPU device-lost fires at +9s during initial KV allocation — before any bufMgr race.
+  // Fix: if inputLength > 4096, drop oldest conversation pairs at message level, re-tokenize.
+  // Skipped for video/image turns — they don't accumulate long multi-turn histories.
+  const CONV_TRIM_TOKEN_CEILING = 4096;
+  if (inputLength > CONV_TRIM_TOKEN_CEILING && !hasVideo && imageList.length === 0) {
+    const _trimmedMsgs = _trimConversationMessages(messages, inputLength, CONV_TRIM_TOKEN_CEILING);
+    if (_trimmedMsgs.length < messages.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const _trimChatText = proc.apply_chat_template(_trimmedMsgs, {
+        add_generation_prompt: true, tokenize: false, enable_thinking: false,
+      }) as string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const _trimInputs: any = await proc(_trimChatText, null);
+      const _trimLength: number = _trimInputs.input_ids?.dims?.[1] ?? 0;
+      console.log(`[#88] [CONV-TRIM] trimmed ${inputLength - _trimLength} tokens (${messages.length - _trimmedMsgs.length} msgs) from ${inputLength} total → keeping ${_trimLength} (${_trimmedMsgs.length} msgs)`);
+      // Dispose original inputs before replacing
+      for (const _v of Object.values(inputs ?? {})) {
+        try { (_v as any)?.dispose?.(); } catch { /* non-fatal */ }
+      }
+      inputs = _trimInputs;
+      inputLength = _trimLength;
+    }
+  }
 
   const safeMaxNewTokens = Math.min(maxNewTokens, WEBGPU_CONTEXT_LIMIT - inputLength);
   if (safeMaxNewTokens <= 0) {
