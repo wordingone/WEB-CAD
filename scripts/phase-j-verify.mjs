@@ -820,6 +820,15 @@ const _bootPathPredicted = await evaluate(`window.__boot_path_predicted ?? null`
 const _contRaw = await evaluate(`JSON.stringify({iterations:window.__goal_continuation_iterations??null,terminal:window.__goal_continuation_terminal??null})`).catch(() => null);
 const _cont = (() => { try { return _contRaw ? JSON.parse(_contRaw) : null; } catch { return null; } })();
 
+// §WEB-CAD#25: read boot + turn metrics before ws.close().
+const _bootMetricsRaw = await evaluate(`JSON.stringify(window.__bootMetrics ?? null)`).catch(() => null);
+let bootMetrics = null;
+try { if (_bootMetricsRaw) bootMetrics = JSON.parse(_bootMetricsRaw); } catch { bootMetrics = null; }
+
+const _turnMetricsRaw = await evaluate(`JSON.stringify(window.__turnMetrics ?? null)`).catch(() => null);
+let turnMetrics = null;
+try { if (_turnMetricsRaw) turnMetrics = JSON.parse(_turnMetricsRaw); } catch { turnMetrics = null; }
+
 // #1608: T1-only mode — position camera at SE 3/4 for /visual-check capture
 if (T1_ONLY) {
   console.log(`[+${Date.now()-startMs}ms] t1-only: positioning camera at SE 3/4 for /visual-check...`);
@@ -1046,6 +1055,9 @@ const receipt = {
   // phase_labels_sequence_observed: textContent transitions from #boot-phase-label.
   // Acceptance cold: ≥4 distinct strings; warm: ≥3 distinct strings.
   phase_labels_sequence_observed: _progressPollData?.labels ?? null,
+  // §WEB-CAD#25: boot + turn timing metrics scraped from window globals before ws.close().
+  boot_metrics: bootMetrics,
+  turn_metrics: turnMetrics,
 };
 // §#1659: write raw-output sidecar alongside receipt.
 let sidecarFile = null;
