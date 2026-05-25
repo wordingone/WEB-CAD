@@ -351,14 +351,14 @@ export async function runBatchB({ send, evaluate, delay, canvasBpp, record, rese
 {
   let foundInParityLoop = false;
   try {
-    execSync('grep -q "ANTHROPIC" scripts/parity-loop.ts', { cwd: 'B:/M/gemma-architect', encoding: 'utf8' });
+    execSync('grep -q "ANTHROPIC" scripts/parity-loop.ts', { cwd: 'B:/M/WEB-CAD', encoding: 'utf8' });
     foundInParityLoop = true;  // grep exit 0 = found
   } catch {
     foundInParityLoop = false; // grep exit 1 = not found (correct)
   }
   let foundInJudge = false;
   try {
-    execSync('grep -q "ANTHROPIC" web/test/capability/judge.ts', { cwd: 'B:/M/gemma-architect', encoding: 'utf8' });
+    execSync('grep -q "ANTHROPIC" web/test/capability/judge.ts', { cwd: 'B:/M/WEB-CAD', encoding: 'utf8' });
     foundInJudge = true;
   } catch {
     foundInJudge = false;

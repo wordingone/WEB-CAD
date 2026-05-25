@@ -1,4 +1,4 @@
-// Self-harness for the gemma-architect web demo.
+// Self-harness for the WEB-CAD web demo.
 //
 // Executes every demo's JS through the same Tier 1 surface the worker uses,
 // meshes the resulting Solid via OpenCascade, builds an IFC4 STEP-21 file via
@@ -221,7 +221,7 @@ async function harnessOne(demo: typeof DEMOS[number]): Promise<DemoResult> {
 }
 
 async function main() {
-  console.log(`gemma-architect web self-harness — ${DEMOS.length} demos\n`);
+  console.log(`WEB-CAD web self-harness — ${DEMOS.length} demos\n`);
   await ensureOC();
   console.log("OpenCascade ready.\n");
 

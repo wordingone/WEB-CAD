@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gemma-master-autofwd.mjs — auto-fast-forward the gemma-architect-master serving
+// gemma-master-autofwd.mjs — auto-fast-forward the WEB-CAD-master serving
 // tree when origin/master advances. Fixes the recurring stale-branch drift where
 // the :5847 window shows outdated UI (issue #239, third recurrence 2026-05-09).
 //
@@ -22,7 +22,7 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync
 import { join } from "path";
 import { spawnSync } from "child_process";
 
-const SERVING_DIR = "B:/M/gemma-architect-master";
+const SERVING_DIR = "B:/M/WEB-CAD-master";
 const STATE_DIR   = join(SERVING_DIR, "state");
 const HEARTBEAT   = join(STATE_DIR, "gemma-master-autofwd.heartbeat");
 const LOG_FILE    = join(STATE_DIR, "gemma-master-autofwd.log");

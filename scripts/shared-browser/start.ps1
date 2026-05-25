@@ -4,16 +4,16 @@
 #
 # Usage: powershell -File scripts/shared-browser/start.ps1
 #
-# Output: B:\M\gemma-architect-master\.shared-browser\cdp.json
+# Output: B:\M\WEB-CAD-master\.shared-browser\cdp.json
 #   { "endpoint": "<webSocketDebuggerUrl>", "started_at": "<ISO>", "pid": <int> }
 
 param([switch]$Force)
 
 $CDP_PORT       = if ($env:CDP_PORT) { [int]$env:CDP_PORT } else { 9222 }
 $DEV_URL        = "https://wordingone.github.io/WEB-CAD/"
-$ChromeDataDir  = "B:\M\gemma-architect-master\.shared-browser\profile"
-$CDP_JSON       = "B:\M\gemma-architect-master\.shared-browser\cdp.json"
-$LaunchUrlFile  = "B:\M\gemma-architect-master\.shared-browser\launch-url.txt"
+$ChromeDataDir  = "B:\M\WEB-CAD-master\.shared-browser\profile"
+$CDP_JSON       = "B:\M\WEB-CAD-master\.shared-browser\cdp.json"
+$LaunchUrlFile  = "B:\M\WEB-CAD-master\.shared-browser\launch-url.txt"
 
 # --- Locate Playwright bundled Chromium ---
 $MS_PW    = "$env:LOCALAPPDATA\ms-playwright"

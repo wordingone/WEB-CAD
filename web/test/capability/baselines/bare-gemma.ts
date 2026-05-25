@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 // web/test/capability/baselines/bare-gemma.ts — P8c bare-Gemma baseline
 //
-// Sends each P8a prompt directly to Gemma 4 E2B-it WITHOUT the gemma-architect
+// Sends each P8a prompt directly to Gemma 4 E2B-it WITHOUT the WEB-CAD
 // dispatch / palette / autoplan layer. Captures text output and any IFC blocks.
 // Scores against expected_checks. K=0 expected (this is the floor baseline;
-// the delta vs gemma-architect measures the app's contribution).
+// the delta vs WEB-CAD measures the app's contribution).
 //
 // Usage:
 //   BARE_GEMMA_URL=http://localhost:8089 bun web/test/capability/baselines/bare-gemma.ts

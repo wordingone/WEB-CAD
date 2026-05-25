@@ -6,7 +6,7 @@ import { dirname } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// gemma-architect web demo — Vite config.
+// WEB-CAD web demo — Vite config.
 // - wasm + topLevelAwait: replicad-opencascadejs + web-ifc both ship .wasm
 //   and need top-level-await on initialization.
 // - Workers default to ESM so import statements work as written.

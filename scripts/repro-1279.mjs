@@ -15,7 +15,7 @@ const CDP_BASE     = "http://localhost:9222";
 const PAGES_URL    = "https://wordingone.github.io/WEB-CAD/";
 const PAGES_ORIGIN = "https://wordingone.github.io";
 const MAX_WAIT_MS  = 115_000;
-const STATE_DIR    = "B:/M/gemma-architect-archie/state";
+const STATE_DIR    = "B:/M/WEB-CAD-archie/state";
 
 mkdirSync(STATE_DIR, { recursive: true });
 

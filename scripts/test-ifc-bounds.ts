@@ -15,7 +15,7 @@ import { resolve } from "node:path";
 
 import * as WebIFC from "web-ifc";
 
-const REPO = "B:/M/gemma-architect";
+const REPO = "B:/M/WEB-CAD";
 
 // Bundled samples are real architect-authored or community-contributed IFCs
 // — bounds are recorded from the first known-good run as the regression

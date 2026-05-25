@@ -23,7 +23,7 @@ import { chromium } from "playwright";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { DEV_URL } from "./ports";
 
-const CDP_JSON = "B:/M/gemma-architect-master/.shared-browser/cdp.json";
+const CDP_JSON = "B:/M/WEB-CAD-master/.shared-browser/cdp.json";
 
 function die(msg: string, code = 1): never {
   console.error(msg);

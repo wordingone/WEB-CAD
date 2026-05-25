@@ -13,7 +13,7 @@ param(
 )
 
 $TASK_NAME   = "gemma-master-autofwd"
-$SERVING_DIR = "B:\M\gemma-architect-master"
+$SERVING_DIR = "B:\M\WEB-CAD-master"
 $SCRIPT_PATH = "$SERVING_DIR\scripts\gemma-master-autofwd.mjs"
 
 $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
@@ -25,7 +25,7 @@ if ($nodeCmd) {
 
 function Install-Task {
   if (-not (Test-Path $SCRIPT_PATH)) {
-    Write-Error "Script not found: $SCRIPT_PATH -- is gemma-architect-master checked out?"
+    Write-Error "Script not found: $SCRIPT_PATH -- is WEB-CAD-master checked out?"
     exit 1
   }
 

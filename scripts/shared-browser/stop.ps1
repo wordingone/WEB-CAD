@@ -5,7 +5,7 @@
 #   (or) powershell -File scripts/shared-browser/stop.ps1
 
 $CDP_PORT = 9222
-$CDP_JSON = "B:\M\gemma-architect-master\.shared-browser\cdp.json"
+$CDP_JSON = "B:\M\WEB-CAD-master\.shared-browser\cdp.json"
 
 $pid_to_kill = $null
 

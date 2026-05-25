@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // web/test/capability/baselines/post-comparison.ts — P8c comparison table
 //
-// Reads the latest receipt files for gemma-architect, bare-gemma, and blender-mcp,
+// Reads the latest receipt files for WEB-CAD, bare-gemma, and blender-mcp,
 // builds a K/N comparison table, and posts it as a comment on GitHub issue #100.
 //
 // Usage:
@@ -52,7 +52,7 @@ async function main() {
   ]);
 
   if (!appReceipt) {
-    console.error("No gemma-architect receipt found. Run: bun run capability-bench");
+    console.error("No WEB-CAD receipt found. Run: bun run capability-bench");
     process.exit(1);
   }
 
@@ -80,13 +80,13 @@ async function main() {
 
   const table = `## P8c — Capability Comparison Table
 
-| Prompt | gemma-architect | bare-Gemma 4 E2B | Blender MCP + Bonsai |
+| Prompt | WEB-CAD | bare-Gemma 4 E2B | Blender MCP + Bonsai |
 |--------|:--------------:|:----------------:|:-------------------:|
 ${rows}
 | **TOTAL K/N** | ${kRow(appReceipt)} | ${kRow(bareReceipt)} | ${kRow(blenderReceipt)} |
 
 **SHA:** \`${sha}\`
-**gemma-architect receipt:** \`${appReceipt.timestamp}\`
+**WEB-CAD receipt:** \`${appReceipt.timestamp}\`
 **bare-Gemma receipt:** \`${bareReceipt?.timestamp ?? "not run"}\`
 **Blender MCP receipt:** \`${blenderReceipt?.timestamp ?? "not run"}\`
 

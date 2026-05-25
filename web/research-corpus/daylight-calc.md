@@ -1,7 +1,7 @@
 # Daylight calculations
 
 Quick conventions for sizing daylighting in early-design prompts.
-gemma-architect doesn't run a full radiance / climate-based daylight
+WEB-CAD doesn't run a full radiance / climate-based daylight
 simulation — these are the rules-of-thumb the model emits when a
 prompt mentions "daylight," "window," or "glazing."
 

@@ -120,7 +120,7 @@ async function main() {
   console.log("\n=== RESULT ===");
   console.log(JSON.stringify(out, null, 2));
 
-  const outPath = `B:/M/gemma-architect/state/verify-169-${Date.now()}.json`;
+  const outPath = `B:/M/WEB-CAD/state/verify-169-${Date.now()}.json`;
   const { writeFileSync } = await import("fs");
   writeFileSync(outPath, JSON.stringify(out, null, 2));
   console.log("Written:", outPath);
