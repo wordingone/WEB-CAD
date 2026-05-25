@@ -583,7 +583,7 @@ function buildBrand(): HTMLElement {
 
   const name = document.createElement("span");
   name.className = "brand-name";
-  name.innerHTML = `GEMMA<span class="b-slash">-</span>CAD`;
+  name.innerHTML = `WEB<span class="b-slash">-</span>CAD`;
   brand.appendChild(name);
 
   return brand;
