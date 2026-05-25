@@ -1,251 +1,133 @@
-# Gemma-CAD
+# WEB-CAD
 
-Browser-native parametric architectural design from natural-language prompts.
-Type a sentence; render a building; export an IFC4 file. No server,
-no install, no API key — Gemma 4 E4B-it (stock, no fine-tune) + replicad geometry kernel +
-web-ifc all run inside a single tab. A bundled 60-row prompt cache covers the canned demos;
-the model handles novel prompts on-device.
+A free browser-based architectural CAD experimental workbench: draw walls/slabs/levels, try an AI CREATE agent, inspect BIM-like metadata, import/export common 3D formats, and experiment with IFC—no install required.
 
-**Hackathon entry:** Gemma 4 Good Hackathon (Kaggle + Google DeepMind),
-deadline 2026-05-18.
-**Track:** Equity — 3D parametric design accessibility for non-CAD users.
-**License:** CC BY 4.0 (see [`LICENSE`](LICENSE)).
+**Live:** https://wordingone.github.io/WEB-CAD/ · **License:** CC BY 4.0
 
 ---
 
-## What it does
+## What it is
 
-Open the page. Pick a demo (or type your own prompt). Gemma 4 emits a
-short replicad JavaScript program. The page executes it in a worker,
-meshes the result with OpenCascade, renders with three.js, and offers
-an **Export IFC** button that downloads an IFC4 STEP-21 file consumable
-in Revit, ArchiCAD, BlenderBIM, IFC.js viewers, BimVision.
+WEB-CAD is an experimental workbench — not a production replacement for Rhino, Revit, or ArchiCAD. It runs entirely in the browser: no server, no API key, no install. The goal is to make basic parametric architectural modelling accessible from any device with a modern browser.
 
+---
+
+## Features
+
+| Feature | Notes |
+|---|---|
+| **Draw** walls, slabs, columns, stairs, roofs, openings | DSL console or AI agent |
+| **AI CREATE agent** | Type a natural-language prompt; Gemma 4 generates geometry |
+| **Levels / storeys** | Named elevation planes; objects attach to levels |
+| **IFC import/export** | Load or save IFC4 files; round-trip via web-ifc |
+| **3D format I/O** | Import: IFC, STEP, GLB/GLTF, OBJ, STL · Export: IFC4, GLB, GLTF, OBJ, STL, STEP, 3DM, USDZ, SVG, DXF, PDF |
+| **BIM-like metadata** | Select any element; sidebar shows IFC class, storey, GUID, layer |
+| **Scene panel** | Hierarchy, format info, element counts |
+| **Cmd-K palette** | Search commands, demos, and tools |
+| **Layout mode** | 2D drawing sheets with linked section/plan viewports |
+| **Undo/redo** | Full history stack |
+| **Session restore** | IndexedDB auto-save; scene survives a page refresh |
+
+---
+
+## Quick start (browser)
+
+Open the live URL above. No account required.
+
+1. **Draw** — pick a tool from the left palette (Wall, Slab, Column, …) and click in the viewport.
+2. **AI agent** — open the chat panel, type a description ("add a gabled roof over the house"), press Enter.
+3. **Import** — drag any `.ifc`, `.glb`, `.step`, `.obj`, or `.stl` file onto the page.
+4. **Export** — click **Export** in the toolbar and pick a format.
+
+---
+
+## Quick start (dev)
+
+```bash
+git clone https://github.com/wordingone/WEB-CAD
+cd WEB-CAD
+bun install
+bun run web:typecheck     # strict tsc, no emit
+bun run web:dev           # http://localhost:5847 — hot reload
 ```
-"a wall, 5.5m long, 0.2m thick, 2.8m tall"
-                          │
-                          ▼
-   const e0 = drawRectangle(5.5, 0.2)
-                .sketchOnPlane("XY")
-                .extrude(2.8);
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-        three.js viewer         wall.ifc download
-        (parameter sliders)     (loads in any BIM tool)
-```
 
-Nine canned demos ship in the page: walls, columns, raised slabs,
-slabs with stair holes, walls with doorways, L-shape walls, four-walled
-rooms, stair-step structures, and a 14-element Schultz Residence (the
-hero demo, also reachable via the Cmd-K palette). Each has 3-6 sliders
-that re-trigger the worker without re-running the model.
-
-Beyond prompt-to-geometry, the page accepts other input modes:
-**drag an IFC/STEP/GLB/OBJ/STL file** to load existing 3D models into the viewer;
-and **type DSL into the CONSOLE tab** (`wall(...)`,
-`slab(...)`, `column(...)`, `cut(...)`) for direct geometric control
-without round-tripping through the model.
+See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CONTRIBUTING.md) for PR conventions.
 
 ---
 
-## For judges (60 seconds)
+## Supported formats
 
-1. Open the [hosted demo](https://wordingone.github.io/gemma-architect/).
-2. Press `Cmd-K` (or `Ctrl-K`). Type `schultz`. Press Enter.
-3. Watch a 14-element residence emerge in <5 seconds, fully
-   IFC4-exportable. Click **Export → IFC4** to download a file that
-   loads cleanly in Revit / ArchiCAD / BlenderBIM.
-4. Click any element. The right sidebar shows IFC class + storey +
-   GUID + layer. Ctrl-click two more elements; the panel reports
-   `3 elements selected` with a union bounds size — the same
-   selection model a working architect uses in Rhino.
-
-That's the equity story in three clicks: a non-CAD user, in a browser,
-emits BIM-compliant geometry without an installer or API key.
+| Format | Import | Export |
+|---|---|---|
+| IFC4 | ✓ (web-ifc) | ✓ (hand-emitted STEP-21, round-trip verified) |
+| STEP / IGES / BREP | ✓ (OpenCascade WASM) | ✓ (STEP, when geometry originated from OCCT) |
+| GLB / GLTF | ✓ (three.js) | ✓ |
+| OBJ | ✓ (three.js) | ✓ |
+| STL | ✓ (three.js) | ✓ |
+| 3DM (Rhino) | — | ✓ |
+| USDZ | — | ✓ |
+| SVG / DXF / PDF | — | ✓ (layout mode) |
 
 ---
 
-## AI prompt pipeline
+## Known limitations
 
-The PROMPT textbox supports two paths:
-
-- **Cache-first (for bundled demos).** A 60-row prompt → JS cache ships with the
-  bundle (built from `data/dsl-demo-corpus.jsonl` + Schultz gold + precursor Gemma 3
-  LoRA eval outputs archived at `outputs/archive-gemma3-2026-05-05/`). F1-weighted
-  similarity (numeric tokens 2x, stop-words filtered) returns the best
-  match in ~50 ms. No GPU, no network call — the path bundled demos use.
-- **Live Gemma 4 (default for novel prompts).** Stock `onnx-community/gemma-4-E4B-it-ONNX`
-  loads in-browser via Transformers.js v4 (WebGPU). No fine-tune or adapter loaded.
-  Novel prompts that miss the cache go directly to the in-browser model.
-  (`?gemma_model=e2b` URL param switches to the smaller E2B variant.)
-
-Architecture: [`docs/ai-pipeline.md`](docs/ai-pipeline.md). The
-console-DSL terminal that backs the cache's broader-coverage rows is
-documented in [`docs/console-dsl.md`](docs/console-dsl.md).
-
----
-
-## Numbers
-
-| What                                       | Number                            |
-| ------------------------------------------ | --------------------------------- |
-| Base model                                 | Gemma 4 E4B-it (onnx-community/gemma-4-E4B-it-ONNX) |
-| Self-harness demos (no browser)            | 9 / 9 pass                        |
-| AI prompt cache rows (DSL + Schultz + archived eval) | 60               |
-| DSL corpus rows compiled via `compileDsl()`| 19 / 19 pass                      |
-
-Numbers reproducible end-to-end via [`submission/repro.md`](submission/repro.md).
-
----
-
-## Submission artifacts
-
-- [`submission/writeup.md`](submission/writeup.md) — Kaggle post draft.
-- [`submission/impact.md`](submission/impact.md) — equity story, who benefits, adoption path.
-- [`submission/repro.md`](submission/repro.md) — step-by-step reproduction.
-- [`submission/demo-script.md`](submission/demo-script.md) — 3-min demo video voiceover + cuts.
-- [`submission/SAMPLES.md`](submission/SAMPLES.md) — bundled IFC sample provenance + per-file licenses (separates the real architect-authored Schultz Residence from synthetic KIT schema-validation fixtures).
-- [`submission/screenshots/`](submission/screenshots/) — 9-cell visual sweep from the live deployed page (PROMPT/wall/console/Schultz solid + drafting/EXPORT/Cmd-K/PARAMETERS).
+- **Experimental.** This is a research/prototyping tool. Geometry output is not structurally validated.
+- **AI agent accuracy varies.** The in-browser Gemma 4 model works well for common schematic shapes; novel or complex prompts may need refinement.
+- **No collaboration.** Single-user, single-tab. No server-side persistence.
+- **WebGPU required for AI.** Browsers without WebGPU fall back to CPU inference (slower). The geometry viewer works without WebGPU.
+- **SharedArrayBuffer / multi-thread WASM** requires COOP+COEP headers. GitHub Pages serves single-thread; any COOP+COEP-capable host (Vercel, self-hosted nginx) gets multi-thread.
+- **IFC schema coverage.** Import handles IFC2×3 and IFC4. Export targets IFC4; round-trip verified via `IfcAPI.OpenModel`.
+- **English only.** The AI agent prompt corpus is English.
 
 ---
 
 ## Stack
 
-- **Model:** Gemma 4 E4B-it (`onnx-community/gemma-4-E4B-it-ONNX`), Q4 quantized, loaded in-browser via Transformers.js v4. No fine-tune in the deployed path. (`?gemma_model=e2b` switches to the smaller E2B variant.)
-- **Geometry kernel:** [replicad](https://replicad.xyz/) 0.20.0 (LGPL-2.1) on
-  [replicad-opencascadejs](https://github.com/sgenoud/replicad) 0.20.2
-  (LGPL-2.1 wrapper, with the bundled OpenCascade WASM separately under
-  LGPL-2.1 + linking exception).
-- **IFC4 parser:** [web-ifc](https://github.com/ThatOpen/engine_web-ifc)
-  0.0.77 (MPL-2.0) — the page hand-emits STEP-21 text and round-trips
-  it through `IfcAPI.OpenModel` to verify parseability.
-- **Viewer:** three.js 0.162.0 (MIT) + OrbitControls.
-- **Build:** Vite 8 + TypeScript 5.3 + vite-plugin-wasm + vite-plugin-top-level-await.
-- **Runtime:** ES-module web worker for the geometry kernel; main thread
-  never blocks. The deployed build is GitHub Pages, which can't serve
-  COOP+COEP, so it falls back to single-thread WASM gracefully. The
-  multi-thread SharedArrayBuffer path lights up automatically on any
-  host that can serve those headers (Vercel, Spaces, self-hosted nginx).
-
-License chain (CC BY 4.0 / MIT / MPL-2.0 / LGPL-2.1-with-linking-exception)
-is fully compatible with commercial deployment. MPL-2.0 on web-ifc is
-weakly copyleft per file (modifications to its source must stay MPL),
-but our app code that *uses* web-ifc has no copyleft obligation.
+- **AI:** Gemma 4 E4B-it (`onnx-community/gemma-4-E4B-it-ONNX`), in-browser via Transformers.js v4 + WebGPU
+- **Parametric geometry:** [replicad](https://replicad.xyz/) 0.20 (LGPL-2.1) + OpenCascade WASM
+- **IFC:** [web-ifc](https://github.com/ThatOpen/engine_web-ifc) 0.0.77 (MPL-2.0)
+- **3D viewer:** three.js 0.162 (MIT) + OrbitControls
+- **Build:** Vite 8 + TypeScript 5.3
 
 ---
 
 ## Directory layout
 
-| Path | What lives there |
-| ---- | ---------------- |
-| `web/` | Browser app (Vite + TypeScript). Entry: `web/src/main.ts`. |
-| `web/src/worker.ts` | Geometry-kernel web worker (replicad + OpenCascade). |
-| `web/src/ifc.ts` + `ifc-build.ts` | IFC4 STEP-21 emit + web-ifc round-trip verify. |
-| `web/src/demo-prompts.ts` | The 9 canned demos with parameter slider config (incl. Schultz hero). |
-| `web/src/ai-generate.ts` | Cache-first prompt → JS pipeline; falls through to live Gemma 4 on cache miss. |
-| `web/src/dsl-eval.ts` | `compileDsl()` — v0 lexicon → JS for the CONSOLE tab. |
-| `web/dist/ai-cache.json` | 60-row prompt → JS cache (produced by `bun run web:build` via `scripts/build-ai-cache.ts`). |
-| `src/tools/tier1.ts` | The 12-op replicad surface the model is trained against. |
-| `src/train/` | Unsloth LoRA training scripts (build dataset, train, eval, publish). |
-| `src/serve/serve_lora.py` | OpenAI-compat FastAPI wrapper around the v2 adapter. |
-| `src/extract/` | IFC → (NL, replicad) extraction pipeline. |
-| `src/generate/` | Synthetic-IFC generator (D2 in 18-day plan). |
-| `fixtures/` | Hand-curated training pairs (tier1 + tier1-extra + tier2-curated + mined-extra). |
-| `data/dsl-demo-corpus.jsonl` | 19-row DSL corpus that broadens cache coverage. |
-| `data/` | Built training/eval JSONL (gitignored — produced by `build_dataset_v2.py`). |
-| `outputs/` | LoRA adapter + train stats + eval results (gitignored — produced by training). |
-| `scripts/` | Bun scripts: `validate-fixtures.ts`, `web-self-harness.ts`, `generate-v2.ts`, `dev-as-architect.ts`, `probe-conventions.ts`, `build-ai-cache.ts`, `test-ai-match.ts`, `test-ifc-bounds.ts`, `verify-dsl-corpus.ts`. |
-| `submission/` | Hackathon submission docs + screenshots. |
-| `docs/` | Design docs (`ai-pipeline.md`, `console-dsl.md`, **`tier1-conventions.md`**, tool taxonomy, training-pair format, 18-day plan, retrospectives). |
-
----
-
-## Quick start
-
-Full reproduction guide: [`submission/repro.md`](submission/repro.md).
-TL;DR for the **browser-only** path (no training):
-
-```bash
-git clone https://github.com/wordingone/gemma-architect
-cd gemma-architect
-bun install
-bun run web:typecheck       # strict tsc, no emit
-bun run web:dev             # http://localhost:5847 — hot reload
-# or
-bun run web:build           # outputs to web/dist/
-bun run web:preview         # http://127.0.0.1:4173 — same build the live demo serves
 ```
-
-Self-harness (no browser, validates the same data path the worker
-takes):
-
-```bash
-bun scripts/web-self-harness.ts          # 9/9 canned demos pass
-bun scripts/dev-as-architect.ts          # 8/8 hand-written designs (revolve, gables, T-junctions)
-bun scripts/probe-conventions.ts         # primitive-by-primitive bounds — run when in doubt
-bun scripts/build-ai-cache.ts            # rebuild the 60-row prompt → JS cache
-bun scripts/test-ai-match.ts             # F1-similarity smoke test for the matcher
-bun scripts/test-ifc-bounds.ts           # IFC viewer column-major matrix regression
-bun scripts/verify-dsl-corpus.ts         # 19/19 DSL corpus rows compile + execute
+web/                    Browser app (Vite + TypeScript)
+  src/
+    main.ts             Orchestrator (~170 LOC)
+    dom-events.ts       DOM wiring, worker, file I/O, export pipeline
+    register-handlers.ts  Handler registration (all Sd* verbs)
+    commands/           Dispatch, DSL, spatial-api.yaml SDK contract
+    agent/              AI agent harness, goal system
+    viewer/             3D viewport, tools, gizmos, selection
+    handlers/           Per-domain handler modules (transforms, nurbs, structural, …)
+    geometry/           Layers, levels, grids, clipping planes, drafting
+    ifc/                IFC build + round-trip
+    io/                 Loaders, exporters, scene store
+    shell/              Workbench layout, palette, modes
+    scene/              Scene panel
+    tools/              Create-mode tools (wall, slab, roof, openings, sketch)
+    nurbs/              NURBS kernel
+scripts/                Bun scripts (audit, setup, CI helpers)
+docs/
+  user/                 End-user guides
+  dev/                  Developer reference
+  internal/             Internal design notes
+submission/             Hackathon submission artifacts (historical)
 ```
-
-The hand-written harness exercises corners of the tool surface the
-canned demos don't (revolve, sketchOnPlane("XZ"), drawPolyline N-gons,
-nested booleans). What it surfaced about the 12-op convention is in
-[`docs/tier1-conventions.md`](docs/tier1-conventions.md) — required
-reading for anyone training against this surface.
-
-Training scripts are in `src/train/` (scaffold for a future Gemma 4 retrain; the precursor Gemma 3 LoRA is archived at `outputs/archive-gemma3-2026-05-05/`).
-
----
-
-## What ships with this submission
-
-- **GitHub repo** — this repo. CC BY 4.0.
-- **Model** — no LoRA adapter ships in this submission. The deployed app runs stock
-  `onnx-community/gemma-4-E4B-it-ONNX` in-browser. Training scripts (`src/train/`) are
-  scaffolded for a future Gemma 4 retrain; the prior Gemma 3 4B LoRA is archived at
-  `outputs/archive-gemma3-2026-05-05/` and is not loaded by the deployed app.
-- **Hosted live demo** — GitHub Pages: https://wordingone.github.io/gemma-architect/
-  (single-thread WASM fallback because GH Pages can't serve COOP+COEP;
-  multi-thread path lights up on any host that can — Spaces, Vercel,
-  self-hosted nginx).
-- **3-min demo video** — script in [`submission/demo-script.md`](submission/demo-script.md);
-  video URL filled in at submission time.
-
----
-
-## Limitations
-
-- **Tier 1 vocabulary only** — schematic-design primitives (walls,
-  slabs, columns, footings, basic openings via `cut`, L-shape and
-  U-shape footprints). ~85% of what a small-shop architect produces in
-  schematic design. Construction-document detailing is out of scope.
-- **English only.** Corpus expansion to other languages is a dataset
-  job, not a model-architecture job.
-- **Not a structural validator.** The model produces geometry that
-  *could* be a wall; it does not check that the wall would stand. That
-  belongs to the engineer who picks up the IFC export.
-- **Semantic placement gaps.** Held-out eval scores `runtime_pass`
-  (the JS executes and produces a Solid). Some emitted sequences place
-  components in geometrically-imprecise positions (e.g., the
-  four-walled room's bounding box is slightly wider than the spec calls
-  for). Tier 2 dataset work + per-row positional eval is the obvious
-  next step.
-
-Full discussion in [`submission/writeup.md`](submission/writeup.md#limitations).
 
 ---
 
 ## Contributing
 
-Issues + PRs welcome. The 18-day hackathon plan at
-[`docs/plan-18-day.md`](docs/plan-18-day.md) lists the open work
-items. Post-hackathon roadmap in [`submission/impact.md`](submission/impact.md#adoption-path).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome.
 
 ---
 
-## Author
+## License
 
-[wordingone](https://github.com/wordingone)
+CC BY 4.0 — see [`LICENSE`](LICENSE).  
+Stack licenses: replicad LGPL-2.1, web-ifc MPL-2.0, three.js MIT. All compatible with the CC BY 4.0 app license for deployment.
