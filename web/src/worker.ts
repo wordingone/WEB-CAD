@@ -4,57 +4,23 @@
 // emitted by the Gemma model (or one of the canned demos) against the
 // replicad surface. Returns mesh data for three.js + an STL blob.
 //
-// Tier 1 surface mirrors src/tools/tier1.ts in the parent repo. Inlined
-// rather than imported so the worker bundle is self-contained — if the
-// parent surface evolves, update both. Drift would surface as a tier1
-// op missing from the binding map and is caught at execute() time.
+// Tier 1 bindings live in src/tools/tier1-shared.ts (single source of truth).
+// Vite bundles that module into this worker at build time so the worker
+// bundle stays self-contained.
 
 import init from "replicad-opencascadejs/src/replicad_single.js";
 // @ts-ignore — wasm asset URL resolved by vite-plugin-wasm
 import opencascadeWasmUrl from "replicad-opencascadejs/src/replicad_single.wasm?url";
 import {
   setOC,
-  drawRectangle,
-  drawCircle,
-  makeBaseBox,
-  makeCylinder,
-  draw,
-  type Solid,
-  type Drawing,
-  type Sketch,
   type Shape3D,
 } from "replicad";
+import { tier1Bindings } from "./tools/tier1-shared";
 import * as WebIFC from "web-ifc";
 // @ts-ignore — wasm asset URL resolved by vite-plugin-wasm
 import webIfcWasmUrl from "web-ifc/web-ifc.wasm?url";
 import type { IfcHierarchyElement } from "./ifc/ifc-types";
 
-type Pt = [number, number];
-
-const makeBox = (width: number, depth: number, height: number): Solid =>
-  makeBaseBox(width, depth, height);
-
-function drawLine(p1: Pt, p2: Pt) {
-  return draw(p1).lineTo(p2);
-}
-
-function drawPolyline(points: Pt[]) {
-  if (points.length < 2) {
-    throw new Error("drawPolyline requires at least 2 points");
-  }
-  let pen = draw(points[0]);
-  for (let i = 1; i < points.length; i++) pen = pen.lineTo(points[i]);
-  return pen.close();
-}
-
-const tier1Bindings = {
-  drawRectangle,
-  drawCircle,
-  drawLine,
-  drawPolyline,
-  makeBox,
-  makeCylinder,
-};
 
 let _ocReady: Promise<void> | null = null;
 let _ocHandle: any = null; // raw OpenCascade module — needed for STEP/IGES/BREP readers.
