@@ -585,6 +585,12 @@ export class Viewer {
 
   updateRelocateBadge(): void { Gizmos.updateRelocateBadge(this); }
 
+  toggleCPlaneGizmo(): void { this._cplaneGizmo.toggle(); }
+  startHostPick(cb: (cplane: CPlane) => void): void { this._hostPickCallback = cb; this.canvas.style.cursor = "crosshair"; }
+  cancelHostPick(): void { this._hostPickCallback = null; this.canvas.style.cursor = ""; }
+  setOpToolActive(active: boolean): void { this._opToolActive = active; }
+  setGridAxesVisible(visible: boolean): void { this.grid.visible = visible; this.axes.visible = visible; this._cplaneGizmo.group.visible = visible; }
+
   syncPivot(): void { Gizmos.syncPivot(this); }
   isAnyGumballDragging(): boolean { return Gizmos.isAnyGumballDragging(this); }
 
