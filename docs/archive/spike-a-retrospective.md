@@ -1,4 +1,4 @@
-# Spike A — LoRA Training Retrospective
+﻿# Spike A — LoRA Training Retrospective
 
 **Run date:** 2026-04-30
 **Acceptance:** ≥80% of held-out prompts emit a parseable replicad sequence using only Tier 1 ops.
@@ -7,7 +7,7 @@
 ## Setup
 
 - **Base model:** `unsloth/gemma-3-4b-it-unsloth-bnb-4bit` (4-bit QLoRA)
-  - The hackathon's headline model is **Gemma-3n-E2B-it** (5B effective). Used 4B-it as the closest stable analogue while waiting for E4B preview wheel availability — same Gemma-3 chat template, same trainable-layer surface, same tokenizer.
+  - The Initial Release's headline model is **Gemma-3n-E2B-it** (5B effective). Used 4B-it as the closest stable analogue while waiting for E4B preview wheel availability — same Gemma-3 chat template, same trainable-layer surface, same tokenizer.
 - **LoRA:** r=16, alpha=16, dropout=0, attention + MLP modules, language layers only (vision frozen). Trainable params: 29.8M / 4.33B (0.69%).
 - **Training data:** 76 rows = 50 hand-written tier1 pairs + 26 deduped Spike B mined-variant pairs (12 unique sequences × ~3 NL variants per, minus shuffled-into-eval).
 - **Eval data:** 8 held-out rows (random 10% split, seed 42).
@@ -79,7 +79,7 @@ The metrics catch syntax + API conformance but not semantics. Reading the 8 gene
 
 These gaps are expected from a 76-pair training set with no semantic-preserving augmentation. The v2 dataset (per `plan-18-day.md` D1-D4) will target 400+ pairs with explicit op-choice augmentation (e.g., L-shape pairs that deliberately vary fuse-vs-cut to teach the boolean distinction).
 
-## What's defensible for the hackathon
+## What's defensible for the Initial Release
 
 - Pipeline end-to-end works on Gemma-3-4b-it as analogue. Same Gemma-3 chat template + tokenizer + Unsloth FastModel path will work on `gemma-3n-E2B-it` (or E4B if wheeled) without code change.
 - 100% Tier 1 API conformance on held-out prompts means the model has learned the grammar, not memorized examples.
@@ -87,7 +87,7 @@ These gaps are expected from a 76-pair training set with no semantic-preserving 
 
 ## What's not yet defensible
 
-- E4B model not yet wheeled in; current adapter is for 4B-it. Final hackathon submission must re-train on E2B once the Unsloth wheel ships.
+- E4B model not yet wheeled in; current adapter is for 4B-it. Final Initial Release submission must re-train on E2B once the Unsloth wheel ships.
 - Training set is 76 pairs — small. To compete on technical-execution depth, expand to 500+ pairs via (a) synthetic IFC generator round-trip, (b) more open IFC corpora, (c) hand-curated tier2/tier3 pairs covering revolves + booleans.
 - No round-trip eval yet — generated JS is scored on lexical/syntactic surface, not by actually executing in replicad and comparing rendered geometry to gold.
 

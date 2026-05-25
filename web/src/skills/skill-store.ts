@@ -1,10 +1,10 @@
-// skill-store.ts — IndexedDB-backed runtime store for user-saved skills.
+﻿// skill-store.ts — IndexedDB-backed runtime store for user-saved skills.
 //
 // Build-time skills (web/skills/<name>/SKILL.md) are loaded separately by
 // skills-loader.ts and are read-only. This store holds user-created skills
 // captured from in-session dispatch sequences.
 
-const DB_NAME = "gemma-architect-skills";
+const DB_NAME = "web-cad-skills";
 const DB_VERSION = 3;
 const STORE = "skills";
 const CLUSTER_STORE = "clusters";

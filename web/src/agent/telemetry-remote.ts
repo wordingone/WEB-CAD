@@ -1,8 +1,8 @@
-// telemetry-remote.ts — Sentry client-side event reporting (#1628).
+﻿// telemetry-remote.ts — Sentry client-side event reporting (#1628).
 //
 // Active in PROD only when VITE_SENTRY_DSN is set.
-// Opt-out: ?notelemetry=1 in URL, or localStorage key gemma-architect-telemetry-opt-out=1.
-// user_id: anonymous UUID stable across tabs (localStorage key gemma-architect-anon-user-id).
+// Opt-out: ?notelemetry=1 in URL, or localStorage key web-cad-telemetry-opt-out=1.
+// user_id: anonymous UUID stable across tabs (localStorage key web-cad-anon-user-id).
 // session_id: ephemeral per-tab UUID (crypto.randomUUID at module load).
 // PII: scrubbed before every event via telemetry-scrub.ts.
 
@@ -10,8 +10,8 @@ import * as Sentry from "@sentry/browser";
 import { scrubPii } from "./telemetry-scrub.js";
 
 const DSN = import.meta.env["VITE_SENTRY_DSN"] as string | undefined;
-const OPT_OUT_KEY = "gemma-architect-telemetry-opt-out";
-const USER_ID_KEY = "gemma-architect-anon-user-id";
+const OPT_OUT_KEY = "web-cad-telemetry-opt-out";
+const USER_ID_KEY = "web-cad-anon-user-id";
 
 // Per-tab session ID — ephemeral, not stored in localStorage.
 const _sessionId = crypto.randomUUID();

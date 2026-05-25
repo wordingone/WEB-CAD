@@ -1,6 +1,6 @@
-# Secrets Scanning (gitleaks)
+﻿# Secrets Scanning (gitleaks)
 
-gemma-architect uses [gitleaks](https://github.com/gitleaks/gitleaks) for secret detection at three layers:
+WEB-CAD uses [gitleaks](https://github.com/gitleaks/gitleaks) for secret detection at three layers:
 
 ## Phase 1 — baseline scan (completed)
 

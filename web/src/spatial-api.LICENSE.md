@@ -1,7 +1,7 @@
-# Spatial API — License + Copyright Analysis
+﻿# Spatial API — License + Copyright Analysis
 
 The Spatial API at `spatial-api.yaml` is independently authored
-by the gemma-architect team. Functional verbs (`line`, `extrude`, `move`,
+by the WEB-CAD team. Functional verbs (`line`, `extrude`, `move`,
 `rotate`, `boolean union`, `fillet`, `chamfer`, ...) are the working
 vocabulary of computer-aided geometric modeling — they are NOT creative
 invention by any specific CAD vendor.

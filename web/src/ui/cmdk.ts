@@ -1,4 +1,4 @@
-// Cmd-K command palette (#179) — bundle port. Opens on Cmd/Ctrl+K
+﻿// Cmd-K command palette (#179) — bundle port. Opens on Cmd/Ctrl+K
 // from anywhere in the app; Esc / click backdrop closes; Up/Down to
 // navigate, Enter to invoke. Filter narrows by label substring.
 
@@ -98,7 +98,7 @@ const ALL_CMDS: Cmd[] = [
   { group: "MODEL",    icon: "column",   label: "IfcColumn — place column",          kbd: "",   run: () => startPicker("IfcColumn") },
   { group: "MODEL",    icon: "wall",     label: "IfcDoor — place door",              kbd: "",   run: () => startPicker("IfcDoor") },
   { group: "MODEL",    icon: "wall",     label: "IfcWindow — place window",          kbd: "",   run: () => startPicker("IfcWindow") },
-  { group: "MODEL",    icon: "wall",     label: "New wall (demo prompt)",            kbd: "W",  run: () => selectDemoIndex(0) },
+  { group: "MODEL",    icon: "wall",     label: "New wall (Starter Prompt)",            kbd: "W",  run: () => selectDemoIndex(0) },
   { group: "MODEL",    icon: "slab",     label: "New slab (raised, demo)",           kbd: "S",  run: () => selectDemoIndex(2) },
   { group: "MODEL",    icon: "column",   label: "New column (demo)",                 kbd: "C",  run: () => selectDemoIndex(1) },
   { group: "MODEL",    icon: "extrude",  label: "Slab with stair hole",              kbd: "E",  run: () => selectDemoIndex(3) },

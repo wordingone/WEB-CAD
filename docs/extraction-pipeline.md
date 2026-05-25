@@ -1,6 +1,6 @@
-# IFC → (NL, replicad sequence) extraction pipeline — single-wall walkthrough
+﻿# IFC → (NL, replicad sequence) extraction pipeline — single-wall walkthrough
 
-Pre-plan artifact for Gemma 4 Good Hackathon. Pinned to one element class
+Pre-plan artifact for WEB-CAD initial release. Pinned to one element class
 (IfcWallStandardCase) end-to-end before scaling. Round-trip validated:
 parametric IFC → replicad → STEP → re-parse must produce geometric
 equivalent (within mesh tolerance).

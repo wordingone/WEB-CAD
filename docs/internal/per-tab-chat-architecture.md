@@ -1,4 +1,4 @@
-# Per-tab chat architecture — design decision
+﻿# Per-tab chat architecture — design decision
 
 **Status:** Design / decision. Implementation issues drafted at §6; filed in follow-up after this doc is approved.
 
@@ -240,7 +240,7 @@ Three PRs, sequenced for incremental delivery:
 ```
 [E1] feat(chat): chat-panel context-swap architecture
   - Refactor chat-panel.ts to take a ChatContext arg + swap on tab change
-  - Add B:/M/gemma-architect/web/src/chat/chat-contexts.ts as the context registry
+  - Add B:/M/WEB-CAD/web/src/chat/chat-contexts.ts as the context registry
   - Persist per-tab history to IDB under chat.history.<tabId>.<sessionId>
   - Pre-existing Model tab keeps current behavior (only registered context is "model")
   - swapContext(t) handles mid-stream cancellation with a user prompt
@@ -291,10 +291,10 @@ Three PRs, sequenced for incremental delivery:
 
 ## References
 
-- Issue: wordingone/gemma-architect#1856 (this deliverable's parent)
+- Issue: wordingone/WEB-CAD#1856 (this deliverable's parent)
 - Cross-ref: `docs/internal/research-tab-design.md` §5.4 (research-tab angle on per-tab chat — aligned with this doc)
 - Cross-ref: `docs/internal/research-tab-design.md` §6.2 D5 (research-context implementation sub-issue draft, now E2 here)
-- Cross-ref: wordingone/gemma-architect#1843 (Layout umbrella — gates E3)
+- Cross-ref: wordingone/WEB-CAD#1843 (Layout umbrella — gates E3)
 - Existing chat: `web/src/chat/chat-panel.ts`
 - Existing dispatch: `web/src/commands/dispatch.ts`, `web/src/commands/spatial-api.yaml`
 - Risk doctrine: `B:/M/avir/leo/.claude/rules/claim-verification.md` (apply to user-visible AC on each implementation PR)

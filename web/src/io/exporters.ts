@@ -1,4 +1,4 @@
-// Multi-format exporters for the gemma-architect viewer.
+﻿// Multi-format exporters for the WEB-CAD viewer.
 //
 // All exporters take the live THREE.Object3D currently in the viewer plus
 // a label / id and return either a Blob (for binary) or a string (for text).

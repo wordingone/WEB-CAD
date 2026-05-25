@@ -1,7 +1,7 @@
-# avir-cli Transplant Plan
+﻿# avir-cli Transplant Plan
 
 Audit and implementation roadmap for adapting avir-cli's hook infrastructure and prompt
-architecture to gemma-architect's browser-resident agent.
+architecture to WEB-CAD's browser-resident agent.
 
 **Issue**: #409 | **Phase**: 2 of 3 (audit + plan)
 
@@ -23,7 +23,7 @@ architecture to gemma-architect's browser-resident agent.
 Result: a dynamically assembled system prompt that reflects per-project context, user
 preferences, and persistent memory — updated every session.
 
-### gemma-architect (current)
+### WEB-CAD (current)
 
 `web/src/agent/agent-harness.ts:463-522` — single static string, hardcoded. Includes
 spatial-dictionary verbs, dispatch schema, and few-shot examples. No file loading.
@@ -31,7 +31,7 @@ No session-specific context injection. Same prompt every turn.
 
 ### Gap
 
-| Capability | avir-cli | gemma-architect |
+| Capability | avir-cli | WEB-CAD |
 |---|---|---|
 | Per-project context | CLAUDE.md hierarchy | Not present |
 | User memory | AutoMem files | Not present |
@@ -49,7 +49,7 @@ not portable. What IS portable:
   base system prompt before each `runAgentTurn` call. Allows external callers (gemma-verify,
   test harnesses) to inject fixture context without editing the static block.
 
-**Not porting**: filesystem hierarchy loading. Gemma-architect's context is smaller and
+**Not porting**: filesystem hierarchy loading. WEB-CAD's context is smaller and
 more focused; a static base prompt with a runtime injection hook covers the use case.
 
 ---
@@ -69,7 +69,7 @@ Real-world examples from the project hooks directory (`.claude/hooks/`):
 - `pretooluse-block-playwright.sh` — blocks direct playwright calls.
 - `block-prod-write.sh` — blocks writes to production paths.
 
-### gemma-architect (current)
+### WEB-CAD (current)
 
 `web/src/chat-panel.ts:287-309` — `_runDispatches()`:
 ```ts
@@ -128,7 +128,7 @@ catches unknown verbs (Surface 7); the chat dispatch path does not.
 The stop-hook → continuation-turn loop is the mechanism that allows avir-cli to do
 multi-agent coordination and long-running tasks without human re-prompting.
 
-### gemma-architect (current)
+### WEB-CAD (current)
 
 After `_runDispatches()` completes in `_executeAndPush`, the turn is done. Nothing fires.
 `viewer:scene-changed` fires on geometry changes, but nothing reads it to continue the
@@ -181,7 +181,7 @@ Register stop observers via `window.__gemma_dispatch_hooks.stop`:
   `model_switch`, `api_error`, `tool_use`, `tool_result`.
 - Enables: session replay, error rate tracking, turn timing analysis.
 
-### gemma-architect (current)
+### WEB-CAD (current)
 
 `web/src/telemetry.ts` — `lastTurn()` tracks per-turn pp_tps/tg_tps/tokens for the perf
 strip. No session-level events. No error counting. No turn numbering.
@@ -212,7 +212,7 @@ Update on each turn:
 
 This makes session state observable via `window.__gemmaSession` from CDP evaluate
 calls in gemma-verify, closing the gap between avir-cli's lifecycle JSONL and what
-gemma-architect can surface.
+WEB-CAD can surface.
 
 ---
 
@@ -224,7 +224,7 @@ Tool calls are strongly typed via the Anthropic SDK's `tool_choice` + schema def
 The model emits JSON conforming to the schema; the SDK validates before execution. Invalid
 tool calls produce a structured error response, not an exception.
 
-### gemma-architect (current)
+### WEB-CAD (current)
 
 `invokeCommand()` in `command-session.ts` takes `{command, parameters}` and dispatches to
 a handler registry. The handler validates args (ArgValidationError from dispatch.ts). But:
@@ -239,7 +239,7 @@ never tried.
 ### Transplant verdict
 
 **Structural gap**: avir-cli uses the Anthropic function-calling API (structured outputs);
-gemma-architect uses free-text XML parsing (`<dispatch>` blocks in `agent-harness.ts`).
+WEB-CAD uses free-text XML parsing (`<dispatch>` blocks in `agent-harness.ts`).
 This is the root cause of the validation gap — not a missing code pattern.
 
 **Short-term fix** (pre-dispatch hook, Quick Win 1 above): check verb against spatial

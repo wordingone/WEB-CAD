@@ -1,4 +1,4 @@
-# Spike B — IFC Mining Retrospective
+﻿# Spike B — IFC Mining Retrospective
 
 **Run date:** 2026-04-30
 **Acceptance:** ≥20/30 sampled pairs round-trip-pass + look semantically reasonable.
@@ -62,7 +62,7 @@ Tessellated geometry (IfcTriangulatedFaceSet, IfcIndexedPolygonalFace) is fundam
 3. **Tier 3:** Revolutions (IfcRevolvedAreaSolid), sweeps along curves.
 4. **Synthetic generator:** programmatic emission of (parametric primitive → IFC → mining round-trip) to cheaply expand corpus.
 
-For the hackathon's training data, Spike A (50 hand-written pairs) + 12 mined pairs + a synthetic generator gives a defensible v1 dataset without further IFC corpus hunting.
+For the Initial Release's training data, Spike A (50 hand-written pairs) + 12 mined pairs + a synthetic generator gives a defensible v1 dataset without further IFC corpus hunting.
 
 ## Pipeline status
 

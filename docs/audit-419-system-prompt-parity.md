@@ -1,4 +1,4 @@
-# Audit: System Prompt Parity — REMOTE vs WebGPU (#419)
+﻿# Audit: System Prompt Parity — REMOTE vs WebGPU (#419)
 
 **SHA**: 11eccfa  
 **Date**: 2026-05-11  
@@ -93,7 +93,7 @@ No code change required for #419.
    In REMOTE mode this is within the server's ctx (8192). In WebGPU mode the ONNX model
    has a fixed ctx window — monitor for truncation on long conversations.
 
-3. **Demo deployment path**: For the Gemma 4 Good Hackathon demo, the serving setup
+3. **Demo deployment path**: For the WEB-CAD initial release demo, the serving setup
    (REMOTE vs WebGPU) determines which inference engine runs, but NOT whether the system
    prompt is included — it's included either way.
 

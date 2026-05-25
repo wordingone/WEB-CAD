@@ -1,4 +1,4 @@
-// Workbench scaffolding — design-handoff #172 + #174 + #175.
+﻿// Workbench scaffolding — design-handoff #172 + #174 + #175.
 //
 // Builds the bundle's three-pane workbench structure:
 //   .workbench grid (44px palette / 1fr center-col / 280px sidebar)
@@ -284,8 +284,8 @@ const DOCK_TABS: DockTab[] = [
 //   "console" → DSL / `:verb` registry → compileDsl/dispatchSync → JS → kernel
 // Persists per-session via localStorage.
 type ConsoleMode = "prompt" | "console";
-const CONSOLE_MODE_LS_KEY = "gemma-cad:console-mode-v1";
-const CONSOLE_MODE_LS_KEY_LEGACY = "gemma-architect:console-mode-v1";
+const CONSOLE_MODE_LS_KEY = "web-cad:console-mode-v1";
+const CONSOLE_MODE_LS_KEY_LEGACY = "web-cad:console-mode-v1";
 function loadConsoleMode(): ConsoleMode {
   try {
     const v = localStorage.getItem(CONSOLE_MODE_LS_KEY) ?? localStorage.getItem(CONSOLE_MODE_LS_KEY_LEGACY);
@@ -2087,7 +2087,7 @@ function buildSidebar(host: HTMLElement, scenePanel: HTMLElement | null) {
   activate("scene");
 }
 
-// Suggestion chips → existing demo prompts (drives #prompt-select).
+// Suggestion chips → existing Starter Prompts (drives #prompt-select).
 // demoId is matched against the option label prefix ("1. ", "6. ", etc.)
 // because main.ts populates the dropdown with `value=index, text="N. Label"`.
 const PROMPT_CHIPS: { label: string; demoId: string }[] = [
@@ -2103,8 +2103,8 @@ const PROMPT_CHIPS: { label: string; demoId: string }[] = [
 ];
 
 // localStorage-backed real session history — populated when user generates geometry.
-const RECENT_LS_KEY = "gemma-cad:recent-v1";
-const RECENT_LS_KEY_LEGACY = "gemma-architect:recent-v1";
+const RECENT_LS_KEY = "web-cad:recent-v1";
+const RECENT_LS_KEY_LEGACY = "web-cad:recent-v1";
 type RecentEntry = { ts: string; label: string };
 
 function loadRecentEntries(): RecentEntry[] {

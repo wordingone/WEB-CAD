@@ -1,4 +1,4 @@
-# Canonical Demo Acceptance Criteria — FZK-Haus Reference
+﻿# Canonical Demo Acceptance Criteria — FZK-Haus Reference
 
 **Created:** 2026-05-22  
 **Owner:** Archie  
@@ -66,7 +66,7 @@ Each class has: reference behavior (FZK cite), current observed behavior (CDP ev
 | **Current** | 0 interior partition walls in scene. All 14 walls are exterior or perimeter walls. |
 | **Acceptance** | Post-demo build of two-story house, scene must contain ≥ 1 interior wall (`userData.creator==='wall'` AND position is NOT on the perimeter bbox of the building footprint). |
 | **Verify surface** | S140 — see §Verify Surfaces |
-| **Root cause** | Demo prompt does not instruct model to emit interior partition walls. Model omits them entirely. Either prompt needs interior-wall instructions or SdRoom decomposition is needed. |
+| **Root cause** | Starter Prompt does not instruct model to emit interior partition walls. Model omits them entirely. Either prompt needs interior-wall instructions or SdRoom decomposition is needed. |
 | **Issue** | #1556 — interior partition walls missing |
 
 ---
@@ -79,7 +79,7 @@ Each class has: reference behavior (FZK cite), current observed behavior (CDP ev
 | **Current** | Scene has 3 slabs (from `sceneSummary.slab=3`). No CDP confirmation of which level each covers. Likely: L0 floor + 2 roof panels, missing the L1/L2 intermediate floor. |
 | **Acceptance** | Scene must contain at least 1 slab at OG base elevation (z ≈ 2.74m in FZK-Haus) with horizontal extent matching house footprint (~7.9m × 6.1m). |
 | **Verify surface** | S138 — see §Verify Surfaces |
-| **Root cause** | Demo prompt may not instruct model to place an intermediate floor slab. SdSlab handler exists but model omits this dispatch. |
+| **Root cause** | Starter Prompt may not instruct model to place an intermediate floor slab. SdSlab handler exists but model omits this dispatch. |
 | **Issue** | #1557 — intermediate floor slab absent |
 
 ---
@@ -105,7 +105,7 @@ Each class has: reference behavior (FZK cite), current observed behavior (CDP ev
 | **Current** | Garden wall at [0, 1.83, 0], `bbox=[3.66×0.2×0.3]`. Height 0.3m = 30cm. Visually this is a curb-height element, not a boundary wall. |
 | **Acceptance** | Garden wall height ≥ 0.8m. |
 | **Verify surface** | S141 — see §Verify Surfaces |
-| **Root cause** | SdWall handler or demo prompt passes incorrect height parameter (0.3m instead of 1.2–1.8m) for garden boundary. Possible schema default being applied. |
+| **Root cause** | SdWall handler or Starter Prompt passes incorrect height parameter (0.3m instead of 1.2–1.8m) for garden boundary. Possible schema default being applied. |
 | **Issue** | #1558 — garden wall height anomaly |
 
 ---
@@ -162,7 +162,7 @@ Assertion: after SdWall×4 at L2 + SdWindow per wall, each L2 wall must be `type
 // Pass: no wall has both bboxX < 0.5m AND bboxY < 0.5m.
 // Covers D2 — corner filler zero-width walls.
 ```
-Assertion: after demo prompt build, `walls.every(w => w.bboxX >= 0.5 || w.bboxY >= 0.5)`.
+Assertion: after Starter Prompt build, `walls.every(w => w.bboxX >= 0.5 || w.bboxY >= 0.5)`.
 
 ### S138 — Intermediate floor slab present (D4 acceptance)
 

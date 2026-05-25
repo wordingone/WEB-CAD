@@ -1,4 +1,4 @@
-// gemma-architect skills loader — reads SKILL.md files under web/skills/,
+﻿// WEB-CAD skills loader — reads SKILL.md files under web/skills/,
 // parses YAML frontmatter + body, and exposes a keyword-match index for
 // the agent harness.
 //

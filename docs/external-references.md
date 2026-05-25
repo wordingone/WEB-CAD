@@ -1,8 +1,8 @@
-# External References — gemma-architect
+﻿# External References — WEB-CAD
 
-**Canonical catalogue of external products, datasets, papers, standards, and libraries relevant to the gemma-architect arch-1 build for the Gemma 4 Good Hackathon.**
+**Canonical catalogue of external products, datasets, papers, standards, and libraries relevant to the WEB-CAD arch-1 build for the WEB-CAD initial release.**
 
-Sourced and analyzed 2026-05-01. This file is the durable record. Memory pointer at `reference_gemma_architect_external_resources.md` resolves here.
+Sourced and analyzed 2026-05-01. This file is the durable record.
 
 ---
 
@@ -25,13 +25,13 @@ Sourced and analyzed 2026-05-01. This file is the durable record. Memory pointer
 | **BIMNet dataset** (Tsinghua School of Software) | [thucbims.github.io](https://thucbims.github.io/bimnet.thucbims.github.io/) + [github.com/LydJason/BIMNet](https://github.com/LydJason/BIMNet) | 116.5M points, 25 real-world scans, 382 rooms, 8,700+ m², paired IFC | Scan-to-BIM benchmark with multi-dimensional eval framework (geometric + topological accuracy). |
 | **WBDG / NIBS COBie common BIM files** | [wbdg.org/bim/cobie/common-bim-files](https://www.wbdg.org/bim/cobie/common-bim-files) | Federal-aligned reference openBIM files (.ifc) | IFC-export validation + judge-credibility samples. |
 | **NIST Data Sets by Model Dimensions** | [nist.gov/el/data-sets-model-dimensions](https://www.nist.gov/el/data-sets-model-dimensions) | Wind-tunnel aerodynamic test data (UWO), organised by building model dimensions (roof slope, eave height, etc.) | Authoritative, niche — useful for wind-load validation, NOT general CAD reference geometry. (Catalogue mischaracterised as "reference geometry" until 2026-05-01 Pass 1B + Pass 2 fact-check.) |
-| **CADCap-1M** | [huggingface.co/datasets/SadilKhan/CADCap-1M](https://huggingface.co/datasets/SadilKhan/CADCap-1M) (released; gated) | 1M+ CAD captions | Largest text-to-CAD corpus. License `CC-BY-NC-SA-4.0` — BLOCKS competitive use for $200K hackathon (§17 gate 4 update 2026-05-01); same NC + SA blockers as gate 2 BRepNet. |
+| **CADCap-1M** | [huggingface.co/datasets/SadilKhan/CADCap-1M](https://huggingface.co/datasets/SadilKhan/CADCap-1M) (released; gated) | 1M+ CAD captions | Largest text-to-CAD corpus. License `CC-BY-NC-SA-4.0` — BLOCKS competitive use for $200K Initial Release (§17 gate 4 update 2026-05-01); same NC + SA blockers as gate 2 BRepNet. |
 
 ## 3. Products / apps / repos
 
 | Project | Where | Status | Notes |
 |---|---|---|---|
-| **pascalorg/editor** | [github.com/pascalorg/editor](https://github.com/pascalorg/editor), hosted at [editor.pascal.app](https://editor.pascal.app), CDN at `pascal-cdn.wawasensei.dev/items/` | MIT, v0.6.0 (2026-04-21 16:57 EDT, per `git log v0.6.0`), 11,058 LOC (TS/TSX, excl. node_modules; total source ~79 MB), 14,991 stars / 1,925 forks, CHANGELOG credits 14 distinct contributor handles, 26 distinct git commit authors all-time (incl. 2 bots). | **Analyzed in depth 2026-05-01** at `B:/M/gemma-architect-food/` (local fork). 5-agent investigation; LOC + commit-author + WebGL-fallback claims corrected post Pass 1+2+3 fact-check. See §5 below. |
+| **pascalorg/editor** | [github.com/pascalorg/editor](https://github.com/pascalorg/editor), hosted at [editor.pascal.app](https://editor.pascal.app), CDN at `pascal-cdn.wawasensei.dev/items/` | MIT, v0.6.0 (2026-04-21 16:57 EDT, per `git log v0.6.0`), 11,058 LOC (TS/TSX, excl. node_modules; total source ~79 MB), 14,991 stars / 1,925 forks, CHANGELOG credits 14 distinct contributor handles, 26 distinct git commit authors all-time (incl. 2 bots). | **Analyzed in depth 2026-05-01** at `B:/M/WEB-CAD/` (local fork). 5-agent investigation; LOC + commit-author + WebGL-fallback claims corrected post Pass 1+2+3 fact-check. See §5 below. |
 | **BIMNet repo** | [github.com/LydJason/BIMNet](https://github.com/LydJason/BIMNet) | Tsinghua-published code | Scan-to-BIM benchmark. |
 
 ## 4. Showcases / governance / judging context
@@ -47,11 +47,11 @@ Full investigation in 5 parallel haiku agent reports (2026-05-01). Headline find
 - **Renderer:** React Three Fiber + `three.js@0.184` + WebGPU-primary with WebGL2 fallback (iOS Chrome path). Fallback paths in `packages/viewer/src/lib/merged-outline-node.ts:172,308-309` and `packages/viewer/src/components/viewer/post-processing.tsx:196-200,387-388`; viewer logs `"No WebGPU device on backend — running on a fallback renderer"` (`viewer/index.tsx:112`). Wall cutouts via `three-bvh-csg`. **No replicad / no OpenCASCADE.** Export: GLB/STL/OBJ. **No IFC export.** (Original 5-agent report claimed "WebGPU-only no fallback"; Pass 3 fact-check verified WebGL2 fallback exists.)
 - **MCP server:** `@pascal-app/mcp` is model-agnostic, exposes 37+ scene tools. Vision tools call MCP `sampling` (host-provided model). **Zero LLM bundled.** Default host = Claude Desktop.
 - **App shell:** Next.js 16, SQLite, BetterAuth (Postgres + Supabase optional), 4 API routes, no LLM routes.
-- **Verdict:** Lift the model (scene shape, vocabulary), not the code. pascal assumes external MCP host with cloud LLM; we need in-browser Gemma. pascal lacks IFC export (our sub-gate 3) and replicad (our solid modeler). Their Next.js + auth shell is overkill for hackathon.
+- **Verdict:** Lift the model (scene shape, vocabulary), not the code. pascal assumes external MCP host with cloud LLM; we need in-browser Gemma. pascal lacks IFC export (our sub-gate 3) and replicad (our solid modeler). Their Next.js + auth shell is overkill for Initial Release.
 
 ## 6. Standards / formats
 
-- **IFC** (buildingSMART) — industry-standard openBIM format. **Required for hackathon sub-gate 3 (export). Pascal does NOT export IFC; we add via web-ifc.**
+- **IFC** (buildingSMART) — industry-standard openBIM format. **Required for Initial Release sub-gate 3 (export). Pascal does NOT export IFC; we add via web-ifc.**
 - **COBie** (NIBS / WBDG) — facility-management subset of IFC. Optional; signals seriousness.
 - **B-Rep** (boundary representation) — solid modeling kernel format. replicad/OpenCASCADE produces B-Rep.
 - **GLB / GLTF** (Khronos) — three.js native, pascal default.
@@ -64,14 +64,14 @@ Full investigation in 5 parallel haiku agent reports (2026-05-01). Headline find
 - `google/gemma-4-e4b` — alt target (~4B).
 - Gemma 4 base TBD — awaiting base selection per 2026-05-05 directive. Legacy base training purged 2026-05-05.
 
-## 8. Hackathon target
+## 8. Initial Release target
 
-- **Gemma 4 Good Hackathon** (Kaggle + Google DeepMind) — $200K, deadline 2026-05-18. 5 tracks: health, climate, education, equity, safety. Judged on impact + tech + clarity. Emphasis: low-bandwidth / no-cloud / privacy-critical.
+- **WEB-CAD initial release** (Kaggle + Google DeepMind) — $200K, deadline 2026-05-18. 5 tracks: health, climate, education, equity, safety. Judged on impact + tech + clarity. Emphasis: low-bandwidth / no-cloud / privacy-critical.
 - **Unsloth $10K side-prize** — separate track on Unsloth-fine-tuned models.
 
 ## 9. Hosting / registries
 
-- **HuggingFace Hub** — model artifact host (`gemma-architect/cad-lora-v2` is the intended path; push pending HF_TOKEN — see `submission/README.md` outstanding blockers and `dataset/v2-results.md` §Publish).
+- **HuggingFace Hub** — model artifact host (`WEB-CAD/cad-lora-v2` is the intended path; push pending HF_TOKEN — see `submission/README.md` outstanding blockers and `dataset/v2-results.md` §Publish).
 - **Kaggle** — submission platform.
 - **arXiv** — paper source for all four CAD/LLM papers above.
 
@@ -81,13 +81,13 @@ Full investigation in 5 parallel haiku agent reports (2026-05-01). Headline find
 
 **NOT in pascal but needed for arch-1:**
 - **replicad** (sgenoud/replicad) — OpenCASCADE.js solid modeler running in a Worker. Gives proper boolean ops + B-Rep.
-- **web-ifc** (IFCjs/web-ifc) — IFC parsing/export. Closes hackathon sub-gate 3.
+- **web-ifc** (IFCjs/web-ifc) — IFC parsing/export. Closes Initial Release sub-gate 3.
 - **transformers.js** (huggingface) OR **webllm** (mlc-ai) — in-browser LLM runtime. Pick after benchmark.
 
 ## 11. Gaps — filed for future sweep
 
 - No competing browser-native CAD products surveyed (BlenderGPT-style, OnShape/Shapr3D web demos, Tinkercad, SketchUp Web).
-- No prior Kaggle / DeepMind hackathon winners on architectural / CAD topics scouted.
+- No prior Kaggle / DeepMind Initial Release winners on architectural / CAD topics scouted.
 - No other in-browser LLM-driven 3D editor prototypes found.
 - No GSA / Department of Energy reference BIM file corpora beyond WBDG.
 - buildingSMART certified-software list not enumerated.
@@ -100,12 +100,12 @@ Full investigation in 5 parallel haiku agent reports (2026-05-01). Headline find
 | Designing arch-1 emission target | Start from pascal's parametric flat-graph node model; cross-reference Pointer-CAD and Fusion360 for vocabulary inspiration. |
 | Need IFC export | Use web-ifc; pascal does not have it. |
 | Validating output | Pull a WBDG common BIM file as test case; compare round-trip. |
-| Framing hackathon writeup | Cite Pointer-CAD as closest prior-art-without-code; position arch-1 as the missing in-browser local-first execution of that pattern. |
+| Framing Initial Release writeup | Cite Pointer-CAD as closest prior-art-without-code; position arch-1 as the missing in-browser local-first execution of that pattern. |
 | Seeking dataset for fine-tune scale-up | Fusion360 Gallery (parametric command sequences) is the most format-aligned; BIMNet for scan-to-BIM grounding; ArchCAD-400K for symbol pretraining. |
 
 ## 13. Provenance
 
-Sourced 2026-05-01 from user-supplied URL list + 5-agent haiku investigation of `B:/M/gemma-architect-food/`. arXiv abstracts re-verified at WebFetch time (DreamCAD, ArchCAD-400K, Pointer-CAD). BIMNet detail from Tsinghua project page. Pascal detail cross-verified across 5 parallel agents.
+Sourced 2026-05-01 from user-supplied URL list + 5-agent haiku investigation of `B:/M/WEB-CAD/`. arXiv abstracts re-verified at WebFetch time (DreamCAD, ArchCAD-400K, Pointer-CAD). BIMNet detail from Tsinghua project page. Pascal detail cross-verified across 5 parallel agents.
 
 ### 13.1 Fact-check log (2026-05-01 Pass 1 → 2 → 3)
 
@@ -127,11 +127,11 @@ Lessons: (a) Pass 1 surfaced 6 issues but introduced 1 false positive (contribut
 ## 14. Maintenance
 
 - Append-only by default. When something changes (e.g., Pointer-CAD code releases), add a dated note rather than overwriting.
-- Re-verify external URLs quarterly or before any new hackathon submission.
+- Re-verify external URLs quarterly or before any new Initial Release submission.
 - New survey results (gaps in §11) get appended to the relevant section, not a new file.
 - This file is the canonical record. Memory pointer is a navigational hint, not a backup.
 
-## 15. Comparison matrix — 18-day hackathon ranking
+## 15. Comparison matrix — 18-day Initial Release ranking
 
 Synthesised 2026-05-01 after Pass 1+2+3 source verification + per-reference substance extraction (paper PDFs, dataset READMEs, GitHub LICENSE files).
 
@@ -156,25 +156,25 @@ Map each arch-1 implementation sub-task to the references that contribute concre
 | Sub-task | Primary | Secondary | Role |
 |---|---|---|---|
 | **Emission target shape** (LLM output schema) | pascal/editor 19-node model | Fusion360 Reconstruction JSON, Pointer-CAD ideas | pascal gives flat-graph + parentId pointers; Fusion360 gives sketch/extrude/revolve/sweep/loft/fillet/chamfer vocabulary |
-| **LoRA training corpus** | D1-D3 synthetic IFC + tier2 hand-curation (400 pairs, shipped #99-#101) | ABC pretrain | Fusion360 Reconstruction excluded 2026-05-01 (§17 gate 1 — NC license). DreamCAD CADCap-1M dataset IS released on HF (`SadilKhan/CADCap-1M`) but CC-BY-NC-SA-4.0 + gated → BLOCKED for hackathon (§17 gate 4 update 2026-05-01, same NC + SA blockers as gate 2). D1-D3 path is the binding corpus. |
+| **LoRA training corpus** | D1-D3 synthetic IFC + tier2 hand-curation (400 pairs, shipped #99-#101) | ABC pretrain | Fusion360 Reconstruction excluded 2026-05-01 (§17 gate 1 — NC license). DreamCAD CADCap-1M dataset IS released on HF (`SadilKhan/CADCap-1M`) but CC-BY-NC-SA-4.0 + gated → BLOCKED for Initial Release (§17 gate 4 update 2026-05-01, same NC + SA blockers as gate 2). D1-D3 path is the binding corpus. |
 | **Architectural symbol grammar** | ArchCAD-400K (27 classes) | WBDG COBie samples | Constrain emission to industry-standard names |
 | **In-browser inference** | webllm OR transformers.js | pascal WebGPU+WebGL2 fallback patterns | Pick runtime after benchmark; pascal renderer files show real-world WebGPU/WebGL2 fallback handling |
 | **Solid modelling kernel** | replicad (sgenoud) | OpenCASCADE.js (replicad's underlying lib) | NOT in pascal; needed for proper boolean ops + B-Rep |
-| **IFC export** | web-ifc (IFCjs) | BIMNet IFC examples for validation | Closes hackathon sub-gate 3 |
+| **IFC export** | web-ifc (IFCjs) | BIMNet IFC examples for validation | Closes Initial Release sub-gate 3 |
 | **Round-trip validation** | BIMNet 382 IFCs, WBDG 4 reference projects | NIST geometry data NOT applicable (wind-tunnel aero) | Round-trip a known-good IFC through arch-1 → diff |
 | **Topological correctness check** | In-house geometric checks via web-ifc + replicad (manifoldness, closed-edge counts, face-count parity) | ArchCAD-400K DPSS for 2D drawings | BRepNet excluded 2026-05-01 (§17 gate 2 — CC-BY-NC-SA NC + SA both block). |
 | **MCP integration** | pascal/editor `@pascal-app/mcp` (37+ tools) | Anthropic MCP SDK | NOT needed for arch-1 in-browser; consider only if ship-as-MCP-server fallback |
-| **Hackathon writeup framing** | Pointer-CAD ("closest prior art without code") | DreamCAD ("multimodal forward-only ideal") | Position arch-1 as missing in-browser local-first execution of the LLM-emits-CAD pattern |
+| **Initial Release writeup framing** | Pointer-CAD ("closest prior art without code") | DreamCAD ("multimodal forward-only ideal") | Position arch-1 as missing in-browser local-first execution of the LLM-emits-CAD pattern |
 
 ## 17. Open verification gates
 
 Closed gates (resolved 2026-05-01):
 
-1. **Fusion360 Gallery LICENSE — RESOLVED, BLOCKED for hackathon.** Custom proprietary license, not standard open-source. Verbatim: *"You may access, use, reproduce and modify the Dataset, in each case, only for non-commercial research purposes."* Downstream recipients must be bound to identical NC restrictions; redistribution of the whole dataset prohibited; no warranties; California law governs. Source: `https://github.com/AutodeskAILab/Fusion360GalleryDataset/blob/master/LICENSE.md` (WebFetched 2026-05-01). $200K hackathon prize is a monetary-compensation derivative; conservative reading = commercial use prohibited. **Effect on §15 rank 2:** drop from training corpus options. **Effect on D1-D3 corpus path (synthetic IFC + tier2 hand-curation, 400 pairs):** unchanged — that path was already chosen. Fusion360 was a hypothetical alternative, not a dependency.
-2. **BRepNet NC license vs Kaggle hackathon prize — RESOLVED, BLOCKED for hackathon.** License: CC BY-NC-SA 4.0 (Creative Commons Attribution-NonCommercial-ShareAlike). Source: `https://github.com/AutodeskAILab/BRepNet` README. Two independent blockers: (a) NC clause vs $200K prize (same conservative reading as gate 1); (b) ShareAlike clause requires derivatives to inherit CC BY-NC-SA, which is incompatible with releasing arch-1 weights under a permissive hackathon-derivative license. **Effect on §15 rank 5:** drop from validator options. **Mitigation:** topological validation falls to in-house geometric checks (closed-edge counts, manifoldness via web-ifc + replicad) instead of an ML validator.
+1. **Fusion360 Gallery LICENSE — RESOLVED, BLOCKED for Initial Release.** Custom proprietary license, not standard open-source. Verbatim: *"You may access, use, reproduce and modify the Dataset, in each case, only for non-commercial research purposes."* Downstream recipients must be bound to identical NC restrictions; redistribution of the whole dataset prohibited; no warranties; California law governs. Source: `https://github.com/AutodeskAILab/Fusion360GalleryDataset/blob/master/LICENSE.md` (WebFetched 2026-05-01). $200K Initial Release prize is a monetary-compensation derivative; conservative reading = commercial use prohibited. **Effect on §15 rank 2:** drop from training corpus options. **Effect on D1-D3 corpus path (synthetic IFC + tier2 hand-curation, 400 pairs):** unchanged — that path was already chosen. Fusion360 was a hypothetical alternative, not a dependency.
+2. **BRepNet NC license vs Kaggle Initial Release prize — RESOLVED, BLOCKED for Initial Release.** License: CC BY-NC-SA 4.0 (Creative Commons Attribution-NonCommercial-ShareAlike). Source: `https://github.com/AutodeskAILab/BRepNet` README. Two independent blockers: (a) NC clause vs $200K prize (same conservative reading as gate 1); (b) ShareAlike clause requires derivatives to inherit CC BY-NC-SA, which is incompatible with releasing arch-1 weights under a permissive Initial Release-derivative license. **Effect on §15 rank 5:** drop from validator options. **Mitigation:** topological validation falls to in-house geometric checks (closed-edge counts, manifoldness via web-ifc + replicad) instead of an ML validator.
 
 Open gates:
 
-3. **Pointer-CAD code release timeline — RE-CHECKED 2026-05-01, STILL "coming soon".** Repo `Snitro/Pointer-CAD` has 2 commits, no source files, README still "🚧 Code coming soon." arXiv 2603.04337 latest revision v2 (Apr 29, 2026, 2 days pre-check) added no code URL. CVPR 2026 acceptance suggests pre-conference release pressure but timeline unstated. Re-check again before 2026-05-15 (3 days before hackathon deadline). Status quo holds: Pointer-CAD remains paper-only inspiration for §15 rank 8.
-4. **DreamCAD code release — RE-CHECKED 2026-05-01, code STILL pending; CADCap-1M dataset DOES NOT unblock corpus path.** arXiv 2603.05607 v1 (Mar 5, 2026) says "Code and dataset will be publicly available." **NEW finding:** CADCap-1M caption dataset is released on HF at `SadilKhan/CADCap-1M`, BUT licensed `CC-BY-NC-SA-4.0` + gated (auto-acknowledge required). Same blockers as gate 2 BRepNet: (a) NC clause vs $200K prize, (b) SA clause forces inheritance to derivative weights → incompatible with permissive hackathon release. **Effect on §16 LoRA training corpus row:** CADCap-1M EXCLUDED; ABC remains the only secondary pretrain candidate. **Effect on §15 rank 7 (DreamCAD method ideas):** unchanged (was already paper-only). D1-D3 corpus path is binding. Re-check method-code release at same 2026-05-15 cadence.
+3. **Pointer-CAD code release timeline — RE-CHECKED 2026-05-01, STILL "coming soon".** Repo `Snitro/Pointer-CAD` has 2 commits, no source files, README still "🚧 Code coming soon." arXiv 2603.04337 latest revision v2 (Apr 29, 2026, 2 days pre-check) added no code URL. CVPR 2026 acceptance suggests pre-conference release pressure but timeline unstated. Re-check again before 2026-05-15 (3 days before Initial Release deadline). Status quo holds: Pointer-CAD remains paper-only inspiration for §15 rank 8.
+4. **DreamCAD code release — RE-CHECKED 2026-05-01, code STILL pending; CADCap-1M dataset DOES NOT unblock corpus path.** arXiv 2603.05607 v1 (Mar 5, 2026) says "Code and dataset will be publicly available." **NEW finding:** CADCap-1M caption dataset is released on HF at `SadilKhan/CADCap-1M`, BUT licensed `CC-BY-NC-SA-4.0` + gated (auto-acknowledge required). Same blockers as gate 2 BRepNet: (a) NC clause vs $200K prize, (b) SA clause forces inheritance to derivative weights → incompatible with permissive Initial Release release. **Effect on §16 LoRA training corpus row:** CADCap-1M EXCLUDED; ABC remains the only secondary pretrain candidate. **Effect on §15 rank 7 (DreamCAD method ideas):** unchanged (was already paper-only). D1-D3 corpus path is binding. Re-check method-code release at same 2026-05-15 cadence.
 5. **Pascal MCP local-model capability.** Confirmed model-agnostic at code level; not benchmarked with a local model. If arch-1 ever needs an MCP fallback, run a smoke test against pascal MCP + transformers.js.

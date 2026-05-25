@@ -1,4 +1,4 @@
-# Research: Revit Auto-Cut Model for gemma-architect 2D Export
+﻿# Research: Revit Auto-Cut Model for WEB-CAD 2D Export
 
 ## Revit View Type Model (key findings only)
 
@@ -39,7 +39,7 @@ Both confirm the same minimal data model: origin + normal + far-clip distance is
 
 ---
 
-## Data Model Recommendation for gemma-architect
+## Data Model Recommendation for WEB-CAD
 
 | ViewType | Cut primitive | Camera |
 |---|---|---|

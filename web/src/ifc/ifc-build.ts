@@ -1,4 +1,4 @@
-// IFC4 STEP-21 emitter — pure-build half of the IFC pipeline.
+﻿// IFC4 STEP-21 emitter — pure-build half of the IFC pipeline.
 //
 // Split out from ifc.ts so the buildIfc path is importable in non-browser
 // environments (Bun self-harness, Node tests). Only the round-trip half in
@@ -119,19 +119,19 @@ function buildIfcHeader(lines: string[], next: () => string, imperial = false): 
   lines.push("ISO-10303-21;");
   lines.push("HEADER;");
   lines.push(`FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');`);
-  lines.push(`FILE_NAME(${stepString("gemma-cad-export.ifc")},${stepString(ts)},(${stepString("Gemma-CAD")}),(${stepString("Gemma-CAD")}),${stepString("web-ifc-emitter/0.1")},${stepString("Gemma-CAD/0.1")},'');`);
+  lines.push(`FILE_NAME(${stepString("web-cad-export.ifc")},${stepString(ts)},(${stepString("WEB-CAD")}),(${stepString("WEB-CAD")}),${stepString("web-ifc-emitter/0.1")},${stepString("WEB-CAD/0.1")},'');`);
   lines.push("FILE_SCHEMA(('IFC4'));");
   lines.push("ENDSEC;");
   lines.push("DATA;");
 
   const person = next();
-  lines.push(`${person}=IFCPERSON($,$,${stepString("Gemma-CAD")},$,$,$,$,$);`);
+  lines.push(`${person}=IFCPERSON($,$,${stepString("WEB-CAD")},$,$,$,$,$);`);
   const org = next();
-  lines.push(`${org}=IFCORGANIZATION($,${stepString("Gemma-CAD")},$,$,$);`);
+  lines.push(`${org}=IFCORGANIZATION($,${stepString("WEB-CAD")},$,$,$);`);
   const personAndOrg = next();
   lines.push(`${personAndOrg}=IFCPERSONANDORGANIZATION(${person},${org},$);`);
   const app = next();
-  lines.push(`${app}=IFCAPPLICATION(${org},${stepString("0.1")},${stepString("Gemma-CAD web demo")},${stepString("gemma-cad-web")});`);
+  lines.push(`${app}=IFCAPPLICATION(${org},${stepString("0.1")},${stepString("WEB-CAD web demo")},${stepString("web-cad-web")});`);
   const ownerHistory = next();
   const epoch = Math.floor(Date.now() / 1000);
   lines.push(`${ownerHistory}=IFCOWNERHISTORY(${personAndOrg},${app},$,.ADDED.,${epoch},${personAndOrg},${app},${epoch});`);
@@ -316,7 +316,7 @@ export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts
   lines.push("ISO-10303-21;");
   lines.push("HEADER;");
   lines.push(`FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');`);
-  lines.push(`FILE_NAME(${stepString("gemma-cad-export.ifc")},${stepString(ts)},(${stepString("Gemma-CAD")}),(${stepString("Gemma-CAD")}),${stepString("web-ifc-emitter/0.1")},${stepString("Gemma-CAD/0.1")},'');`);
+  lines.push(`FILE_NAME(${stepString("web-cad-export.ifc")},${stepString(ts)},(${stepString("WEB-CAD")}),(${stepString("WEB-CAD")}),${stepString("web-ifc-emitter/0.1")},${stepString("WEB-CAD/0.1")},'');`);
   lines.push("FILE_SCHEMA(('IFC4'));");
   lines.push("ENDSEC;");
   lines.push("DATA;");
@@ -324,13 +324,13 @@ export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts
   // Owner-history skeleton (IfcOwnerHistory needs IfcPersonAndOrganization,
   // IfcApplication, IfcPerson, IfcOrganization).
   const person = next();
-  lines.push(`${person}=IFCPERSON($,$,${stepString("Gemma-CAD")},$,$,$,$,$);`);
+  lines.push(`${person}=IFCPERSON($,$,${stepString("WEB-CAD")},$,$,$,$,$);`);
   const org = next();
-  lines.push(`${org}=IFCORGANIZATION($,${stepString("Gemma-CAD")},$,$,$);`);
+  lines.push(`${org}=IFCORGANIZATION($,${stepString("WEB-CAD")},$,$,$);`);
   const personAndOrg = next();
   lines.push(`${personAndOrg}=IFCPERSONANDORGANIZATION(${person},${org},$);`);
   const app = next();
-  lines.push(`${app}=IFCAPPLICATION(${org},${stepString("0.1")},${stepString("Gemma-CAD web demo")},${stepString("gemma-cad-web")});`);
+  lines.push(`${app}=IFCAPPLICATION(${org},${stepString("0.1")},${stepString("WEB-CAD web demo")},${stepString("web-cad-web")});`);
   const ownerHistory = next();
   const epoch = Math.floor(Date.now() / 1000);
   lines.push(`${ownerHistory}=IFCOWNERHISTORY(${personAndOrg},${app},$,.ADDED.,${epoch},${personAndOrg},${app},${epoch});`);

@@ -1,4 +1,4 @@
-// AI prompt → geometry pipeline (#176).
+﻿// AI prompt → geometry pipeline (#176).
 //
 // Two paths:
 //   1. cache-first — fuzzy-match against the bundled ai-cache.json built from
@@ -201,7 +201,7 @@ export async function generateGeometry(prompt: string): Promise<GenerateResult> 
     // ignore — fall through to throw
   }
   throw new GenerateError(
-    `no cache match (try one of the demo prompts) and no LoRA endpoint reachable`,
+    `no cache match (try one of the Starter Prompts) and no LoRA endpoint reachable`,
     "no-match",
   );
 }

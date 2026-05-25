@@ -1,4 +1,4 @@
-# Tier 1 conventions
+﻿# Tier 1 conventions
 
 What the 12-op tier1 surface actually does, derived empirically from
 `scripts/probe-conventions.ts` against the live replicad+OpenCascade
@@ -254,7 +254,7 @@ overall extent.
 This kind of placement drift is the dominant remaining failure mode at
 the model layer. Tier 2 dataset work + per-row positional eval (was
 the prompt's spatial intent honored within tolerance?) is the
-post-hackathon roadmap item to close it.
+post-launch roadmap item to close it.
 
 ## Probe and harness
 

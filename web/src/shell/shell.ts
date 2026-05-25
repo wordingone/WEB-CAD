@@ -1,4 +1,4 @@
-import { iconSVG } from "../ui/icons.js";
+﻿import { iconSVG } from "../ui/icons.js";
 import { dispatchSync } from "../commands/dispatch.js";
 import { buildPhoneSlider } from "../ui/phone-slider.js";
 import { getState, subscribe } from "../app-state.js";
@@ -58,7 +58,7 @@ const MENUS: MenuItem[] = [
   ]},
   { label: "Help", entries: [
     { label: "Keyboard shortcuts",    shortcut: "⌘K", onAction: () => document.getElementById("ribbon-palette-btn")?.click() },
-    { label: "About Gemma-CAD", stub: true,    onAction: () => alert("Gemma-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/WEB-CAD") },
+    { label: "About WEB-CAD", stub: true,    onAction: () => alert("WEB-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/WEB-CAD") },
   ]},
 ];
 
@@ -352,7 +352,7 @@ export function setRibbonMode(mode: "model" | "layout" | "research") {
   }
 }
 
-const RECENT_FILES_KEY = "gemma-cad.recent-files";
+const RECENT_FILES_KEY = "web-cad.recent-files";
 const MAX_RECENT = 5;
 type RecentEntry = { name: string; ts: number; data: string };
 
@@ -459,7 +459,7 @@ export function saveProjectGemarch(fileNameOrNull: string | null): void {
   setCurrentFileName(dlName.replace(/\.gemarch$/i, ""));
 }
 
-const THEME_KEY = "gemma-cad.theme";
+const THEME_KEY = "web-cad.theme";
 type ThemeMode = "day" | "night";
 
 function setTheme(mode: ThemeMode) {
