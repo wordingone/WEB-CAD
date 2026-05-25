@@ -286,6 +286,21 @@ function _wireEvents(): void {
     void (async () => {
       await _checkStorageQuota();
       if (!_isReturningUser) {
+        // §WEB-CAD#25: brief slow-phase indicator (50ms tick lets agent-harness populate __bootMetrics).
+        await new Promise<void>(r => setTimeout(r, 50));
+        type _BM = { name: string; duration_ms: number; expected_ms: number | null; ratio: number | null };
+        const _bm = (window as unknown as Record<string, unknown>).__bootMetrics as _BM[] | undefined;
+        if (_bm && _statusEl) {
+          const _slow = _bm.filter(m => (m.ratio ?? 0) > 2).sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0));
+          if (_slow.length > 0) {
+            const _top = _slow[0];
+            const _color = (_top.ratio ?? 0) > 5 ? '#ff4040' : '#ff9900';
+            Object.assign(_statusEl.style, { color: _color, display: 'block' });
+            _statusEl.textContent = `${_top.name}: ${Math.round(_top.duration_ms / 1000)}s (${(_top.ratio ?? 0).toFixed(1)}× expected)`;
+            await new Promise<void>(r => setTimeout(r, 2_500));
+            Object.assign(_statusEl.style, { display: 'none' });
+          }
+        }
         if (_storageWarnActive) {
           // Give user time to read the storage warning before the overlay fades.
           await new Promise<void>(r => setTimeout(r, 3_000));

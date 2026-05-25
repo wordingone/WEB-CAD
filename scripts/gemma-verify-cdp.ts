@@ -488,6 +488,18 @@ function record(result: SurfaceResult) {
   record({ name: "ortho-grid-z-order", ...r as any });
 }
 
+// --- Surface 12: boot-metrics-recorded ---
+{
+  const r = await page.evaluate(() => {
+    const bm = (window as any).__bootMetrics as unknown[] | null | undefined;
+    const tm = (window as any).__turnMetrics as unknown[] | null | undefined;
+    const bootOk = Array.isArray(bm) && bm.length >= 3;
+    const turnOk = Array.isArray(tm) && tm.length >= 1;
+    return { passed: bootOk && turnOk, evidence: { boot_metrics_count: bm?.length ?? null, turn_metrics_count: tm?.length ?? null, boot_ok: bootOk, turn_ok: turnOk } };
+  });
+  record({ name: "boot-metrics-recorded", ...r as any });
+}
+
 // --- Aggregate + write JSON ---
 const allPassed = surfaces.every(s => s.passed);
 const passCount = surfaces.filter(s => s.passed).length;
@@ -502,7 +514,7 @@ const output = {
 writeFileSync(outFile, JSON.stringify(output, null, 2));
 
 console.log("");
-console.log(`${passCount}/11 surfaces passed — all_passed: ${allPassed}`);
+console.log(`${passCount}/12 surfaces passed — all_passed: ${allPassed}`);
 console.log(`attached_via_cdp: ${attachedViaCDP}`);
 console.log(`Output: ${outFile}`);
 

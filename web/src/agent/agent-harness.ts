@@ -41,6 +41,15 @@ initTelemetry();
 let _telBootLoadSource = "unknown";
 let _telWorkerBootMs = 0; // set when initWorkerIfNeeded creates the worker
 
+// §WEB-CAD#25: boot + turn metrics accumulation.
+type _BootMetricEntry = { name: string; start_ms: number; end_ms: number; duration_ms: number; expected_ms: number | null; ratio: number | null };
+type _TurnMetricEntry = { turn: number; ts: string; prefill_ms: number; decode_ms: number; tokens_out: number; input_length: number; prefill_tps: number | null; decode_tps: number | null; expected_decode_ms: number | null; ratio_decode: number | null };
+(window as unknown as Record<string, unknown>).__bootMetrics ??= [] as _BootMetricEntry[];
+(window as unknown as Record<string, unknown>).__turnMetrics ??= [] as _TurnMetricEntry[];
+const _bootPhaseMs = new Map<string, number>(); // phase → epoch ms (telWorkerBootMs + elapsed_ms)
+const _turnStartMs = new Map<string, number>();  // turnId → epoch ms when generate posted
+let _telBootMetricsDone = false;
+
 // §#1659: dev-tool — accumulate raw model output per turn for Phase J sidecar.
 let _rawOutIdx = 0;
 type _RawOutputEntry = { turnId: number; ts: string; raw: string };
@@ -66,6 +75,7 @@ import { recordTurn } from "./telemetry";
 import { selfSpecController, BASELINE_TPS_P50 } from "./self-spec-controller";
 import type { SelfSpecRuntimeState } from "./self-spec-controller";
 import { isWasmFallbackMode } from "./boot-screen";
+import { COLD_CACHE_BASELINES_MS, WARM_CACHE_BASELINES_MS } from "./boot-baselines";
 import {
   initTelemetry,
   emitBootFingerprint,
@@ -347,11 +357,15 @@ function initWorkerIfNeeded(): Worker {
       case "phase_timing": {
         // §#1628: accumulate boot telemetry state from worker diagnostic messages.
         const _ptPhase = msg.phase as string;
-        if (_ptPhase === "from_pretrained_start" && msg.load_source) {
+        if (_ptPhase === "from_pretrained_end" && msg.load_source) {
           _telBootLoadSource = msg.load_source as string;
         }
         if (_ptPhase === "adapter_fingerprint" && msg.adapter_info) {
           emitBootFingerprint(msg.adapter_info as AdapterFingerprint);
+        }
+        // §WEB-CAD#25: record phase epoch time for boot metrics.
+        if (_telWorkerBootMs > 0 && typeof msg.elapsed_ms === "number") {
+          _bootPhaseMs.set(_ptPhase, _telWorkerBootMs + msg.elapsed_ms);
         }
         break;
       }
@@ -360,6 +374,32 @@ function initWorkerIfNeeded(): Worker {
         window.dispatchEvent(new CustomEvent("agentmodel:boot-complete"));
         // §#1628: emit boot_complete telemetry with elapsed time + load source.
         emitBootComplete(_telWorkerBootMs > 0 ? Date.now() - _telWorkerBootMs : 0, _telBootLoadSource);
+        // §WEB-CAD#25: finalize boot metrics array.
+        if (!_telBootMetricsDone && _telWorkerBootMs > 0) {
+          _telBootMetricsDone = true;
+          const _isWarm = (window as unknown as Record<string, unknown>).__boot_path_predicted === "warm";
+          const _bl = _isWarm ? WARM_CACHE_BASELINES_MS : COLD_CACHE_BASELINES_MS;
+          const _metrics: _BootMetricEntry[] = [];
+          const _addPhase = (name: string, startKey: string, endKey: string, expected: number | null) => {
+            const s = _bootPhaseMs.get(startKey);
+            const e = _bootPhaseMs.get(endKey);
+            if (s == null || e == null) return;
+            const dur = e - s;
+            const ratio = expected != null && expected > 0 ? dur / expected : null;
+            _metrics.push({ name, start_ms: s, end_ms: e, duration_ms: dur, expected_ms: expected, ratio });
+            console.info(`[METRIC] boot:${name} duration_ms=${Math.round(dur)} expected_ms=${expected ?? "n/a"} ratio=${ratio != null ? ratio.toFixed(2) : "n/a"}`);
+          };
+          _addPhase("model_load", "from_pretrained_start", "from_pretrained_end", _isWarm ? _bl.opfs_load : _bl.model_download);
+          _addPhase("warmup", "warmup_start", "warmup_end", _bl.warmup);
+          // Total boot from worker creation to boot-complete
+          const _bootEndMs = Date.now();
+          const _totalDur = _bootEndMs - _telWorkerBootMs;
+          const _totalExp = _bl.total_p50;
+          const _totalRatio = _totalDur / _totalExp;
+          _metrics.push({ name: "total_boot", start_ms: _telWorkerBootMs, end_ms: _bootEndMs, duration_ms: _totalDur, expected_ms: _totalExp, ratio: _totalRatio });
+          console.info(`[METRIC] boot:total_boot duration_ms=${Math.round(_totalDur)} expected_ms=${_totalExp} ratio=${_totalRatio.toFixed(2)}`);
+          (window as unknown as Record<string, unknown>).__bootMetrics = _metrics;
+        }
         break;
       case "ready":
         // workerReady already set by MODEL_READY dispatch — no additional state mutation needed
@@ -398,6 +438,28 @@ function initWorkerIfNeeded(): Worker {
             inputLength:  msg.inputLength as number,
             tokensOut:    msg.tokensOut as number,
           });
+        }
+        // §WEB-CAD#25: record turn metrics.
+        {
+          const _tid = msg.turnId as string;
+          const _startMs = _turnStartMs.get(_tid) ?? null;
+          _turnStartMs.delete(_tid);
+          const _pfMs   = (msg.prefillMs as number) || 0;
+          const _dcMs   = (msg.decodeMs  as number) || 0;
+          const _tOut   = (msg.tokensOut  as number) || 0;
+          const _inLen  = (msg.inputLength as number) || 0;
+          const _pfTps  = _pfMs > 0 ? Math.round(_inLen / (_pfMs / 1000)) : null;
+          const _dcTps  = _dcMs > 0 ? Math.round(_tOut  / (_dcMs / 1000)) : null;
+          const _expDcMs = BASELINE_TPS_P50 > 0 && _tOut > 0 ? Math.round(_tOut / BASELINE_TPS_P50 * 1000) : null;
+          const _dcRatio = _expDcMs != null && _dcMs > 0 ? _dcMs / _expDcMs : null;
+          const _entry: _TurnMetricEntry = {
+            turn: _arc.turnCount, ts: new Date().toISOString(),
+            prefill_ms: _pfMs, decode_ms: _dcMs, tokens_out: _tOut, input_length: _inLen,
+            prefill_tps: _pfTps, decode_tps: _dcTps,
+            expected_decode_ms: _expDcMs, ratio_decode: _dcRatio,
+          };
+          ((window as unknown as Record<string, unknown>).__turnMetrics as _TurnMetricEntry[]).push(_entry);
+          console.info(`[METRIC] turn:${_arc.turnCount} prefill_ms=${_pfMs} decode_ms=${_dcMs} tokens_out=${_tOut} decode_tps=${_dcTps ?? "n/a"} decode_ratio=${_dcRatio != null ? _dcRatio.toFixed(2) : "n/a"}`);
         }
         break;
       }
@@ -1494,6 +1556,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   const _selfSpecDecision = selfSpecController.shouldActivate(_selfSpecState);
   const useMtp = !_MTP_OFF && _selfSpecDecision.active;
   const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  _turnStartMs.set(turnId, Date.now()); // §WEB-CAD#25: epoch for turn total duration
   // §P0-ARC: advance state machine; increments turnCount (used by recycle threshold).
   // Valid from "ready" or "recovering" (post-planned-recycle first turn).
   _arc.dispatch({ type: "GENERATE_REQUESTED", turnId });
