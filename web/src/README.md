@@ -1,6 +1,6 @@
-# web/src — Developer Reference
+﻿# web/src — Developer Reference
 
-Gemma Architect frontend. Vite + TypeScript, Three.js viewer, WebWorker IFC parser.
+WEB-CAD frontend. Vite + TypeScript, Three.js viewer, WebWorker IFC parser.
 Co-location complete: each feature area owns both its `.ts` and `.css` files.
 
 ---

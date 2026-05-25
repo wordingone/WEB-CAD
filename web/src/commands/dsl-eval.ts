@@ -1,4 +1,4 @@
-// gemma-architect Console DSL — minimal evaluator.
+﻿// WEB-CAD Console DSL — minimal evaluator.
 //
 // Parses the v0 lexicon (`docs/console-dsl.md`) and lowers it to the
 // existing replicad surface (`drawRectangle / drawCircle / sketchOnPlane /

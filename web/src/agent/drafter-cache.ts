@@ -1,10 +1,10 @@
-// drafter-cache.ts — IndexedDB-backed fetch for drafter ONNX binary (#738).
+﻿// drafter-cache.ts — IndexedDB-backed fetch for drafter ONNX binary (#738).
 //
 // Stores the 158 MB fp16 drafter under a version-keyed IDB entry so users
 // only pay the download cost once per model version. Bump DRAFTER_CACHE_KEY
 // in agent-harness.ts to invalidate cached bytes.
 
-const DB_NAME = "gemma-architect-models";
+const DB_NAME = "web-cad-models";
 const STORE_NAME = "models";
 const DB_VERSION = 1;
 

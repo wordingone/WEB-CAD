@@ -1,6 +1,6 @@
-// NURBS kernel — WebGPU + verb-nurbs scaffold (T17).
+﻿// NURBS kernel — WebGPU + verb-nurbs scaffold (T17).
 //
-// Goal of this scaffold (per gemma-architect zero-stubs plan T17):
+// Goal of this scaffold (per WEB-CAD zero-stubs plan T17):
 //   - Provide a NURBS-native geometry kernel with WebGPU tessellation when
 //     available, CPU fallback otherwise.
 //   - Hand-rolled Cox-de Boor evaluator so the test path does NOT depend on
@@ -806,7 +806,7 @@ export function buildSampleNurbsSurface(): NurbsSurface {
 /**
  * IFC4 IfcAdvancedBrep export — sidecar form.
  *
- * The gemma-architect production path will emit STEP-21 IfcAdvancedBrep
+ * The WEB-CAD production path will emit STEP-21 IfcAdvancedBrep
  * with IfcRationalBSplineSurfaceWithKnots entities; that requires extending
  * ifc-build.ts with the ~12 IfcBSpline* entity emitters and is queued as a
  * follow-up. For T17 round-trip parity we serialize a compact JSON
@@ -999,7 +999,7 @@ export function exportNurbsToStep(surface: NurbsSurface): Uint8Array {
     `ISO-10303-21;\n` +
     `HEADER;\n` +
     `FILE_DESCRIPTION(('AVIR NURBS surface export'),'2;1');\n` +
-    `FILE_NAME('avir-nurbs.step','${ts}',(''),(''),'gemma-cad','nurbs-kernel.ts','');\n` +
+    `FILE_NAME('avir-nurbs.step','${ts}',(''),(''),'WEB-CAD','nurbs-kernel.ts','');\n` +
     `FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\n` +
     `ENDSEC;\n`;
   const data = `DATA;\n${lines.join("\n")}\nENDSEC;\n`;
@@ -1071,7 +1071,7 @@ export async function exportNurbsTo3dm(surface: NurbsSurface): Promise<Uint8Arra
 
   // ---- File3dm ----
   const file = new RhinoModule.File3dm();
-  file.applicationName = "gemma-cad";
+  file.applicationName = "WEB-CAD";
   file.applicationDetails = "AVIR NURBS export via rhino3dm";
   file.objects().addSurface(ns);
 

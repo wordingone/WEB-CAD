@@ -1,4 +1,4 @@
-# NURBS Kernel — License + IP Notes
+﻿# NURBS Kernel — License + IP Notes
 
 ## Status
 
@@ -47,7 +47,7 @@ all copies or substantial portions of the Software.
 verb-nurbs's lineage traces back to the open-source NURBS toolkit released
 by Robert McNeel & Associates as part of the Rhino ecosystem — that toolkit
 is also MIT-licensed. We cite that lineage once here for historical context;
-the gemma-architect codebase does not use the Rhino name elsewhere.
+the WEB-CAD codebase does not use the Rhino name elsewhere.
 
 The WebGPU kernel path in `nurbs-kernel.ts` (line 412+) is hand-rolled WGSL;
 verb-nurbs is declared as a package dependency but is not on the import path.
@@ -76,6 +76,6 @@ landing.
 ## Summary
 
 - **NURBS math itself**: public domain.
-- **This kernel's evaluator code**: clean-room, written for gemma-architect.
+- **This kernel's evaluator code**: clean-room, written for WEB-CAD.
 - **verb-nurbs (optional dep)**: MIT, attributed above.
 - **OpenCascade (replicad)**: LGPL-2.1, attributed via replicad's own license.

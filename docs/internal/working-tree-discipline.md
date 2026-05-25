@@ -1,14 +1,14 @@
-# Working-Tree Discipline
+﻿# Working-Tree Discipline
 
-`B:/M/gemma-architect/` is the **shared working tree** — the engineer develops in it and the vite dev server at `localhost:5847` serves from it. Whatever branch is checked out there is what the user sees.
+`B:/M/WEB-CAD/` is the **shared working tree** — the engineer develops in it and the vite dev server at `localhost:5847` serves from it. Whatever branch is checked out there is what the user sees.
 
 ## Rules
 
-1. **Never `git checkout <branch>` in `B:/M/gemma-architect/`** unless you're the assigned engineer and are deliberately switching what the user sees. `bash`'s `cd` resets between invocations; `git checkout` writes to disk and persists across them.
+1. **Never `git checkout <branch>` in `B:/M/WEB-CAD/`** unless you're the assigned engineer and are deliberately switching what the user sees. `bash`'s `cd` resets between invocations; `git checkout` writes to disk and persists across them.
 2. **All other work goes in a `git worktree`** off the shared clone:
    ```bash
-   cd B:/M/gemma-architect
-   git worktree add B:/M/gemma-architect-<topic> <branch>
+   cd B:/M/WEB-CAD
+   git worktree add B:/M/WEB-CAD-<topic> <branch>
    ```
    This creates an isolated working tree at the new path. The shared tree's checkout is unaffected.
 3. **Verify with `git worktree list`** before any branch operation. If you see your topic branch already checked out somewhere, work there. If you don't, add it.
@@ -32,7 +32,7 @@ For PR review without user-side verification, use a worktree + a separate dev se
 git worktree list | grep <branch-name>
 
 # What branch is the shared tree on right now?
-cd B:/M/gemma-architect && git rev-parse --abbrev-ref HEAD
+cd B:/M/WEB-CAD && git rev-parse --abbrev-ref HEAD
 
 # What's vite serving at :5847?
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5847 -State Listen | ForEach-Object { Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_.OwningProcess) | Select-Object ProcessId, CommandLine }"
@@ -43,7 +43,7 @@ The third command returns the process serving the dev URL; its working directory
 ## Removing a worktree when done
 
 ```bash
-git worktree remove B:/M/gemma-architect-<topic>
+git worktree remove B:/M/WEB-CAD-<topic>
 ```
 
 Only after the branch is merged or abandoned. `git worktree remove` errors out if there are uncommitted changes — commit or stash first.

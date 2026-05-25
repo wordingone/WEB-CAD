@@ -1,4 +1,4 @@
-# Research tab — design report
+﻿# Research tab — design report
 
 **Status:** Design. Not implementation. Implementation sub-issues drafted at §6 are NOT filed until this report is approved (per #1855 AC4).
 
@@ -70,11 +70,11 @@ The browser cannot fetch arbitrary cross-origin content because of CORS. Three o
 
 | Option | How | Pros | Cons |
 |---|---|---|---|
-| A. Cloudflare Worker proxy on the Pages domain | Worker at `gemma-architect.pages.dev/api/proxy` (later WEB-CAD's Pages domain) accepts `?url=...` and returns the body | Same-origin to the app, no CORS issue. Cloudflare Workers free tier = 100k requests/day. | We own the proxy. Could be abused for DDoS-via-proxy. Mitigate with origin-locked auth header. |
+| A. Cloudflare Worker proxy on the Pages domain | Worker at `WEB-CAD.pages.dev/api/proxy` (later WEB-CAD's Pages domain) accepts `?url=...` and returns the body | Same-origin to the app, no CORS issue. Cloudflare Workers free tier = 100k requests/day. | We own the proxy. Could be abused for DDoS-via-proxy. Mitigate with origin-locked auth header. |
 | B. Public CORS proxy (`allorigins.win`, `corsproxy.io`) | Hardcode a public proxy URL | Zero infra | Third-party reads every URL we ever fetch. Unacceptable for any user-private content. |
 | C. Static-mode (no fetch) | Agent emits a URL; user copy-pastes content back | Zero risk | Defeats the purpose |
 
-**Recommendation:** Option A. Land a Cloudflare Worker as the third deployment artifact alongside `wordingone.github.io/gemma-architect/` (and later the WEB-CAD Pages site). Worker enforces M2/M3/M5 server-side so the client trust boundary is hard. Per-Worker code below; pseudo-code, ~80 LOC actual:
+**Recommendation:** Option A. Land a Cloudflare Worker as the third deployment artifact alongside `wordingone.github.io/WEB-CAD/` (and later the WEB-CAD Pages site). Worker enforces M2/M3/M5 server-side so the client trust boundary is hard. Per-Worker code below; pseudo-code, ~80 LOC actual:
 
 ```ts
 // proxy/index.ts (Cloudflare Worker)
@@ -99,7 +99,7 @@ export default {
     // Fetch with hard size + time bounds
     const upstream = await fetch(url, {
       signal: AbortSignal.timeout(8000),
-      headers: { "User-Agent": "gemma-architect-research/1.0" },
+      headers: { "User-Agent": "WEB-CAD-research/1.0" },
     });
     if (!upstream.ok) return new Response(JSON.stringify({ error: "upstream_error", status: upstream.status }), { status: 502 });
 
@@ -465,7 +465,7 @@ These are decisions that affect scope; flagging now to surface them at approval 
 
 ## References
 
-- Issue: wordingone/gemma-architect#1855 (this deliverable's parent)
+- Issue: wordingone/WEB-CAD#1855 (this deliverable's parent)
 - Cross-ref issue: #1856 (per-tab specialized chat decision — closed conceptually by §5.4)
 - Existing chat infrastructure: `web/src/chat/chat-panel.ts`
 - Existing verb dispatch: `web/src/commands/spatial-api.yaml`, `web/src/commands/dispatch.ts`

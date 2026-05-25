@@ -1,4 +1,4 @@
-# AI prompt → geometry pipeline (#176)
+﻿# AI prompt → geometry pipeline (#176)
 
 The PROMPT tab takes a natural-language description and produces a replicad
 JS construction sequence. Two paths back the textbox.
@@ -58,7 +58,7 @@ run-btn click → web/src/worker.ts → replicad execute() → mesh + IFC
 
 The textarea/run-btn legacy wiring is preserved unchanged — `runGenerate()`
 in `web/src/workbench.ts` only intercepts the click when the textarea has
-been edited away from the currently selected demo prompt.
+been edited away from the currently selected Starter Prompt.
 
 ## Test coverage
 
@@ -74,7 +74,7 @@ bun scripts/build-ai-cache.ts && bun scripts/test-ai-match.ts
 
 ## Why a cache + on-device model
 
-The cache gives sub-100ms latency on the 60 known demo prompts and survives
+The cache gives sub-100ms latency on the 60 known Starter Prompts and survives
 offline / network-blocked demo settings. The on-device Gemma 4 E4B-it handles
 novel prompts. Both paths share one frontend interface (`generateGeometry`) so
 the backend is transparent to the workbench wiring.

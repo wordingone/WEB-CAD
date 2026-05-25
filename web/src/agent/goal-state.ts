@@ -1,4 +1,4 @@
-// goal-state.ts — IndexedDB-backed goal state machine (#980).
+﻿// goal-state.ts — IndexedDB-backed goal state machine (#980).
 // One goal per browser session (thread). Replacement generates a new UUID.
 
 export type GoalStatus = "active" | "paused" | "budget_limited" | "complete";
@@ -17,7 +17,7 @@ export type Goal = {
   terminalReason?: GoalTerminalReason; // §#1740: why the continuation loop stopped
 };
 
-const DB_NAME = "gemma-cad";
+const DB_NAME = "WEB-CAD";
 const STORE_NAME = "thread_goal";
 const RECORD_KEY = "current";
 

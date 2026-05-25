@@ -1,4 +1,4 @@
-# Spatial Dictionary — gemma-architect canonical vocabulary
+﻿# Spatial Dictionary — WEB-CAD canonical vocabulary
 #
 # Hybrid schema: IFC4 entity classes as canonical names + generic CAD verbs
 # as synonyms + Gemma-NL phrasings as additional synonyms. Per the project's

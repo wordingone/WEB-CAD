@@ -1,4 +1,4 @@
-# Tool taxonomy — mcp-rhino → replicad mapping for hackathon model
+﻿# Tool taxonomy — mcp-rhino → replicad mapping for Initial Release model
 
 Pre-plan asset for #96 (repo bootstrap). 39 mcp-rhino tools cataloged with
 replicad equivalents and IFC training-data coverage. Determines what the
@@ -71,7 +71,7 @@ Columns:
 
 ### Document / world ops (13)
 
-These are NOT geometry — they're document-state ops. The hackathon model
+These are NOT geometry — they're document-state ops. The Initial Release model
 emits geometry sequences; document state is handled by the runtime, not
 the model. EXCLUDE from training surface.
 
@@ -98,7 +98,7 @@ non-rectangular profiles.
 **Tier 3 (stretch)** — sweep2, ellipsoid, torus, mirror, sphere,
 cone, complex transforms.
 
-7 more. Out of scope for hackathon unless Spike A+B are clean wins by
+7 more. Out of scope for Initial Release unless Spike A+B are clean wins by
 day 6.
 
 ## Excluded from training surface
@@ -110,7 +110,7 @@ reference lookup.
 
 ## Implication for repo bootstrap (#96)
 
-`src/tools/` directory in hackathon repo gets:
+`src/tools/` directory in Initial Release repo gets:
 - `tier1.ts` — 12 ops, tested with replicad fixtures, this is the LoRA
   target vocabulary for Spike A.
 - `tier2.ts` — 7 ops, deferred until tier1 baseline passes.

@@ -1,4 +1,4 @@
-const DB_NAME = "gemma-architect-scene";
+﻿const DB_NAME = "web-cad-scene";
 const DB_VERSION = 1;
 const STORE = "autosave";
 const KEY = "scene";

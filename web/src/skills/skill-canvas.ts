@@ -1,4 +1,4 @@
-// skill-canvas.ts — #727: finished SKILL NODES feature.
+﻿// skill-canvas.ts — #727: finished SKILL NODES feature.
 //
 // Section A: top toolbar (⏺ RECORD · Clear · Run · Save-as-skill)
 // Section B: multi-IO ports, marquee select, Cmd-D/G, dblclick disconnect
@@ -74,10 +74,10 @@ export type RecordingAnalysis = {
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-const LS_KEY = "gemma-cad:skill-canvas-v3";
-const LS_KEY_V2 = "gemma-cad:skill-canvas-v2";
-const LS_KEY_V1_A = "gemma-cad:skill-canvas-v1";
-const LS_KEY_V1_B = "gemma-architect:skill-canvas-v1";
+const LS_KEY = "web-cad:skill-canvas-v3";
+const LS_KEY_V2 = "web-cad:skill-canvas-v2";
+const LS_KEY_V1_A = "web-cad:skill-canvas-v1";
+const LS_KEY_V1_B = "web-cad:skill-canvas-v1";
 
 function migrateNode(n: Partial<CanvasNode>): CanvasNode {
   return {
@@ -1396,7 +1396,7 @@ export class SkillCanvas {
   // Export a cluster as a downloadable .skill JSON file.
   static exportClusterFile(cluster: CanvasCluster): void {
     const payload = JSON.stringify({
-      schema: "gemma-cad:canvas-cluster:v1",
+      schema: "WEB-CAD:canvas-cluster:v1",
       name: cluster.name,
       description: cluster.description,
       nodeCount: cluster.nodeCount,

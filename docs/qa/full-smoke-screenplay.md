@@ -1,4 +1,4 @@
-# gemma-architect — Full smoke screenplay
+﻿# WEB-CAD — Full smoke screenplay
 
 A beat-by-beat manual walkthrough of every user-facing surface. Read top to
 bottom; do exactly what each beat says; answer Pass/Fail on every Verify.
@@ -100,7 +100,7 @@ recording the video.
 
 1. **Do:** Navigate browser to http://localhost:5173/ with empty cache
    and empty localStorage.
-2. **See:** Page title is "gemma·architect — drafting workbench". Layout:
+2. **See:** Page title is "WEB-CAD — drafting workbench". Layout:
    menubar (top), modebar (top, below), ribbon (top, below modebar), left
    palette, viewport (center, dark), right sidebar, dock (bottom),
    statusbar (very bottom).
@@ -370,7 +370,7 @@ recording the video.
 ### Beat 32: Open prompt tab
 
 1. **Do:** Click PROMPT tab in dock (or it may be the default).
-2. **See:** Prompt input field, generate button, dropdown of demo prompts.
+2. **See:** Prompt input field, generate button, dropdown of Starter Prompts.
 3. **Verify:** Demo dropdown lists 4+ prompts (4-walled room, courtyard
    house, gable roof, etc.).
 
@@ -760,7 +760,7 @@ across layout switches.)
 1. **Do:** Click Reload aliases.
 2. **See:** Toast: "aliases reloaded · N user overrides loaded" (or "no
    user file" if none).
-3. **Verify:** Re-loads `~/.gemma-architect/aliases.json` into runtime
+3. **Verify:** Re-loads `~/.WEB-CAD/aliases.json` into runtime
    alias map. Subsequent dispatch calls respect it.
 
 ### Beat 93: Help menu opens
@@ -1063,14 +1063,14 @@ sidebar and dock persist.
 ## §4 — Theme audit (BLUEPRINT ↔ VELLUM, every surface)
 
 22 beats. Theme switch flips dark `night=true` BLUEPRINT chrome to
-warm `night=false` VELLUM. Persisted in `localStorage[gemma-architect.theme]`
+warm `night=false` VELLUM. Persisted in `localStorage[WEB-CAD.theme]`
 (`"night"` or `"day"`). Three entry points must agree: menubar pill,
 View > Toggle theme menu item, Cmd+K "Toggle theme" command. Issue 4
 fix verified: scene-panel theme-aware in sidebar embed.
 
 ### Beat 118: Cold-load default
 
-1. **Do:** Clear `localStorage["gemma-architect.theme"]`. Reload.
+1. **Do:** Clear `localStorage["WEB-CAD.theme"]`. Reload.
 2. **See:** Page paints in BLUEPRINT (dark, night=true). Menubar pill
    says `○ VELLUM` (off-state, indicates click switches to VELLUM).
 3. **Verify:** `getState("night") === true`. Pill text matches.
@@ -1084,7 +1084,7 @@ fix verified: scene-panel theme-aware in sidebar embed.
    graphite ink). Pill label flips to `◑ BLUEPRINT` (now indicates
    click returns to BLUEPRINT). Statusbar, sidebar, ribbon, dock,
    modebar, viewports — all flipped within one frame.
-3. **Verify:** `getState("night") === false`. `localStorage["gemma-architect.theme"]
+3. **Verify:** `getState("night") === false`. `localStorage["WEB-CAD.theme"]
    === "day"`. CSS `--paper-base` resolves to a light oklch value
    (~0.965). No element has hardcoded dark colour leaking through.
    Issue 4 fix intact: scene-panel uses `var(--glass-bg)`, not
@@ -1094,7 +1094,7 @@ fix verified: scene-panel theme-aware in sidebar embed.
 
 1. **Do:** Click pill again.
 2. **See:** UI flips back to BLUEPRINT. Pill label `○ VELLUM`.
-3. **Verify:** `localStorage["gemma-architect.theme"] === "night"`.
+3. **Verify:** `localStorage["WEB-CAD.theme"] === "night"`.
    Round-trip is lossless — no UI element is "stuck" in the wrong theme.
 
 ### Beat 121: Menubar entry toggle
@@ -1136,7 +1136,7 @@ fix verified: scene-panel theme-aware in sidebar embed.
 ### Beat 126: localStorage manual override
 
 1. **Do:** With page open, in devtools run
-   `localStorage.setItem("gemma-architect.theme", "day")`. Reload.
+   `localStorage.setItem("WEB-CAD.theme", "day")`. Reload.
 2. **See:** Page paints in VELLUM after reload.
 3. **Verify:** External writes to localStorage are honoured at next
    hydration.
@@ -1564,7 +1564,7 @@ tab is a `<div class="ribbon-tab">` with `data-tab` and `aria-selected`.
 1. **Do:** Click "SUBMIT".
 2. **See/Verify:** Mirror. Gap-file if SUBMIT does not surface any
    submission UX (export-to-judges, repo push, etc.) — that's a
-   hackathon-relevant feature.
+   Initial Release-relevant feature.
 
 ### Beats 176-177: Ribbon-right (2 actions)
 
@@ -3874,7 +3874,7 @@ Source: `web/src/ai-generate.ts:generateGeometry` + `web/src/agent-harness.ts` (
 #### Beat 524: Image input — multimodal
 1. **Do:** Drop a sketch image.
 2. **See:** Image attached to next prompt.
-3. **Gap (file if not supported):** avir-cli adapter currently strips images per `feedback_avir_uses_avir_path_not_claude.md`. Verify gemma-architect path too.
+3. **Gap (file if not supported):** avir-cli adapter currently strips images per `feedback_avir_uses_avir_path_not_claude.md`. Verify WEB-CAD path too.
 
 #### Beat 525: Video input via getDisplayMedia
 1. **Do:** REC button (cross-ref §22.5 video pipeline).
@@ -3898,7 +3898,7 @@ Source: `web/src/ai-generate.ts:generateGeometry` + `web/src/agent-harness.ts` (
 1. **Do:** Read `web/src/spatial-api.LICENSE.md`.
 2. **See:** Cites Lotus v. Borland, Hoehling, Baker v. Selden, 17 USC §102(b).
 
-#### Beat 530: Runtime alias override at ~/.gemma-architect/aliases.json
+#### Beat 530: Runtime alias override at ~/.WEB-CAD/aliases.json
 1. **Do:** Create override file. Reload aliases (Window menu).
 2. **See:** Override merged over defaults.
 
@@ -4225,13 +4225,13 @@ Defects + boundary conditions surfaced across §§1-23.
 #### Beat 603: Right-to-left language locale
 1. **Do:** Set RTL locale.
 2. **See:** UI mirrors or stays LTR.
-3. **Gap (file if broken):** I18n is post-hackathon.
+3. **Gap (file if broken):** I18n is post-launch.
 
 #### Beat 604: Very wide viewport (4K, 5K)
 1. **Do:** 4K monitor.
 2. **See:** UI scales correctly.
 
-#### Beat 605: Narrow viewport (1024×768 hackathon-relevant)
+#### Beat 605: Narrow viewport (1024×768 Initial Release-relevant)
 1. **Do:** Resize to 1024×768.
 2. **See:** Cropping fix per Plan T2; statusbar visible at heights ≥500px.
 3. **Verify:** Cross-ref §1 critical-path § cropping checks.
@@ -4313,7 +4313,7 @@ as long as each file's own SIUnit declaration is set right.
 
 NOTE: The "Schultz Residence demo" in `web/src/demo-prompts.ts` is a
 14-element synthetic placeholder, NOT this asset. The terminal gate
-loads the REAL `.ifc`, not the demo prompt. **File this as a separate
+loads the REAL `.ifc`, not the Starter Prompt. **File this as a separate
 issue** — the demo and the parity gate share a name but reconstruct
 different things; rename one to avoid confusion.
 
@@ -4640,7 +4640,7 @@ Pass condition: agent-built reconstruction reaches all three verification
 layers ≥99% as well as Eli's manual reconstruction. This proves the
 agent loop is real, not a demo.
 
-This stretch goal is the hackathon submission video's closing shot.
+This stretch goal is the Initial Release submission video's closing shot.
 
 ═══════════════════════════════════════════════════════════════════════════
 
@@ -4670,4 +4670,4 @@ each walk, file every FAIL as a new bug citing the beat number.
 - `web/src/spatial-api.yaml` — canonical names per tool
 - `web/src/dispatch.ts` — verb resolution + handler registry
 - `web/src/scene-kg.ts` — KG snapshot + queryKG
-- `B:/Downloads/gemma-architect-handoff.zip` — pixel-parity reference
+- `B:/Downloads/WEB-CAD-handoff.zip` — pixel-parity reference

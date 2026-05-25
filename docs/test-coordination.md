@@ -1,4 +1,4 @@
-# Test Coordination — gemma-verify lockfile wrapper
+﻿# Test Coordination — gemma-verify lockfile wrapper
 
 ## Why coordination matters
 
@@ -7,7 +7,7 @@ Both engineers can invoke `gemma-verify-raw.mjs` — directly or via the `/gemma
 ## Normal invocation: always use the wrapper
 
 ```bash
-# From B:/M/gemma-architect or B:/M/gemma-architect-master:
+# From B:/M/WEB-CAD or B:/M/WEB-CAD-master:
 bun scripts/gemma-verify.mjs
 
 # Identify the caller in the lock file (useful in CI / multi-agent contexts):
@@ -53,10 +53,10 @@ Stale detection: age > 15 min OR `process.kill(pid, 0)` throws ESRCH.
 
 ## Gate hook
 
-The gate hook (`.claude/hooks/gemma-verify-gate.sh`) blocks `gh pr create/merge` against gemma-architect-master until a SHA-matching `state/gemma-verify-<sha>-*.json` exists. Produce it by running the wrapper before opening a PR:
+The gate hook (`.claude/hooks/gemma-verify-gate.sh`) blocks `gh pr create/merge` against WEB-CAD-master until a SHA-matching `state/gemma-verify-<sha>-*.json` exists. Produce it by running the wrapper before opening a PR:
 
 ```bash
-cd B:/M/gemma-architect-master
+cd B:/M/WEB-CAD-master
 bun scripts/gemma-verify.mjs --caller eli
 ```
 

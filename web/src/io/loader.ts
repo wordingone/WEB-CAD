@@ -1,4 +1,4 @@
-// Multi-format CAD/3D file loader for the gemma-architect viewer.
+﻿// Multi-format CAD/3D file loader for the WEB-CAD viewer.
 //
 // Two paths:
 //   - Light formats (GLB / GLTF / OBJ / STL) parse on the main thread via the

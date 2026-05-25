@@ -1,6 +1,6 @@
-# Bonsai IFC Validation — Runbook
+﻿# Bonsai IFC Validation — Runbook
 
-Issue: #151 closed. The gemma-architect side (web client + CLI) ships and
+Issue: #151 closed. The WEB-CAD side (web client + CLI) ships and
 is wired to call the server when present, degrading silently when it is
 not. The Python validation server is intentionally user-deployed — we
 provide a sample below rather than bundling a binary, because the path
@@ -59,7 +59,7 @@ as a starting point, not a production tool.
 ```python
 """bonsai-server.py — minimal HTTP wrapper around bonsai IFC validation.
 
-Listens on 127.0.0.1:8765. Endpoints match the gemma-architect contract:
+Listens on 127.0.0.1:8765. Endpoints match the WEB-CAD contract:
   GET  /health   -> 200 OK
   POST /validate -> {valid, errors[], warnings[]} for the body's IFC bytes
 """
@@ -69,7 +69,7 @@ from tempfile import NamedTemporaryFile
 
 # Bonsai imports require Blender's Python; running outside Blender raises
 # ImportError and the server simply won't start (which is the correct
-# behavior — the gemma-architect side will degrade gracefully).
+# behavior — the WEB-CAD side will degrade gracefully).
 import ifcopenshell
 import ifcopenshell.validate
 
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 - `BONSAI_SERVER_URL` env var overrides the default for the CLI; the web
   client honors `globalThis.__BONSAI_SERVER_URL__` for the same purpose.
 
-## How gemma-architect calls it
+## How WEB-CAD calls it
 
 - CLI: `scripts/bonsai-validate.ts` (POST /validate, exits 0 on PASS, 1 otherwise).
 - Web: `web/src/bonsai-client.ts` exports `isBonsaiAvailable()` and

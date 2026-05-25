@@ -1,4 +1,4 @@
-# gemma-architect Console DSL — v0 lexicon
+﻿# WEB-CAD Console DSL — v0 lexicon
 
 Status: shipped 2026-05-03 (#181 closed). v0 subset (wall/slab/column/box/cut)
 lowers end-to-end via `web/src/dsl-eval.ts:compileDsl()` and is wired to the
@@ -327,14 +327,14 @@ protected; specific phrasings can be.
 Shipped. v0 subset (wall/slab/column/box/cut) lowers end-to-end and is
 wired to the CONSOLE tab. v2 training corpus consumed the lexicon; 4b-it
 LoRA shipped 2026-05-01. v1 expansion (additional verbs, multi-modal
-training) is post-hackathon work.
+training) is post-launch work.
 
 ## Cross-refs
 
 - avir-cli #102 — Gemma 4 E2B LoRA train (closed; E2B deferred per
   `dataset/v2-results.md`; legacy training purged 2026-05-05)
-- gemma-architect #168 — 2D→3D reconstruction agent scaffold (closed;
+- WEB-CAD #168 — 2D→3D reconstruction agent scaffold (closed;
   ships via Gemma 4 multimodal native function-calling)
-- gemma-architect #179 — Cmd-K palette + console parser (closed;
+- WEB-CAD #179 — Cmd-K palette + console parser (closed;
   CONSOLE tab accepts DSL scripts via `compileDsl()`)
-- gemma-architect #181 — DSL/lexicon for CONSOLE tab (closed; this doc)
+- WEB-CAD #181 — DSL/lexicon for CONSOLE tab (closed; this doc)

@@ -1,4 +1,4 @@
-// Lightweight app state singleton + pub/sub. Used by shell.ts (modebar,
+﻿// Lightweight app state singleton + pub/sub. Used by shell.ts (modebar,
 // ribbon-tools, statusbar Tool/Sel cells, BLUEPRINT pill), workbench.ts
 // (palette buttons), main.ts (statusbar bindings, splitMenu wiring).
 //
@@ -91,14 +91,14 @@ export function syncToolActiveClass(): void {
 export function syncThemeAttribute(): void {
   subscribe("night", (n) => {
     document.documentElement.setAttribute("data-mode", n ? "night" : "day");
-    try { localStorage.setItem("gemma-cad.theme", n ? "night" : "day"); } catch { /* private mode */ }
+    try { localStorage.setItem("web-cad.theme", n ? "night" : "day"); } catch { /* private mode */ }
   });
 }
 
 // Helper: hydrate from localStorage on first load.
 export function hydrateFromStorage(): void {
   try {
-    const v = localStorage.getItem("gemma-cad.theme") ?? localStorage.getItem("gemma-architect.theme");
+    const v = localStorage.getItem("web-cad.theme") ?? localStorage.getItem("web-cad.theme");
     if (v === "night") setState("night", true);
     else if (v === "day") setState("night", false);
   } catch { /* ignore */ }
@@ -106,20 +106,20 @@ export function hydrateFromStorage(): void {
     // Version-gated unit preference: if stored version doesn't match, clear the
     // saved unit pref so the app-state default (imperial) takes effect cleanly.
     const UNITS_VERSION = "2026-05-18-imperial-default";
-    const storedVersion = localStorage.getItem("gemma-cad.units.version");
+    const storedVersion = localStorage.getItem("web-cad.units.version");
     if (storedVersion !== UNITS_VERSION) {
-      localStorage.removeItem("gemma-cad.units");
-      localStorage.removeItem("gemma-architect.units");
-      localStorage.setItem("gemma-cad.units.version", UNITS_VERSION);
+      localStorage.removeItem("web-cad.units");
+      localStorage.removeItem("web-cad.units");
+      localStorage.setItem("web-cad.units.version", UNITS_VERSION);
     }
-    const u = localStorage.getItem("gemma-cad.units") ?? localStorage.getItem("gemma-architect.units");
+    const u = localStorage.getItem("web-cad.units") ?? localStorage.getItem("web-cad.units");
     if (u === "imperial" || u === "metric") setState("unitSystem", u);
   } catch { /* ignore */ }
 }
 
 export function syncUnitsToStorage(): void {
   subscribe("unitSystem", (sys) => {
-    try { localStorage.setItem("gemma-cad.units", sys); } catch { /* private mode */ }
+    try { localStorage.setItem("web-cad.units", sys); } catch { /* private mode */ }
   });
 }
 

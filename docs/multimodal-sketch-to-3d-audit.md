@@ -1,4 +1,4 @@
-# Multimodal Sketch → 3D Audit (#407)
+﻿# Multimodal Sketch → 3D Audit (#407)
 
 ## Scope
 
@@ -107,7 +107,7 @@ Manual smoke test (remote path, Gemma 4 E2B-it via avir-cli):
 | `sketch-room-6x4.svg` | 4 (IfcWall ×4) | — | — | pending model run |
 | `sketch-l-walls.svg` | 2 (IfcWall ×2, fuse) | — | — | pending model run |
 
-Score table to be populated after end-to-end smoke test with shared browser. Hausdorff distance metric requires reference mesh from the canonical demo prompts — deferred to #407 follow-on.
+Score table to be populated after end-to-end smoke test with shared browser. Hausdorff distance metric requires reference mesh from the canonical Starter Prompts — deferred to #407 follow-on.
 
 ---
 

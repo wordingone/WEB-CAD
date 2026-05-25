@@ -1,4 +1,4 @@
-# Palette Coverage Audit — SOUL-17
+﻿# Palette Coverage Audit — SOUL-17
 
 Verified 2026-05-19 against `web/src/shell/workbench.ts:109` (`PALETTE_SECTIONS`).
 
@@ -132,5 +132,5 @@ These are known, acceptable asymmetries — single-call agent semantics vs multi
 
 - `web/src/shell/workbench.ts:109` — `PALETTE_SECTIONS` source of truth
 - `web/src/commands/spatial-api.yaml` — full Sd* verb registry
-- `docs/tool-taxonomy.md` — pre-hackathon mcp-rhino → replicad mapping (historical)
+- `docs/tool-taxonomy.md` — pre-Initial Release mcp-rhino → replicad mapping (historical)
 - Issue #933 — audit tracking
