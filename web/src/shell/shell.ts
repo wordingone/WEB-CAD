@@ -58,7 +58,7 @@ const MENUS: MenuItem[] = [
   ]},
   { label: "Help", entries: [
     { label: "Keyboard shortcuts",    shortcut: "⌘K", onAction: () => document.getElementById("ribbon-palette-btn")?.click() },
-    { label: "About Gemma-CAD", stub: true,    onAction: () => alert("Gemma-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/gemma-architect") },
+    { label: "About Gemma-CAD", stub: true,    onAction: () => alert("Gemma-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/WEB-CAD") },
   ]},
 ];
 
