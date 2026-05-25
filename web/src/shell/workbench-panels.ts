@@ -7,7 +7,6 @@ import { OP_TOOL_IDS } from "../viewer/picker-hint";
 import { getState } from "../app-state";
 import { getSnap, setGridOn, setSnapOn, setOrthoOn, setPolarOn, setVertexSnapOn, setEdgeSnapOn, setMidpointSnapOn, setStep, setAngleStep } from "../viewer/snap-state";
 import { setDoorVariant, setWindowVariant } from "../tools/openings";
-import { setActiveDraftTool, type DraftToolId } from "./draft-elements";
 import { subscribe } from "../viewer/selection-state";
 
 function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElement {
@@ -104,82 +103,12 @@ const PALETTE_SECTIONS: PaletteSection[] = [
 ];
 
 // Tools whose click handler dispatches a 2D draft-tool activation (not a 3D tool).
-const DRAFT_TOOL_IDS: Partial<Record<string, DraftToolId>> = {
-  "line":           "line",
-  "arc":            "arc",
-  "circle":         "circle",
-  "ellipse":        "ellipse",
-  "polyline":       "polyline",
-  "spline":         "spline",
-  "point":          "point",
-  "text":           "text",
-  "mtext":          "mtext",
-  "leader":         "leader",
-  "mleader":        "mleader",
-  "dim-linear":     "dim-linear",
-  "dim-aligned":    "dim-aligned",
-  "dim-angular":    "dim-angular",
-  "dim-radial":     "dim-radial",
-  "dim-diametric":  "dim-diametric",
-  "dim-arc-length": "dim-arc-length",
-  "dim-ordinate":   "dim-ordinate",
-  "hatch":          "hatch",
-  "wipeout":        "wipeout",
-  "block-insert":   "block-insert",
-  "image":          "image",
-};
-
 const LAYOUT_PALETTE_SECTIONS: PaletteSection[] = [
-  // NAV — shared 3D nav tools
+  // NAV — only confirmed-working tools in layout mode
   { tools: [
     { id: "select", icon: "select", label: "Select" },
     { id: "pan",    icon: "pan",    label: "Pan" },
     { id: "zoom",   icon: "zoom",   label: "Zoom" },
-  ]},
-  // VIEWPORT — sheet viewport management tools
-  { tools: [
-    { id: "vp-viewport", icon: "viewport",       label: "Viewport" },
-    { id: "vp-frame",    icon: "frame",          label: "Frame" },
-    { id: "vp-scale",    icon: "scale",          label: "Scale" },
-    { id: "vp-align",    icon: "align-center-h", label: "Align" },
-    { id: "vp-detail",   icon: "detail",         label: "Detail" },
-  ]},
-  // DRAW — 2D geometric primitives
-  { tools: [
-    { id: "line",     icon: "line",     label: "Line" },
-    { id: "arc",      icon: "arc",      label: "Arc" },
-    { id: "circle",   icon: "circle",   label: "Circle" },
-    { id: "ellipse",  icon: "ellipse",  label: "Ellipse" },
-    { id: "polyline", icon: "polyline", label: "Polyline" },
-    { id: "spline",   icon: "spline",   label: "Spline" },
-    { id: "point",    icon: "point",    label: "Point" },
-  ]},
-  // ANNOTATE — text + leader annotations
-  { tools: [
-    { id: "text",    icon: "text",    label: "Text" },
-    { id: "mtext",   icon: "mtext",   label: "MText" },
-    { id: "leader",  icon: "leader",  label: "Leader" },
-    { id: "mleader", icon: "leader",  label: "MLeader" },
-  ]},
-  // DIMENSION
-  { tools: [
-    { id: "dim-linear",     icon: "aligned-dim", label: "Linear Dim" },
-    { id: "dim-aligned",    icon: "aligned-dim", label: "Aligned Dim" },
-    { id: "dim-angular",    icon: "angular-dim", label: "Angular Dim" },
-    { id: "dim-radial",     icon: "ruler",       label: "Radial Dim" },
-    { id: "dim-diametric",  icon: "ruler",       label: "Diameter Dim" },
-    { id: "dim-arc-length", icon: "ruler",       label: "Arc Length Dim" },
-    { id: "dim-ordinate",   icon: "ruler",       label: "Ordinate Dim" },
-  ]},
-  // FILL
-  { tools: [
-    { id: "hatch",   icon: "rect",   label: "Hatch" },
-    { id: "wipeout", icon: "rect",   label: "Wipeout" },
-  ]},
-  // REFERENCE
-  { tools: [
-    { id: "block-insert", icon: "viewport", label: "Block Insert" },
-    { id: "image",        icon: "viewport", label: "Image" },
   ]},
 ];
 
@@ -771,12 +700,7 @@ export function buildLayoutPalette(host: HTMLElement) {
       const btn = el("button", "palette-btn", { type: "button", "aria-label": tool.label, "data-tool": tool.id });
       btn.innerHTML = iconSVG(tool.icon, 18);
       btn.addEventListener("click", () => {
-        const draftId = DRAFT_TOOL_IDS[tool.id];
-        if (draftId) {
-          setActiveDraftTool(draftId);
-        } else {
-          dispatchSync("setActiveTool", { toolId: tool.id });
-        }
+        dispatchSync("setActiveTool", { toolId: tool.id });
       });
       sec.appendChild(btn);
     }
