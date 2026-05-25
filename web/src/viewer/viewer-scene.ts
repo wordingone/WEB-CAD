@@ -6,19 +6,19 @@ import { drawingLayerStore } from "../geometry/drawing-layers.js";
 
 export function clearScene(v: Viewer): void {
   if (v.currentMesh) {
-    v.scene.remove(v.currentMesh);
+    v.scene.remove(v.currentMesh); // audit-undo-ok: currentMesh is the IFC model view object set by file-load; clearScene is the file-load/reset path, not a user spatial action
     v.currentMesh.geometry.dispose();
     (v.currentMesh.material as THREE.Material).dispose();
     v.currentMesh = null;
   }
   if (v.currentEdges) {
-    v.scene.remove(v.currentEdges);
+    v.scene.remove(v.currentEdges); // audit-undo-ok: currentEdges is the IFC edge overlay; same file-load/reset context as currentMesh
     v.currentEdges.geometry.dispose();
     (v.currentEdges.material as THREE.Material).dispose();
     v.currentEdges = null;
   }
   if (v.currentObject) {
-    v.scene.remove(v.currentObject);
+    v.scene.remove(v.currentObject); // audit-undo-ok: currentObject is the IFC scene graph root; same file-load/reset context
     v.currentObject.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
@@ -41,7 +41,7 @@ export function clearScene(v: Viewer): void {
     (c) => !infraSet.has(c) && !(c instanceof THREE.Light),
   );
   for (const obj of toRemove) {
-    v.scene.remove(obj);
+    v.scene.remove(obj); // audit-undo-ok: bulk dispose of all non-infra scene objects during clearScene reset; not a user action, undo history is wiped on file load
     obj.traverse((child) => {
       const m = child as THREE.Mesh;
       if (m.geometry) m.geometry.dispose();
@@ -78,7 +78,7 @@ export function setMesh(v: Viewer, mesh: MeshIn, bounds: Bounds): void {
   });
   const m = new THREE.Mesh(geometry, material);
   m.position.set(cx, cy, cz);
-  v.scene.add(m);
+  v.scene.add(m); // audit-undo-ok: setMesh is the file-load path (IFC/mesh import); currentMesh is the model view object, not a user spatial action
   v.currentMesh = m;
   const edges = new THREE.EdgesGeometry(geometry, 25);
   const edgeMat = new THREE.LineBasicMaterial({
@@ -102,7 +102,7 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
   wrapper.position.set(0, 0, 0);
   object.position.sub(new THREE.Vector3(cx, cy, cz));
   wrapper.add(object);
-  v.scene.add(wrapper);
+  v.scene.add(wrapper); // audit-undo-ok: setObject is the IFC file-load path; wrapper is the IFC scene graph root, not a user spatial action
   v.currentObject = wrapper;
   const hw = (bounds.max[0] - bounds.min[0]) / 2;
   const hh = (bounds.max[1] - bounds.min[1]) / 2;
