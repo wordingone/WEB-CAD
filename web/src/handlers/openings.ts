@@ -44,30 +44,33 @@ export function registerOpeningHandlers(viewer: Viewer): void {
       doorW = DEFAULT_DOOR_W;
       doorH = DEFAULT_DOOR_H;
     }
-    // §#1516,#1546,#1665: auto-find nearest wall within 3m when hostUuid absent.
-    // 3-D distance from the door's expected world center selects the correct floor's
-    // wall even when levelId is absent (IFC walls). 2-pass: active level first.
+    // §#1516,#1546,#1665,#1725: auto-find nearest wall when hostUuid absent.
+    // §#1725: use closest-point-on-bbox XY distance (not center) — active level first pass.
     if (!hostObjDoor) {
       const posArr = args.position as number[] | undefined;
       const doorRef = new THREE.Vector3(posArr?.[0] ?? 0, posArr?.[1] ?? 0, elevation + doorH / 2);
       const activeLvlIdDoor = getActiveLevelId();
-      let minDist = 3;
+      const _bboxDoor = new THREE.Box3();
+      const bboxDistXYDoor = (child: THREE.Object3D) => {
+        _bboxDoor.setFromObject(child);
+        const cx = Math.max(_bboxDoor.min.x, Math.min(doorRef.x, _bboxDoor.max.x));
+        const cy = Math.max(_bboxDoor.min.y, Math.min(doorRef.y, _bboxDoor.max.y));
+        return Math.sqrt((doorRef.x - cx) ** 2 + (doorRef.y - cy) ** 2);
+      };
+      let minDist = Infinity;
       viewer.forEachSceneChild((child) => {
         const c = child.userData?.creator;
         if (c !== "SdWall" && c !== "wall") return;
         if (child.userData?.levelId !== activeLvlIdDoor) return;
-        const wallCenter = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
-        // §#1725: use 2D XY distance — levelId already ensures correct floor.
-        const dist = Math.sqrt((doorRef.x - wallCenter.x) ** 2 + (doorRef.y - wallCenter.y) ** 2);
+        const dist = bboxDistXYDoor(child);
         if (dist < minDist) { minDist = dist; hostObjDoor = child; }
       });
       if (!hostObjDoor) {
-        minDist = 3;
+        minDist = Infinity;
         viewer.forEachSceneChild((child) => {
           const c = child.userData?.creator;
           if (c !== "SdWall" && c !== "wall") return;
-          const wallCenter = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
-          const dist = doorRef.distanceTo(wallCenter);
+          const dist = bboxDistXYDoor(child);
           if (dist < minDist) { minDist = dist; hostObjDoor = child; }
         });
       }
@@ -127,28 +130,34 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     const winW    = isOG ? FZK_OG_WINDOW_W : FZK_WINDOW_W;
     const winH    = isOG ? FZK_OG_WINDOW_H : FZK_WINDOW_H;
     const winSill = FZK_WINDOW_SILL;
-    // §#1545,#1665: auto-find nearest wall within 3m when hostUuid absent.
+    // §#1545,#1665,#1725: auto-find nearest wall when hostUuid absent.
+    // §#1725: use closest-point-on-bbox XY distance (not center distance) so windows near
+    // wall ends are found correctly even on long walls in imperial coordinates.
     if (!hostObjWin) {
       const posArr = args.position as number[] | undefined;
       const winRef = new THREE.Vector3(posArr?.[0] ?? 0, posArr?.[1] ?? 0, elevation + winSill + winH / 2);
       const activeLvlIdWin = getActiveLevelId();
-      let minDist = 3;
+      const _bboxWin = new THREE.Box3();
+      const bboxDistXY = (child: THREE.Object3D) => {
+        _bboxWin.setFromObject(child);
+        const cx = Math.max(_bboxWin.min.x, Math.min(winRef.x, _bboxWin.max.x));
+        const cy = Math.max(_bboxWin.min.y, Math.min(winRef.y, _bboxWin.max.y));
+        return Math.sqrt((winRef.x - cx) ** 2 + (winRef.y - cy) ** 2);
+      };
+      let minDist = Infinity;
       viewer.forEachSceneChild((child) => {
         const c = child.userData?.creator;
         if (c !== "SdWall" && c !== "wall") return;
         if (child.userData?.levelId !== activeLvlIdWin) return;
-        const wallCenter = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
-        // §#1725: use 2D XY distance.
-        const dist = Math.sqrt((winRef.x - wallCenter.x) ** 2 + (winRef.y - wallCenter.y) ** 2);
+        const dist = bboxDistXY(child);
         if (dist < minDist) { minDist = dist; hostObjWin = child; }
       });
       if (!hostObjWin) {
-        minDist = 3;
+        minDist = Infinity;
         viewer.forEachSceneChild((child) => {
           const c = child.userData?.creator;
           if (c !== "SdWall" && c !== "wall") return;
-          const wallCenter = new THREE.Box3().setFromObject(child).getCenter(new THREE.Vector3());
-          const dist = winRef.distanceTo(wallCenter);
+          const dist = bboxDistXY(child);
           if (dist < minDist) { minDist = dist; hostObjWin = child; }
         });
       }
