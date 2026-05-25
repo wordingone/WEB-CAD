@@ -1,8 +1,13 @@
 {
-  "name": "gemma-cad",
-  "version": "0.1.0",
-  "description": "Browser-native 3D architectural design tool — Gemma 4 (base) with replicad geometry kernel.",
-  "license": "CC-BY-4.0",
+  "name": "web-cad",
+  "version": "0.2.0",
+  "description": "WEB-CAD — browser-native CAD with embedded LLM agent. Forked from gemma-architect 2026-05-24 for proprietary forward work; original frozen at submission state.",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://wordingone.github.io/WEB-CAD/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wordingone/WEB-CAD.git"
+  },
   "type": "module",
   "private": true,
   "scripts": {
