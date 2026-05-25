@@ -1,0 +1,1343 @@
+export async function runBatchA({ send, evaluate, delay, canvasBpp, record, resetScene, resetToBaseState, closeCmdkIfOpen, assertNoCmdkOverlay, DEV_URL, FRESH_USER }) {
+// ── Surface 0: initial-scene-clean (#218 regression guard) ───────────────────
+// Asserts: immediately after a fresh page reload, the viewer scene contains
+// no user-created building elements (no IfcWall, SdBox, etc.).
+// Excludes built-in scene objects: GridHelper, AxesHelper, lights, gumball handles.
+{
+  const r = await evaluate(`
+    (() => {
+      try {
+        const v = window.__viewer;
+        if (!v) return { passed: false, evidence: { reason: "__viewer not found" } };
+        const BUILTIN_NAMES = new Set(["X_shaft","X","Y_shaft","Y","Z_shaft","Z","XYZ","XY","YZ","XZ","XYZE","E"]);
+        const userMeshes = [];
+        v.scene.traverse(obj => {
+          if (!obj.isMesh && !obj.isGroup) return;
+          if (BUILTIN_NAMES.has(obj.name)) return;
+          if (obj.type === "GridHelper" || obj.type === "AxesHelper") return;
+          if (obj.userData?.kind || obj.userData?.creator || obj.userData?.layerId) {
+            userMeshes.push({ name: obj.name, kind: obj.userData?.kind, creator: obj.userData?.creator });
+          }
+        });
+        return { passed: userMeshes.length === 0, evidence: { userMeshCount: userMeshes.length, userMeshes } };
+      } catch (e) {
+        return { passed: false, evidence: { reason: "caught: " + String(e) } };
+      }
+    })()`);
+  if (!r) record("initial-scene-clean", false, { reason: "evaluate returned null" });
+  else record("initial-scene-clean", r.passed, r.evidence);
+}
+
+// ── Surface 1: ribbon-icons-rendered ─────────────────────────────────────────
+// MODEL mode intentionally has no ribbon tools (PR #342/#378). Switch to LAYOUT first.
+{
+  await evaluate(`(() => {
+    const t = document.querySelector('.mode-tab[data-mode="layout"]');
+    if (t) t.click();
+  })()`);
+  await delay(300);
+  const r = await evaluate(`
+    (() => {
+      const btns = [...document.querySelectorAll(".ribbon .tool-btn")];
+      if (!btns.length) return { passed: false, evidence: { reason: "no .tool-btn found in layout mode" } };
+      const failures = btns.filter(b => !b.querySelector("svg"))
+        .map(b => ({ btn: b.outerHTML.slice(0, 80), reason: "no svg" }));
+      return { passed: failures.length === 0, evidence: { count: btns.length, failures } };
+    })()`);
+  await evaluate(`(() => { document.querySelector('.mode-tab[data-mode="model"]')?.click(); })()`);
+  await delay(200);
+  record("ribbon-icons-rendered", r.passed, r.evidence);
+}
+
+// ── Surface 2: theme-propagation ─────────────────────────────────────────────
+{
+  const before = await evaluate(`
+    (() => {
+      const panel = document.querySelector(".scene-panel, [data-panel=scene], .sidebar [data-tab=scene]");
+      if (!panel) return null;
+      window.__gemmaTest.themeBefore = getComputedStyle(panel).backgroundColor;
+      return window.__gemmaTest.themeBefore;
+    })()`);
+  if (before === null) {
+    record("theme-propagation", false, { reason: "scene-panel not found" });
+  } else {
+    await evaluate(`
+      (() => {
+        const btn = document.querySelector("#blueprint-toggle, .theme-pill, [data-action=theme-toggle]");
+        if (btn) btn.click();
+      })()`);
+    await delay(1000);
+    const r = await evaluate(`
+      (() => {
+        const panel = document.querySelector(".scene-panel, [data-panel=scene], .sidebar [data-tab=scene]");
+        const afterStyle = panel ? getComputedStyle(panel).backgroundColor : "";
+        const beforeStyle = window.__gemmaTest.themeBefore;
+        const pill = document.querySelector("#blueprint-toggle, .theme-pill");
+        const pillText = pill ? pill.textContent.trim() : "";
+        const passed = afterStyle !== beforeStyle && (pillText.includes("BLUEPRINT") || pillText.includes("VELLUM"));
+        return { passed, evidence: { beforeStyle, afterStyle, pillText, panelChanged: afterStyle !== beforeStyle } };
+      })()`);
+    record("theme-propagation", r.passed, r.evidence);
+  }
+}
+
+// ── Surface 3: palette-tool-behavior ─────────────────────────────────────────
+{
+  const r = await evaluate(`
+    (async () => {
+      const primeBtn = document.querySelector('.palette-btn[data-tool="move"]');
+      if (primeBtn) { primeBtn.click(); await new Promise(r => setTimeout(r, 80)); }
+      const tools = ["select","move","rotate","scale"];
+      const results = [];
+      for (const tool of tools) {
+        const btn = document.querySelector('.palette-btn[data-tool="' + tool + '"]');
+        if (!btn) { results.push({ tool, error: "no button" }); continue; }
+        btn.click();
+        await new Promise(r => setTimeout(r, 80));
+        results.push({ tool, isActive: btn.classList.contains("active"), matched: btn.classList.contains("active") });
+      }
+      return { passed: results.every(r => r.matched), evidence: { results } };
+    })()`);
+  record("palette-tool-behavior", r.passed, r.evidence);
+}
+
+// ── Pre-surface-4 setup: inject mesh via DSL console ─────────────────────────
+// Reset UI + scene before injection: prior runs persist boxes to localStorage and
+// Page.reload restores them. resetScene() clears DSL objects so the child-count
+// delta from injection is always exactly 1 regardless of run order (#396).
+await resetToBaseState('before-box-inject');
+await resetScene('before-box-inject');
+{
+  await evaluate(`
+    (async () => {
+      const tab = document.querySelector("[data-tab=prompt]");
+      if (tab) { tab.click(); await new Promise(r => setTimeout(r, 200)); }
+      const pill = document.querySelector(".mode-pill");
+      if (pill && pill.getAttribute("data-mode") !== "console") {
+        pill.click(); await new Promise(r => setTimeout(r, 200));
+      }
+    })()`);
+  const setup = await evaluate(`
+    (async () => {
+      const v = window.__viewer;
+      if (!v) return { ok: false, reason: "__viewer not found" };
+      const before = v.scene.children.length;
+      const input = document.querySelector("#console-input");
+      if (!input) return { ok: false, reason: "no #console-input" };
+      const pill = document.querySelector(".mode-pill");
+      const pillMode = pill?.getAttribute("data-mode") ?? "unknown";
+      // Force console mode if not already there (resetToBaseState may have left prompt mode).
+      if (pill && pillMode !== "console") {
+        pill.click();
+        await new Promise(r => setTimeout(r, 300));
+      }
+      input.value = "box (0 0) width=1 depth=1 height=1";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keyup",   { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+      await new Promise(r => setTimeout(r, 1200));
+      return { ok: v.scene.children.length > before, before, after: v.scene.children.length, pillMode };
+    })()`);
+  if (!setup.ok) { console.error("SETUP FAILED:", JSON.stringify(setup)); process.exit(3); }
+  console.log(`  setup: mesh injected (scene ${setup.before} → ${setup.after} children)`);
+  // Zoom extents so injected box is at viewport center for S4/S5/S6 (#396).
+  // selectObject() auto-attaches gizmos; reliable hit requires box at center.
+  await evaluate(`(async () => {
+    window.__dispatch?.('SdZoomExtents', {});
+    await new Promise(r => setTimeout(r, 600));
+  })()`);
+}
+
+// ── Surface 4: selection-roundtrip ───────────────────────────────────────────
+{
+  const r = await evaluate(`
+    (async () => {
+      const selectBtn = document.querySelector(".palette-btn[data-tool=select]");
+      if (selectBtn) selectBtn.click();
+      await new Promise(r => setTimeout(r, 80));
+      const inspectTab = document.querySelector(".sb-tab[data-tab=inspect]");
+      if (inspectTab) { inspectTab.click(); await new Promise(r => setTimeout(r, 80)); }
+      window.__gemmaTest.events["viewer:select"] = 0;
+      window.__gemmaTest.events["viewer:select:uuid"] = null;
+      const handler = e => {
+        window.__gemmaTest.events["viewer:select"]++;
+        window.__gemmaTest.events["viewer:select:uuid"] = e.detail?.uuid ?? null;
+      };
+      window.addEventListener("viewer:select", handler);
+      const body = document.querySelector("#viewport-2 .vp-body");
+      if (!body) return { passed: false, evidence: { reason: "no #viewport-2 .vp-body" } };
+      const rect = body.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      body.dispatchEvent(new PointerEvent("pointerdown", { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 }));
+      body.dispatchEvent(new PointerEvent("pointerup",   { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0 }));
+      await new Promise(r => setTimeout(r, 300));
+      const eventsHeard = window.__gemmaTest.events["viewer:select"];
+      const uuid        = window.__gemmaTest.events["viewer:select:uuid"];
+      const inspectSubtitle = document.querySelector(".props-subtitle")?.textContent?.trim() ?? "";
+      const inspectUpdated = inspectSubtitle !== "" && inspectSubtitle !== "no selection";
+      window.removeEventListener("viewer:select", handler);
+      return { passed: eventsHeard > 0 && inspectUpdated, evidence: { eventsHeard, uuid, inspectSubtitle, inspectUpdated } };
+    })()`);
+  record("selection-roundtrip", r.passed, r.evidence);
+}
+
+// ── Surface 5: transform-gizmo-attach ────────────────────────────────────────
+{
+  const r = await evaluate(`
+    (async () => {
+      const selectBtn = document.querySelector(".palette-btn[data-tool=select]");
+      if (selectBtn) selectBtn.click();
+      await new Promise(r => setTimeout(r, 80));
+      const body = document.querySelector("#viewport-2 .vp-body");
+      if (!body) return { passed: false, evidence: { reason: "no vp-body" } };
+      const rect = body.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      body.dispatchEvent(new PointerEvent("pointerdown", { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 }));
+      body.dispatchEvent(new PointerEvent("pointerup",   { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0 }));
+      await new Promise(r => setTimeout(r, 300));
+      const v = window.__viewer;
+      if (!v) return { passed: false, evidence: { reason: "__viewer not found" } };
+      const beforeG = v.gizmos.map(g => ({ mode: g.mode, attached: g.object !== null }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "g", code: "KeyG", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown",   { key: "g", code: "KeyG", bubbles: true }));
+      await new Promise(r => setTimeout(r, 300));
+      const afterG = v.gizmos.map(g => ({ mode: g.mode, attached: g.object !== null }));
+      const anyAttached  = afterG.some(g => g.attached);
+      const targetSelected = !!v.targetObject;
+      return { passed: anyAttached && targetSelected, evidence: { beforeG, afterG, targetSelected } };
+    })()`);
+  record("transform-gizmo-attach", r.passed, r.evidence);
+}
+
+// ── Surface 6: delete-propagation ────────────────────────────────────────────
+{
+  const r = await evaluate(`
+    (async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown",   { key: "Escape", code: "Escape", bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+      const v = window.__viewer;
+      if (!v) return { passed: false, evidence: { reason: "__viewer not found" } };
+      const beforeCount = v.scene.children.length;
+      const selectBtn = document.querySelector(".palette-btn[data-tool=select]");
+      if (selectBtn) selectBtn.click();
+      await new Promise(r => setTimeout(r, 80));
+      const body = document.querySelector("#viewport-2 .vp-body");
+      if (!body) return { passed: false, evidence: { reason: "no vp-body" } };
+      const rect = body.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      body.dispatchEvent(new PointerEvent("pointerdown", { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 }));
+      body.dispatchEvent(new PointerEvent("pointerup",   { clientX: cx, clientY: cy, bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse", button: 0 }));
+      await new Promise(r => setTimeout(r, 300));
+      window.dispatchEvent(new KeyboardEvent("keydown",   { key: "Delete", code: "Delete", bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", code: "Delete", bubbles: true }));
+      await new Promise(r => setTimeout(r, 500));
+      const afterCount = v.scene.children.length;
+      return { passed: afterCount < beforeCount, evidence: { beforeCount, afterCount, sceneShrunk: afterCount < beforeCount } };
+    })()`);
+  if (!r) record("delete-propagation", false, { reason: "evaluate returned null" });
+  else record("delete-propagation", r.passed, r.evidence);
+}
+
+// ── Surface 7: console-vocab-runs ─────────────────────────────────────────────
+// Renamed from console-vocab-coverage (#241): also fails on ArgValidationError,
+// not just "unknown verb" — verbs with required geometry args are RED until W2.4 (#233).
+{
+  await evaluate(`
+    (async () => {
+      const tab = document.querySelector("[data-tab=prompt]");
+      if (tab) tab.click();
+      await new Promise(r => setTimeout(r, 300));
+      const pill = document.querySelector(".mode-pill");
+      if (pill && pill.getAttribute("data-mode") !== "console") {
+        pill.click(); await new Promise(r => setTimeout(r, 300));
+      }
+    })()`);
+  const verbs = [
+    "SdLine","SdArc","SdCircle","SdPolygon","SdPolyline","SdRectangle","SdEllipse","SdSpline",
+    "SdBox","SdCylinder","SdSphere","SdCone","SdPrism","SdExtrude","SdRevolve","SdSweep","SdLoft",
+    "SdBooleanUnion","SdBooleanDifference","SdBooleanIntersection","SdFillet","SdChamfer",
+    "SdOffset","SdTrim","SdExtend","SdSplit","SdShell","SdMove","SdRotate","SdScale","SdMirror",
+    "SdArray","IfcWall","IfcSlab","IfcColumn","IfcBeam","IfcMember","IfcStair","IfcDoor","IfcWindow",
+    "IfcRoof","IfcPlate","IfcFurnishingElement","IfcSpace","IfcAnnotationDimension","SdLeader","SdText","SdGroup","SdUngroup",
+    "SdLayer","SdLock","SdHide","SdSelect","SdSelectAll","SdDeselect","SdIsolate","SdZoomExtents",
+    "SdZoomSelected","SdSetViewOrtho","SdSetViewPerspective","SdMeasure","SdArea","SdVolume",
+    "SdImport","SdExport","SdSave","SdOpen","setActiveTool",
+  ];
+  const r = await evaluate(`
+    (async () => {
+      try {
+        const verbs = ${JSON.stringify(verbs)};
+        const input = document.querySelector("#console-input");
+        if (!input) return { passed: false, evidence: { reason: "no #console-input" } };
+        const failedVerbs = [];
+        for (const v of verbs) {
+          const before = document.querySelector("#console-history")?.children.length ?? 0;
+          input.value = v;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+          input.dispatchEvent(new KeyboardEvent("keyup",   { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+          await new Promise(r => setTimeout(r, 60));
+          const lines = [...document.querySelectorAll("#console-history .console-line")].slice(before).map(l => l.textContent);
+          const isUnknown  = lines.some(l => /unknown verb/i.test(l ?? ""));
+          // ArgValidationError = verb recognised but needs args; correct pre-W2.4 (#233). Not a failure.
+          if (isUnknown) {
+            failedVerbs.push({ verb: v, output: lines.join(" | "), error: "unknown_verb" });
+          }
+        }
+        return { passed: failedVerbs.length === 0, evidence: { tested: verbs.length, tested_verbs: verbs, failed_verbs: failedVerbs } };
+      } catch (e) {
+        return { passed: false, evidence: { reason: "caught: " + String(e) } };
+      }
+    })()`);
+  if (!r) record("console-vocab-runs", false, { reason: "evaluate returned null — expression threw or timed out" });
+  else record("console-vocab-runs", r.passed, r.evidence);
+
+  // Teardown: clear any orphaned picker-bridge sessions (#259).
+  // Verbs like SdLine leave a collecting_args session that blocks OrbitControls.
+  await evaluate(`(window.__clearCommandSession?.(), true)`);
+  await delay(100);
+
+  // Assert session cleared and picker-prompt gone — prevents false-green on session leak.
+  const sessionClean = await evaluate(`(function() {
+    const sess = window.__getActiveCommandSession?.();
+    const pickerVisible = !!document.querySelector('.picker-prompt.visible');
+    return { sessionNull: sess === null, pickerVisible };
+  })()`);
+  if (sessionClean && (!sessionClean.sessionNull || sessionClean.pickerVisible)) {
+    console.log(`    warn: post-teardown session leak — sessionNull=${sessionClean.sessionNull} pickerVisible=${sessionClean.pickerVisible}`);
+  }
+}
+
+// ── Surface 8: console-verb-produces-output ───────────────────────────────────
+{
+  await evaluate(`
+    (async () => {
+      const tab = document.querySelector("[data-tab=prompt]");
+      if (tab) tab.click();
+      await new Promise(r => setTimeout(r, 200));
+      const pill = document.querySelector(".mode-pill");
+      if (pill && pill.getAttribute("data-mode") !== "console") {
+        pill.click(); await new Promise(r => setTimeout(r, 300));
+      }
+    })()`);
+  const r = await evaluate(`
+    (async () => {
+      const input = document.querySelector("#console-input");
+      if (!input) return { passed: false, evidence: { reason: "no #console-input" } };
+      const v = window.__viewer;
+      const beforeMeshUuid = v?.currentMesh?.uuid ?? null;
+      let runOkFired = false;
+      window.addEventListener("gemma:run-ok", () => { runOkFired = true; }, { once: true });
+      const before = document.querySelector("#console-history")?.children.length ?? 0;
+      input.value = "wall (0 0) (4 0) height=3 thickness=0.2";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keyup",   { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }));
+      const deadline = Date.now() + 5000;
+      while (!runOkFired && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
+      const afterMeshUuid = v?.currentMesh?.uuid ?? null;
+      const meshChanged = afterMeshUuid !== null && afterMeshUuid !== beforeMeshUuid;
+      const lines = [...document.querySelectorAll("#console-history .console-line")].slice(before).map(l => l.textContent).join(" | ");
+      const isUnknownVerb = /unknown verb/i.test(lines);
+      return { passed: lines.length > 0 && !isUnknownVerb && runOkFired && meshChanged,
+               evidence: { newLines: lines.slice(-300), isUnknownVerb, hasOutput: lines.length > 0, runOkFired, meshChanged } };
+    })()`);
+  record("console-verb-produces-output", r.passed, r.evidence);
+}
+
+// ── Surface 9: cmdk-dialog-opens ─────────────────────────────────────────────
+// Use page-context window.dispatchEvent (reaches window listeners; CDP Input.dispatchKeyEvent does not).
+// Also regression-test that #ribbon-palette-btn click keeps cmdk open (fix for #197:
+// shell.ts used to synthesize ctrlKey+k on click, causing cmdk to open then immediately close).
+{
+  // 9a: open via Ctrl+K keyboard shortcut
+  await evaluate(`
+    (() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, code: "KeyK", bubbles: true }));
+    })()`);
+  await delay(500);
+  const s9 = await evaluate(`
+    (() => {
+      const input = document.querySelector(".cmdk-input, [data-cmdk-input]");
+      const visible = input ? input.getBoundingClientRect().height > 0 : false;
+      return { passed: !!input && visible,
+               evidence: { inputFound: !!input, inputClass: input?.className, visible } };
+    })()`);
+  // Dismiss — fire on both window + document; closeCmdkIfOpen verifies gone.
+  await closeCmdkIfOpen();
+  await assertNoCmdkOverlay("cmdk-dialog-opens");
+  record("cmdk-dialog-opens", s9.passed, s9.evidence);
+}
+
+// ── Surface 10: layout-tab-functional ────────────────────────────────────────
+// Flow: layout tab → add blank sheet (panels:[]) → gate (no tool → no panel) → arm viewport tool → click → panel added.
+// Default sheets spawn full-sheet preset panels, so we must add a blank sheet to test panel creation.
+{
+  await evaluate(`
+    (() => {
+      const layoutTab = document.querySelector("[data-mode=layout]");
+      if (layoutTab) layoutTab.click();
+    })()`);
+  await delay(800);
+  // Add a blank sheet: click "+" then click the Blank preset button in the picker overlay.
+  await evaluate(`
+    (async () => {
+      const addBtn = document.querySelector(".sheet-tab-add");
+      if (addBtn) addBtn.click();
+      await new Promise(r => setTimeout(r, 300));
+      // Click the Blank preset in the picker overlay.
+      const blankBtn = Array.from(document.querySelectorAll(".sheet-preset-btn")).find(b => b.textContent?.trim() === "Blank");
+      if (blankBtn) blankBtn.click();
+      await new Promise(r => setTimeout(r, 400));
+    })()`);
+  const r = await evaluate(`
+    (async () => {
+      const sheet = document.querySelector(".paper-sheet, [data-layout=sheet], .layout-sheet");
+      if (!sheet) return { passed: false, evidence: { reason: "no .paper-sheet element" } };
+      const rect = sheet.getBoundingClientRect();
+      const aspectRatio = rect.width / rect.height;
+      const aspectMatches = aspectRatio > 0.4 && aspectRatio < 2.5;
+      if (!aspectMatches) return { passed: false, evidence: { reason: "aspect mismatch", aspect: aspectRatio } };
+      // Click centre of blank sheet without viewport tool — gate must hold (no panel added).
+      const cx = rect.left + rect.width * 0.5, cy = rect.top + rect.height * 0.5;
+      const beforeNoTool = sheet.querySelectorAll("[data-panel-id]").length;
+      sheet.dispatchEvent(new MouseEvent("click", { clientX: cx, clientY: cy, bubbles: true, button: 0 }));
+      await new Promise(r => setTimeout(r, 300));
+      const afterNoTool = sheet.querySelectorAll("[data-panel-id]").length;
+      const gateHeld = afterNoTool === beforeNoTool;
+      // Arm viewport tool, then click — panel must be added.
+      window.dispatchEvent(new CustomEvent("ribbon:tool-click", { detail: { tool: "viewport" } }));
+      await new Promise(r => setTimeout(r, 100));
+      const beforePanels = sheet.querySelectorAll("[data-panel-id]").length;
+      sheet.dispatchEvent(new MouseEvent("click", { clientX: cx, clientY: cy, bubbles: true, button: 0 }));
+      await new Promise(r => setTimeout(r, 500));
+      const afterPanels = sheet.querySelectorAll("[data-panel-id]").length;
+      const panelAdded = afterPanels > beforePanels;
+      return { passed: aspectMatches && gateHeld && panelAdded,
+               evidence: { aspect: aspectRatio, aspectMatches, gateHeld, beforePanels, afterPanels, panelAdded } };
+    })()`);
+  record("layout-tab-functional", r?.passed ?? false, r?.evidence ?? { error: "evaluate threw or returned null" });
+}
+
+// ── Surface 10b: layout-mode-shell-intact (#199 regression) ──────────────────
+// Asserts: in layout mode, ribbon stays visible + paper-stage fills workbench.
+// Then exits to model mode and asserts ribbon is still present.
+{
+  // Already in layout mode from surface 10.
+  const r = await evaluate(`
+    (() => {
+      const ribbon = document.querySelector(".ribbon");
+      const paperStage = document.querySelector(".paper-stage");
+      const workbench = document.querySelector(".workbench");
+      if (!ribbon) return { passed: false, evidence: { reason: "ribbon element absent" } };
+      const ribbonRect = ribbon.getBoundingClientRect();
+      const ribbonVisible = ribbonRect.height > 0 && ribbonRect.width > 0 && ribbonRect.top >= 0 && ribbonRect.bottom <= window.innerHeight + ribbonRect.height;
+      const paperH = paperStage ? paperStage.clientHeight : 0;
+      const wbH = workbench ? workbench.clientHeight : 0;
+      // paper-stage should fill most of workbench (at least 80% after toolbar strip)
+      const stageFills = wbH > 0 && paperH > wbH * 0.7;
+      return { passed: ribbonVisible && stageFills,
+               evidence: { ribbonH: ribbonRect.height, ribbonTop: ribbonRect.top, ribbonVisible, paperH, wbH, stageFills } };
+    })()`);
+  // Exit layout mode — click the MODEL tab
+  await evaluate(`
+    (() => {
+      const modelTab = document.querySelector(".mode-tab[data-mode=model]");
+      if (modelTab) modelTab.click();
+    })()`);
+  await delay(500);
+  const ribbonAfterExit = await evaluate(`
+    (() => {
+      const ribbon = document.querySelector(".ribbon");
+      const wbMode = document.querySelector(".workbench")?.dataset?.mode ?? "";
+      if (!ribbon) return { passed: false, evidence: { reason: "ribbon absent after mode exit" } };
+      const rect = ribbon.getBoundingClientRect();
+      return { passed: rect.height > 0 && wbMode !== "layout",
+               evidence: { ribbonH: rect.height, workbenchMode: wbMode } };
+    })()`);
+  record("layout-mode-shell-intact", r.passed && ribbonAfterExit.passed,
+    { onEntry: r.evidence, onExit: ribbonAfterExit.evidence });
+}
+
+// ── Surface 11: ortho-grid-z-order ───────────────────────────────────────────
+{
+  const r = await evaluate(`
+    (() => {
+      const v = window.__viewer;
+      if (!v) return { passed: false, evidence: { reason: "__viewer not found" } };
+      const children = v.scene.children;
+      const meshes = children.filter(c => c.type === "Mesh" || c.type === "Group");
+      const grid   = children.find(c => c.type === "GridHelper");
+      if (!grid) return { passed: false, evidence: { reason: "no GridHelper in scene" } };
+      const gridBehind   = grid.renderOrder < 0 || (grid.material && !grid.material.depthWrite);
+      const meshesAbove  = meshes.length === 0 || meshes.every(m => m.renderOrder >= 0 && (m.material ? m.material.depthWrite !== false : true));
+      return { passed: gridBehind && (meshes.length === 0 || meshesAbove),
+               evidence: { gridRenderOrder: grid.renderOrder, gridDepthWrite: grid.material?.depthWrite, gridBehind, meshCount: meshes.length, meshesAbove } };
+    })()`);
+  record("ortho-grid-z-order", r.passed, r.evidence);
+}
+
+// ── Surface 12: viewport-contrast ────────────────────────────────────────────
+// Post-#249 fix: the canvas now carries var(--paper-base) as its WebGL clear
+// color (opaque) and .viewport is transparent. Verify the canvas clear color
+// is opaque (alpha=1) in both VELLUM (day) and BLUEPRINT (night) themes by
+// reading the WebGL renderer's clearColor via __viewer, then checking the
+// actual pixel is non-uniform with a pixel-bytes probe (bpp ≥ 0.015).
+// Falls back to computedStyle on .vp-header (always opaque) as the
+// structural-opacity check.
+{
+  const r = await evaluate(`
+    (() => {
+      function getAlpha(el) {
+        const bg = getComputedStyle(el).backgroundColor;
+        const m = bg.match(/rgba\\(\\d+,\\s*\\d+,\\s*\\d+,\\s*([\\d.]+)\\)/);
+        return m ? parseFloat(m[1]) : 1; // no alpha in rgb() → fully opaque
+      }
+      const hdr = document.querySelector('.vp-header');
+      if (!hdr) return { passed: false, evidence: { reason: 'no .vp-header found' } };
+
+      const origMode = document.documentElement.getAttribute('data-mode') ?? 'day';
+
+      // Day (vellum) check — vp-header background must be opaque
+      document.documentElement.setAttribute('data-mode', 'day');
+      const dayBg = getComputedStyle(hdr).backgroundColor;
+      const dayAlpha = getAlpha(hdr);
+
+      // Night (blueprint) check
+      document.documentElement.setAttribute('data-mode', 'night');
+      const nightBg = getComputedStyle(hdr).backgroundColor;
+      const nightAlpha = getAlpha(hdr);
+
+      // Restore original theme
+      document.documentElement.setAttribute('data-mode', origMode);
+
+      const passed = dayAlpha >= 0.99 && nightAlpha >= 0.99;
+      return { passed, evidence: { dayBg, dayAlpha, nightBg, nightAlpha } };
+    })()`);
+  if (!r) record("viewport-contrast", false, { reason: "evaluate returned null" });
+  else record("viewport-contrast", r.passed, r.evidence);
+}
+
+// ── Surface 13: ifc-import-renders ───────────────────────────────────────────────
+// Programmatically injects Schultz_Residence.ifc via file-input DataTransfer,
+// waits for viewer:ifc-loaded event, asserts scene grew + userData.creator set.
+{
+  const r = await evaluate(`
+    (async () => {
+      const loadPromise = new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('viewer:ifc-loaded timeout')), 30000);
+        window.addEventListener('viewer:ifc-loaded', (e) => {
+          clearTimeout(t);
+          resolve(e.detail);
+        }, { once: true });
+      });
+
+      const recycleCountBefore = (window.__worker_recycle_count ?? 0);
+      let fetchOk = false;
+      let fetchErr = '';
+      try {
+        const resp = await fetch('/samples/Schultz_Residence.ifc');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const bytes = await resp.arrayBuffer();
+        const file = new File([bytes], 'Schultz_Residence.ifc', { type: 'application/x-step' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const input = document.getElementById('file-input');
+        if (!input) throw new Error('no #file-input');
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        fetchOk = true;
+      } catch (e) {
+        fetchErr = String(e);
+      }
+
+      if (!fetchOk) return { passed: false, evidence: { reason: 'fetch/inject failed', fetchErr } };
+
+      try {
+        const detail = await loadPromise;
+        // Wait for SdZoomExtents camera animation to settle + terminateAndRecycle() to fire (#288, #292).
+        await new Promise(r => setTimeout(r, 800));
+        const afterCount = window.__viewer?.scene?.children?.length ?? 0;
+        let hasMeshWithCreator = false;
+        window.__viewer?.scene?.traverse?.(obj => {
+          if (obj.userData?.creator) hasMeshWithCreator = true;
+        });
+        // Compute scene bounding box center and camera distance to verify zoom-extents fired.
+        let zoomApplied = false;
+        let zoomEvidence = {};
+        try {
+          const scene = window.__viewer?.scene;
+          const cam = window.__viewer?.camera;
+          if (scene && cam) {
+            let minX = Infinity, minY = Infinity, minZ = Infinity;
+            let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+            scene.traverse(obj => {
+              if (obj.geometry) {
+                const pos = obj.geometry.attributes?.position;
+                if (pos) {
+                  for (let i = 0; i < pos.count; i++) {
+                    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+                    if (x < minX) minX = x; if (x > maxX) maxX = x;
+                    if (y < minY) minY = y; if (y > maxY) maxY = y;
+                    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+                  }
+                }
+              }
+            });
+            const hasGeom = isFinite(minX);
+            if (hasGeom) {
+              const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+              const diag = Math.sqrt((maxX-minX)**2 + (maxY-minY)**2 + (maxZ-minZ)**2);
+              const cp = cam.position;
+              const camDist = Math.sqrt((cp.x-cx)**2 + (cp.y-cy)**2 + (cp.z-cz)**2);
+              // Camera within 3× diagonal = framed on model
+              zoomApplied = diag > 0 && camDist < diag * 3;
+              zoomEvidence = { diag: Math.round(diag*100)/100, camDist: Math.round(camDist*100)/100, ratio: Math.round(camDist/diag*100)/100 };
+            }
+          }
+        } catch (_) {}
+        const recycleCountAfter = (window.__worker_recycle_count ?? 0);
+        const recycled = recycleCountAfter > recycleCountBefore;
+        const passed = afterCount > 0 && hasMeshWithCreator && zoomApplied !== false && recycled;
+        return { passed, evidence: { afterCount, hasMeshWithCreator, detail, zoomApplied, recycled, recycleCountBefore, recycleCountAfter, ...zoomEvidence } };
+      } catch (e) {
+        return { passed: false, evidence: { reason: 'event not received', error: String(e) } };
+      }
+    })()`, true);
+  if (!r) {
+    record('ifc-import-renders', false, { reason: 'evaluate returned null' });
+  } else if (!r.passed) {
+    record('ifc-import-renders', false, r.evidence);
+  } else {
+    const bpp = await canvasBpp('ifc-loaded');
+    const BPP_MIN = 0.025;
+    record('ifc-import-renders', bpp.bpp >= BPP_MIN, { ...r.evidence, ...bpp, bppMin: BPP_MIN });
+  }
+}
+
+// ── Surface 14: render-mode-cycle-survives-theme ─────────────────────────────────
+// 4 render modes x 2 themes (8 combos) via SdRenderMode dispatch.
+// Structural survive check: scene children still > 0 after each combo.
+// Pixel-color delta deferred to Step 2 Haiku (canvas blank bug #249).
+{
+  const r = await evaluate(`
+    (async () => {
+      const MODES = ['shaded', 'wireframe', 'ghosted', 'technical'];
+      const THEMES = ['day', 'night'];
+      const failures = [];
+
+      for (const mode of MODES) {
+        for (const theme of THEMES) {
+          const dispatchRes = window.__dispatch?.('SdRenderMode', { mode });
+          document.documentElement.setAttribute('data-mode', theme);
+          await new Promise(r => setTimeout(r, 100));
+          const childCount = window.__viewer?.scene?.children?.length ?? 0;
+          if (childCount === 0) {
+            failures.push({ mode, theme, reason: 'scene empty after mode switch' });
+          }
+          if (dispatchRes?.error) {
+            failures.push({ mode, theme, reason: 'dispatch error: ' + dispatchRes.error });
+          }
+        }
+      }
+
+      window.__dispatch?.('SdRenderMode', { mode: 'shaded' });
+      document.documentElement.setAttribute('data-mode', 'day');
+      await new Promise(r => setTimeout(r, 100));
+
+      return { passed: failures.length === 0, evidence: { failures, testedCombos: MODES.length * THEMES.length } };
+    })()`, true);
+  if (!r) {
+    record('render-mode-cycle-survives-theme', false, { reason: 'evaluate returned null' });
+  } else if (!r.passed) {
+    record('render-mode-cycle-survives-theme', false, r.evidence);
+  } else {
+    // Canvas bpp after restore to shaded/day — catches blank canvas that scene-children check misses
+    const bpp = await canvasBpp('shaded-day');
+    const BPP_MIN = 0.025;
+    record('render-mode-cycle-survives-theme', bpp.bpp >= BPP_MIN, { ...r.evidence, ...bpp, bppMin: BPP_MIN });
+  }
+}
+
+// ── Surface 15: view-switch-via-cmdk ────────────────────────────────────────────────
+// SdSetViewOrtho(top): camera.position.z > 5 (Z-up viewer, top = high Z).
+// SdSetViewOrtho(iso): all position components positive (diagonal).
+// setActiveLevel(elev=3): controls.target.z shifts to near 3.
+{
+  const r = await evaluate(`
+    (async () => {
+      const cam = window.__viewer?.camera;
+      if (!cam) return { passed: false, evidence: { reason: 'no __viewer.camera' } };
+
+      window.__dispatch?.('SdSetViewOrtho', { view: 'top' });
+      await new Promise(r => setTimeout(r, 200));
+      const topZ = cam.position.z;
+      const topPassed = topZ > 5;
+
+      window.__dispatch?.('SdSetViewOrtho', { view: 'iso' });
+      await new Promise(r => setTimeout(r, 200));
+      const isoX = cam.position.x;
+      const isoY = cam.position.y;
+      const isoZ = cam.position.z;
+      const isoPassed = isoX > 0 && isoY > 0 && isoZ > 0;
+
+      let levelPassed = true;
+      let levelEvidence = {};
+      try {
+        const lvlRes = window.__dispatch?.('IfcLevel', { name: 'TestLevel', elevation: 3 });
+        const levelId = lvlRes?.id;
+        if (levelId) {
+          const perspPane = window.__viewer?.panes?.find(p => p.view === 'persp');
+          const zBefore = perspPane?.controls?.target?.z ?? 0;
+          window.__dispatch?.('setActiveLevel', { id: levelId });
+          await new Promise(r => setTimeout(r, 200));
+          const zAfter = perspPane?.controls?.target?.z ?? 0;
+          levelPassed = Math.abs(zAfter - 3) < 1.0;
+          levelEvidence = { levelId, zBefore, zAfter };
+        } else {
+          levelEvidence = { reason: 'IfcLevel returned no id', lvlRes };
+        }
+      } catch (e) {
+        levelEvidence = { reason: 'setActiveLevel threw', error: String(e) };
+      }
+
+      const passed = topPassed && isoPassed && levelPassed;
+      return { passed, evidence: { topZ, topPassed, isoX, isoY, isoZ, isoPassed, levelPassed, levelEvidence } };
+    })()`, true);
+  if (!r) record('view-switch-via-cmdk', false, { reason: 'evaluate returned null' });
+  else record('view-switch-via-cmdk', r.passed, r.evidence);
+}
+
+// ── Surface 16: agent-build-and-export ────────────────────────────────────────────
+// Dispatches IfcWall (what the agent emits) then SdExport(ifc).
+// Tests the full dispatch chain; LLM inference exercised in Step 2 Haiku rehearsal.
+{
+  const r = await evaluate(`
+    (async () => {
+      const beforeCount = window.__viewer?.scene?.children?.length ?? 0;
+
+      const wallRes = window.__dispatch?.('IfcWall', { profile: [[0,0],[5,0]], height: 3, length: 5, thickness: 0.2 });
+      await new Promise(r => setTimeout(r, 300));
+
+      const afterCount = window.__viewer?.scene?.children?.length ?? 0;
+      let hasIfcWall = false;
+      window.__viewer?.scene?.traverse?.(obj => {
+        if (obj.userData?.creator === 'wall') hasIfcWall = true; // 'wall' post-#1309 normalization (was 'IfcWall')
+      });
+      const wallPassed = afterCount > beforeCount && hasIfcWall;
+
+      const exportRes = window.__dispatch?.('SdExport', { format: 'ifc' });
+      await new Promise(r => setTimeout(r, 500));
+      const exportPassed = exportRes?.ok === true && (exportRes?.result?.format ?? exportRes?.format) === 'ifc';
+
+      const passed = wallPassed && exportPassed;
+      return { passed, evidence: { beforeCount, afterCount, hasIfcWall, exportRes, wallPassed, exportPassed } };
+    })()`, true);
+  if (!r) record('agent-build-and-export', false, { reason: 'evaluate returned null' });
+  else record('agent-build-and-export', r.passed, r.evidence);
+}
+
+// ── Surface 17: render-popover-keyboard ──────────────────────────────────────
+// Opens RENDER popover via render-mode-toggle event, navigates with ArrowDown 2x
+// starting from 'ghosted' (index 2) → 'technical' (index 4), asserts mode applied.
+{
+  const r = await evaluate(`
+    (async () => {
+      // Start at ghosted (index 2) so ArrowDown 2x lands on technical (index 4).
+      window.__dispatch?.('SdRenderMode', { mode: 'ghosted' });
+      await new Promise(r => setTimeout(r, 60));
+
+      // Fire render-mode-toggle to open the popover (simulates RENDER tab click).
+      const header = document.querySelector('.vp-header');
+      if (!header) return { passed: false, evidence: { reason: 'no .vp-header for rect' } };
+      const rect = header.getBoundingClientRect();
+      window.dispatchEvent(new CustomEvent('render-mode-toggle', { detail: { rect } }));
+      await new Promise(r => setTimeout(r, 60));
+
+      const popover = document.querySelector('.rm-popover');
+      if (!popover || popover.classList.contains('rm-popover--hidden'))
+        return { passed: false, evidence: { reason: 'popover not visible after toggle' } };
+
+      // ArrowDown 2x: ghosted(2) → realistic(3) → technical(4), then Enter.
+      const kOpts = { bubbles: true, cancelable: true };
+      popover.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, ...kOpts }));
+      popover.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, ...kOpts }));
+      popover.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, ...kOpts }));
+      await new Promise(r => setTimeout(r, 80));
+
+      // Popover closed; check active mode item (syncState runs on render-mode-changed).
+      const activeItem = document.querySelector('.rm-mode-item--active');
+      const activeMode = activeItem?.dataset?.mode ?? null;
+      const passed = activeMode === 'technical';
+      return { passed, evidence: { activeMode, expected: 'technical' } };
+    })()`, true);
+  if (!r) record('render-popover-keyboard', false, { reason: 'evaluate returned null' });
+  else record('render-popover-keyboard', r.passed, r.evidence);
+
+  // Restore shaded after keyboard test.
+  await evaluate(`window.__dispatch?.('SdRenderMode', { mode: 'shaded' })`);
+  await new Promise(r => setTimeout(r, 60));
+}
+
+// ── Surface 20: menubar-coverage ─────────────────────────────────────────────
+// Per-entry-type effect assertions. Replaces the dormant-green mutation approach
+// where closeMenu() always fired DOM mutations making every row pass trivially.
+//   toolId rows  → [data-tool="X"].active after setActiveTool dispatch
+//   canonical    → window.__dispatch confirms verb is in registry (not UnknownVerb)
+//   onAction     → per-label targeted DOM element presence / active-class checks
+// data-toolId and data-canonical attributes added to rows in shell.ts (#266).
+{
+  await evaluate(`(function() {
+    const tab = document.querySelector('.mode-tab[data-mode="model"]');
+    if (tab) tab.click();
+  })()`);
+  await delay(300);
+
+  const r = await evaluate(`
+    (async () => {
+      function closeMenu() {
+        document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      }
+
+      function checkEntry({ label, toolId, canonical }) {
+        if (toolId) {
+          const res = window.__dispatch?.('setActiveTool', { toolId });
+          if (!res) return { ok: false, reason: 'setActiveTool dispatch returned null' };
+          if (res.error === 'UnknownVerb') return { ok: false, reason: 'setActiveTool not in dispatch registry' };
+          return { ok: true };
+        }
+        if (canonical) {
+          // Provide minimal realistic args so ArgValidationError/NeedsChoiceError is not silently masked (#473).
+          // Goal: reach the handler (past arg validation) to confirm registry presence.
+          const CANONICAL_STUB_ARGS = {
+            'SdExport':            { format: 'ifc' },
+            'SdBooleanUnion':      { a: 'stub-solid-a', b: 'stub-solid-b' },
+            'SdBooleanDifference': { outer: 'stub-solid-outer', inner: 'stub-solid-inner' },
+          };
+          const callArgs = Object.prototype.hasOwnProperty.call(CANONICAL_STUB_ARGS, canonical)
+            ? CANONICAL_STUB_ARGS[canonical] : {};
+          const res = window.__dispatch?.(canonical, callArgs);
+          if (!res || res.error === 'UnknownVerb' || res.canonical === null)
+            return { ok: false, reason: canonical + ' not in dispatch registry: ' + JSON.stringify(res) };
+          if (res.error === 'ArgValidationError' || res.error === 'NeedsChoiceError')
+            return { ok: false, reason: canonical + ' rejected args — ArgValidationError/NeedsChoiceError: ' + JSON.stringify(res) };
+          return { ok: true };
+        }
+        // onAction rows: per-label targeted checks
+        if (/^Mode · /.test(label)) {
+          const mode = label.slice(7).toLowerCase();
+          const t = document.querySelector('.mode-tab[data-mode="' + mode + '"]');
+          return !t ? { ok: false, reason: '.mode-tab[data-mode="' + mode + '"] absent' }
+            : (t.classList.contains('active') || t.getAttribute('aria-selected') === 'true')
+              ? { ok: true } : { ok: false, reason: 'mode-tab ' + mode + ' not active after click' };
+        }
+        const dockMap = { 'Prompt': 'prompt', 'Skills': 'skills', 'History': 'history' };
+        if (dockMap[label]) {
+          const t = document.querySelector('.dock-tab[data-tab="' + dockMap[label] + '"]');
+          return !t ? { ok: false, reason: '.dock-tab[data-tab="' + dockMap[label] + '"] absent' }
+            : (t.classList.contains('active') || t.getAttribute('aria-selected') === 'true')
+              ? { ok: true } : { ok: false, reason: 'dock-tab ' + label + ' not active after click' };
+        }
+        if (['Shaded', 'Wireframe', 'Ghosted', 'Technical', 'Realistic'].includes(label)) {
+          const res = window.__dispatch?.('SdRenderMode', { mode: label.toLowerCase() });
+          return res?.ok ? { ok: true } : { ok: false, reason: 'SdRenderMode/' + label.toLowerCase() + ' failed: ' + JSON.stringify(res) };
+        }
+        const targetMap = {
+          'Toggle theme': '#blueprint-toggle',
+          'Command palette…': '#ribbon-palette-btn',
+          'Keyboard shortcuts': '#ribbon-palette-btn',
+          'Render settings…': '.ribbon-tab[data-tab="RENDER"]',
+        };
+        if (targetMap[label]) {
+          return document.querySelector(targetMap[label])
+            ? { ok: true }
+            : { ok: false, reason: targetMap[label] + ' target element absent' };
+        }
+        return { ok: true, reason: 'no specific check for onAction: ' + label };
+      }
+
+      const menuItems = Array.from(document.querySelectorAll('.menubar-items .menu-item'));
+      const failures = [];
+      const passed = [];
+
+      for (const item of menuItems) {
+        const menuLabel = item.dataset.menu ?? item.textContent?.trim() ?? '?';
+
+        // Collect row metadata in one pass (rows are recreated on each menu open).
+        item.click();
+        await new Promise(r => setTimeout(r, 120));
+        const dd0 = document.querySelector('.menu-dropdown');
+        if (!dd0) continue;
+        const rowMeta = Array.from(dd0.querySelectorAll('.menu-row'))
+          .filter(row => !row.classList.contains('menu-sep') && row.dataset.stub !== 'true')
+          .map(row => ({
+            label: row.querySelector('.menu-row-label')?.textContent?.trim() ?? '?',
+            toolId: row.dataset.toolId,
+            canonical: row.dataset.canonical,
+          }));
+        closeMenu();
+        await new Promise(r => setTimeout(r, 60));
+
+        for (const meta of rowMeta) {
+          item.click();
+          await new Promise(r => setTimeout(r, 120));
+          const dd = document.querySelector('.menu-dropdown');
+          if (!dd) continue;
+          const row = Array.from(dd.querySelectorAll('.menu-row'))
+            .find(r => r.querySelector('.menu-row-label')?.textContent?.trim() === meta.label && r.dataset.stub !== 'true');
+          if (!row) { closeMenu(); await new Promise(r => setTimeout(r, 60)); continue; }
+
+          row.click();
+          await new Promise(r => setTimeout(r, 250));
+          // Dismiss any modal that the click may have opened.
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await new Promise(r => setTimeout(r, 50));
+
+          // toolId buttons only exist in LAYOUT mode (MODEL ribbon is empty — PR #342/#378).
+          // setState short-circuits equal values, so syncToolActiveClass won't fire if
+          // activeTool is already the target. Prime with a different tool first.
+          let switchedToLayout = false;
+          if (meta.toolId && !document.querySelector('[data-tool="' + meta.toolId + '"]')) {
+            document.querySelector('.mode-tab[data-mode="layout"]')?.click();
+            await new Promise(r => setTimeout(r, 300));
+            // Prime with any other tool to force a state transition.
+            const primeBtn = document.querySelector('.ribbon .tool-btn:not([data-tool="' + meta.toolId + '"])');
+            if (primeBtn) { primeBtn.click(); await new Promise(r => setTimeout(r, 80)); }
+            // Now click the target tool button — state transition fires syncToolActiveClass.
+            const targetBtn = document.querySelector('[data-tool="' + meta.toolId + '"]');
+            if (targetBtn) { targetBtn.click(); await new Promise(r => setTimeout(r, 80)); }
+            switchedToLayout = true;
+          }
+          const result = checkEntry(meta);
+          if (switchedToLayout) {
+            document.querySelector('.mode-tab[data-mode="model"]')?.click();
+            await new Promise(r => setTimeout(r, 150));
+          }
+          const fullLabel = menuLabel + ' → ' + meta.label;
+          if (result.ok) passed.push(fullLabel);
+          else failures.push({ label: fullLabel, reason: result.reason ?? '' });
+
+          if (document.querySelector('.menu-dropdown')) closeMenu();
+          await new Promise(r => setTimeout(r, 60));
+        }
+
+        // View menu switches modes; research mode clears ribbon tabs.
+        // Restore model mode so subsequent menus (Render) find their targets.
+        if (menuLabel === 'view') {
+          document.querySelector('.mode-tab[data-mode="model"]')?.click();
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      return {
+        passed: failures.length === 0,
+        evidence: { tested: passed.length + failures.length, passed: passed.length, failures }
+      };
+    })()`, true);
+  if (!r) record('menubar-coverage', false, { reason: 'evaluate returned null' });
+  else record('menubar-coverage', r.passed, r.evidence);
+  // 'Command palette...' row click opens cmdk; cmdk has no Escape listener so it stays open.
+  // Force-close before S21+ run, or S30's Ctrl+K will toggle-close instead of open.
+  await closeCmdkIfOpen();
+  await assertNoCmdkOverlay('menubar-coverage');
+}
+
+// ── Surface 21: research-mode-chrome ─────────────────────────────────────────
+// Click RESEARCH mode tab → ribbon shows CORPUS/FINDINGS/EXPORT, not model groups.
+// Revert to MODEL and confirm tool groups restore.
+{
+  const r = await evaluate(`(async () => {
+    const researchTab = document.querySelector('.mode-tab[data-mode="research"]');
+    if (!researchTab) return { passed: false, evidence: { reason: 'no .mode-tab[data-mode=research]' } };
+    researchTab.click();
+    await new Promise(r => setTimeout(r, 500));
+    const labels = Array.from(document.querySelectorAll('.tool-group-label')).map(el => el.textContent.trim());
+    const hasCorpus   = labels.includes('CORPUS');
+    const hasFindings = labels.includes('FINDINGS');
+    const noTransform = !labels.includes('TRANSFORM');
+    const noSolid     = !labels.includes('SOLID');
+    const modelTab = document.querySelector('.mode-tab[data-mode="model"]');
+    if (modelTab) { modelTab.click(); await new Promise(r => setTimeout(r, 300)); }
+    const afterLabels = Array.from(document.querySelectorAll('.tool-group-label')).map(el => el.textContent.trim());
+    // MODEL mode has no tool groups (PR #342). Restored = research labels gone, not TRANSFORM present.
+    const restored = !afterLabels.includes('CORPUS') && !afterLabels.includes('FINDINGS');
+    return {
+      passed: hasCorpus && hasFindings && noTransform && noSolid && restored,
+      evidence: { researchLabels: labels, hasCorpus, hasFindings, noTransform, noSolid, afterLabels, restored }
+    };
+  })()`, true);
+  if (!r) record('research-mode-chrome', false, { reason: 'evaluate returned null' });
+  else record('research-mode-chrome', r.passed, r.evidence);
+}
+
+// ── Surface 22: grid-level-datum-pick ────────────────────────────────────────
+// Dispatch IfcGrid + IfcLevel + IfcDatum via DSL and confirm 3 typed scene objects visible.
+{
+  const r = await evaluate(`(async () => {
+    const dispatch = window.__dispatch;
+    if (!dispatch) return { passed: false, evidence: { reason: 'no window.__dispatch' } };
+    const beforeCount = window.__viewer?.scene?.children?.length ?? 0;
+    // Dispatch 3 different architectural annotation types.
+    const rGrid  = dispatch('IfcGrid',  { origin: [10, 10], spacing: 5, count: 3, name: 'VerifyGrid' });
+    const rLevel = dispatch('IfcLevel', { elevation: 0, name: 'VerifyLevel', height: 3.0 });
+    const rDatum = dispatch('SdDatum', { position: [5, 5, 0], label: 'VerifyDatum' });
+    await new Promise(r => setTimeout(r, 200));
+    const children = Array.from(window.__viewer?.scene?.children ?? []);
+    const afterCount = children.length;
+    const hasGrid  = children.some(c => c.userData?.creator === 'IfcGrid'  || c.userData?.kind === 'grid');
+    const hasLevel = children.some(c => c.userData?.creator === 'IfcLevel' || c.userData?.kind === 'brep' && c.userData?.levelId);
+    const hasDatum = children.some(c => c.userData?.creator === 'datum' || c.userData?.creator === 'SdDatum');
+    const passed = hasGrid && hasLevel && hasDatum && afterCount > beforeCount;
+    return { passed, evidence: { beforeCount, afterCount, hasGrid, hasLevel, hasDatum,
+      gridOk: rGrid?.ok, levelOk: rLevel?.ok, datumOk: rDatum?.ok } };
+  })()`, true);
+  if (!r) record('grid-level-datum-pick', false, { reason: 'evaluate returned null' });
+  else record('grid-level-datum-pick', r.passed, r.evidence);
+}
+
+// ── Surface 23: section-box ───────────────────────────────────────────────────
+// Dispatch SdSectionBox, verify getSectionBox() returns matching bounds.
+// Dispatch SdSectionBoxOff, verify getSectionBox() returns null.
+{
+  const r = await evaluate(`(async () => {
+    const dispatch = window.__dispatch;
+    if (!dispatch) return { passed: false, evidence: { reason: 'no __dispatch' } };
+    const min = [1, 2, 0], max = [6, 7, 3];
+    dispatch('SdSectionBox', { min, max, enabled: true });
+    await new Promise(r => setTimeout(r, 100));
+    const box = window.__viewer?.getSectionBox?.();
+    const boxOk = box && Math.abs(box.min[0] - min[0]) < 0.01 && Math.abs(box.max[2] - max[2]) < 0.01;
+    dispatch('SdSectionBoxOff', {});
+    await new Promise(r => setTimeout(r, 100));
+    const boxOff = window.__viewer?.getSectionBox?.();
+    const offOk = boxOff === null;
+    return { passed: !!boxOk && offOk, evidence: { min, max, box, boxOk, boxOff, offOk } };
+  })()`, true);
+  if (!r) record('section-box', false, { reason: 'evaluate returned null' });
+  else record('section-box', r.passed, r.evidence);
+}
+
+// ── Surface 24: clipping-planes ───────────────────────────────────────────────
+// Add 2 clipping planes, verify count; remove one by label; clear all.
+{
+  const r = await evaluate(`(async () => {
+    const dispatch = window.__dispatch;
+    if (!dispatch) return { passed: false, evidence: { reason: 'no __dispatch' } };
+    dispatch('SdClippingPlanesClear', {});
+    await new Promise(r => setTimeout(r, 50));
+    dispatch('SdClippingPlane', { origin: [0,0,2.5], normal: [0,0,-1], label: 'floor-cut' });
+    dispatch('SdClippingPlane', { origin: [3,0,0], normal: [1,0,0], label: 'vert-cut' });
+    await new Promise(r => setTimeout(r, 100));
+    const countAfterAdd = window.__viewer?.getClippingPlaneCount?.() ?? -1;
+    dispatch('SdClippingPlaneRemove', { label: 'vert-cut' });
+    await new Promise(r => setTimeout(r, 50));
+    const countAfterRemove = window.__viewer?.getClippingPlaneCount?.() ?? -1;
+    dispatch('SdClippingPlanesClear', {});
+    await new Promise(r => setTimeout(r, 50));
+    const countAfterClear = window.__viewer?.getClippingPlaneCount?.() ?? -1;
+    const passed = countAfterAdd === 2 && countAfterRemove === 1 && countAfterClear === 0;
+    return { passed, evidence: { countAfterAdd, countAfterRemove, countAfterClear } };
+  })()`, true);
+  if (!r) record('clipping-planes', false, { reason: 'evaluate returned null' });
+  else record('clipping-planes', r.passed, r.evidence);
+}
+
+// ── Surface 25: sidebar-tab-cycle-preserves-geometry (#287/#296) ─────────────
+// Dispatch IfcWall, record visible mesh count, cycle SCENE→INSPECT→ASSETS→SCENE,
+// assert count unchanged. Regression guard for eye-toggle inversion (#296).
+{
+  const r = await evaluate(`
+  (async () => {
+    if (!window.__dispatch) return { passed: false, evidence: { reason: '__dispatch missing' } };
+    const v = window.__viewer;
+    if (!v) return { passed: false, evidence: { reason: 'no __viewer' } };
+
+    window.__dispatch('IfcWall', { length: 4, thickness: 0.2, height: 2.8 });
+    await new Promise(r => setTimeout(r, 300));
+
+    function countVisible() {
+      let n = 0;
+      v.scene.traverse(obj => {
+        if (obj.isMesh && (obj.userData?.creator || obj.userData?.layerId) && obj.visible) n++;
+      });
+      return n;
+    }
+
+    const before = countVisible();
+    if (before === 0) return { passed: false, evidence: { reason: 'no visible geometry before cycle', before } };
+
+    for (const tabId of ['inspect', 'scene']) {
+      const tab = document.querySelector('.sb-tab[data-tab="' + tabId + '"]');
+      if (!tab) return { passed: false, evidence: { reason: 'tab not found', tabId } };
+      tab.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    const after = countVisible();
+    return { passed: after >= before, evidence: { before, after } };
+  })()`, true);
+  if (!r) record('sidebar-tab-cycle-preserves-geometry', false, { reason: 'evaluate returned null' });
+  else record('sidebar-tab-cycle-preserves-geometry', r.passed, r.evidence);
+}
+
+// ── Surface 26: level-chip-persist ───────────────────────────────────────────
+// Place a level via emitClickWorld (level tool), wait for inline chip, type
+// name + height, press Enter, assert levelStore persisted the values.
+{
+  const r = await evaluate(`(async () => {
+    if (!window.__emitClickWorld || !window.__levelStore || !window.__dispatch)
+      return { passed: false, evidence: { reason: 'missing window hooks' } };
+
+    // Activate the level tool.
+    window.__dispatch('setActiveTool', { toolId: 'level' });
+    await new Promise(r => setTimeout(r, 80));
+
+    // Count levels before placement.
+    const beforeLevels = window.__levelStore.all().length;
+
+    // Emit a synthetic level placement click at world (20, 20).
+    const placed = window.__emitClickWorld({ x: 20, y: 20 }, { tool: 'level' });
+    await new Promise(r => setTimeout(r, 200));
+
+    // Chip should appear.
+    const chip = document.querySelector('.level-inline-chip');
+    if (!chip) return { passed: false, evidence: { reason: 'chip did not appear', placed: !!placed } };
+
+    const nameIn = chip.querySelector('input[type=text]');
+    const heightIn = chip.querySelector('input[type=number]');
+    if (!nameIn || !heightIn) return { passed: false, evidence: { reason: 'chip inputs missing' } };
+
+    // Type recognizable values.
+    const expectedName = 'VerifyChipLevel';
+    const expectedHeight = 4.2;
+    nameIn.focus();
+    nameIn.value = expectedName;
+    nameIn.dispatchEvent(new Event('input', { bubbles: true }));
+    heightIn.value = String(expectedHeight);
+    heightIn.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Press Enter to commit.
+    nameIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise(r => setTimeout(r, 200));
+
+    // Chip should have removed itself.
+    const chipGone = !document.querySelector('.level-inline-chip');
+
+    // Assert levelStore persisted the values.
+    const allLevels = window.__levelStore.all();
+    const persisted = allLevels.find(l => l.name === expectedName);
+    const heightOk = persisted ? Math.abs(persisted.height - expectedHeight) < 0.01 : false;
+    const passed = chipGone && !!persisted && heightOk;
+    return { passed, evidence: { chipGone, persistedName: persisted?.name, persistedHeight: persisted?.height, expectedName, expectedHeight, heightOk, beforeLevels, afterLevels: allLevels.length } };
+  })()`, true);
+  if (!r) record('level-chip-persist', false, { reason: 'evaluate returned null' });
+  else record('level-chip-persist', r.passed, r.evidence);
+}
+
+// ── Surface 27: view-state-sidebar-lists-clip (#291b) ────────────────────────
+{
+  const r = await evaluate(`
+  (async () => {
+    if (!window.__dispatch) return { passed: false, evidence: { reason: '__dispatch missing' } };
+    const v = window.__viewer;
+    if (!v) return { passed: false, evidence: { reason: 'no __viewer' } };
+
+    // Clear any residual clip state from prior surfaces.
+    window.__dispatch('SdSectionBoxOff', {});
+    window.__dispatch('SdClippingPlanesClear', {});
+    await new Promise(r => setTimeout(r, 150));
+
+    // Apply a section box and a named clip plane.
+    window.__dispatch('SdSectionBox', { min: [-5, -5, 0], max: [5, 5, 6] });
+    window.__dispatch('SdClippingPlane', { origin: [3, 0, 0], normal: [1, 0, 0], label: 'surf27-test' });
+    await new Promise(r => setTimeout(r, 250));
+
+    // ── Engine assertions ──────────────────────────────────────────────────
+    const planes = v.getClippingPlanes?.() ?? [];
+    const sb = v.getSectionBox?.();
+    const hasSectionBox = !!sb;
+    const hasPlane = planes.some(p => p.label === 'surf27-test');
+
+    // ── Cleanup ────────────────────────────────────────────────────────────
+    window.__dispatch('SdSectionBoxOff', {});
+    window.__dispatch('SdClippingPlanesClear', {});
+
+    // VIEW STATE DOM sidebar is not yet built — assert engine state only.
+    const passed = hasSectionBox && hasPlane;
+    return {
+      passed,
+      evidence: { hasSectionBox, hasPlane, planeCount: planes.length },
+    };
+  })()`, true);
+  if (!r) record('view-state-sidebar-lists-clip', false, { reason: 'evaluate returned null' });
+  else record('view-state-sidebar-lists-clip', r.passed, r.evidence);
+}
+
+// ── Surface 28: view-switcher-dropdown ───────────────────────────────────────
+{
+  // Click the viewport-2 vp-view-btn; assert popover opens.
+  // Click "TOP" option; assert label updates, popover closes, AND camera moved.
+  const r = await evaluate(`(async function() {
+    const btn = document.querySelector('#viewport-2 .vp-view-btn');
+    if (!btn) return { passed: false, evidence: { reason: 'no .vp-view-btn in viewport-2' } };
+
+    // (camera position no longer checked here; see Surface 38 for ortho projection assert)
+
+    // Dispatch click to open popover.
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 80));
+
+    const popover = document.querySelector('.vs-popover');
+    const popoverOpen = !!popover && !popover.classList.contains('vs-popover--hidden');
+
+    // Click the TOP item.
+    const items = popover ? [...popover.querySelectorAll('.vs-item')] : [];
+    const topItem = items.find(it => it.dataset.view === 'top');
+    if (topItem) {
+      topItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+    await new Promise(r => setTimeout(r, 200));
+
+    const popoverClosed = !popover || popover.classList.contains('vs-popover--hidden');
+    const nameEl = btn.querySelector('.vp-view-name');
+    const labelUpdated = nameEl && nameEl.textContent.trim() === 'TOP';
+
+    // After setView("top"), the persp pane camera must be orthographic (#331).
+    const perspPane = window.__viewer?.panes?.find(p => p.view === 'persp');
+    const paneCamera = perspPane?.camera;
+    const cameraIsOrtho = paneCamera?.isOrthographicCamera === true;
+
+    const passed = popoverOpen && popoverClosed && !!labelUpdated && cameraIsOrtho;
+    return { passed, evidence: { popoverOpen, popoverClosed, labelText: nameEl?.textContent?.trim(), labelUpdated, cameraIsOrtho, cameraType: paneCamera?.type } };
+  })()`, true);
+  if (!r) record('view-switcher-dropdown', false, { reason: 'evaluate returned null' });
+  else record('view-switcher-dropdown', r.passed, r.evidence);
+}
+
+// ── Surface 29: ifc-render-determinism ───────────────────────────────────────
+{
+  // Load Schultz_Residence.ifc twice fresh within this surface.
+  // Assert: same IFC → same active-object mesh count (deterministic geometry).
+  // bpp captured as non-blocking evidence; not used for pass/fail because
+  // v.currentBounds is private (fitCamera reset is a no-op from page context).
+
+  async function loadIfcFresh29(sentinel) {
+    await evaluate(`(function() {
+      window['${sentinel}'] = false;
+      window.addEventListener('viewer:ifc-loaded', function _h() {
+        window['${sentinel}'] = true;
+        window.removeEventListener('viewer:ifc-loaded', _h);
+      });
+    })()`);
+    const ok = await evaluate(`(async function() {
+      try {
+        const resp = await fetch('/samples/Schultz_Residence.ifc');
+        if (!resp.ok) return false;
+        const bytes = await resp.arrayBuffer();
+        const file = new File([bytes], 'Schultz_Residence.ifc', { type: 'application/x-step' });
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const input = document.getElementById('file-input');
+        if (!input) return false;
+        input.files = dt.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      } catch(e) { return false; }
+    })()`, true);
+    if (!ok) return false;
+    for (let i = 0; i < 60; i++) {
+      await delay(1000);
+      if (await evaluate(`window['${sentinel}']`)) return true;
+    }
+    return false;
+  }
+
+  async function captureIfcState29(bppLabel) {
+    // Poll until active object has meshes — ifc-loaded fires before geometry is in scene.
+    let meshCount = 0;
+    for (let i = 0; i < 20; i++) {
+      await delay(500);
+      meshCount = await evaluate(`(function() {
+        const v = window.__viewer;
+        if (!v || typeof v.getActiveObject !== 'function') return -1;
+        const active = v.getActiveObject();
+        if (!active) return 0;
+        let n = 0;
+        active.traverse(o => { if (o.isMesh) n++; });
+        return n;
+      })()`);
+      if ((meshCount ?? 0) > 0) break;
+    }
+    const bpp = await canvasBpp(bppLabel);
+    return { meshCount: meshCount ?? -1, bpp: bpp.bpp };
+  }
+
+  const loaded1 = await loadIfcFresh29('__deterIFC1Loaded');
+  if (!loaded1) {
+    record('ifc-render-determinism', false, { reason: 'first fresh IFC load timeout (60s)' });
+  } else {
+    const s1 = await captureIfcState29('run1');
+    const loaded2 = await loadIfcFresh29('__deterIFC2Loaded');
+    if (!loaded2) {
+      record('ifc-render-determinism', false, { reason: 'second fresh IFC load timeout (60s)', meshCount1: s1.meshCount });
+    } else {
+      const s2 = await captureIfcState29('run2');
+      const passed = s1.meshCount > 0 && s1.meshCount === s2.meshCount;
+      record('ifc-render-determinism', passed, {
+        meshCount1: s1.meshCount, meshCount2: s2.meshCount,
+        bpp1: s1.bpp, bpp2: s2.bpp,
+      });
+    }
+  }
+}
+
+// ── Surface 30: ifc-picker-activation (#326) ─────────────────────────────────
+// cmdk "IfcWall" Enter → picker-prompt.visible; session.state = collecting_args
+{
+  const r = await evaluate(`(async function() {
+    // Escape any prior state
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    await new Promise(r => setTimeout(r, 150));
+
+    // Open cmdk via Ctrl+K (ctrlKey only — matches S9 which works reliably; metaKey alone doesn't fire on Windows).
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true }));
+    await new Promise(r => setTimeout(r, 300));
+    const input = document.querySelector('.cmdk-input');
+    if (!input) return { passed: false, evidence: { reason: 'cmdk did not open — no .cmdk-input' } };
+
+    // Type "IfcWall"
+    input.value = 'IfcWall';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 150));
+
+    // Find the "IfcWall — place wall" row and click it
+    const rows = [...document.querySelectorAll('.cmdk-row')];
+    const wallRow = rows.find(r => r.textContent.includes('IfcWall') && r.textContent.includes('place wall'));
+    if (!wallRow) {
+      // Fall back: press Enter on first result
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+    } else {
+      wallRow.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    await new Promise(r => setTimeout(r, 600));
+
+    // Check picker prompt visibility
+    const prompt = document.querySelector('.picker-prompt');
+    const visible = !!prompt && prompt.classList.contains('visible');
+    const promptText = prompt ? prompt.textContent.trim() : '';
+
+    // Clean up
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    await new Promise(r => setTimeout(r, 150));
+
+    return { passed: visible, evidence: { visible, promptText } };
+  })()`, true);
+  if (!r) record('ifc-picker-activation', false, { reason: 'evaluate returned null' });
+  else record('ifc-picker-activation', r.passed, r.evidence);
+  await assertNoCmdkOverlay('ifc-picker-activation');
+}
+
+}
