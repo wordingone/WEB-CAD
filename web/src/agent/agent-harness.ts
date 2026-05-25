@@ -190,6 +190,12 @@ if (typeof window !== "undefined") {
 // indicate enough THREE.js GPU buffers to compete with LLM KV-cache on the next turn.
 // Triggers proactive worker recycle (KV-cache flush) before inference begins.
 const SCENE_VRAM_RECYCLE_THRESHOLD = 12;
+// §#66: Total scene-children high-water mark (belt-and-suspenders alongside creator-tagged
+// check). Baseline pre-turn scene has ~13 children (lights, grid, axes). Any session that
+// has grown to 20+ direct scene.children has enough GPU buffer pressure to warrant a flush.
+// Fires when the creator-tagged check fails to trigger (root cause under investigation —
+// console.info("[VRAM-GATE]" lines reveal actual runtime counts per Phase J run).
+const SCENE_VRAM_HIGH_WATER = 20;
 
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
 // Used by both the turn-count gate and the scene-VRAM gate.
@@ -220,16 +226,21 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
 
-  // §#1505: VRAM-aware early recycle — count creator-tagged scene objects.
-  // When the scene has grown large (many GPU buffers from dispatches), flush the
-  // ORT KV-cache BEFORE the next turn's inference to prevent D3D12_OOM mid-turn.
-  // Fires ahead of the turn-count gate so Turn 2 gets a fresh worker after a large Turn 1.
+  // §#1505/#66: VRAM-aware early recycle — count scene objects to estimate GPU buffer pressure.
+  // Two complementary checks (OR logic): creator-tagged objects above threshold, OR total
+  // scene children above high-water mark. Belt-and-suspenders because Phase J forensics
+  // showed the creator-tagged check silently failing despite all conditions being met
+  // (root cause unknown — debug log below reveals runtime values each run).
   {
     type CreatorChild = { userData?: Record<string, unknown> };
     const _sceneArr = (window as unknown as { __viewer?: { scene?: { children?: CreatorChild[] } } })
       .__viewer?.scene?.children;
+    const _totalCount   = _sceneArr?.length ?? 0;
     const _creatorCount = _sceneArr?.filter(c => c.userData?.creator != null).length ?? 0;
-    if (_creatorCount >= SCENE_VRAM_RECYCLE_THRESHOLD && _arc.turnCount > 0) {
+    console.info(`[VRAM-GATE] total=${_totalCount} creator=${_creatorCount} turnCount=${_arc.turnCount} ` +
+      `creatorThreshold=${SCENE_VRAM_RECYCLE_THRESHOLD} highWater=${SCENE_VRAM_HIGH_WATER}`);
+    if ((_creatorCount >= SCENE_VRAM_RECYCLE_THRESHOLD || _totalCount >= SCENE_VRAM_HIGH_WATER) &&
+        _arc.turnCount > 0) {
       await _doPlannedRecycle("scene-vram");
       return;
     }
