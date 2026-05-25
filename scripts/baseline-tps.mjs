@@ -95,44 +95,67 @@ console.log(`[baseline-tps] Turns per prompt: ${TURNS_PER_PROMPT}`);
 console.log(`[baseline-tps] Total samples: ${TURNS_PER_PROMPT * PROMPTS.length}`);
 console.log(`[baseline-tps] CDP: ${CDP_BASE}`);
 
-// 1. Find shared browser tab
+// 1. Connect via browser-level CDP to create a fresh test tab — NEVER touch user's existing tabs.
+//    Standing rule: user's browser window/tab is NEVER closed or navigated by engineer tooling.
 const targets = await fetch(`${CDP_BASE}/json`).then(r => r.json()).catch(() => null);
 if (!targets) {
   console.error(`ERROR: Cannot reach CDP at ${CDP_BASE} — is the shared browser running?`);
   process.exit(1);
 }
 
-// Use any existing page tab — we navigate it to Pages URL anyway.
-// Do NOT filter on localhost: the tab's origin will become Pages after navigation.
+// Record all pre-existing user tab IDs — these are protected and must never be closed.
+const userTabIds = new Set(targets.filter(t => t.type === "page").map(t => t.id));
+console.log(`[baseline-tps] Protecting ${userTabIds.size} user tab(s): ${[...userTabIds].join(", ")}`);
+
 const pagesHost = new URL(PAGES_URL).host;
-let target = targets.find(t => t.type === "page");
-if (!target) {
-  console.error("ERROR: no page tab found in shared browser");
+
+// Create a fresh test tab using a temporary CDP connection to any existing page tab.
+// We never navigate the user's existing tab; only the test tab we create here is used.
+const firstUserTab = targets.find(t => t.type === "page");
+if (!firstUserTab) {
+  console.error("ERROR: no page tab found in shared browser (need at least one to send Target.createTarget)");
   process.exit(1);
 }
-if (/localhost|127\.0\.0\.1/.test(target.url)) {
-  console.log(`[baseline-tps] Tab is at ${target.url} — will navigate to Pages URL (origin-local storage cleared after nav)`);
+const tempConn = await cdpWs(firstUserTab.webSocketDebuggerUrl);
+const testTargetResult = await tempConn.send("Target.createTarget", { url: PAGES_URL });
+const firstTestTabId = testTargetResult.targetId;
+tempConn.ws.onclose = () => {}; // suppress reject — we close intentionally below
+tempConn.ws.close(); // disconnect from user's tab — tab stays open, untouched
+
+await sleep(2000); // let Chrome register the new test tab
+const freshTargets = await fetch(`${CDP_BASE}/json`).then(r => r.json());
+const testTabInfo = freshTargets.find(t => t.id === firstTestTabId);
+if (!testTabInfo) {
+  console.error(`ERROR: test tab ${firstTestTabId} not found after creation`);
+  process.exit(1);
 }
+console.log(`[baseline-tps] Created test tab: ${firstTestTabId} (user tabs untouched)`);
+let currentTabId = firstTestTabId;
+let cdp = await cdpWs(testTabInfo.webSocketDebuggerUrl);
 
-console.log(`[baseline-tps] Attaching to tab: ${target.url}`);
-let currentTabId = target.id;
-let cdp = await cdpWs(target.webSocketDebuggerUrl);
-
-// 2. Enable domains
+// 2. Enable domains on the test tab
 await cdp.send("Page.enable");
 await cdp.send("Runtime.enable");
 await cdp.send("Network.enable");
 
-// 3. Navigate to Pages URL FIRST (must be in Pages origin to clear Pages storage)
-console.log("[baseline-tps] Navigating to Pages URL...");
+// 3. Wait for test tab to load Pages URL (tab was created with PAGES_URL — no separate navigate needed)
+console.log("[baseline-tps] Waiting for test tab to load Pages URL...");
 const nav1Done = new Promise(res => {
   cdp.on("Page.frameNavigated", (p) => {
     if (p.frame.url?.includes(pagesHost)) res(p.frame.url);
   });
 });
-await cdp.send("Page.navigate", { url: PAGES_URL });
-await Promise.race([nav1Done, sleep(30000)]);
-console.log("[baseline-tps] Pages URL loaded. Now clearing origin storage (cold-cache)...");
+// Check if already loaded; if not, wait for the navigation event
+const currentUrl = await cdp.send("Runtime.evaluate", {
+  expression: `location.href`,
+}).then(r => r.result?.value ?? "");
+if (currentUrl.includes(pagesHost)) {
+  console.log(`[baseline-tps] Test tab already at Pages URL: ${currentUrl}`);
+} else {
+  await Promise.race([nav1Done, sleep(30000)]);
+  console.log("[baseline-tps] Pages URL loaded.");
+}
+console.log("[baseline-tps] Clearing HTTP cache + cookies (cold-cache)...");
 await sleep(2000); // let page settle before clearing
 
 // 4. Clear HTTP cache + cookies only. NEVER touch localStorage (app stores boot-state there)
@@ -256,9 +279,14 @@ for (let pi = 0; pi < PROMPTS.length; pi++) {
       }
       continue;
     }
-    // Close old tab now — renderer death frees GPU buffers before new tab needs them
-    try { await cdp.send("Target.closeTarget", { targetId: currentTabId }); } catch (_) {}
-    try { cdp.ws.close(); } catch (_) {}
+    // Close the test tab we created — renderer death frees GPU buffers before new tab needs them.
+    // SAFETY: only close tabs we created. Never close user's pre-existing tabs.
+    if (userTabIds.has(currentTabId)) {
+      console.error(`SAFETY: refusing to close user tab ${currentTabId} — this should never happen`);
+    } else {
+      try { await cdp.send("Target.closeTarget", { targetId: currentTabId }); } catch (_) {} // lint-browser-close:ok closes test tab we created (guarded by userTabIds check above)
+    }
+    try { cdp.ws.onclose = () => {}; cdp.ws.close(); } catch (_) {}
     // Connect to new tab
     cdp = await cdpWs(freshTargetInfo.webSocketDebuggerUrl);
     currentTabId = newTabId;
@@ -392,6 +420,13 @@ const output = {
   samples,
 };
 writeFileSync(outPath, JSON.stringify(output, null, 2));
+
+// 10. Close the last test tab we created, leaving user's original tab(s) untouched.
+if (!userTabIds.has(currentTabId)) {
+  try { await cdp.send("Target.closeTarget", { targetId: currentTabId }); } catch (_) {}
+  console.log(`[baseline-tps] Test tab ${currentTabId} closed. User tab(s) untouched.`);
+}
+try { cdp.ws.onclose = () => {}; cdp.ws.close(); } catch (_) {}
 
 console.log(`\n[baseline-tps] Done. Output: ${outPath}`);
 console.log("[baseline-tps] Stats summary:");
