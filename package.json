@@ -53,7 +53,8 @@
     "baseline:blender-mcp": "bun web/test/capability/baselines/blender-mcp.ts",
     "baseline:compare": "bun web/test/capability/baselines/post-comparison.ts",
     "llama:proxy": "bun scripts/llama-proxy.ts",
-    "pre-commit-setup": "sh scripts/setup-hooks.sh"
+    "pre-commit-setup": "sh scripts/setup-hooks.sh",
+    "cold-cache:first-visit": "bun scripts/cold-cache-first-visit.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.0",
