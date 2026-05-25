@@ -759,10 +759,19 @@ function build2DLayersTab(): HTMLElement {
     });
   }
 
+  function countLayerObjects(layerId: string): number {
+    const viewer = (window as unknown as { __viewer?: { forEachSceneChild: (fn: (o: { userData: Record<string, unknown> }) => void) => void } }).__viewer;
+    if (!viewer) return 0;
+    let n = 0;
+    viewer.forEachSceneChild((obj) => { if (obj.userData.drawingLayerId === layerId) n++; });
+    return n;
+  }
+
   function renderList(): void {
     list.innerHTML = "";
     const activeId = drawingLayerStore.getActiveId();
     for (const layer of drawingLayerStore.all()) {
+      const objCount = countLayerObjects(layer.id);
       const row = el("div", "layer-row", { "data-layer-id": layer.id });
       row.style.cssText =
         "display:flex; align-items:center; gap:4px; padding:3px 2px; border-bottom:1px solid var(--hairline); min-height:26px;" +
@@ -770,7 +779,9 @@ function build2DLayersTab(): HTMLElement {
 
       const eyeBtn = el("button") as HTMLButtonElement;
       eyeBtn.style.cssText = "background:none; border:none; cursor:pointer; color:var(--ink); opacity:" + (layer.visible ? "1" : "0.35") + "; padding:0 2px; flex-shrink:0;";
-      eyeBtn.title = layer.visible ? "Hide layer" : "Show layer";
+      eyeBtn.title = objCount === 0
+        ? "No objects on this layer yet — toggle takes effect when objects are assigned"
+        : (layer.visible ? "Hide layer" : "Show layer");
       eyeBtn.innerHTML = layer.visible
         ? `<svg width="13" height="9" viewBox="0 0 13 9" fill="none"><ellipse cx="6.5" cy="4.5" rx="5.5" ry="3.5" stroke="currentColor"/><circle cx="6.5" cy="4.5" r="1.5" fill="currentColor"/></svg>`
         : `<svg width="13" height="9" viewBox="0 0 13 9" fill="none"><ellipse cx="6.5" cy="4.5" rx="5.5" ry="3.5" stroke="currentColor" stroke-dasharray="2 1"/></svg>`;
@@ -830,6 +841,11 @@ function build2DLayersTab(): HTMLElement {
         });
       });
 
+      const countBadge = el("span");
+      countBadge.style.cssText = "font-size:9px; color:var(--ink-faint); flex-shrink:0; padding:0 1px;";
+      countBadge.textContent = objCount === 0 ? "empty" : String(objCount);
+      countBadge.title = objCount === 0 ? "No objects on this layer" : `${objCount} object${objCount === 1 ? "" : "s"}`;
+
       const isDefault = layer.id === "default";
       const delBtn = el("button") as HTMLButtonElement;
       delBtn.style.cssText = "background:none; border:none; cursor:" + (isDefault ? "default" : "pointer") + "; color:var(--ink-dim); opacity:" + (isDefault ? "0.2" : "0.6") + "; padding:0 2px; flex-shrink:0; font-size:13px;";
@@ -845,6 +861,7 @@ function build2DLayersTab(): HTMLElement {
       row.appendChild(lockBtn);
       row.appendChild(colorInput);
       row.appendChild(nameEl);
+      row.appendChild(countBadge);
       row.appendChild(delBtn);
       row.addEventListener("click", () => { drawingLayerStore.setActive(layer.id); });
       list.appendChild(row);
