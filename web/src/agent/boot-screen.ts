@@ -119,8 +119,8 @@ function _showStalled(): void {
 
   // Trace persisted silently — forensic if we can access the device, never user-facing.
   try {
-    console.warn('[gemma-cad] stall trace', JSON.stringify(_trace));
-    const req = indexedDB.open('gemma-cad-diagnostics', 1);
+    console.warn('[web-cad] stall trace', JSON.stringify(_trace));
+    const req = indexedDB.open('web-cad-diagnostics', 1);
     req.onupgradeneeded = () => req.result.createObjectStore('stall-traces');
     req.onsuccess = () => {
       const db = req.result;
@@ -355,7 +355,7 @@ async function _checkStorageQuota(): Promise<void> {
     const usageGB = (usage / 1e9).toFixed(2);
     const quotaGB = (quota / 1e9).toFixed(2);
     const pct = Math.round(ratio * 100);
-    console.info(`[gemma-cad] storage: ${usageGB} GB / ${quotaGB} GB (${pct}%)`);
+    console.info(`[web-cad] storage: ${usageGB} GB / ${quotaGB} GB (${pct}%)`);
     (window as unknown as Record<string, unknown>).__storageQuota = { usage, quota, ratio };
     if (_quotaEl) {
       if (ratio >= 0.80) {
@@ -465,7 +465,7 @@ function _onError(ev: Event): void {
 function _buildOverlay(): void {
   const overlay = document.createElement('div');
   overlay.id = 'boot-screen';
-  overlay.setAttribute('aria-label', 'Loading Gemma-CAD');
+  overlay.setAttribute('aria-label', 'Loading WEB-CAD');
   overlay.setAttribute('aria-live', 'polite');
   Object.assign(overlay.style, {
     position: 'fixed',
@@ -549,7 +549,7 @@ function _buildOverlay(): void {
 
   // Product name
   const logo = document.createElement('div');
-  logo.textContent = 'GEMMA-CAD';
+  logo.textContent = 'WEB-CAD';
   Object.assign(logo.style, {
     color: '#555',
     fontSize: 'clamp(10px, 1.2vw, 16px)',
