@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { CDP_BASE } from "./ports.mjs";
 
 const PAGES_URL = "https://wordingone.github.io/WEB-CAD/";
-const STATE_DIR = "B:/M/gemma-architect-master/state";
+const STATE_DIR = "B:/M/WEB-CAD/state";
 const TS = new Date().toISOString().replace(/:/g, "").replace(/\..+/, "Z");
 const OUT_DIR = join(STATE_DIR, `cold-cache-first-visit-${TS}`);
 const SCREENSHOTS_DIR = join(OUT_DIR, "screenshots");
@@ -79,6 +79,7 @@ const modelDownload = {
 };
 const capabilityGate = {
   modal_shown: false,
+  consent_auto_clicked: false,
   classification: null,
   resolved_path: null,
   dismissed_path: null,
@@ -445,6 +446,8 @@ await cdp.send("IndexedDB.enable").catch(e => log(`WARN: IndexedDB.enable failed
 await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
   source: `
 (function() {
+  // agentmodel:* events fire on window — register immediately before any page JS.
+  // These do NOT require the DOM (window is always available at inject time).
   var _spy_events = [
     'agentmodel:manifest','agentmodel:loading','agentmodel:returning-user',
     'agentmodel:opfs-warm-start','agentmodel:boot-complete','agentmodel:error',
@@ -457,56 +460,82 @@ await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
     });
   });
 
-  // Boot-capability-gate spy — watch for modal and path choice
-  var _bcg_fired = false;
-  var _bcg_observer = new MutationObserver(function(mutations) {
-    for (var m of mutations) {
-      for (var node of m.addedNodes) {
-        if (node.classList && node.classList.contains('bcg-modal')) {
-          if (!_bcg_fired) {
-            _bcg_fired = true;
-            console.log('[bcg-spy] ' + JSON.stringify({ event: 'modal-shown', ts: performance.now() }));
+  // Everything else needs the DOM. document.documentElement is null before HTML
+  // parsing — wrapping in DOMContentLoaded guarantees it exists.
+  document.addEventListener('DOMContentLoaded', function() {
+
+    // Boot-capability-gate spy — watch for modal and path choice
+    var _bcg_fired = false;
+    var _bcg_observer = new MutationObserver(function(mutations) {
+      for (var m of mutations) {
+        for (var node of m.addedNodes) {
+          if (node.classList && node.classList.contains('bcg-modal')) {
+            if (!_bcg_fired) {
+              _bcg_fired = true;
+              console.log('[bcg-spy] ' + JSON.stringify({ event: 'modal-shown', ts: performance.now() }));
+            }
+            node.querySelectorAll('[data-path]').forEach(function(btn) {
+              btn.addEventListener('click', function(e) {
+                console.log('[bcg-spy] ' + JSON.stringify({ event: 'path-chosen', path: btn.dataset.path, ts: performance.now() }));
+              }, { once: true });
+            });
           }
-          // Watch for button clicks inside modal
-          node.querySelectorAll('[data-path]').forEach(function(btn) {
-            btn.addEventListener('click', function(e) {
-              console.log('[bcg-spy] ' + JSON.stringify({ event: 'path-chosen', path: btn.dataset.path, ts: performance.now() }));
-            }, { once: true });
-          });
         }
       }
-    }
-  });
-  _bcg_observer.observe(document.documentElement, { childList: true, subtree: true });
+    });
+    _bcg_observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  // arc state poller
-  var _lastArcState = null;
-  setInterval(function() {
-    var s = window.__arc && window.__arc.state;
-    if (s && s !== _lastArcState) {
-      _lastArcState = s;
-      console.log('[arc-spy] ' + JSON.stringify({ state: s, recycleCount: window.__arc.recycleCount ?? 0, ts: performance.now() }));
-    }
-  }, 500);
-
-  // Cache API spy
-  if (typeof caches !== 'undefined') {
-    var _orig_open = caches.open.bind(caches);
-    caches.open = function(cacheName) {
-      return _orig_open(cacheName).then(function(cache) {
-        var _orig_put = cache.put.bind(cache);
-        cache.put = function(req, resp) {
-          var url = typeof req === 'string' ? req : (req && req.url) || '?';
-          var size = resp.headers.get('content-length') || null;
-          console.log('[agentmodel-spy] ' + JSON.stringify({
-            event: 'cache.put', cache: cacheName, url: url, size: size, ts: performance.now()
-          }));
-          return _orig_put(req, resp);
-        };
-        return cache;
-      });
+    // Consent modal auto-click — the model download consent modal blocks boot.
+    // Click "Download model" automatically so the harness can measure the full flow.
+    var _clickConsent = function() {
+      var btn = document.querySelector('button[data-action="download-model"]')
+        || Array.prototype.find.call(document.querySelectorAll('button'), function(b) {
+             return b.textContent.trim().includes('Download model');
+           });
+      if (btn) {
+        btn.click();
+        console.log('[bcg-spy] ' + JSON.stringify({ event: 'consent-auto-clicked', ts: performance.now() }));
+        return true;
+      }
+      return false;
     };
-  }
+    if (!_clickConsent()) {
+      var _consent_obs = new MutationObserver(function() {
+        if (_clickConsent()) _consent_obs.disconnect();
+      });
+      _consent_obs.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // arc state poller — detect window.__arc.state transitions
+    var _lastArcState = null;
+    setInterval(function() {
+      var s = window.__arc && window.__arc.state;
+      if (s && s !== _lastArcState) {
+        _lastArcState = s;
+        console.log('[arc-spy] ' + JSON.stringify({ state: s, recycleCount: window.__arc.recycleCount ?? 0, ts: performance.now() }));
+      }
+    }, 500);
+
+    // Cache API spy — intercept cache.put to track model file caching
+    if (typeof caches !== 'undefined') {
+      var _orig_open = caches.open.bind(caches);
+      caches.open = function(cacheName) {
+        return _orig_open(cacheName).then(function(cache) {
+          var _orig_put = cache.put.bind(cache);
+          cache.put = function(req, resp) {
+            var url = typeof req === 'string' ? req : (req && req.url) || '?';
+            var size = resp.headers.get('content-length') || null;
+            console.log('[agentmodel-spy] ' + JSON.stringify({
+              event: 'cache.put', cache: cacheName, url: url, size: size, ts: performance.now()
+            }));
+            return _orig_put(req, resp);
+          };
+          return cache;
+        });
+      };
+    }
+
+  }); // end DOMContentLoaded
 })();
   `,
 });
@@ -607,9 +636,15 @@ async function handleBcgEvent(payload, cdp) {
     log(`Boot capability modal shown`);
     await maybeCaptureScreenshot(cdp, "02-capability-modal");
   }
+  if (event === "consent-auto-clicked") {
+    capabilityGate.consent_auto_clicked = true;
+    bootPhase.capability_modal_dismissed_ms = elapsed();
+    log(`Consent modal auto-clicked by spy`);
+    await maybeCaptureScreenshot(cdp, "03-consent-auto-clicked");
+  }
   if (event === "path-chosen") {
     capabilityGate.resolved_path = payload.path;
-    bootPhase.capability_modal_dismissed_ms = elapsed();
+    bootPhase.capability_modal_dismissed_ms = bootPhase.capability_modal_dismissed_ms ?? elapsed();
     log(`Boot capability modal path chosen: ${payload.path}`);
     await maybeCaptureScreenshot(cdp, "03-modal-path-chosen");
   }
