@@ -820,6 +820,7 @@ Assistant: 26ft × 20ft, 2 floors × 9.0ft walls, pitched roof. Ground: slab + 4
 <tool_call>{"name":"SdWindow","arguments":{"position":[13,20,0],"windowType":"og"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdWindow","arguments":{"position":[0,10,0],"windowType":"og"},"metadata":{"source":"agent"}}</tool_call>
 <tool_call>{"name":"SdRoof","arguments":{"roofType":"pitched","footprint":[[0,0],[26,0],[26,20],[0,20]],"pitchDeg":30},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"update_goal","arguments":{"status":"complete"},"metadata":{"source":"agent"}}</tool_call>
 
 User: add a garage attached to the south wall, 5m wide by 3m deep (parent house south wall runs from [0,0] to [5,0])
 Assistant: W1=[0,0] W2=[5,0] (south wall, along X). Perp=[0,-1] (extends south). F1=[0,-3] F2=[5,-3]. Far wall [F1,F2]; side-west [W1,F1]; side-east [W2,F2]. All p1≠p2. House south wall NOT re-emitted.

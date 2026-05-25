@@ -17,6 +17,7 @@ import { pushCustomAction, beginTransaction, endTransaction } from "../history";
 import { DEFAULT_CEILING_OFFSET } from "../tools/index";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensions";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
+import { getState } from "../app-state";
 
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
@@ -199,11 +200,13 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const explicitCount = typeof args.count === "number" ? Math.max(1, Math.round(args.count)) : null;
     const explicitRiser = typeof args.riser === "number" ? args.riser : null;
     const explicitTread = typeof args.tread === "number" ? args.tread : null;
+    const FT_TO_M = 0.3048;
+    const isImperial = getState("unitSystem") === "imperial";
     const stairParams: StairParams = {
       type:        (args.type as StairParams["type"] | undefined) ?? "straight",
-      width:       STAIR_WIDTH,
-      treadDepth:  explicitTread  ?? STAIR_STEP_DEPTH,
-      riserHeight: explicitRiser  ?? STAIR_STEP_RISE,
+      width:       isImperial ? STAIR_WIDTH / FT_TO_M : STAIR_WIDTH,
+      treadDepth:  explicitTread  ?? (isImperial ? STAIR_STEP_DEPTH / FT_TO_M : STAIR_STEP_DEPTH),
+      riserHeight: explicitRiser  ?? (isImperial ? STAIR_STEP_RISE / FT_TO_M : STAIR_STEP_RISE),
       ...(explicitCount != null ? { count: explicitCount } : {}),
     };
     const { group, chain, footprint } = buildStair(a, b, stairParams);
@@ -215,7 +218,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     group.userData.chain = chain;
     viewer.addMesh(group, "brep");
 
-    const targetH = stairParams.rise ?? stairParams.targetHeight ?? 3.0;
+    const targetH = levelStore.get(getActiveLevelId())?.height ?? (isImperial ? 9.0 : 3.0);
     const voidElev = elev + targetH;
     const clearance = 0.1;
     let closestSlab: THREE.Object3D | null = null;
