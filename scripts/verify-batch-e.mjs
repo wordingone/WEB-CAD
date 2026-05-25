@@ -1417,4 +1417,13 @@ export async function runBatchE({ send, evaluate, delay, canvasBpp, record, rese
   await resetScene('post-S144');
 }
 
+// ── S145 — clear-app-data-menu-item (#26 item 4): Help > Clear app data… exists ──
+{
+  const present = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll('.menu-row, .menubar-row, [role="menuitem"]'));
+    return rows.some(r => r.textContent?.includes('Clear app data'));
+  })()`);
+  record('clear-app-data-menu-item', !!present, { present });
+}
+
 }

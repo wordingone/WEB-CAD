@@ -10,6 +10,28 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+async function clearAppData(): Promise<void> {
+  if (!confirm("Clear all app data?\n\nThis removes cached model weights, saved projects, and settings. The page will reload.")) return;
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map(n => caches.delete(n)));
+  } catch { /* Cache API unavailable */ }
+  try {
+    const dbs = await indexedDB.databases();
+    await Promise.all(
+      (dbs ?? []).filter(d => d.name).map(d => new Promise<void>((res) => {
+        const req = indexedDB.deleteDatabase(d.name!);
+        req.onsuccess = () => res();
+        req.onerror = () => res();
+        req.onblocked = () => res();
+      }))
+    );
+  } catch { /* IDB unavailable */ }
+  try { localStorage.clear(); } catch { /* localStorage unavailable */ }
+  try { sessionStorage.clear(); } catch { /* sessionStorage unavailable */ }
+  location.reload();
+}
+
 // Shell chrome — design-handoff #171.
 //
 // Builds the menubar (3 menus) / modebar (4 modes) / ribbon (RENDER tab + right actions)
@@ -59,6 +81,8 @@ const MENUS: MenuItem[] = [
   { label: "Help", entries: [
     { label: "Keyboard shortcuts",    shortcut: "⌘K", onAction: () => document.getElementById("ribbon-palette-btn")?.click() },
     { label: "About WEB-CAD", stub: true,    onAction: () => alert("WEB-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/WEB-CAD") },
+    { separator: true },
+    { label: "Clear app data…", onAction: () => clearAppData() },
   ]},
 ];
 
