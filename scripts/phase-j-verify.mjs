@@ -755,8 +755,10 @@ if (bootComplete) {
   }
 }
 
-// M1: read final worker recycle count from ARC controller (#1581)
-const workerRecycleCount = await evaluate("window.__arc?.recycleCount ?? 0") ?? 0;
+// §#67: derive recycle count from turn-level results rather than window.__arc.recycleCount.
+// After a WORKER_RECYCLED event the page reloads, resetting __arc.recycleCount to 0,
+// so reading it after all turns produces 0 even when recycles occurred during the run.
+const workerRecycleCount = turnResults.filter(r => r.workerRecycled).length;
 
 // §#1504: cumulative-growth assertion — scene.children must not shrink between turns
 // (detects SdClearScene or any reset that fabricates empty state; verifies #1499 fix is holding)
