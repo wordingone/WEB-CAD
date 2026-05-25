@@ -81,6 +81,21 @@ function post(msg: Record<string, unknown>): void {
   (self as unknown as Worker).postMessage(msg);
 }
 
+// §#83: GPU command queue flush — drain ORT WebGPU buffer destructions before each generate.
+// buffer_manager.cc:553 race: wgpuBufferMapAsync fires before a prior destruction completes.
+// onSubmittedWorkDone() ensures ALL pending GPU commands (incl. buffer destructions from
+// prior turn warmup or decode) are committed before new buffers are allocated for this turn.
+async function _flushWgpuQueue(tag: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _dev = (ort.env as any)?.webgpu?.device as
+    | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
+    | undefined;
+  if (_dev?.queue?.onSubmittedWorkDone) {
+    console.log(`[#83] wgpu-queue-flush ${tag}`);
+    await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
+  }
+}
+
 function checkBootComplete(): void {
   if (_bootModelReady && _bootWarmupDone && _bootDrafterDone) {
     post({ type: "boot-complete" });
@@ -906,7 +921,9 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
     };
     // §C-decode-retry (#1362-C): buffer_manager.cc:553 "Buffer was unmapped before mapping
     // was resolved" is a D3D12 CPU/GPU sync race triggered during multi-step decode.
-    // One retry after 500ms gives the GPU pipeline a chance to quiesce between attempts.
+    // §#83: pre-generate GPU flush added — drains ORT buffer destructions from prior turn
+    // before new allocations begin. Each retry also flushes to clear the failed attempt's
+    // pending destructions before the next attempt allocates fresh buffers.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const _doGenerate = () => (_model as any).generate({
       ...inputs,
@@ -914,24 +931,29 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       do_sample: false,
       streamer: _progressStreamer,
     });
+    // §#83: flush ORT GPU queue before initial attempt — ensures all buffer destructions
+    // from warmup probes and prior turns are committed before this turn allocates.
+    await _flushWgpuQueue("pre-generate");
     try {
       outputs = await _doGenerate();
     } catch (genErr) {
       const _msg = String(genErr);
       if (/buffer_manager|BufferManager|unmapped before mapping/i.test(_msg)) {
-        // §C-decode-retry (#1362-C, updated #1410): cold-cache boot accumulates more
-        // pending GPU work (2.5GB upload pipeline). The post-drafter probe should have
-        // flushed the queue; this retry is belt-and-suspenders for residual race window.
+        // §C-decode-retry (#1362-C, updated #1410, #83): cold-cache boot accumulates more
+        // pending GPU work (2.5GB upload pipeline). GPU queue flush + delay before each retry
+        // ensures the failed attempt's pending buffer destructions commit before the next attempt.
         const _delay1 = _coldCacheBoot ? 2000 : 500;
-        console.warn("[model-worker] buffer_manager race — retrying after " + _delay1 + "ms", _msg.slice(0, 120));
+        console.warn("[model-worker] buffer_manager race — flushing+retrying after " + _delay1 + "ms", _msg.slice(0, 120));
         await new Promise(r => setTimeout(r, _delay1));
+        await _flushWgpuQueue("retry-1"); // §#83: flush failed-attempt destructions
         try {
           outputs = await _doGenerate();
         } catch (retryErr) {
           // §#1410: second retry for cold-cache (larger race window after 2.5GB download).
           if (_coldCacheBoot && /buffer_manager|BufferManager|unmapped before mapping/i.test(String(retryErr))) {
-            console.warn("[model-worker] buffer_manager retry-2 — cold-cache, waiting 3000ms");
+            console.warn("[model-worker] buffer_manager retry-2 — cold-cache, flushing+waiting 3000ms");
             await new Promise(r => setTimeout(r, 3000));
+            await _flushWgpuQueue("retry-2"); // §#83
             outputs = await _doGenerate(); // final attempt — throws to outer catch if still failing
           } else {
             throw retryErr;
