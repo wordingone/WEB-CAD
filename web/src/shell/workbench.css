@@ -30,7 +30,7 @@
   display: none;
 }
 .workbench > .mode-pane { display: none; }
-.workbench[data-mode="layout"]   > .paper-mode    { display: flex; }
+.workbench[data-mode="layout"]   > .paper-mode    { display: grid; }
 .workbench[data-mode="research"] > .research-mode { display: grid; }
 
 /* ============================================================
