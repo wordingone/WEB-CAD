@@ -3,7 +3,7 @@
 // Leo mail 9491 — V3 verification
 // Usage: bun scripts/v3-pages-verify.mjs
 
-const PAGES_URL    = 'https://wordingone.github.io/gemma-architect/';
+const PAGES_URL    = 'https://wordingone.github.io/WEB-CAD/';
 const PAGES_ORIGIN = 'https://wordingone.github.io';
 const CDP_BASE     = 'http://localhost:9222';
 const T0 = Date.now();

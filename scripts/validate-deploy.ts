@@ -17,7 +17,7 @@ const flagIdx = argv.indexOf("--url");
 const url =
   flagIdx >= 0
     ? argv[flagIdx + 1]
-    : "https://wordingone.github.io/gemma-architect/";
+    : "https://wordingone.github.io/WEB-CAD/";
 
 const targetUrl = url.endsWith("/") ? url : url + "/";
 

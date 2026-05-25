@@ -30,7 +30,7 @@ process.on("SIGINT",  () => { releaseLock(); process.exit(130); });
 process.on("SIGTERM", () => { releaseLock(); process.exit(143); });
 process.on("uncaughtException", (e) => { releaseLock(); console.error(e); process.exit(1); });
 
-const PAGES_URL       = "https://wordingone.github.io/gemma-architect/";
+const PAGES_URL       = "https://wordingone.github.io/WEB-CAD/";
 const STATE_DIR       = `${process.cwd()}/state`;
 const BOOT_TIMEOUT_MS = 25 * 60 * 1000;
 const READY_POLL_MS   = 5_000;

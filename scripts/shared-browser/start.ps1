@@ -10,7 +10,7 @@
 param([switch]$Force)
 
 $CDP_PORT       = if ($env:CDP_PORT) { [int]$env:CDP_PORT } else { 9222 }
-$DEV_URL        = "https://wordingone.github.io/gemma-architect/"
+$DEV_URL        = "https://wordingone.github.io/WEB-CAD/"
 $ChromeDataDir  = "B:\M\gemma-architect-master\.shared-browser\profile"
 $CDP_JSON       = "B:\M\gemma-architect-master\.shared-browser\cdp.json"
 $LaunchUrlFile  = "B:\M\gemma-architect-master\.shared-browser\launch-url.txt"

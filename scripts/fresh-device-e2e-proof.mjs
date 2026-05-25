@@ -17,7 +17,7 @@
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'fs';
 
-const GH_PAGES = 'https://wordingone.github.io/gemma-architect/';
+const GH_PAGES = 'https://wordingone.github.io/WEB-CAD/';
 const MAX_MS   = 12 * 60 * 1000; // 12 min cap — model download won't complete, but we prove key milestones
 
 const TS = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + 'Z';

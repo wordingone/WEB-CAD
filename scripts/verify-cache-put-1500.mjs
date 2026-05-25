@@ -16,7 +16,7 @@
 // Usage:
 //   bun scripts/verify-cache-put-1500.mjs
 //   bun scripts/verify-cache-put-1500.mjs --target-url http://localhost:5175/
-//   bun scripts/verify-cache-put-1500.mjs --target-url https://wordingone.github.io/gemma-architect/
+//   bun scripts/verify-cache-put-1500.mjs --target-url https://wordingone.github.io/WEB-CAD/
 //   bun scripts/verify-cache-put-1500.mjs --timeout 300   (seconds; default 120)
 //
 // Raw CDP WS, no playwright dep (pattern from gemma-verify-raw.mjs).

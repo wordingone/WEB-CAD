@@ -9,8 +9,8 @@
 // NOT for localhost. Per feedback_no_localhost_testing_permanent_ban.
 //
 // Usage:
-//   bun scripts/baseline-tps.mjs --url https://wordingone.github.io/gemma-architect/
-//   bun scripts/baseline-tps.mjs --url https://wordingone.github.io/gemma-architect/ --turns 10
+//   bun scripts/baseline-tps.mjs --url https://wordingone.github.io/WEB-CAD/
+//   bun scripts/baseline-tps.mjs --url https://wordingone.github.io/WEB-CAD/ --turns 10
 
 import { writeFileSync, mkdirSync } from "fs";
 import { CDP_PORT, CDP_BASE } from "./ports.mjs";
