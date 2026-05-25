@@ -62,7 +62,7 @@ describe("workbench-legacy-chat-input — v1 console mode persistence", () => {
   test("no legacy gemma-* key written", () => {
     saveConsoleMode("console");
     expect(localStorage.getItem("gemma-cad:console-mode-v1")).toBeNull();
-    expect(localStorage.getItem("gemma-architect:console-mode-v1")).toBeNull();
+    expect(localStorage.getItem("gemma-architect:console-mode-v1")).toBeNull(); // intentionally-preserved: regression test — old key should NOT be written by current code
   });
 });
 
@@ -81,7 +81,7 @@ describe("workbench-legacy-chat-input — v1 recent entries persistence", () => 
   test("no legacy gemma-* key written", () => {
     saveRecentEntry("test");
     expect(localStorage.getItem("gemma-cad:recent-v1")).toBeNull();
-    expect(localStorage.getItem("gemma-architect:recent-v1")).toBeNull();
+    expect(localStorage.getItem("gemma-architect:recent-v1")).toBeNull(); // intentionally-preserved: regression test — old key should NOT be written by current code
   });
 
   test("newest entry is first (prepend behavior)", () => {

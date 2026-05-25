@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://gemma-architect.local/schemas/skill.json",
+  "$id": "https://web-cad.local/schemas/skill.json",
   "title": "Skill metadata sidecar",
   "description": "Machine-readable metadata for a skill. The companion SKILL.md carries the prose body the LLM agent reads at runtime.",
   "type": "object",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Validate the deployed gemma-architect page against submission/demo-script.md.
+// Validate the deployed WEB-CAD page against submission/demo-script.md.
 //
 // Pre-submission regression check: hits the live URL + ai-cache.json,
 // asserts shape + rows + presence of the prompts demo-script.md cuts depend on.
@@ -30,7 +30,7 @@ function record(name: string, ok: boolean, detail: string): void {
   console.log(`  ${tag}  ${name.padEnd(32)} ${detail}`);
 }
 
-console.log(`gemma-architect deploy validator — ${targetUrl}\n`);
+console.log(`WEB-CAD deploy validator — ${targetUrl}\n`);
 
 // 1. Page HTTP 200
 const pageRes = await fetch(targetUrl);

@@ -62,7 +62,7 @@ if (TARGET_URL) {
   }
 } else {
   tab = pages.find(t => t.url?.includes("localhost:5175"))
-     ?? pages.find(t => t.url?.includes("gemma-architect"))
+     ?? pages.find(t => t.url?.includes("WEB-CAD"))
      ?? pages[0];
   if (!tab) {
     console.error("ERROR: no usable page tab found in shared browser.");

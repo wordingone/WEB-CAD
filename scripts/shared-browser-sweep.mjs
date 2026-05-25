@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // shared-browser-sweep.mjs — close stale non-canonical tabs on :9222.
 //
-// Canonical tab: the DEV_PORT page target (gemma-architect-master build).
+// Canonical tab: the DEV_PORT page target (WEB-CAD-master build).
 // Any other page-type tab older than --max-age-ms is closed and logged.
 // Tabs without a recorded first-seen time are treated as new (age=0).
 //

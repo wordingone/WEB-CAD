@@ -327,7 +327,7 @@ await cdp.send("ServiceWorker.enable");
 
 const sha = (() => {
   try {
-    return execSync("git -C B:/M/gemma-architect rev-parse --short HEAD", { encoding: "utf8" }).trim();
+    return execSync("git -C B:/M/WEB-CAD rev-parse --short HEAD", { encoding: "utf8" }).trim();
   } catch (_) { return "unknown"; }
 })();
 

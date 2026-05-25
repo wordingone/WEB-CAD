@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
-// clear-cache.mjs — Nuke all caches for the gemma-architect origin.
+// clear-cache.mjs — Nuke all caches for the WEB-CAD origin.
 //
 // Deletes:
 //   - All Cache Storage caches (model weights, CDN assets)
-//   - All IndexedDB databases (drafter ONNX — gemma-architect-models)
+//   - All IndexedDB databases (drafter ONNX — web-cad-models)
 //   - LocalStorage + SessionStorage
 //   - Service worker registrations
 //

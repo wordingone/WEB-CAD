@@ -1,6 +1,6 @@
 # IFC4 schema basics
 
-What gemma-architect's IFC4 export round-trip actually validates,
+What WEB-CAD's IFC4 export round-trip actually validates,
 mapped to the buildingSMART IFC4 schema.
 
 ## Top-level project hierarchy
@@ -11,7 +11,7 @@ which owns `IfcBuildingStorey` instances. Building elements
 (`IfcWall`, `IfcSlab`, `IfcColumn`, etc.) are decomposed via
 `IfcRelContainedInSpatialStructure` into a storey.
 
-gemma-architect emits a single `IfcProject + IfcSite + IfcBuilding +
+WEB-CAD emits a single `IfcProject + IfcSite + IfcBuilding +
 IfcBuildingStorey` skeleton, then attaches all generated elements to
 the single storey at z=0.
 

@@ -1,7 +1,7 @@
 # Wall thickness conventions
 
 Common wall thickness ranges in real-world architecture and the
-parametric defaults gemma-architect emits when the natural-language
+parametric defaults WEB-CAD emits when the natural-language
 prompt doesn't specify thickness.
 
 ## Partition walls
@@ -38,7 +38,7 @@ median of code-compliant climate-zone-4 walls).
 
 ## Why the asymmetry matters
 
-In gemma-architect's tier-1 DSL, `wall (a) (b) thickness=t` produces
+In WEB-CAD's tier-1 DSL, `wall (a) (b) thickness=t` produces
 a wall whose centerline runs from `a` to `b` and whose thickness
 is split symmetrically. So `thickness=0.2` means 0.1m to either side
 of the centerline. When walls meet at a T-junction the second wall's

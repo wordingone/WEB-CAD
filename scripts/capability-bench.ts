@@ -298,13 +298,13 @@ function buildMultiEntityIFC(meshes: BrepMeshInfo[]): string {
   const ts = new Date().toISOString().replace(/\.\d{3}Z$/, "");
   L.push("ISO-10303-21;","HEADER;",
     `FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');`,
-    `FILE_NAME('gemma-bench-brep.ifc',${ss(ts)},(${ss("gemma-architect")}),(${ss("gemma-architect")}),${ss("bench-brep-emitter/0.1")},${ss("gemma-architect/0.1")},'');`,
+    `FILE_NAME('gemma-bench-brep.ifc',${ss(ts)},(${ss("WEB-CAD")}),(${ss("WEB-CAD")}),${ss("bench-brep-emitter/0.1")},${ss("WEB-CAD/0.1")},'');`,
     "FILE_SCHEMA(('IFC4'));","ENDSEC;","DATA;");
 
-  const per=nid(); L.push(`${per}=IFCPERSON($,$,${ss("gemma-architect")},$,$,$,$,$);`);
-  const org=nid(); L.push(`${org}=IFCORGANIZATION($,${ss("gemma-architect")},$,$,$);`);
+  const per=nid(); L.push(`${per}=IFCPERSON($,$,${ss("WEB-CAD")},$,$,$,$,$);`);
+  const org=nid(); L.push(`${org}=IFCORGANIZATION($,${ss("WEB-CAD")},$,$,$);`);
   const pao=nid(); L.push(`${pao}=IFCPERSONANDORGANIZATION(${per},${org},$);`);
-  const apl=nid(); L.push(`${apl}=IFCAPPLICATION(${org},${ss("0.1")},${ss("gemma-architect bench")},${ss("gemma-bench")});`);
+  const apl=nid(); L.push(`${apl}=IFCAPPLICATION(${org},${ss("0.1")},${ss("WEB-CAD bench")},${ss("gemma-bench")});`);
   const oh=nid(); const epoch=Math.floor(Date.now()/1000);
   L.push(`${oh}=IFCOWNERHISTORY(${pao},${apl},$,.ADDED.,${epoch},${pao},${apl},${epoch});`);
 

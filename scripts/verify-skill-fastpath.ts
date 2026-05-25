@@ -11,13 +11,13 @@
 // Exit 0 = all_passed. Exit 1 = failed. Exit 2 = setup error.
 //
 // Uses an isolated headless browser against the :5183 dev server
-// (which serves gemma-architect/ on the current branch).
+// (which serves WEB-CAD/ on the current branch).
 
 import { chromium } from "playwright";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 
-// :5183 serves B:/M/gemma-architect/ (this repo). :5847 serves the master clone.
+// :5183 serves B:/M/WEB-CAD/ (this repo). :5847 serves the master clone.
 const DEV_URL   = "http://localhost:5183/";
 const STATE_DIR = `${process.cwd()}/state`;
 

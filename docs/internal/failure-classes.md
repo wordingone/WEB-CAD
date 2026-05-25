@@ -1,4 +1,4 @@
-# Failure Classes — gemma-architect
+# Failure Classes — WEB-CAD
 
 Recurring bug shapes from the 24-codex-bug preservation arc (B1–B22+) and from the cross-cutting friction surfaced via Leo's insights and Eli's debugging history. Read this BEFORE writing code that touches schema, dispatch, samples, or the chat path.
 

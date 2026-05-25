@@ -5,7 +5,7 @@
 // must have a corresponding entry in our TS port. This script does a label-set
 // diff against the canonical app.jsx at lines 216-302.
 //
-// Source: B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx
+// Source: B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx  // intentionally-preserved: local handoff zip path — do not rename
 // Port:   <repo>/web/src/shell.ts
 //
 // Exits 0 with `parity OK: <N> labels matched` on clean.
@@ -22,7 +22,7 @@ import { join, resolve } from "path";
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const APP_JSX =
   process.env.APP_JSX_PATH ??
-  "B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx";
+  "B:/Downloads/gemma-architect-handoff/gemma-architect/project/app.jsx"; // intentionally-preserved: local handoff zip path — do not rename
 const SHELL_TS = join(REPO_ROOT, "web/src/shell/shell.ts");
 
 // Known TS-port adaptations. Each entry maps an app.jsx label to one or more
@@ -76,7 +76,7 @@ function extractLabels(source: string, startLine: number, endLine: number): stri
 function main(): void {
   if (!existsSync(APP_JSX)) {
     console.error(`SKIP: handoff source missing at ${APP_JSX}`);
-    console.error("Extract B:/Downloads/gemma-architect-handoff.zip to enable parity audit.");
+    console.error("Extract B:/Downloads/gemma-architect-handoff.zip to enable parity audit."); // intentionally-preserved: local handoff zip path — do not rename
     process.exit(0); // skip-clean — not a hard failure if .zip isn't extracted
   }
   if (!existsSync(SHELL_TS)) {
