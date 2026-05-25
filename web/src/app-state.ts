@@ -98,7 +98,7 @@ export function syncThemeAttribute(): void {
 // Helper: hydrate from localStorage on first load.
 export function hydrateFromStorage(): void {
   try {
-    const v = localStorage.getItem("web-cad.theme") ?? localStorage.getItem("web-cad.theme");
+    const v = localStorage.getItem("web-cad.theme");
     if (v === "night") setState("night", true);
     else if (v === "day") setState("night", false);
   } catch { /* ignore */ }
@@ -109,10 +109,9 @@ export function hydrateFromStorage(): void {
     const storedVersion = localStorage.getItem("web-cad.units.version");
     if (storedVersion !== UNITS_VERSION) {
       localStorage.removeItem("web-cad.units");
-      localStorage.removeItem("web-cad.units");
       localStorage.setItem("web-cad.units.version", UNITS_VERSION);
     }
-    const u = localStorage.getItem("web-cad.units") ?? localStorage.getItem("web-cad.units");
+    const u = localStorage.getItem("web-cad.units");
     if (u === "imperial" || u === "metric") setState("unitSystem", u);
   } catch { /* ignore */ }
 }
