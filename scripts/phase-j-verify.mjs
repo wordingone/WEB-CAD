@@ -241,6 +241,12 @@ window.addEventListener('goal:changed',function(e){
 });`,
 });
 
+// §WEB-CAD#14-F: progress bar + phase label poller. Runs on every document load so cold-cache
+// and wasm-cohort second-boot are both covered. Resets __progressPoll on each navigation.
+await cdp("Page.addScriptToEvaluateOnNewDocument", {
+  source: `window.__progressPoll={series:[],labels:[]};(function(){var t=function(){var bar=document.getElementById('boot-progress-bar');if(bar){var v=parseInt(bar.getAttribute('aria-valuenow')||'0',10);window.__progressPoll.series.push(v);}var lbl=document.getElementById('boot-phase-label');if(lbl&&lbl.textContent){var tx=lbl.textContent.trim();var la=window.__progressPoll.labels;if(tx&&tx!==la[la.length-1])la.push(tx);}};t();window.__progressPollInterval=setInterval(t,1000);})();`,
+});
+
 // §#1637 wasm-cohort: mock requestAdapter as igpu to trigger boot-capability modal on first boot.
 // Only applied when ?gpu=wasm is absent (first boot). After Path 2 click the page reloads with
 // ?gpu=wasm → isGpuWasmForced()=true → gate resolves immediately → no adapter call at all.
@@ -443,31 +449,10 @@ if (WASM_COHORT && !NO_RELOAD) {
   }
 }
 
-// ── §#1638: inject progress poller for wasm-cohort second boot ────────────────
-// Polls #boot-progress-bar aria-valuenow at 1Hz and collects label transitions.
-// Retrieved after boot-complete; used to compute progress_bar_monotonic receipt field.
+// §WEB-CAD#14-F: progress poller is now injected via Page.addScriptToEvaluateOnNewDocument
+// (see above) so it runs on ALL navigations including wasm-cohort second boot.
 if (WASM_COHORT) {
-  await evaluate(`
-    window.__progressPoll = { series: [], labels: [] };
-    (function startPoll() {
-      const tick = () => {
-        const bar = document.getElementById('boot-progress-bar');
-        if (bar) {
-          const v = parseInt(bar.getAttribute('aria-valuenow') || '0', 10);
-          window.__progressPoll.series.push(v);
-        }
-        const lbl = document.querySelector('#boot-status-label, .__status-lbl');
-        if (lbl && lbl.textContent) {
-          const t = lbl.textContent.trim();
-          const last = window.__progressPoll.labels[window.__progressPoll.labels.length - 1];
-          if (t && t !== last) window.__progressPoll.labels.push(t);
-        }
-      };
-      tick(); // immediate first sample
-      window.__progressPollInterval = setInterval(tick, 1000);
-    })();
-  `).catch(() => null);
-  console.log(`[+${Date.now()-startMs}ms] [wasm-cohort] Progress poller armed`);
+  console.log(`[+${Date.now()-startMs}ms] [wasm-cohort] Progress poller active (via addScriptToEvaluateOnNewDocument)`);
 }
 
 // ── Wait for model ready ───────────────────────────────────────────────────────
@@ -795,16 +780,19 @@ const _rawOutputsJson = await evaluate(`JSON.stringify(window.__agentRawOutputs 
 let _rawOutputs = [];
 try { if (_rawOutputsJson) _rawOutputs = JSON.parse(_rawOutputsJson); } catch { _rawOutputs = []; }
 
-// §#1638: collect progress poll data (wasm-cohort second boot only).
-// Computes monotonicity of the bar during warm-cache OPFS boot.
+// §WEB-CAD#14-F: collect progress poll data for all runs (not just wasm-cohort).
+// Used for progress_smooth_min_pct_observed_during_download + phase_labels_sequence_observed.
 let _progressPollData = null;
-if (WASM_COHORT) {
+if (!NO_RELOAD) {
   await evaluate(`if (window.__progressPollInterval) { clearInterval(window.__progressPollInterval); window.__progressPollInterval = null; }`).catch(() => null);
   const _rawPoll = await evaluate(`JSON.stringify(window.__progressPoll ?? null)`).catch(() => null);
   if (_rawPoll && typeof _rawPoll === 'string') {
     try { _progressPollData = JSON.parse(_rawPoll); } catch { _progressPollData = null; }
   }
 }
+
+// §WEB-CAD#14-B: read boot path detection result before ws.close().
+const _bootPathPredicted = await evaluate(`window.__boot_path_predicted ?? null`).catch(() => null);
 
 // §#1740: read goal continuation instrumentation before ws.close().
 const _contRaw = await evaluate(`JSON.stringify({iterations:window.__goal_continuation_iterations??null,terminal:window.__goal_continuation_terminal??null})`).catch(() => null);
@@ -1004,6 +992,26 @@ const receipt = {
   cdp_downloads_allowed: _cdpPromptState.downloadsAllowed,
   // §#1740: continuation loop telemetry — how many turns ran and why it stopped.
   goal_continuation: _cont ? { iterations: _cont.iterations, terminal: _cont.terminal } : null,
+  // §WEB-CAD#14-F: progress bar + boot path receipt fields.
+  // progress_smooth_min_pct_observed_during_download: min nonzero bar% seen during the boot.
+  // Acceptance: non-null and > 0 within 5s of model_download_start_ms (bar is visibly moving).
+  progress_smooth_min_pct_observed_during_download: (() => {
+    const series = _progressPollData?.series ?? [];
+    const nonzero = series.filter(v => v > 0);
+    return nonzero.length > 0 ? Math.min(...nonzero) : null;
+  })(),
+  // boot_path_predicted: cold/warm detection result from navigator.storage.estimate() at boot start.
+  boot_path_predicted: _bootPathPredicted ?? null,
+  // boot_path_actual: derived from worker_model_load_source (network=cold, opfs-cache=warm).
+  boot_path_actual: (() => {
+    const src = workerPhaseTiming.from_pretrained_end_load_source;
+    if (src === 'network') return 'cold';
+    if (src === 'opfs-cache') return 'warm';
+    return null;
+  })(),
+  // phase_labels_sequence_observed: textContent transitions from #boot-phase-label.
+  // Acceptance cold: ≥4 distinct strings; warm: ≥3 distinct strings.
+  phase_labels_sequence_observed: _progressPollData?.labels ?? null,
 };
 // §#1659: write raw-output sidecar alongside receipt.
 let sidecarFile = null;

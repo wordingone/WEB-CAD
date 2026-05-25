@@ -43,6 +43,7 @@ const _PHASE_RATE: Partial<Record<_BootPhase, number>> = {
 };
 let _bootPhase: _BootPhase = 'download';
 let _phaseEnteredAt = 0;
+let _bootPathPredicted: 'cold' | 'warm' = 'cold';
 let _drafterLoadedBytes = 0;
 let _drafterTotalBytes = 0;
 let _lastDrafterBytesMs = 0; // wall-clock ms of last drafter bytes event; 0 = none yet
@@ -55,7 +56,7 @@ let _pctEl: HTMLSpanElement | null = null;
 let _fileEl: HTMLSpanElement | null = null;
 let _etaEl: HTMLSpanElement | null = null;
 let _statusEl: HTMLDivElement | null = null;
-let _hintEl: HTMLDivElement | null = null;
+let _hintEl: HTMLDivElement | null = null;  // §WEB-CAD#14: also serves as #boot-phase-label
 
 let _pathLen = 0;
 let _headDashLen = 0;
@@ -83,6 +84,39 @@ function _traceEvent(event: string, extra?: Omit<TraceEntry, 't' | 'event'>): vo
 // ---------------------------------------------------------------------------
 // Public API
 
+// §WEB-CAD#14-B: detect cold vs warm boot path from storage estimate.
+// Runs async at init; result exposed on window.__boot_path_predicted for harness receipt.
+async function _detectBootPath(): Promise<void> {
+  try {
+    const est = await navigator.storage.estimate();
+    if ((est.usage ?? 0) > 500_000_000) {
+      _bootPathPredicted = 'warm';
+    }
+  } catch { /* non-fatal — estimate unavailable in some contexts */ }
+  (window as unknown as Record<string, unknown>).__boot_path_predicted = _bootPathPredicted;
+  _updatePhaseLabel();
+}
+
+// §WEB-CAD#14-D: human-readable phase labels driven by current boot phase + path.
+function _updatePhaseLabel(): void {
+  if (!_hintEl) return;
+  const COLD_LABELS: Record<_BootPhase, string> = {
+    'download':   'Downloading neural model (≈5 GB)',
+    'model-init': 'Setting up inference engine',
+    'warmup':     'Warming up',
+    'drafter':    'Loading assistant',
+    'final':      'Ready',
+  };
+  const WARM_LABELS: Record<_BootPhase, string> = {
+    'download':   'Loading from local cache',
+    'model-init': 'Setting up inference engine',
+    'warmup':     'Warming up',
+    'drafter':    'Loading assistant',
+    'final':      'Ready',
+  };
+  _hintEl.textContent = (_bootPathPredicted === 'warm' ? WARM_LABELS : COLD_LABELS)[_bootPhase];
+}
+
 export function initBootScreen(): void {
   if (_initialized) return;
   _initialized = true;
@@ -90,6 +124,7 @@ export function initBootScreen(): void {
   // §#1637: capability gate runs after overlay is mounted; modal injects into document.body
   // at z-index:9999 (same layer as overlay), visible before model loading starts.
   initCapabilityGate(document.body);
+  void _detectBootPath(); // §WEB-CAD#14-B: async cold/warm detection; updates label when done
   _wireEvents();
   _startTime = performance.now();
   _tick();
@@ -140,6 +175,7 @@ function _advanceToPhase(phase: _BootPhase): void {
     _bootPhase = phase;
     _phaseEnteredAt = performance.now();
     _currentFile = phase === 'download' ? _currentFile : phase;
+    _updatePhaseLabel(); // §WEB-CAD#14-D: rotate label at each phase boundary
   }
 }
 
@@ -225,15 +261,18 @@ function _wireEvents(): void {
 
   // §#1638: OPFS warm-load started — advance bar to 50% floor without READY snap.
   // model_init/warmup events continue normally from 50%+ (monotonic guard holds the floor).
+  // §WEB-CAD#14-B: opfs-warm-start confirms warm path; update predicted label and window global.
   window.addEventListener('agentmodel:opfs-warm-start', () => {
     _traceEvent('opfs-warm-start');
+    _bootPathPredicted = 'warm';
+    (window as unknown as Record<string, unknown>).__boot_path_predicted = 'warm';
     _lastRenderedPct = 50;
     if (_pctEl) _pctEl.textContent = '50%';
     if (_barFill) {
       _barFill.style.width = '50%';
       _barFill.setAttribute('aria-valuenow', '50');
     }
-    if (_hintEl) _hintEl.style.opacity = '0';
+    _updatePhaseLabel(); // switches to warm labels
   }, { once: true });
   window.addEventListener('agentmodel:returning-user', () => {
     _traceEvent('returning-user');
@@ -319,8 +358,7 @@ function _updateProgress(): void {
     _barFill.setAttribute('aria-valuenow', String(Math.round(pct)));
   }
 
-  // Hide first-visit hint once loading starts
-  if (pct > 0 && _hintEl) _hintEl.style.opacity = '0';
+  // §WEB-CAD#14-D: phase label stays visible throughout boot (no fade).
 
   // File label (phase label or file basename during download)
   if (_fileEl) {
@@ -387,7 +425,7 @@ function _onReturningUser(): void {
   if (_barFill) { _barFill.style.width = '100%'; _barFill.style.background = '#6ef2b0'; }
   if (_fileEl) _fileEl.textContent = '';
   if (_etaEl) _etaEl.textContent = '';
-  if (_hintEl) _hintEl.style.display = 'none';
+  if (_hintEl) _hintEl.textContent = 'Ready'; // §WEB-CAD#14-D
   if (_statusEl) {
     _statusEl.textContent = 'READY';
     _statusEl.style.color = '#6ef2b0';
@@ -558,14 +596,15 @@ function _buildOverlay(): void {
   });
   progress.appendChild(logo);
 
-  // First-visit hint (hides once progress starts or on returning user)
+  // §WEB-CAD#14-D: dynamic phase label — content rotates as boot phases advance.
+  // id="boot-phase-label" scraped by phase-j-verify.mjs to record phase_labels_sequence_observed.
   const hintEl = document.createElement('div');
-  hintEl.textContent = 'Loading neural model (~5 GB) — first visit only';
+  hintEl.id = 'boot-phase-label';
+  hintEl.textContent = 'Downloading neural model (≈5 GB)'; // cold default; updated by _updatePhaseLabel()
   Object.assign(hintEl.style, {
     color: '#383838',
     fontSize: 'clamp(9px, 1.0vw, 13px)',
     letterSpacing: '0.05em',
-    transition: 'opacity 0.5s',
     marginBottom: 'clamp(4px, 0.6vh, 8px)',
   });
   _hintEl = hintEl;
