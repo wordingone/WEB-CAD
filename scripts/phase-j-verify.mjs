@@ -203,7 +203,8 @@ await cdp("Page.addScriptToEvaluateOnNewDocument", {
 // Patches Worker constructor before any page scripts run; captures elapsed_ms from each
 // phase into window.__bootPhaseTiming keyed by phase name.
 await cdp("Page.addScriptToEvaluateOnNewDocument", {
-  source: `window.__bootPhaseTiming={};(function(){var O=self.Worker;function P(){var args=Array.prototype.slice.call(arguments);var w=new(Function.prototype.bind.apply(O,[null].concat(args)))();w.addEventListener('message',function(e){if(e&&e.data&&e.data.type==='phase_timing'){window.__bootPhaseTiming[e.data.phase+'_ms']=e.data.elapsed_ms;if(e.data.downloaded_bytes!=null){window.__bootPhaseTiming[e.data.phase+'_bytes']=e.data.downloaded_bytes;}if(e.data.load_source!=null){window.__bootPhaseTiming[e.data.phase+'_load_source']=e.data.load_source;}if(e.data.adapter_info!=null){window.__bootPhaseTiming['adapter_fingerprint_info']=e.data.adapter_info;}}});return w;}P.prototype=O.prototype;Object.setPrototypeOf(P,O);self.Worker=P;})();`,
+  // §WEB-CAD#23: also capture manifest.totalBytesExpected for estimate-vs-observed assertion.
+  source: `window.__bootPhaseTiming={};(function(){var O=self.Worker;function P(){var args=Array.prototype.slice.call(arguments);var w=new(Function.prototype.bind.apply(O,[null].concat(args)))();w.addEventListener('message',function(e){if(e&&e.data&&e.data.type==='phase_timing'){window.__bootPhaseTiming[e.data.phase+'_ms']=e.data.elapsed_ms;if(e.data.downloaded_bytes!=null){window.__bootPhaseTiming[e.data.phase+'_bytes']=e.data.downloaded_bytes;}if(e.data.load_source!=null){window.__bootPhaseTiming[e.data.phase+'_load_source']=e.data.load_source;}if(e.data.adapter_info!=null){window.__bootPhaseTiming['adapter_fingerprint_info']=e.data.adapter_info;}}if(e&&e.data&&e.data.type==='manifest'&&e.data.totalBytesExpected!=null){window.__bootPhaseTiming.manifest_total_bytes_expected=e.data.totalBytesExpected;}});return w;}P.prototype=O.prototype;Object.setPrototypeOf(P,O);self.Worker=P;})();`,
 });
 
 // #1482: capture per-turn dispatch counts + goal state for receipt schema extensions.
@@ -502,6 +503,27 @@ if (!bootComplete) {
 const bootMs = Date.now() - startMs;
 // §#1595-M2: read worker phase timings captured by the injected Worker patch.
 const workerPhaseTiming = (await evaluate("window.__bootPhaseTiming ?? {}").catch(() => null)) ?? {};
+
+// §WEB-CAD#23: estimate-vs-observed bytes assertion.
+// estimatedBytes: from manifest.totalBytesExpected emitted by model-worker before download.
+// totalBytesObserved: from phase_timing "from_pretrained_end" downloaded_bytes field.
+// totalTimeObservedMs: download+write window (from_pretrained_start → from_pretrained_end).
+const ESTIMATE_DRIFT_THRESHOLD_PCT = 25;
+const estimatedBytes = workerPhaseTiming.manifest_total_bytes_expected ?? null;
+const totalBytesObserved = workerPhaseTiming.from_pretrained_end_bytes ?? null;
+const totalTimeObservedMs =
+  (workerPhaseTiming.from_pretrained_end_ms != null && workerPhaseTiming.from_pretrained_start_ms != null)
+    ? workerPhaseTiming.from_pretrained_end_ms - workerPhaseTiming.from_pretrained_start_ms
+    : null;
+const effectiveMbpsObserved =
+  (totalBytesObserved != null && totalTimeObservedMs != null && totalTimeObservedMs > 0)
+    ? (totalBytesObserved * 8) / (totalTimeObservedMs / 1000) / 1_000_000
+    : null;
+const bytesDeltaPct =
+  (totalBytesObserved != null && estimatedBytes != null && estimatedBytes > 0)
+    ? ((totalBytesObserved - estimatedBytes) / estimatedBytes) * 100
+    : null;
+const estimateDriftDetected = bytesDeltaPct !== null && Math.abs(bytesDeltaPct) > ESTIMATE_DRIFT_THRESHOLD_PCT;
 if (COLD_CACHE && bootMs < 150_000) {
   console.error(`\nFAIL-FAST: boot_ms=${bootMs} < 150000 — model loaded from cache (cold-cache clear was ineffective). Re-run after full cold-cache clear.`);
   process.exit(1);
@@ -842,7 +864,8 @@ const passed = bootComplete && arcInvClean && bufMgrClean && cachePutClean && re
   && cleanTurns >= Math.ceil(DEMO_PROMPTS.length * 0.6)
   && turn1DispatchOk
   && turn2NlOk
-  && cumulativeGrowthOk;  // §#1504
+  && cumulativeGrowthOk  // §#1504
+  && !estimateDriftDetected;  // §WEB-CAD#23
 
 // ── Sub-C: scene persistence fields (§#1644) ──────────────────────────────────
 // scene_persist_warning_present: beforeunload hook registered (Sub-A gate)
@@ -867,6 +890,8 @@ const failureBreakdown = passed ? null : {
   turn2_nl_ok: turn2NlOk,
   cumulative_growth_ok: cumulativeGrowthOk,
   cumulative_growth_violations: cumulativeGrowthViolations,
+  estimate_drift_ok: !estimateDriftDetected,
+  bytes_delta_pct: bytesDeltaPct,
 };
 
 const receipt = {
@@ -904,6 +929,15 @@ const receipt = {
   compact_events: compactEvents,
   cumulative_growth_ok: cumulativeGrowthOk,             // §#1504
   cumulative_growth_violations: cumulativeGrowthViolations, // §#1504
+  // §WEB-CAD#23: estimate-vs-observed bytes assertion fields (7 fields, additive only).
+  // Catches model size changes that render ESTIMATED_MODEL_BYTES stale (class: unmeasured baseline).
+  total_bytes_observed: totalBytesObserved,
+  total_time_observed_ms: totalTimeObservedMs,
+  effective_mbps_observed: effectiveMbpsObserved !== null ? Math.round(effectiveMbpsObserved * 10) / 10 : null,
+  estimated_bytes: estimatedBytes,
+  bytes_delta_pct: bytesDeltaPct !== null ? Math.round(bytesDeltaPct * 10) / 10 : null,
+  estimate_drift_detected: estimateDriftDetected,
+  estimate_drift_threshold_pct: ESTIMATE_DRIFT_THRESHOLD_PCT,
   failure_breakdown: failureBreakdown,                  // §#1504 — null on PASS, populated on FAIL
   // §#1595-M2: boot-phase timing diagnostic — harness-side + worker-side phase timestamps.
   // All harness_* fields are ms relative to Phase J startMs.
@@ -1074,6 +1108,10 @@ if (T1_ONLY) {
   console.log(`│  turn2 NL-only : ${String(turn2NlOk ? "true ✓" : `${turnResults[1]?.isNlResponse} ✗`).padEnd(35)}│`);
 }
 console.log(`│  cumul-growth  : ${String(cumulativeGrowthOk ? "OK ✓" : `VIOLATED (${cumulativeGrowthViolations.length})`).padEnd(35)}│`);
+const _driftStr = estimateDriftDetected
+  ? `DRIFT ${bytesDeltaPct !== null ? bytesDeltaPct.toFixed(1) : "?"}% ✗ (est=${estimatedBytes != null ? Math.round(estimatedBytes/1e9*10)/10+"GB" : "null"} obs=${totalBytesObserved != null ? Math.round(totalBytesObserved/1e9*10)/10+"GB" : "null"})`
+  : (bytesDeltaPct !== null ? `${bytesDeltaPct.toFixed(1)}% ✓` : "no data (warm or skipped)");
+console.log(`│  est-vs-obs    : ${String(_driftStr).padEnd(35)}│`);
 const verdict = `│  VERDICT : ${passed ? "PASS — baseline direction: ↑" : "FAIL"}`;
 console.log(verdict.padEnd(54) + "  │");
 console.log(`└──────────────────────────────────────────────────────┘`);
