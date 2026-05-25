@@ -38,6 +38,18 @@ jobs:
           fi
           /tmp/gitleaks detect --config .gitleaks.toml --source . --no-banner --log-opts="$LOG_OPTS"
 
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Verify (all 11 audit gates — typecheck, audits, lint, web tests)
+        run: bun run verify
+
   fixtures-validate:
     runs-on: ubuntu-latest
     steps:
