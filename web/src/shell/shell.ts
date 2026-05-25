@@ -181,9 +181,28 @@ const RIBBON_SCENE_SAMPLES = [
   { name: "KIT Institute",      v: "kit-office",         thumb: `${_BASE}thumbnails/kit-office.png` },
   { name: "Bonsai House",       v: "bonsai-openings",    thumb: `${_BASE}thumbnails/bonsai-openings.png` },
 ];
-const RIBBON_ELEMENT_SAMPLES = [
-  { name: "Wall",  v: "wall-with-opening", thumb: `${_BASE}thumbnails/wall-with-opening.png` },
-  { name: "Sweep", v: "simple-sweep",      thumb: `${_BASE}thumbnails/simple-sweep.png` },
+// All architectural element tools — ARCH (section 4) + COMP (section 5) of the model palette.
+// Shown as clickable tool-activation chips in the ribbon Elements column.
+const ELEMENT_PALETTE_TOOLS: { id: string; label: string }[] = [
+  { id: "wall",        label: "Wall" },
+  { id: "slab",        label: "Slab" },
+  { id: "column",      label: "Column" },
+  { id: "beam",        label: "Beam" },
+  { id: "roof",        label: "Roof" },
+  { id: "space",       label: "Space" },
+  { id: "foundation",  label: "Foundation" },
+  { id: "ceiling",     label: "Ceiling" },
+  { id: "grid",        label: "Grid" },
+  { id: "level",       label: "Level" },
+  { id: "datum",       label: "Datum" },
+  { id: "stair",       label: "Stair" },
+  { id: "door",        label: "Door" },
+  { id: "window",      label: "Window" },
+  { id: "ramp",        label: "Ramp" },
+  { id: "railing",     label: "Railing" },
+  { id: "curtainwall", label: "Curtain Wall" },
+  { id: "skylight",    label: "Skylight" },
+  { id: "opening",     label: "Opening" },
 ];
 
 function buildAssetCard(
@@ -250,13 +269,62 @@ function appendRibbonAssets(ribbonHost: HTMLElement) {
     return col;
   }
 
+  function buildElementsColumn(): HTMLElement {
+    const col = document.createElement("div");
+    col.className = "ribbon-section-col";
+    col.dataset.section = "ELEMENTS";
+
+    const hdr = document.createElement("span");
+    hdr.className = "ribbon-asset-section-header";
+    hdr.textContent = "Elements";
+    col.appendChild(hdr);
+
+    const cards = document.createElement("div");
+    cards.className = "ribbon-assets-cards ribbon-assets-cards--element-tools";
+
+    let _activeChip: HTMLElement | null = null;
+
+    for (const tool of ELEMENT_PALETTE_TOOLS) {
+      const chip = document.createElement("div");
+      chip.className = "ribbon-element-chip";
+      chip.dataset.tool = tool.id;
+      chip.title = tool.label;
+      chip.innerHTML = `<span class="ribbon-chip-icon">${iconSVG(tool.id, 16)}</span><span class="ribbon-chip-name">${tool.label}</span>`;
+      chip.addEventListener("click", () => {
+        if (_activeChip === chip) {
+          _activeChip.classList.remove("ribbon-element-chip--active");
+          _activeChip = null;
+          dispatchSync("setActiveTool", { toolId: "select" });
+        } else {
+          _activeChip?.classList.remove("ribbon-element-chip--active");
+          _activeChip = chip;
+          chip.classList.add("ribbon-element-chip--active");
+          dispatchSync("setActiveTool", { toolId: tool.id });
+        }
+      });
+      cards.appendChild(chip);
+    }
+
+    col.appendChild(cards);
+    _elemCardsEl = cards;
+    _elemCardWrapEl = wrap;
+
+    // Dynamic IFC type chips row — appears after model load via setRibbonElementTypes.
+    const chips = document.createElement("div");
+    chips.className = "ribbon-assets-cards ribbon-assets-cards--chips";
+    col.appendChild(chips);
+    _elemChipsEl = chips;
+
+    return col;
+  }
+
   wrap.appendChild(buildColumn("Projects", RIBBON_SCENE_SAMPLES));
 
   const divider = document.createElement("div");
   divider.className = "ribbon-asset-divider";
   wrap.appendChild(divider);
 
-  wrap.appendChild(buildColumn("Elements", RIBBON_ELEMENT_SAMPLES));
+  wrap.appendChild(buildElementsColumn());
   const rightEl = ribbonHost.querySelector(".ribbon-right");
   if (rightEl) ribbonHost.insertBefore(wrap, rightEl);
   else ribbonHost.appendChild(wrap);
@@ -336,7 +404,7 @@ export function setRibbonMode(mode: "model" | "layout" | "research") {
   }
   if (mode === "layout") {
     _ribbonTabsEl.style.display = "none";  // no section tabs in layout mode
-    fillRibbonTools(_ribbonToolsEl, []);    // palette replaces top ribbon in layout
+    fillRibbonTools(_ribbonToolsEl, LAYOUT_TOOL_GROUPS);
     _ribbonEl?.querySelector(".ribbon-assets")?.remove();
   } else if (mode === "research") {
     _ribbonTabsEl.style.display = "none";  // no section tabs in research mode

@@ -157,6 +157,49 @@
 
 /* #palette-tip styles are set inline in buildPalette (cursor-following portal) */
 
+/* ============================================================
+   PAPER-MODE RIGHT PANEL (layers / blocks tabs)
+   ============================================================ */
+
+.paper-right-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+.pr-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  flex-shrink: 0;
+  background: var(--paper-2);
+}
+.pr-tab-btn {
+  flex: 1;
+  padding: 5px 4px;
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  color: var(--ink-dim);
+}
+.pr-tab-btn:hover { background: var(--paper-3); color: var(--ink); }
+.pr-tab-btn--active {
+  border-bottom-color: var(--sanguine);
+  color: var(--ink);
+}
+.pr-tab-panel {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.pr-tab-panel[hidden] { display: none; }
+
 /* Select-mode dropdown menu */
 .sel-mode-menu {
   position: fixed;
