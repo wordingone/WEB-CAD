@@ -8,6 +8,7 @@ import { getState } from "../app-state";
 import { getSnap, setGridOn, setSnapOn, setOrthoOn, setPolarOn, setVertexSnapOn, setEdgeSnapOn, setMidpointSnapOn, setStep, setAngleStep } from "../viewer/snap-state";
 import { setDoorVariant, setWindowVariant } from "../tools/openings";
 import { subscribe } from "../viewer/selection-state";
+import { setActiveDraftTool, subscribeActiveDraftTool, getActiveDraftTool, type DraftToolId } from "./draft-elements";
 
 function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElement {
   const e = document.createElement(tag);
@@ -102,15 +103,52 @@ const PALETTE_SECTIONS: PaletteSection[] = [
   ]},
 ];
 
-// Tools whose click handler dispatches a 2D draft-tool activation (not a 3D tool).
+// Layout mode palette tool sections — nav tools + full 2D drafting tool set.
 const LAYOUT_PALETTE_SECTIONS: PaletteSection[] = [
-  // NAV — only confirmed-working tools in layout mode
+  // NAV — view navigation (dispatch via setActiveTool)
   { tools: [
     { id: "select", icon: "select", label: "Select" },
     { id: "pan",    icon: "pan",    label: "Pan" },
     { id: "zoom",   icon: "zoom",   label: "Zoom" },
   ]},
+  // DRAW — 2D geometry creation (dispatch via setActiveDraftTool)
+  { tools: [
+    { id: "line",     icon: "line",     label: "Line" },
+    { id: "arc",      icon: "arc",      label: "Arc" },
+    { id: "circle",   icon: "circle",   label: "Circle" },
+    { id: "ellipse",  icon: "circle",   label: "Ellipse" },
+    { id: "polyline", icon: "polyline", label: "Polyline" },
+    { id: "spline",   icon: "spline",   label: "Spline" },
+    { id: "point",    icon: "point",    label: "Point" },
+  ]},
+  // ANNOTATE — text and leader
+  { tools: [
+    { id: "text",    icon: "label",             label: "Text" },
+    { id: "mtext",   icon: "label",             label: "MText" },
+    { id: "leader",  icon: "transient-measure", label: "Leader" },
+    { id: "mleader", icon: "transient-measure", label: "MLeader" },
+  ]},
+  // DIMENSION — dimensional annotation
+  { tools: [
+    { id: "dim-linear",     icon: "aligned-dim",  label: "Linear" },
+    { id: "dim-aligned",    icon: "aligned-dim",  label: "Aligned" },
+    { id: "dim-angular",    icon: "angular-dim",  label: "Angular" },
+    { id: "dim-radial",     icon: "angular-dim",  label: "Radial" },
+    { id: "dim-diametric",  icon: "area-dim",     label: "Diameter" },
+    { id: "dim-arc-length", icon: "area-dim",     label: "Arc Len" },
+    { id: "dim-ordinate",   icon: "aligned-dim",  label: "Ordinate" },
+  ]},
+  // FILL / BLOCK / IMAGE
+  { tools: [
+    { id: "hatch",        icon: "surface", label: "Hatch" },
+    { id: "wipeout",      icon: "clip",    label: "Wipeout" },
+    { id: "block-insert", icon: "copy",    label: "Block" },
+    { id: "image",        icon: "surface", label: "Image" },
+  ]},
 ];
+
+// Nav tool IDs — dispatched via setActiveTool (3D tool system), not setActiveDraftTool.
+const LAYOUT_NAV_TOOL_IDS = new Set(["select", "pan", "zoom"]);
 
 // PALETTE_SECTIONS indices
 const ARCH_SECTION_IDX = 4;
@@ -694,18 +732,33 @@ export function buildLayoutPalette(host: HTMLElement) {
     if (to && leaving.contains(to)) return;
     tip.style.display = "none";
   });
+  const allBtns: HTMLButtonElement[] = [];
+
   for (const section of LAYOUT_PALETTE_SECTIONS) {
     const sec = el("div", "palette-section");
     for (const tool of section.tools) {
-      const btn = el("button", "palette-btn", { type: "button", "aria-label": tool.label, "data-tool": tool.id });
+      const btn = el("button", "palette-btn", { type: "button", "aria-label": tool.label, "data-tool": tool.id }) as HTMLButtonElement;
       btn.innerHTML = iconSVG(tool.icon, 18);
       btn.addEventListener("click", () => {
-        dispatchSync("setActiveTool", { toolId: tool.id });
+        allBtns.forEach(b => b.classList.remove("active"));
+        if (LAYOUT_NAV_TOOL_IDS.has(tool.id)) {
+          dispatchSync("setActiveTool", { toolId: tool.id });
+        } else {
+          btn.classList.add("active");
+          setActiveDraftTool(tool.id as DraftToolId);
+        }
       });
       sec.appendChild(btn);
+      allBtns.push(btn);
     }
     host.appendChild(sec);
   }
+
+  // Sync active state when tool changes externally (e.g. block-insert from cad-blocks-panel)
+  subscribeActiveDraftTool(() => {
+    const active = getActiveDraftTool();
+    allBtns.forEach(b => b.classList.toggle("active", b.dataset.tool === active));
+  });
 }
 
 export function rebuildPaletteForMode(mode: string) {

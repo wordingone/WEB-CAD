@@ -34,7 +34,8 @@
 .paper-layers {
   grid-area: layers;
   border-left: var(--lw-edge) solid var(--chrome-seam);
-  background: var(--glass-bg);
+  background: var(--glass-bg-strong);
+  color: var(--ink);
   display: flex;
   flex-direction: column;
   overflow: hidden;
