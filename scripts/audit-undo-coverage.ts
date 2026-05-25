@@ -31,6 +31,9 @@ const ALLOWLIST = new Set([
   "viewer/clip-fill.ts",        // stencil fill helpers (internal renderer state)
   "viewer/cplane-gizmo.ts",     // construction-plane gizmo
   "viewer/section-handles.ts",  // section-box handles
+  "viewer/viewer-camera.ts",    // axes helper + axis-label sprites: visual overlays rebuilt on camera resize
+  "viewer/viewer-rendering.ts", // GridHelper: visual overlay rebuilt on snap-step change
+  "viewer/viewer-gizmo-input.ts", // snapMarker: transient snap-point indicator
   // CSG intermediate helpers — managed by their own pushReplaceAction calls.
   "tools/join-groups.ts",
   // Sketch/tool preview markers — transient, cleaned up before action commits.

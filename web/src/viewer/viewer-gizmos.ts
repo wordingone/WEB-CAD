@@ -352,7 +352,7 @@ export function buildGizmos(v: Viewer, perspPane: Pane): void {
     g.userData.noSnap = true;
     g.userData.noRenderMode = true;
     g.traverse((child) => { child.userData.noSnap = true; child.userData.noRenderMode = true; });
-    v.scene.add(g);
+    v.scene.add(g); // audit-undo-ok: TransformControls gizmo is a transient overlay (noSnap+noRenderMode); never enters undo stack
     v.gizmos.push(g);
   }
   tightenAxisPickers(v.gizmos[0], "translate");
@@ -519,7 +519,7 @@ export function deleteSelected(v: Viewer): boolean {
     if (removed.userData.kind === "section-box") clearSectionBox(v);
     const removedParent = removed.parent;
     if (removed.parent === v.scene) {
-      v.scene.remove(removed);
+      v.scene.remove(removed); // audit-undo-ok: deleteSelected — pushDeleteAction called immediately after this remove; mutation IS the undo-recorded action
     } else if (removed.parent) {
       removed.parent.remove(removed);
     } else {
