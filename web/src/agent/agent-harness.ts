@@ -191,6 +191,12 @@ if (typeof window !== "undefined") {
 // Triggers proactive geometry buffer disposal before inference begins (WEB-CAD#66 Option A).
 const SCENE_VRAM_RECYCLE_THRESHOLD = 12;
 
+// §#88-B: creator-tagged meshes removed from scene during VRAM disposal; re-added after generate().
+// scene.remove() prevents Three.js lazy re-upload during inference, making geometry disposal
+// a true VRAM release rather than a transient hint. Meshes are restored post-generate so the
+// user sees no permanent scene loss — just a blank viewport during the ~90s generation window.
+const _disposedCreatorMeshes: unknown[] = [];
+
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
 // Used by the turn-count gate (every MODEL_WORKER_RECYCLE_AFTER turns).
 async function _doPlannedRecycle(reason: string): Promise<void> {
@@ -217,23 +223,25 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
   emitRecycle(_arc.recycleCount, reason);
 }
 
-// §#66 Option A: Dispose GPU geometry/material buffers for creator-tagged scene objects.
-// After T1 builds a large scene (walls, slabs, etc.), accumulated WebGL/WebGPU VBOs
-// compete with the LLM KV-cache for VRAM, causing T2 inference to slow to <1 tps and
-// hit the 60s watchdog. Disposing the VBOs frees VRAM synchronously; THREE.js re-uploads
-// from CPU-side typed arrays on the next render() call. No worker restart → recycleCount=0.
+// §#66/#88-B: Dispose GPU geometry/material buffers for creator-tagged scene objects AND
+// remove them from the scene. Removal is critical: Three.js lazily re-uploads geometry to
+// GPU on every render() call for any mesh still in the scene graph, making geometry.dispose()
+// a VRAM-neutral operation unless accompanied by scene.remove(). After generate() completes,
+// caller re-adds all meshes from _disposedCreatorMeshes → scene restores visually.
 function _disposeCreatorGeometryBuffers(): void {
   type SceneChild = {
     userData?: Record<string, unknown>;
     geometry?: { dispose: () => void };
     material?: { dispose: () => void } | Array<{ dispose?: () => void }>;
   };
-  const sceneArr = (window as unknown as { __viewer?: { scene?: { children?: SceneChild[] } } })
-    .__viewer?.scene?.children;
+  type SceneRef = { children?: SceneChild[]; remove?: (obj: unknown) => void };
+  const _viewer = (window as unknown as { __viewer?: { scene?: SceneRef } }).__viewer;
+  const sceneArr = _viewer?.scene?.children;
   if (!sceneArr?.length) return;
+  // Snapshot to avoid mutation-during-iteration (scene.remove modifies children in place).
+  const toRemove = sceneArr.filter(c => c.userData?.creator != null);
   let disposed = 0;
-  for (const child of sceneArr) {
-    if (child.userData?.creator == null) continue;
+  for (const child of toRemove) {
     if (child.geometry && typeof child.geometry.dispose === "function") {
       child.geometry.dispose();
       disposed++;
@@ -245,8 +253,11 @@ function _disposeCreatorGeometryBuffers(): void {
         (child.material as { dispose: () => void }).dispose();
       }
     }
+    // §#88-B: remove from scene so Three.js cannot re-upload geometry during inference.
+    _viewer!.scene!.remove!(child);
+    _disposedCreatorMeshes.push(child);
   }
-  console.info(`[VRAM-DISPOSE] freed GPU buffers for ${disposed} creator-tagged scene objects (THREE.js re-uploads on next render)`);
+  console.info(`[VRAM-DISPOSE] freed GPU buffers + scene.remove() for ${disposed} creator-tagged objects; will re-add post-generate`);
 }
 
 async function recycleModelWorkerIfNeeded(): Promise<void> {
@@ -1693,6 +1704,18 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   selfSpecController.recordTurn(_mtpActive ? _selfSpecAcceptRate : 0);
   console.debug(`[agent] prefill=${Math.round(prefillMs)}ms decode=${Math.round(decodeMs)}ms in=${inputLength} out=${tokensOut} tg=${tgTps.toFixed(1)}t/s mtp=${_mtpActive} self_spec=${_selfSpecDecision.active}(${_selfSpecDecision.reason})`);
   _arc.dispatch({ type: "GENERATE_DONE", turnId }); // §P0-ARC: state → ready
+  // §#88-B: re-add meshes that were removed from scene before generate() to free VRAM.
+  // Three.js re-uploads geometry from CPU arrays on the next render() call, restoring
+  // the scene visually. Clear the array so they are not double-added on the next turn.
+  if (_disposedCreatorMeshes.length > 0) {
+    const _scene = (window as unknown as { __viewer?: { scene?: { add?: (obj: unknown) => void } } })
+      .__viewer?.scene;
+    if (_scene?.add) {
+      for (const _mesh of _disposedCreatorMeshes) _scene.add(_mesh);
+      console.info(`[VRAM-RESTORE] re-added ${_disposedCreatorMeshes.length} creator meshes to scene post-generate`);
+    }
+    _disposedCreatorMeshes.length = 0;
+  }
   const _mtpSuffix = _mtpActive ? " · MTP" : "";
   updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ${tgTps.toFixed(0)} t/s${_mtpSuffix}`);
   recordTurn({
