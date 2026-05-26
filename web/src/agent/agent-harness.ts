@@ -212,6 +212,10 @@ let _visibilityRegistered = false; // register listener once across worker respa
 let _ortSessionRefreshDone = false;      // guards against double-fire
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
+// §#156 Layer 5: GPU health indicator
+type GpuHealthTier = "green" | "yellow" | "red";
+let _gpuHealthTier: GpuHealthTier = "yellow"; // yellow until first LIVE·READY confirmed
+
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
 // Used by the turn-count gate (every MODEL_WORKER_RECYCLE_AFTER turns).
 async function _doPlannedRecycle(reason: string): Promise<void> {
@@ -353,9 +357,14 @@ if (typeof globalThis !== "undefined") {
   (globalThis as any).__loadDrafter = (): Promise<void> => Promise.resolve();
 }
 
+function setGpuHealthTier(tier: GpuHealthTier, label: string): void {
+  _gpuHealthTier = tier;
+  (window as unknown as Record<string, unknown>).__gpuHealth = { tier, label };
+}
+
 function updateBadge(inner: string): void {
   const el = document.getElementById(BADGE_ID);
-  if (el) el.innerHTML = inner;
+  if (el) el.innerHTML = `<span class="gpu-health ${_gpuHealthTier}">●</span> ${inner}`;
 }
 
 // ── Worker lifecycle (#936) ──────────────────────────────────────────────────
@@ -370,6 +379,8 @@ function initWorkerIfNeeded(): Worker {
   // _sessionSuspended must not carry over from a prior worker's dispose-session.
   _ortSessionRefreshDone = false;
   _sessionSuspended = false;
+  // §#156 Layer 5: new worker = loading state until warmup-done confirms GPU healthy.
+  setGpuHealthTier("yellow", "GPU loading");
 
   _inferenceWorker = new Worker(
     new URL("./model-worker.ts", import.meta.url),
@@ -426,6 +437,7 @@ function initWorkerIfNeeded(): Worker {
           const w = window as unknown as Record<string, unknown>;
           w.__agent_warmup_skipped_count = ((w.__agent_warmup_skipped_count as number | undefined) ?? 0) + 1;
         }
+        setGpuHealthTier("green", "GPU healthy");
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · READY`);
         break;
       case "drafter-ready":
@@ -497,12 +509,14 @@ function initWorkerIfNeeded(): Worker {
         console.info(`[VRAM-REFRESH] worker confirmed session-refresh-complete skipped=${msg.skipped ?? false} error=${msg.error ?? "none"}`);
         // §#156: restore badge after visibility-triggered re-init (no resolver was set).
         if (!msg.skipped && !msg.error) {
+          setGpuHealthTier("green", "GPU healthy");
           updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · READY`);
         }
         break;
       case "session-disposed":
         // §#156 Layer 3: worker released ORT sessions due to tab-hidden timer.
         _sessionSuspended = true;
+        setGpuHealthTier("yellow", "Session paused, GPU VRAM freed");
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  PAUSED`);
         console.info("[VRAM-DISPOSE] session disposed — VRAM released (tab hidden >5min)");
         break;
@@ -613,6 +627,7 @@ function initWorkerIfNeeded(): Worker {
             _arc.dispatch({ type: "FATAL_ERROR", error: _fatalMsg }); // sets webgpuFallbackEngaged, bootComplete, modelLoadError
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
             _generateCallbacks.clear();
+            setGpuHealthTier("red", "GPU memory exhausted — refresh to continue");
             updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
             window.dispatchEvent(new CustomEvent("agentmodel:fatal", {
               detail: { reason: "recycle-limit", recycleCount: _arc.recycleCount },
@@ -624,6 +639,7 @@ function initWorkerIfNeeded(): Worker {
           }
           // Normal first recycle (count === 1): respawn worker without warmup (#1377).
           _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "d3d12-oom" }); // → recovering
+          setGpuHealthTier("yellow", "GPU reset, recovering");
           updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
           // §C-recycle-silent (#1394): tag with isD3D12Recycle so chat-panel suppresses
           // the error bubble. Recycle is a background recovery — badge shows ⟳, user retries.
@@ -646,6 +662,7 @@ function initWorkerIfNeeded(): Worker {
         // Non-OOM worker error: fatal path
         _arc.dispatch({ type: "FATAL_ERROR", error: _errMsg }); // #1036 — sets webgpuFallbackEngaged, bootComplete, modelLoadError
         console.error("[gemma] model load failed:", _errMsg); // #1036 DevTools AC1
+        setGpuHealthTier("red", "GPU error — model load failed");
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
         window.dispatchEvent(new CustomEvent("agentmodel:error", { detail: msg.error }));
         for (const [, cb] of _generateCallbacks) cb.reject(new Error(_errMsg));
@@ -686,6 +703,7 @@ function initWorkerIfNeeded(): Worker {
             _arc.dispatch({ type: "FATAL_ERROR", error: _fatalMsg });
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
             _generateCallbacks.clear();
+            setGpuHealthTier("red", "GPU unavailable — refresh to continue");
             updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
             window.dispatchEvent(new CustomEvent("agentmodel:fatal", {
               detail: { reason: "device-lost-recycle-limit", recycleCount: _arc.recycleCount },
@@ -694,6 +712,7 @@ function initWorkerIfNeeded(): Worker {
             setTimeout(() => { _w.terminate(); }, 400);
           } else {
             _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "device-lost-dgpu" }); // → recovering
+            setGpuHealthTier("yellow", "GPU device lost, recovering");
             updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
             for (const [, cb] of _generateCallbacks) {
               const _re = Object.assign(new Error("device-lost: worker recycled"), { isD3D12Recycle: true });
@@ -711,6 +730,7 @@ function initWorkerIfNeeded(): Worker {
   _inferenceWorker.onerror = (e) => {
     _arc.webgpuFallbackEngaged = true; // direct assignment — onerror can fire from any state
     const errMsg = e.message ?? "worker error";
+    setGpuHealthTier("red", "GPU error — worker crashed");
     updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
     for (const [, cb] of _generateCallbacks) cb.reject(new Error(errMsg));
     _generateCallbacks.clear();
@@ -740,6 +760,7 @@ function initWorkerIfNeeded(): Worker {
         // Re-init session if it was disposed while hidden.
         if (_sessionSuspended && _inferenceWorker) {
           _sessionSuspended = false;
+          setGpuHealthTier("yellow", "GPU session restoring");
           updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
           _inferenceWorker.postMessage({ type: "session-refresh" });
           console.info("[VRAM-DISPOSE] tab visible — sending session-refresh to reinitialise");
@@ -1560,6 +1581,7 @@ let _wasmLoading = false;
 async function runWasmBackendTurn(req: AgentRequest): Promise<AgentResponse> {
   if (!_wasmLoading) {
     _wasmLoading = true;
+    setGpuHealthTier("red", "Running on CPU, GPU unavailable");
     updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  WASM · loading…`);
     await loadWasmBackend();
   }
