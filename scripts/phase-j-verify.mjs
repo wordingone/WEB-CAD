@@ -885,6 +885,24 @@ const _evalTimeout = (p) => Promise.race([p.catch(() => null), new Promise(r => 
 const sceneBeforeunloadHooked = await _evalTimeout(evaluate("!!window.__sceneBeforeunloadHooked"));
 const restorePromptShown = await _evalTimeout(evaluate("!!(document.getElementById('restore-prompt') && !document.getElementById('restore-prompt').hidden)"));
 
+// ── §WEB-CAD#62: Brep gate — FZK parametric builder comparison ───────────────
+// Runs server-side (no browser), pure math: builder output vs FZK golden fixtures.
+// Non-gating for `passed` (deployment health gate); surfaces geometric regression
+// as a named field with per-element pass/fail + max_vertex_delta_m.
+
+let brepComparison = null;
+try {
+  const _brepRaw = execSync(
+    "bun --preload ./web/test/setup-dom.ts scripts/brep-gate.ts",
+    { cwd: process.cwd(), encoding: "utf8", timeout: 60000 },
+  );
+  brepComparison = JSON.parse(_brepRaw.trim().split("\n").pop());
+  console.log(`\n[brep-gate] ${brepComparison.pass ? "PASS" : "FAIL"} — ${Object.entries(brepComparison.elements ?? {}).map(([k, v]) => `${k}:${v.pass ? "✓" : `✗(${v.max_vertex_delta_m}m)`}`).join(" ")}`);
+} catch (_brepErr) {
+  console.error(`[brep-gate] FAILED to run: ${_brepErr.message?.slice(0, 200)}`);
+  brepComparison = { pass: false, error: _brepErr.message?.slice(0, 200) };
+}
+
 // ── Write receipt ──────────────────────────────────────────────────────────────
 
 // §#1504: failureBreakdown populated only on FAIL — exposes mechanism without narrative
@@ -950,6 +968,8 @@ const receipt = {
   estimate_drift_detected: estimateDriftDetected,
   estimate_drift_threshold_pct: ESTIMATE_DRIFT_THRESHOLD_PCT,
   failure_breakdown: failureBreakdown,                  // §#1504 — null on PASS, populated on FAIL
+  // §WEB-CAD#62: per-element Brep comparison against FZK golden fixtures. Non-gating for passed.
+  brep_comparison: brepComparison,
   // §#1595-M2: boot-phase timing diagnostic — harness-side + worker-side phase timestamps.
   // All harness_* fields are ms relative to Phase J startMs.
   // All worker_* fields are ms relative to the worker module's _workerStartMs (different epoch).
