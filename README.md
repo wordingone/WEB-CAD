@@ -19,7 +19,9 @@ WEB-CAD is an experimental workbench — not a production replacement for Rhino,
 | **Draw** walls, slabs, columns, stairs, roofs, openings | DSL console or AI agent |
 | **AI CREATE agent** | Type a natural-language prompt; Gemma 4 generates geometry |
 | **Levels / storeys** | Named elevation planes; objects attach to levels |
-| **IFC import/export** | Load or save IFC4 files; round-trip via web-ifc |
+| **NURBS geometry** | Revolve, sweep, loft — NURBS surfaces stored, IFC4 round-trip via `IfcBSplineSurfaceWithKnots` |
+| **Boolean ops** | Union, difference, intersection on any two objects |
+| **IFC import/export** | Load or save IFC4 files; round-trip via web-ifc; NURBS surfaces export as IFC4 B-spline entities |
 | **3D format I/O** | Import: IFC, STEP, GLB/GLTF, OBJ, STL · Export: IFC4, GLB, GLTF, OBJ, STL, STEP, 3DM, USDZ, SVG, DXF, PDF |
 | **BIM-like metadata** | Select any element; sidebar shows IFC class, storey, GUID, layer |
 | **Scene panel** | Hierarchy, format info, element counts |
@@ -85,6 +87,8 @@ See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CO
 ## Stack
 
 - **AI:** Gemma 4 E4B-it (`onnx-community/gemma-4-E4B-it-ONNX`), in-browser via Transformers.js v4 + WebGPU
+- **Spatial SDK:** `web/src/commands/spatial-api.yaml` — typed dispatch contract for all geometry verbs; handler modules under `web/src/handlers/`
+- **NURBS kernel:** custom pure-JS NURBS curves + surfaces (`web/src/nurbs/`) — no WASM dep, fully testable in Bun
 - **Parametric geometry:** [replicad](https://replicad.xyz/) 0.20 (LGPL-2.1) + OpenCascade WASM
 - **IFC:** [web-ifc](https://github.com/ThatOpen/engine_web-ifc) 0.0.77 (MPL-2.0)
 - **3D viewer:** three.js 0.162 (MIT) + OrbitControls
