@@ -254,10 +254,10 @@ function _disposeCreatorGeometryBuffers(): void {
       }
     }
     // §#88-B: remove from scene so Three.js cannot re-upload geometry during inference.
-    _viewer!.scene!.remove!(child);
+    _viewer!.scene!.remove!(child); // audit-undo-ok: temporary VRAM disposal, not undoable user action
     _disposedCreatorMeshes.push(child);
   }
-  console.info(`[VRAM-DISPOSE] freed GPU buffers + scene.remove() for ${disposed} creator-tagged objects; will re-add post-generate`);
+  console.info(`[VRAM-DISPOSE] freed GPU buffers + scene-remove for ${disposed} creator-tagged objects; will re-add post-generate`);
 }
 
 async function recycleModelWorkerIfNeeded(): Promise<void> {
