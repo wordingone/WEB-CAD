@@ -38,7 +38,7 @@ test("can add a panel with a viewport assignment", () => {
   const panels = host.querySelectorAll(".paper-cell");
   expect(panels.length).toBe(1);
   const label = panels[0].querySelector(".paper-cell-label");
-  expect(label?.textContent ?? "").toMatch(/TOP/i);
+  expect(label?.textContent ?? "").toMatch(/PLAN/i);
   // Sanity: getPanels reflects state.
   const ps = getPanels(host);
   expect(ps.length).toBe(1);

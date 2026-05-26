@@ -49,12 +49,12 @@ export type ViewportId =
   | "perspective" | "axonometric";
 
 export const VIEWPORT_LABELS: Record<ViewportId, string> = {
-  top:          "TOP",
-  bottom:       "BOTTOM",
-  front:        "FRONT",
-  back:         "BACK",
-  left:         "LEFT",
-  right:        "RIGHT",
+  top:          "PLAN",
+  bottom:       "CEILING PLAN",
+  front:        "SOUTH ELEVATION",
+  back:         "NORTH ELEVATION",
+  left:         "WEST ELEVATION",
+  right:        "EAST ELEVATION",
   perspective:  "PERSPECTIVE",
   axonometric:  "AXONOMETRIC",
 };

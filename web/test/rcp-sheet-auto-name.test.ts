@@ -69,7 +69,7 @@ describe("RCP sheet initial sync", () => {
     expect(getRcpLinkedLevelIdForSheet(host, rcpSheet.id)).toBe("level/0");
   });
 
-  test("both plan and RCP sheets exist alongside the 4 preset sheets", () => {
+  test("both plan and RCP sheets exist alongside the 7 static sheets", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     const planSheets = c.sheets.filter(s => s.name.startsWith("Plan:"));
@@ -77,7 +77,8 @@ describe("RCP sheet initial sync", () => {
     const other = c.sheets.filter(s => !s.name.startsWith("Plan:") && !s.name.startsWith("RCP:"));
     expect(planSheets.length).toBe(1);
     expect(rcpSheets.length).toBe(1);
-    expect(other.length).toBe(4); // perspective, axonometric, section, elevation
+    // Roof Plan + 4 elevations + 2 sections = 7 static sheets
+    expect(other.length).toBe(7);
   });
 });
 
