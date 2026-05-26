@@ -115,13 +115,14 @@ export function registerDatumHandlers(viewer: Viewer): void {
   registerHandler("setActiveLevel", (args) => {
     const id = args.id as string | undefined;
     if (!id) return { error: "id required" };
-    const level = levelStore.get(id);
+    // §#16: accept both programmatic id ("level/1") and display name ("Level 2") — model may send either
+    const level = levelStore.get(id) ?? levelStore.all().find(l => l.name === id);
     if (!level) return { error: `level not found: ${id}` };
     if (level.locked) return { status: "error", detail: `level ${level.name} is locked` };
-    const ok = levelStore.setActive(id);
-    if (!ok) return { error: `level not found: ${id}` };
+    const ok = levelStore.setActive(level.id);
+    if (!ok) return { error: `level not found: ${level.id}` };
     syncLevelOpacities(viewer);
-    return { ok: true, activeLevel: id, elevation: level.elevation };
+    return { ok: true, activeLevel: level.id, elevation: level.elevation };
   });
 
   registerHandler("setLevelVisible", (args) => {
