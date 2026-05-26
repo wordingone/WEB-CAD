@@ -365,6 +365,12 @@ function updateBadge(inner: string): void {
 function initWorkerIfNeeded(): Worker {
   if (_inferenceWorker) return _inferenceWorker;
 
+  // §#156 Layer 4: reset per-worker-lifetime flags on each new spawn.
+  // _ortSessionRefreshDone was never reset on recycle — T3 refresh only fired once per session.
+  // _sessionSuspended must not carry over from a prior worker's dispose-session.
+  _ortSessionRefreshDone = false;
+  _sessionSuspended = false;
+
   _inferenceWorker = new Worker(
     new URL("./model-worker.ts", import.meta.url),
     { type: "module" },
