@@ -60,7 +60,8 @@ class DrawingLayerStore {
   }
 
   setActive(id: string): void {
-    if (this._layers.has(id)) this._activeId = id;
+    if (!this._layers.has(id) || this._activeId === id) return;
+    this._activeId = id;
     this._notify();
     _save(this);
   }

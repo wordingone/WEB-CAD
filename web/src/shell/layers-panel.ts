@@ -50,7 +50,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
   const colHdr = el("div");
   colHdr.style.cssText = [
     "display:grid",
-    "grid-template-columns:16px 16px 16px 1fr 40px 60px 36px 16px",
+    "grid-template-columns:16px 16px 16px 1fr 40px 72px 36px 16px",
     "gap:2px", "padding:2px 8px",
     "border-bottom:1px solid var(--hairline)",
     "background:var(--paper-2)",
@@ -80,7 +80,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
       const row = el("div", "", { "data-layer-id": layer.id });
       row.style.cssText = [
         "display:grid",
-        "grid-template-columns:16px 16px 16px 1fr 40px 60px 36px 16px",
+        "grid-template-columns:16px 16px 16px 1fr 40px 72px 36px 16px",
         "gap:2px", "align-items:center", "padding:2px 8px",
         "border-bottom:1px solid var(--hairline)",
         "min-height:26px", "cursor:pointer",
@@ -180,12 +180,24 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
         nameEl.replaceWith(input);
         input.focus();
         input.select();
-        const commit = (): void => { drawingLayerStore.rename(layer.id, input.value); };
-        input.addEventListener("blur", commit);
+        let done = false;
+        const commit = (): void => {
+          if (done) return;
+          done = true;
+          const v = input.value.trim();
+          drawingLayerStore.rename(layer.id, v || layer.name);
+        };
+        const cancel = (): void => {
+          if (done) return;
+          done = true;
+          input.replaceWith(nameEl);
+        };
+        input.addEventListener("blur", () => { if (!done) commit(); });
         input.addEventListener("keydown", (ke) => {
-          if (ke.key === "Enter") { commit(); input.blur(); }
-          if (ke.key === "Escape") input.blur();
+          if (ke.key === "Enter") { ke.preventDefault(); commit(); }
+          else if (ke.key === "Escape") { ke.stopPropagation(); cancel(); input.blur(); }
         });
+        input.addEventListener("click", (ce) => ce.stopPropagation());
       });
 
       // Delete button
