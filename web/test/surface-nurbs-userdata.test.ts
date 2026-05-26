@@ -1,0 +1,89 @@
+// Regression net for #30 G6: SdRevolve / SdSweep / SdLoft preserve NurbsSurface in userData.
+//
+// Tests the dispatch path: registerSketchHandlers → dispatch → mesh.userData.nurbsSurface.
+import { describe, test, expect, beforeEach } from "bun:test";
+import * as THREE from "three";
+import type { Viewer } from "../src/viewer/viewer";
+import { registerSketchHandlers } from "../src/handlers/sketch";
+import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
+import type { Surface } from "../src/nurbs/nurbs-surfaces";
+
+// Minimal mock viewer: captures the last mesh passed to addMesh.
+function makeViewer(): { viewer: Viewer; lastMesh: () => THREE.Object3D | null } {
+  let _last: THREE.Object3D | null = null;
+  const v = {
+    addMesh(m: THREE.Object3D) { _last = m; },
+    getScene() { return new THREE.Scene(); },
+  } as unknown as Viewer;
+  return { viewer: v, lastMesh: () => _last };
+}
+
+beforeEach(() => {
+  ["SdRevolve", "SdSweep", "SdLoft"].forEach(v => unregisterHandler(v));
+});
+
+type OkResult = { ok: true; canonical: string; result: { created: string } };
+
+describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
+  test("revolve mesh has userData.nurbsSurface after dispatch", () => {
+    const { viewer, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdRevolve", {
+      profile: { kind: "line", from: [2, 0, 0], to: [2, 0, 3] },
+      axisFrom: [0, 0, 0],
+      axisTo:   [0, 0, 1],
+      angleStart: 0,
+      angleEnd:   Math.PI * 2,
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("revolution");
+    const mesh = lastMesh()!;
+    expect(mesh).not.toBeNull();
+    const s = mesh.userData.nurbsSurface as Surface;
+    expect(s).toBeDefined();
+    expect(typeof s.kind).toBe("string");
+    expect(mesh.userData.nurbsKind).toBe("surface");
+  });
+});
+
+describe("G6 — SdSweep preserves nurbsSurface in userData", () => {
+  test("sweep mesh has userData.nurbsSurface after dispatch", () => {
+    const { viewer, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdSweep", {
+      profile: { kind: "line", from: [0, 0, 0], to: [0, 1, 0] },
+      rail:    { kind: "line", from: [0, 0, 0], to: [5, 0, 0] },
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("sweep");
+    const mesh = lastMesh()!;
+    const s = mesh.userData.nurbsSurface as Surface;
+    expect(s).toBeDefined();
+    expect(mesh.userData.nurbsKind).toBe("surface");
+  });
+});
+
+describe("G6 — SdLoft preserves nurbsSurface in userData", () => {
+  test("loft mesh has userData.nurbsSurface after dispatch", () => {
+    const { viewer, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdLoft", {
+      curves: [
+        { kind: "line", from: [0, 0, 0], to: [4, 0, 0] },
+        { kind: "line", from: [0, 0, 3], to: [4, 0, 3] },
+      ],
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("loft");
+    const mesh = lastMesh()!;
+    const s = mesh.userData.nurbsSurface as Surface;
+    expect(s).toBeDefined();
+    expect(mesh.userData.nurbsKind).toBe("surface");
+  });
+});
