@@ -135,5 +135,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome.
 
 ## License
 
-CC BY 4.0 — see [`LICENSE`](LICENSE).  
-Stack licenses: replicad LGPL-2.1, web-ifc MPL-2.0, three.js MIT. All compatible with the CC BY 4.0 app license for deployment.
+[Source-Available](LICENSE) — see [`LICENSE`](LICENSE) for full terms.  
+Stack licenses: replicad LGPL-2.1, web-ifc MPL-2.0, three.js MIT.
