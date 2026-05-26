@@ -9,11 +9,26 @@ import type { SnapVertex } from "../viewer/snap-state";
 import { initWallCorners } from "./wall-corners";
 import { levelStore } from "../geometry/levels";
 import { refLineStore } from "../geometry/ref-lines";
+import type { SumSurface } from "../nurbs/nurbs-surfaces.js";
+import type { LineCurve } from "../nurbs/nurbs-curves.js";
+import { Interval as Iv } from "../nurbs/nurbs-primitives.js";
 import { STAIR_STEP_RISE as DEFAULT_STAIR_RISE, STAIR_STEP_DEPTH as DEFAULT_STAIR_TREAD, STAIR_WIDTH as DEFAULT_STAIR_WIDTH } from "./dimensions";
 
 // Module-level viewer reference (set during initCreateMode).
 let _viewer: Viewer | null = null;
 export function setStructuralViewer(v: Viewer | null): void { _viewer = v; }
+
+// §WEB-CAD#30 G5: SumSurface helper — two LineCurves from a corner point.
+// Represents one rectangular face of an extruded solid in local (mesh-relative) coords.
+function _sumSurface(
+  bx: number, by: number, bz: number,
+  ux: number, uy: number, uz: number, uLen: number,
+  vx: number, vy: number, vz: number, vLen: number,
+): SumSurface {
+  const cU: LineCurve = { kind: "line", from: { x: 0, y: 0, z: 0 }, to: { x: ux * uLen, y: uy * uLen, z: uz * uLen }, domain: Iv.create(0, uLen) };
+  const cV: LineCurve = { kind: "line", from: { x: 0, y: 0, z: 0 }, to: { x: vx * vLen, y: vy * vLen, z: vz * vLen }, domain: Iv.create(0, vLen) };
+  return { kind: "sum", curveU: cU, curveV: cV, basepoint: { x: bx, y: by, z: bz } };
+}
 
 // Default heights / sizes — IBC residential compliance (R311, R305).
 export const DEFAULT_WALL_HEIGHT = 3;
@@ -149,6 +164,9 @@ export function buildWall(a: { x: number; y: number }, b: { x: number; y: number
   ] as SnapVertex[];
   // Initialize corners to rectangular defaults; attemptWallCornerJoins will update them.
   initWallCorners(mesh);
+  // §WEB-CAD#30 G5: front face SumSurface in local coords (before rotation.z is applied).
+  mesh.userData.nurbsSurface = _sumSurface(-len / 2, t / 2, 0,  1, 0, 0, len,  0, 0, 1, h);
+  mesh.userData.nurbsKind = "surface";
   const chain = `const wall = makeBox(${round(len)}, ${round(t)}, ${round(h)}).rotate(${round(angDeg)}, [0, 0, 0], [0, 0, 1]).translate([${round(cx)}, ${round(cy)}, 0]);`;
 
   return { mesh, chain };
@@ -255,6 +273,9 @@ export function buildSlab(a: { x: number; y: number }, b: { x: number; y: number
     { x: b.x, y: b.y, z: 0, id: makeSnapId(b.x, b.y, 0) },
     { x: a.x, y: b.y, z: 0, id: makeSnapId(a.x, b.y, 0) },
   ];
+  // §WEB-CAD#30 G5: top face SumSurface in local coords.
+  mesh.userData.nurbsSurface = _sumSurface(-w / 2, -d / 2, t,  1, 0, 0, w,  0, 1, 0, d);
+  mesh.userData.nurbsKind = "surface";
   const chain = `const slab = drawRectangle(${round(w)}, ${round(d)}).sketchOnPlane("XY").extrude(${round(t)}).translate([${round(cx)}, ${round(cy)}, 0]);`;
   return { mesh, chain };
 }
@@ -273,6 +294,9 @@ export function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; ch
   mesh.userData.endpoints = [
     { x: p.x, y: p.y, z: 0, id: makeSnapId(p.x, p.y, 0) },
   ];
+  // §WEB-CAD#30 G5: front face SumSurface in local coords.
+  mesh.userData.nurbsSurface = _sumSurface(-s / 2, s / 2, 0,  1, 0, 0, s,  0, 0, 1, h);
+  mesh.userData.nurbsKind = "surface";
   const chain = `const col = drawRectangle(${round(s)}, ${round(s)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(p.x)}, ${round(p.y)}, 0]);`;
   return { mesh, chain };
 }
@@ -1656,6 +1680,9 @@ export function buildBox(
   mesh.position.set(cx, cy, 0);
   mesh.userData.kind = "brep";
   mesh.userData.creator = "box";
+  // §WEB-CAD#30 G5: bottom face SumSurface in local coords.
+  mesh.userData.nurbsSurface = _sumSurface(-w / 2, -d / 2, 0,  1, 0, 0, w,  0, 1, 0, d);
+  mesh.userData.nurbsKind = "surface";
   const chain = `const box = drawRectangle(${round(w)}, ${round(d)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(cx)}, ${round(cy)}, 0]);`;
   return { mesh, chain };
 }
@@ -1672,6 +1699,9 @@ export function buildExtrude(base: { x: number; y: number }, top: { x: number; y
   mesh.position.set(base.x, base.y, 0);
   mesh.userData.kind = "brep";
   mesh.userData.creator = "extrude";
+  // §WEB-CAD#30 G5: front face SumSurface in local coords.
+  mesh.userData.nurbsSurface = _sumSurface(-s / 2, s / 2, 0,  1, 0, 0, s,  0, 0, 1, h);
+  mesh.userData.nurbsKind = "surface";
   const chain = `const ext = drawRectangle(${round(s)}, ${round(s)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(base.x)}, ${round(base.y)}, 0]);`;
   return { mesh, chain };
 }
