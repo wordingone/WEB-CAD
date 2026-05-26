@@ -1,11 +1,11 @@
-﻿// Op-tool state machine â€” extrude, boolean, fillet, annotations, selection modes.
+﻿// Op-tool state machine — extrude, boolean, fillet, annotations, selection modes.
 // Extracted from create-mode.ts (#723).
-// Does NOT import from selection-ops.ts â€” runPolySel/overlay fns injected via registerOpToolHooks.
+// Does NOT import from selection-ops.ts — runPolySel/overlay fns injected via registerOpToolHooks.
 //
 // Pure geometry helpers extracted to sub-modules (#75):
-//   op-tool-extrude-mesh.ts â€” constants, snap helpers, opBuildExtrudeMesh, opRaycastObject
-//   op-tool-bool-highlight.ts â€” applyBoolHighlight / restoreBoolHighlight
-//   op-tool-fillet-2d.ts     â€” opApply2DFillet
+//   op-tool-extrude-mesh.ts — constants, snap helpers, opBuildExtrudeMesh, opRaycastObject
+//   op-tool-bool-highlight.ts — applyBoolHighlight / restoreBoolHighlight
+//   op-tool-fillet-2d.ts     — opApply2DFillet
 
 import * as THREE from "three";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "./csg";
@@ -184,7 +184,7 @@ export function opFinish(viewer: Viewer, resetTool = true): void {
   _hooks.removeSelOverlay();
   _rawChooserDefault = null;
   _selDragging = false;
-  // sel_window / sel_lasso commit multi-select into state â€” don't deselect.
+  // sel_window / sel_lasso commit multi-select into state — don't deselect.
   // All other op tools (extrude, boolean, fillet, dim) should clear the active target on finish.
   if (_finishedKind !== "sel_window" && _finishedKind !== "sel_lasso") {
     viewer.deselectCurrent();
@@ -327,11 +327,11 @@ export function opUpdateFilletEdge(viewer: Viewer, clientX: number, clientY: num
     if (!pos || pos.count < 3) { opClearPreview(viewer); _opHoverEdgePts = null; _opHoverCornerPts = null; return; }
     const mat4 = phase.target.matrixWorld;
 
-    // LineLoop (rect/polygon/circle): every vertex is a corner â€” include all.
+    // LineLoop (rect/polygon/circle): every vertex is a corner — include all.
     // Open Line: first and last are endpoints; skip them.
     const isLoop = phase.target instanceof THREE.LineLoop;
     let bestIdx = -1;
-    let bestDist = 64; // px â€” wider search radius than regular snap for corners
+    let bestDist = 64; // px — wider search radius than regular snap for corners
     for (let i = (isLoop ? 0 : 1); i < (isLoop ? pos.count : pos.count - 1); i++) {
       const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(mat4);
       const sc = projectToScreen(viewer, v.x, v.y, v.z);
@@ -380,7 +380,7 @@ export function opUpdateFilletEdge(viewer: Viewer, clientX: number, clientY: num
   const uniqueLocal = getUniqueEdges(meshTarget);
 
   let bestEdge: [THREE.Vector3, THREE.Vector3] | null = null;
-  let bestDist = 60; // px â€” only highlight if cursor is within this range
+  let bestDist = 60; // px — only highlight if cursor is within this range
 
   for (const [la, lb] of uniqueLocal) {
     const wa = la.clone().applyMatrix4(mat4);
@@ -442,6 +442,20 @@ export function opPhaseIsObjectSelect(phase: OpPhase): boolean {
       return true;
     case "dim_a":
       return phase.tool === "volume-dim";
+    default:
+      return false;
+  }
+}
+
+export function opPhaseIsCurveSelect(phase: OpPhase): boolean {
+  switch (phase.kind) {
+    case "loft_curve1":
+    case "loft_curve2":
+    case "sweep_rail":
+    case "sweep_profile":
+    case "revolve_profile":
+    case "surface_pick":
+      return true;
     default:
       return false;
   }
@@ -549,7 +563,7 @@ export function opUpdateExtrudePreview(viewer: Viewer, clientX: number, clientY:
   _opPreview = mesh;
   viewer.getScene().add(mesh);
   const snapTag = shiftKey ? `  [grid snap ${formatLength(getSnap().step)}]` : "";
-  ptPrompt(`Extrude height â€” ${formatLength(h)} â€” click to commit  [Escape = cancel]${snapTag}`);
+  ptPrompt(`Extrude height — ${formatLength(h)} — click to commit  [Escape = cancel]${snapTag}`);
 }
 
 // Ghost preview shown while hovering a profile during extrude_select phase.
@@ -585,7 +599,7 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
   restoreBoolHighlight(objA); restoreBoolHighlight(objB);
 
   if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh)) {
-    ptPrompt("Boolean â€” both objects must be solid meshes, not curves or points");
+    ptPrompt("Boolean — both objects must be solid meshes, not curves or points");
     setTimeout(() => ptClearPrompt(), 2000);
     opFinish(viewer); return;
   }
@@ -605,13 +619,13 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
     else if (op === "difference") result = csgDifference(mA, mB, mat);
     else                          result = csgIntersection(mA, mB, mat);
   } catch {
-    ptPrompt("Boolean failed â€” geometry may be non-manifold. Try extruding simpler profiles.");
+    ptPrompt("Boolean failed — geometry may be non-manifold. Try extruding simpler profiles.");
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
 
   if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0) {
-    ptPrompt("Boolean produced no geometry â€” ensure the two solids overlap in 3D.");
+    ptPrompt("Boolean produced no geometry — ensure the two solids overlap in 3D.");
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
@@ -668,7 +682,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     // extrude/boolean/brep results). Prevents accidentally extruding large structural
     // elements (walls, slabs) that share the scene floor level.
     const hit = opRaycastObject(viewer, clientX, clientY, true);
-    if (!hit) { ptPrompt("Extrude â€” click a profile curve, solid, or surface  [Escape = cancel]"); return true; }
+    if (!hit) { ptPrompt("Extrude — click a profile curve, solid, or surface  [Escape = cancel]"); return true; }
     const creator = (hit.obj.userData.creator as string | undefined) ?? "";
     const box = new THREE.Box3().setFromObject(hit.obj);
     const size = new THREE.Vector3(); box.getSize(size);
@@ -679,7 +693,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     // the user can confirm which object was selected.
     opSetHover(hit.obj);
     _opPhase = { kind: "extrude_height", profile: hit.obj, cx: ctr.x, cy: ctr.y, w: size.x, d: size.y };
-    ptPrompt(`Extrude height â€” profile: ${creator} â€” move cursor up/down to set height, click to commit  [Escape = cancel]`);
+    ptPrompt(`Extrude height — profile: ${creator} — move cursor up/down to set height, click to commit  [Escape = cancel]`);
     return true;
   }
 
@@ -702,20 +716,20 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "loft_curve1") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line)) {
-      ptPrompt("Loft â€” click first profile curve  [Escape = cancel]");
+      ptPrompt("Loft — click first profile curve  [Escape = cancel]");
       return true;
     }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
     _opPhase = { kind: "loft_curve2", curve1: hit.obj as THREE.Line };
-    ptPrompt(`Loft â€” curve 1 selected (${hit.obj.userData.creator ?? "line"}) â€” click second profile curve  [Escape = cancel]`);
+    ptPrompt(`Loft — curve 1 selected (${hit.obj.userData.creator ?? "line"}) — click second profile curve  [Escape = cancel]`);
     return true;
   }
 
   if (phase.kind === "loft_curve2") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line) || hit.obj === phase.curve1) {
-      ptPrompt("Loft â€” click a different profile curve for the second rail  [Escape = cancel]");
+      ptPrompt("Loft — click a different profile curve for the second rail  [Escape = cancel]");
       return true;
     }
     // Extract polyline point arrays from both curve geometries.
@@ -731,7 +745,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const pts1 = extractPts(phase.curve1);
     const pts2 = extractPts(hit.obj as THREE.Line);
     if (pts1.length < 2 || pts2.length < 2) {
-      ptPrompt("Loft â€” selected curves have insufficient points  [Escape = cancel]");
+      ptPrompt("Loft — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
@@ -747,20 +761,20 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "sweep_rail") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line)) {
-      ptPrompt("Sweep â€” click the path/rail curve  [Escape = cancel]");
+      ptPrompt("Sweep — click the path/rail curve  [Escape = cancel]");
       return true;
     }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
     _opPhase = { kind: "sweep_profile", rail: hit.obj as THREE.Line };
-    ptPrompt(`Sweep â€” rail selected (${hit.obj.userData.creator ?? "line"}) â€” click profile curve  [Escape = cancel]`);
+    ptPrompt(`Sweep — rail selected (${hit.obj.userData.creator ?? "line"}) — click profile curve  [Escape = cancel]`);
     return true;
   }
 
   if (phase.kind === "sweep_profile") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line) || hit.obj === phase.rail) {
-      ptPrompt("Sweep â€” click a different curve for the profile  [Escape = cancel]");
+      ptPrompt("Sweep — click a different curve for the profile  [Escape = cancel]");
       return true;
     }
     const extractPts = (line: THREE.Line): number[][] => {
@@ -775,7 +789,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const railPts    = extractPts(phase.rail);
     const profilePts = extractPts(hit.obj as THREE.Line);
     if (railPts.length < 2 || profilePts.length < 2) {
-      ptPrompt("Sweep â€” selected curves have insufficient points  [Escape = cancel]");
+      ptPrompt("Sweep — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
@@ -791,7 +805,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "revolve_profile") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line)) {
-      ptPrompt("Revolve â€” click a profile curve  [Escape = cancel]");
+      ptPrompt("Revolve — click a profile curve  [Escape = cancel]");
       return true;
     }
     opSetHover(null);
@@ -803,14 +817,14 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       profilePts.push([v.x, v.y, v.z]);
     }
     _opPhase = { kind: "revolve_axis_a", profilePts };
-    ptPrompt(`Revolve â€” profile selected (${hit.obj.userData.creator ?? "line"}) â€” click first axis point  [Escape = cancel]`);
+    ptPrompt(`Revolve — profile selected (${hit.obj.userData.creator ?? "line"}) — click first axis point  [Escape = cancel]`);
     return true;
   }
 
   if (phase.kind === "revolve_axis_a") {
     if (!snapped3) return true;
     _opPhase = { kind: "revolve_axis_b", profilePts: phase.profilePts, axisFrom: snapped3.clone() };
-    ptPrompt("Revolve â€” click second axis point to define revolution axis  [Escape = cancel]");
+    ptPrompt("Revolve — click second axis point to define revolution axis  [Escape = cancel]");
     return true;
   }
 
@@ -818,7 +832,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!snapped3) return true;
     const { profilePts, axisFrom } = phase;
     if (axisFrom.distanceTo(snapped3) < 0.001) {
-      ptPrompt("Revolve â€” axis points are too close together, click a different second point  [Escape = cancel]");
+      ptPrompt("Revolve — axis points are too close together, click a different second point  [Escape = cancel]");
       return true;
     }
     const result = dispatchSync("SdRevolve", {
@@ -838,18 +852,18 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "plane_pt1") {
     if (!snapped3) return true;
     _opPhase = { kind: "plane_pt2", origin: snapped3.clone() };
-    ptPrompt("Plane â€” click point along width edge  [Escape = cancel]");
+    ptPrompt("Plane — click point along width edge  [Escape = cancel]");
     return true;
   }
 
   if (phase.kind === "plane_pt2") {
     if (!snapped3) return true;
     if (snapped3.distanceTo(phase.origin) < 0.001) {
-      ptPrompt("Plane â€” points too close, pick a different point  [Escape = cancel]");
+      ptPrompt("Plane — points too close, pick a different point  [Escape = cancel]");
       return true;
     }
     _opPhase = { kind: "plane_pt3", origin: phase.origin, xAxis: snapped3.clone() };
-    ptPrompt("Plane â€” click point along height edge  [Escape = cancel]");
+    ptPrompt("Plane — click point along height edge  [Escape = cancel]");
     return true;
   }
 
@@ -857,7 +871,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!snapped3) return true;
     const { origin, xAxis } = phase;
     if (snapped3.distanceTo(origin) < 0.001 || snapped3.distanceTo(xAxis) < 0.001) {
-      ptPrompt("Plane â€” point too close to previous, pick a different point  [Escape = cancel]");
+      ptPrompt("Plane — point too close to previous, pick a different point  [Escape = cancel]");
       return true;
     }
     const result = dispatchSync("SdPlane", {
@@ -876,7 +890,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "surface_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY);
     if (!hit || !(hit.obj instanceof THREE.Line)) {
-      ptPrompt("Surface â€” click a closed curve to fill  [Escape = cancel]");
+      ptPrompt("Surface — click a closed curve to fill  [Escape = cancel]");
       return true;
     }
     opSetHover(null);
@@ -888,7 +902,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       pts.push([v.x, v.y, v.z]);
     }
     if (pts.length < 3) {
-      ptPrompt("Surface â€” selected curve has insufficient points  [Escape = cancel]");
+      ptPrompt("Surface — selected curve has insufficient points  [Escape = cancel]");
       return true;
     }
     const result = dispatchSync("SdSurface", { profile: { points: pts } }) as { error?: string } | null;
@@ -904,12 +918,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "brep_explode_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Explode â€” click a group or solid to decompose  [Escape = cancel]"); return true; }
+    if (!hit) { ptPrompt("Explode — click a group or solid to decompose  [Escape = cancel]"); return true; }
     const obj = hit.obj;
     opSetHover(null);
     if (obj instanceof THREE.Group) {
       const children = [...obj.children];
-      if (children.length === 0) { ptPrompt("Explode â€” group is empty  [Escape = cancel]"); return true; }
+      if (children.length === 0) { ptPrompt("Explode — group is empty  [Escape = cancel]"); return true; }
       const scene = viewer.getScene();
       scene.remove(obj);
       for (const child of children) {
@@ -919,7 +933,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       }
       pushReplaceAction(children[0], [obj], "explode");
     } else {
-      ptPrompt("Explode â€” select a Group object to explode  [Escape = cancel]");
+      ptPrompt("Explode — select a Group object to explode  [Escape = cancel]");
       return true;
     }
     opFinish(viewer);
@@ -928,17 +942,17 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "brep_join_a") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Join â€” click first object  [Escape = cancel]"); return true; }
+    if (!hit) { ptPrompt("Join — click first object  [Escape = cancel]"); return true; }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
     _opPhase = { kind: "brep_join_b", objA: hit.obj };
-    ptPrompt(`Join â€” first selected (${hit.obj.userData.creator ?? "object"}) â€” click second object  [Escape = cancel]`);
+    ptPrompt(`Join — first selected (${hit.obj.userData.creator ?? "object"}) — click second object  [Escape = cancel]`);
     return true;
   }
 
   if (phase.kind === "brep_join_b") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit || hit.obj === phase.objA) { ptPrompt("Join â€” click a different second object  [Escape = cancel]"); return true; }
+    if (!hit || hit.obj === phase.objA) { ptPrompt("Join — click a different second object  [Escape = cancel]"); return true; }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
     const grp = new THREE.Group();
@@ -958,16 +972,16 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "brep_rebuild_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Rebuild â€” click a curve to rebuild  [Escape = cancel]"); return true; }
+    if (!hit) { ptPrompt("Rebuild — click a curve to rebuild  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
     if (!(obj instanceof THREE.Line)) {
-      ptPrompt("Rebuild â€” click a curve (line/spline) object  [Escape = cancel]");
+      ptPrompt("Rebuild — click a curve (line/spline) object  [Escape = cancel]");
       return true;
     }
     const cps = obj.userData.controlPoints as Array<{ x: number; y: number; z?: number }> | undefined;
     if (!cps || cps.length < 2) {
-      ptPrompt("Rebuild â€” curve has no stored control points  [Escape = cancel]");
+      ptPrompt("Rebuild — curve has no stored control points  [Escape = cancel]");
       return true;
     }
     // Re-tessellate with 4Ã— the current sample count.
@@ -1000,11 +1014,11 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "brep_contour_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Contour â€” click a solid or mesh  [Escape = cancel]"); return true; }
+    if (!hit) { ptPrompt("Contour — click a solid or mesh  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
     const bbox = new THREE.Box3().setFromObject(obj);
-    if (bbox.isEmpty()) { ptPrompt("Contour â€” selected object has no bounds  [Escape = cancel]"); return true; }
+    if (bbox.isEmpty()) { ptPrompt("Contour — selected object has no bounds  [Escape = cancel]"); return true; }
     const zRange = bbox.max.z - bbox.min.z;
     const planeCount = 5;
     const step = zRange / (planeCount + 1);
@@ -1033,7 +1047,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "bool_a") {
     const hit = opRaycastObject(viewer, clientX, clientY);
-    if (!hit) { ptPrompt("Boolean â€” click first solid  (2D closed sketches auto-extrude to 3 m)"); return true; }
+    if (!hit) { ptPrompt("Boolean — click first solid  (2D closed sketches auto-extrude to 3 m)"); return true; }
     let objA: THREE.Object3D = hit.obj;
     if (!(objA instanceof THREE.Mesh)) {
       const cr = objA.userData.creator as string | undefined;
@@ -1048,7 +1062,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
         pushReplaceAction(extruded, [objA], "extrude");
         objA = extruded;
       } else {
-        ptPrompt("Boolean needs 3D solids â€” open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
         return true;
       }
     }
@@ -1057,15 +1071,15 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     applyBoolHighlight(mA, 0x003399);
     _opPhase = { kind: "bool_b", objA, presetOp: phase.presetOp };
     const bPrompt = phase.presetOp
-      ? `${phase.presetOp === "split" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} â€” click second solid (A highlighted)`
-      : "Boolean â€” click the second solid (first highlighted in blue)";
+      ? `${phase.presetOp === "split" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} — click second solid (A highlighted)`
+      : "Boolean — click the second solid (first highlighted in blue)";
     ptPrompt(bPrompt);
     return true;
   }
 
   if (phase.kind === "bool_b") {
     const hit = opRaycastObject(viewer, clientX, clientY);
-    if (!hit || hit.obj === phase.objA) { ptPrompt("Boolean â€” click a different second solid"); return true; }
+    if (!hit || hit.obj === phase.objA) { ptPrompt("Boolean — click a different second solid"); return true; }
     let objB: THREE.Object3D = hit.obj;
     if (!(objB instanceof THREE.Mesh)) {
       const cr = objB.userData.creator as string | undefined;
@@ -1080,7 +1094,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
         pushReplaceAction(extruded, [objB], "extrude");
         objB = extruded;
       } else {
-        ptPrompt("Boolean needs 3D solids â€” open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
         return true;
       }
     }
@@ -1092,7 +1106,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     } else {
       _opPhase = { kind: "bool_op", objA: phase.objA, objB };
       opShowBoolChooser(viewer, phase.objA, objB);
-      ptPrompt("Boolean â€” choose operation");
+      ptPrompt("Boolean — choose operation");
     }
     return true;
   }
@@ -1103,18 +1117,18 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "fillet_select") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Fillet â€” click a solid or a polyline/curve"); return true; }
+    if (!hit) { ptPrompt("Fillet — click a solid or a polyline/curve"); return true; }
     if (!(hit.obj instanceof THREE.Mesh) && !(hit.obj instanceof THREE.Line)) {
-      ptPrompt("Fillet â€” click a solid mesh or 2D polyline/curve");
+      ptPrompt("Fillet — click a solid mesh or 2D polyline/curve");
       return true;
     }
     opSetHover(null);
     if (hit.obj instanceof THREE.Mesh) {
       _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Mesh };
-      ptPrompt("Fillet â€” hover an edge to highlight it, click to select");
+      ptPrompt("Fillet — hover an edge to highlight it, click to select");
     } else {
       _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Line };
-      ptPrompt("Fillet â€” hover a corner vertex to highlight it, click to select");
+      ptPrompt("Fillet — hover a corner vertex to highlight it, click to select");
     }
     return true;
   }
@@ -1122,8 +1136,8 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "fillet_edge") {
     if (!_opHoverEdgePts) {
       ptPrompt(phase.target instanceof THREE.Line
-        ? "Fillet â€” move cursor over a corner vertex first, then click"
-        : "Fillet â€” move cursor over an edge first, then click");
+        ? "Fillet — move cursor over a corner vertex first, then click"
+        : "Fillet — move cursor over an edge first, then click");
       return true;
     }
     const [edgeA, edgeB] = _opHoverEdgePts;
@@ -1133,7 +1147,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     _opHoverCornerPts = null;
     opSetHover(null);
     _opPhase = { kind: "fillet_edge_radius", target: phase.target, edgeA, edgeB, cornerV };
-    ptPrompt("Fillet radius â€” type a value and press Enter");
+    ptPrompt("Fillet radius — type a value and press Enter");
     ptShowCoordInput("radius");
     // Sync focus so keypresses (e.g. "1") go to the input immediately, not to nav shortcuts.
     _ptCoordInputEl?.focus({ preventScroll: true });
@@ -1147,7 +1161,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "label_pick") {
     if (!snapped3) return true;
     _opPhase = { kind: "label_text", pt: snapped3 };
-    ptPrompt("Label â€” type text and press Enter");
+    ptPrompt("Label — type text and press Enter");
     ptShowCoordInput("label text");
     return true;
   }
@@ -1155,7 +1169,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "tmeasure_a") {
     if (!snapped3) return true;
     _opPhase = { kind: "tmeasure_b", ptA: snapped3 };
-    ptPrompt("Transient Measure â€” click second point");
+    ptPrompt("Transient Measure — click second point");
     return true;
   }
 
@@ -1175,7 +1189,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (phase.tool === "volume-dim") {
       const hit = opRaycastObject(viewer, clientX, clientY);
       const target = hit?.obj ?? null;
-      if (!target) { ptPrompt("Volume â€” click an object to measure"); return true; }
+      if (!target) { ptPrompt("Volume — click an object to measure"); return true; }
       const box = new THREE.Box3().setFromObject(target);
       const size = new THREE.Vector3(); box.getSize(size);
       const vol = size.x * size.y * size.z;
@@ -1186,17 +1200,17 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     if (phase.tool === "area-dim") {
       _opPhase = { kind: "dim_area", tool: "area-dim", pts: [snapped3] };
-      ptPrompt(`Area â€” click more points  [1 point placed, Enter to compute]`);
+      ptPrompt(`Area — click more points  [1 point placed, Enter to compute]`);
       return true;
     }
     if (phase.tool === "aligned-dim") {
       _opPhase = { kind: "dim_b", tool: "aligned-dim", ptA: snapped3 };
-      ptPrompt("Aligned dimension â€” click second point");
+      ptPrompt("Aligned dimension — click second point");
       return true;
     }
     if (phase.tool === "angular-dim") {
       _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: snapped3, ptB: snapped3.clone() };
-      ptPrompt("Angular dimension â€” click first ray point");
+      ptPrompt("Angular dimension — click first ray point");
       return true;
     }
     return true;
@@ -1218,7 +1232,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "dim_c" && snapped3) {
     if (phase.ptA.equals(phase.ptB)) {
       _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: phase.ptA, ptB: snapped3 };
-      ptPrompt("Angular dimension â€” click second ray point");
+      ptPrompt("Angular dimension — click second ray point");
     } else {
       const v1 = phase.ptB.clone().sub(phase.ptA).normalize();
       const v2 = snapped3.clone().sub(phase.ptA).normalize();
@@ -1237,7 +1251,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "dim_area" && snapped3) {
     phase.pts.push(snapped3);
-    ptPrompt(`Area â€” ${phase.pts.length} points placed, Enter to compute or click more`);
+    ptPrompt(`Area — ${phase.pts.length} points placed, Enter to compute or click more`);
     return true;
   }
 
@@ -1260,7 +1274,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "sel_boundary_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY);
-    if (!hit) { ptPrompt("Boundary Select â€” click a closed curve or shape"); return true; }
+    if (!hit) { ptPrompt("Boundary Select — click a closed curve or shape"); return true; }
     const box = new THREE.Box3().setFromObject(hit.obj);
     const corners: [number, number, number][] = [
       [box.min.x, box.min.y, box.min.z], [box.max.x, box.min.y, box.min.z],
@@ -1274,7 +1288,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       _hooks.runPolySel(viewer, poly, "crossing");
       setTimeout(() => { _hooks.removeSelOverlay(); opFinish(viewer); }, 600);
     } else {
-      ptPrompt("Boundary Select â€” could not extract boundary; try a different object");
+      ptPrompt("Boundary Select — could not extract boundary; try a different object");
     }
     return true;
   }
@@ -1304,18 +1318,18 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
         svg.appendChild(cl);
       }
     }
-    ptPrompt(`Boundary Select â€” ${phase.points.length} point${phase.points.length > 1 ? "s" : ""}  [Enter] close & select`);
+    ptPrompt(`Boundary Select — ${phase.points.length} point${phase.points.length > 1 ? "s" : ""}  [Enter] close & select`);
     return true;
   }
 
   if (phase.kind === "copy_select") {
     const hit = opRaycastObject(viewer, clientX, clientY);
-    if (!hit) { ptPrompt("Copy â€” click an object to copy"); return true; }
+    if (!hit) { ptPrompt("Copy — click an object to copy"); return true; }
     opSetHover(null);
     viewer.selectObject(hit.obj);
     const ctr = new THREE.Vector3(); new THREE.Box3().setFromObject(hit.obj).getCenter(ctr);
     _opPhase = { kind: "copy_place", source: hit.obj, srcPt: ctr };
-    ptPrompt("Copy â€” click destination point  or type  dx dy [dz]  [Esc] cancel");
+    ptPrompt("Copy — click destination point  or type  dx dy [dz]  [Esc] cancel");
     ptShowCoordInput("dx dy  or  dx dy dz");
     return true;
   }
@@ -1333,7 +1347,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
 
   if (phase.kind === "array_select") {
     const hit = opRaycastObject(viewer, clientX, clientY);
-    if (!hit) { ptPrompt("Array â€” click an object to array"); return true; }
+    if (!hit) { ptPrompt("Array — click an object to array"); return true; }
     opSetHover(null);
     viewer.selectObject(hit.obj);
     _opPhaseStartArray(hit.obj);
@@ -1343,7 +1357,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "array_linear_base") {
     if (!snapped3) return true;
     _opPhase = { kind: "array_linear_dir", source: phase.source, basePt: snapped3.clone() };
-    ptPrompt("Linear Array â€” click direction + distance endpoint  [Esc] cancel");
+    ptPrompt("Linear Array — click direction + distance endpoint  [Esc] cancel");
     return true;
   }
 
@@ -1352,24 +1366,24 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const dx = round(snapped3.x - phase.basePt.x);
     const dy = round(snapped3.y - phase.basePt.y);
     const dz = round(snapped3.z - phase.basePt.z);
-    if (dx === 0 && dy === 0 && dz === 0) { ptPrompt("Linear Array â€” endpoint must differ from base point"); return true; }
+    if (dx === 0 && dy === 0 && dz === 0) { ptPrompt("Linear Array — endpoint must differ from base point"); return true; }
     _opPhase = { kind: "array_linear_count", source: phase.source, dx, dy, dz };
-    ptPrompt(`Linear Array â€” step (${dx}, ${dy}${dz !== 0 ? `, ${dz}` : ""})  â€”  type total count  [Esc] cancel`);
+    ptPrompt(`Linear Array — step (${dx}, ${dy}${dz !== 0 ? `, ${dz}` : ""})  —  type total count  [Esc] cancel`);
     ptShowCoordInput("count");
     return true;
   }
 
   if (phase.kind === "array_curve_pick") {
     const hit = opRaycastObject(viewer, clientX, clientY, false);
-    if (!hit) { ptPrompt("Along Curve â€” click a curve or polyline  [Esc] cancel"); return true; }
+    if (!hit) { ptPrompt("Along Curve — click a curve or polyline  [Esc] cancel"); return true; }
     const curvePts = _extractCurvePoints(hit.obj);
     if (!curvePts) {
-      ptPrompt("Along Curve â€” click a line, polyline, or curve object  [Esc] cancel");
+      ptPrompt("Along Curve — click a line, polyline, or curve object  [Esc] cancel");
       return true;
     }
     _opPhase = { kind: "array_curve_count", source: phase.source, curvePts };
     const len = round(_curveLength(curvePts));
-    ptPrompt(`Along Curve â€” path ${len}m â€” type count  [Esc] cancel`);
+    ptPrompt(`Along Curve — path ${len}m — type count  [Esc] cancel`);
     ptShowCoordInput("count");
     return true;
   }
@@ -1377,43 +1391,43 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   if (phase.kind === "array_polar_center") {
     if (!snapped3) return true;
     _opPhase = { kind: "array_polar_count", source: phase.source, cx: round(snapped3.x), cy: round(snapped3.y) };
-    ptPrompt(`Polar Array â€” center (${round(snapped3.x)}, ${round(snapped3.y)})  â€”  type: count  [angleÂ°]  [Esc] cancel`);
+    ptPrompt(`Polar Array — center (${round(snapped3.x)}, ${round(snapped3.y)})  —  type: count  [angleÂ°]  [Esc] cancel`);
     ptShowCoordInput("count  or  count angleÂ°");
     return true;
   }
 
   if (phase.kind === "array_polar_count") {
-    return true; // waiting for coord input â€” ignore clicks
+    return true; // waiting for coord input — ignore clicks
   }
 
   if (phase.kind === "array_rect_base") {
     if (!snapped3) return true;
     _opPhase = { kind: "array_rect_dir_x", source: phase.source, basePt: snapped3.clone() };
-    ptPrompt("Rectangular Array â€” click X-direction endpoint  [Esc] cancel");
+    ptPrompt("Rectangular Array — click X-direction endpoint  [Esc] cancel");
     return true;
   }
 
   if (phase.kind === "array_rect_dir_x") {
     if (!snapped3) return true;
     const dx = round(snapped3.x - phase.basePt.x);
-    if (dx === 0) { ptPrompt("Rectangular Array â€” X-step cannot be zero, click a point along X  [Esc] cancel"); return true; }
+    if (dx === 0) { ptPrompt("Rectangular Array — X-step cannot be zero, click a point along X  [Esc] cancel"); return true; }
     _opPhase = { kind: "array_rect_dir_y", source: phase.source, basePt: phase.basePt, dx };
-    ptPrompt(`Rectangular Array â€” X-step ${dx}  â€”  click Y-direction endpoint  [Esc] cancel`);
+    ptPrompt(`Rectangular Array — X-step ${dx}  —  click Y-direction endpoint  [Esc] cancel`);
     return true;
   }
 
   if (phase.kind === "array_rect_dir_y") {
     if (!snapped3) return true;
     const dy = round(snapped3.y - phase.basePt.y);
-    if (dy === 0) { ptPrompt("Rectangular Array â€” Y-step cannot be zero, click a point along Y  [Esc] cancel"); return true; }
+    if (dy === 0) { ptPrompt("Rectangular Array — Y-step cannot be zero, click a point along Y  [Esc] cancel"); return true; }
     _opPhase = { kind: "array_rect_count", source: phase.source, dx: phase.dx, dy };
-    ptPrompt(`Rectangular Array â€” X-step ${phase.dx}, Y-step ${dy}  â€”  type: rows  cols  [Esc] cancel`);
+    ptPrompt(`Rectangular Array — X-step ${phase.dx}, Y-step ${dy}  —  type: rows  cols  [Esc] cancel`);
     ptShowCoordInput("rows cols");
     return true;
   }
 
   if (phase.kind === "array_rect_count") {
-    return true; // waiting for coord input â€” ignore clicks
+    return true; // waiting for coord input — ignore clicks
   }
 
   return false;
@@ -1460,12 +1474,12 @@ export function opHandleEnter(viewer: Viewer): void {
   }
 
   if (phase.kind === "fillet_radius" || phase.kind === "fillet_edge_radius") {
-    ptPrompt("Fillet radius â€” type a value and press Enter");
+    ptPrompt("Fillet radius — type a value and press Enter");
     return;
   }
 
   if (phase.kind === "label_text") {
-    ptPrompt("Label â€” type text and press Enter");
+    ptPrompt("Label — type text and press Enter");
     return;
   }
 }
@@ -1477,10 +1491,10 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (!phase) return;
   if (phase.kind === "fillet_radius") {
     const r = parseFloat(raw);
-    if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius â€” enter a positive number"); return; }
+    if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius — enter a positive number"); return; }
     const target = phase.target;
     if (!(target instanceof THREE.Mesh)) {
-      ptPrompt("Fillet â€” selected object is not a mesh");
+      ptPrompt("Fillet — selected object is not a mesh");
       setTimeout(() => opFinish(viewer), 800);
       return;
     }
@@ -1494,7 +1508,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "fillet_edge_radius") {
     const r = parseFloat(raw);
-    if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius â€” enter a positive number"); return; }
+    if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius — enter a positive number"); return; }
 
     if (phase.target instanceof THREE.Line && phase.cornerV) {
       // 2D polyline corner fillet
@@ -1504,7 +1518,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       return;
     }
 
-    // 3D solid edge fillet â€” resolve edgeId from world-space endpoints.
+    // 3D solid edge fillet — resolve edgeId from world-space endpoints.
     const meshTarget = phase.target as THREE.Mesh;
     const invMat = meshTarget.matrixWorld.clone().invert();
     const localA = phase.edgeA.clone().applyMatrix4(invMat);
@@ -1518,7 +1532,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
     if (edgeId >= 0) {
       const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r }) as { error?: string } | null;
       if (res?.error) {
-        ptPrompt(`Fillet â€” ${res.error.replace(/^SdFillet â€” /, "")}`);
+        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1400);
         return;
       }
@@ -1526,7 +1540,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       // Fallback: direct chamfer when edge not found in enumeration.
       const filleted = chamferEdge(meshTarget, phase.edgeA, phase.edgeB, r);
       if (filleted.userData._chamferError) {
-        ptPrompt("Fillet â€” edge cannot be chamfered (curved or non-manifold surface); select a straight edge on a flat face");
+        ptPrompt("Fillet — edge cannot be chamfered (curved or non-manifold surface); select a straight edge on a flat face");
         setTimeout(() => opFinish(viewer), 1600);
         return;
       }
@@ -1540,14 +1554,14 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "label_text") {
     const text = raw.trim();
-    if (!text) { ptPrompt("Label â€” type text for the label"); return; }
+    if (!text) { ptPrompt("Label — type text for the label"); return; }
     opAddLabel(text, phase.pt, viewer);
     opFinish(viewer);
   }
 
   if (phase.kind === "copy_place") {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-    if (nums.length < 2) { ptPrompt("Copy â€” type: dx dy [dz]"); return; }
+    if (nums.length < 2) { ptPrompt("Copy — type: dx dy [dz]"); return; }
     const [dx, dy, dz = 0] = nums;
     opClearPreview(viewer);
     dispatchSync("SdCopy", { target: phase.source.uuid, x: round(dx), y: round(dy), z: round(dz) });
@@ -1556,7 +1570,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "array_linear_params") {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-    if (nums.length < 3) { ptPrompt("Linear Array â€” type: count  dx  dy  [dz]"); return; }
+    if (nums.length < 3) { ptPrompt("Linear Array — type: count  dx  dy  [dz]"); return; }
     const [count, dx, dy, dz = 0] = nums;
     dispatchSync("SdArrayLinear", { target: phase.source.uuid, count: Math.max(1, Math.round(count)), dx: round(dx), dy: round(dy), dz: round(dz) });
     opFinish(viewer);
@@ -1564,7 +1578,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "array_grid_params") {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-    if (nums.length < 4) { ptPrompt("Grid Array â€” type: rows  cols  dx  dy"); return; }
+    if (nums.length < 4) { ptPrompt("Grid Array — type: rows  cols  dx  dy"); return; }
     const [rows, cols, dx, dy] = nums;
     dispatchSync("SdArrayGrid", { target: phase.source.uuid, rows: Math.max(1, Math.round(rows)), cols: Math.max(1, Math.round(cols)), dx: round(dx), dy: round(dy) });
     opFinish(viewer);
@@ -1572,7 +1586,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "array_polar_params") {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-    if (nums.length < 1) { ptPrompt("Polar Array â€” type: count  [cx  cy]"); return; }
+    if (nums.length < 1) { ptPrompt("Polar Array — type: count  [cx  cy]"); return; }
     const [count, cx = 0, cy = 0] = nums;
     dispatchSync("SdArrayPolar", { target: phase.source.uuid, count: Math.max(2, Math.round(count)), cx: round(cx), cy: round(cy) });
     opFinish(viewer);
@@ -1580,14 +1594,14 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "array_linear_count") {
     const n = Math.round(Number(raw.trim()));
-    if (isNaN(n) || n < 1) { ptPrompt("Linear Array â€” type a positive count number"); return; }
+    if (isNaN(n) || n < 1) { ptPrompt("Linear Array — type a positive count number"); return; }
     dispatchSync("SdArrayLinear", { target: phase.source.uuid, count: n, dx: phase.dx, dy: phase.dy, dz: phase.dz });
     opFinish(viewer);
   }
 
   if (phase.kind === "array_curve_count") {
     const n = Math.round(Number(raw.trim()));
-    if (isNaN(n) || n < 2) { ptPrompt("Along Curve â€” type count (min 2)"); return; }
+    if (isNaN(n) || n < 2) { ptPrompt("Along Curve — type count (min 2)"); return; }
     const src = phase.source;
     const srcCtr = new THREE.Vector3();
     new THREE.Box3().setFromObject(src).getCenter(srcCtr);
@@ -1607,14 +1621,14 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(x => !isNaN(x));
     const n = Math.round(nums[0] ?? NaN);
     const angle = nums[1] ?? 360;
-    if (isNaN(n) || n < 2) { ptPrompt("Polar Array â€” type total count (min 2)"); return; }
+    if (isNaN(n) || n < 2) { ptPrompt("Polar Array — type total count (min 2)"); return; }
     dispatchSync("SdArrayPolar", { target: phase.source.uuid, count: n, cx: phase.cx, cy: phase.cy, angle });
     opFinish(viewer);
   }
 
   if (phase.kind === "array_rect_count") {
     const nums = raw.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
-    if (nums.length < 2) { ptPrompt("Rectangular Array â€” type: rows  cols"); return; }
+    if (nums.length < 2) { ptPrompt("Rectangular Array — type: rows  cols"); return; }
     const [rows, cols] = nums;
     dispatchSync("SdArrayGrid", { target: phase.source.uuid, rows: Math.max(1, Math.round(rows)), cols: Math.max(1, Math.round(cols)), dx: phase.dx, dy: phase.dy });
     opFinish(viewer);
@@ -1638,113 +1652,113 @@ export function opStartTool(viewer: Viewer, tool: string): void {
 
   if (tool === "extrude") {
     _opPhase = { kind: "extrude_select" };
-    ptPrompt("Extrude â€” click a profile curve, solid, or surface  [Escape = cancel]");
+    ptPrompt("Extrude — click a profile curve, solid, or surface  [Escape = cancel]");
   } else if (tool === "loft") {
     _opPhase = { kind: "loft_curve1" };
-    ptPrompt("Loft â€” click first profile curve  [Escape = cancel]");
+    ptPrompt("Loft — click first profile curve  [Escape = cancel]");
   } else if (tool === "sweep") {
     _opPhase = { kind: "sweep_rail" };
-    ptPrompt("Sweep â€” click path/rail curve  [Escape = cancel]");
+    ptPrompt("Sweep — click path/rail curve  [Escape = cancel]");
   } else if (tool === "revolve") {
     _opPhase = { kind: "revolve_profile" };
-    ptPrompt("Revolve â€” click a profile curve  [Escape = cancel]");
+    ptPrompt("Revolve — click a profile curve  [Escape = cancel]");
   } else if (tool === "plane") {
     _opPhase = { kind: "plane_pt1" };
-    ptPrompt("Plane â€” click origin point  [Escape = cancel]");
+    ptPrompt("Plane — click origin point  [Escape = cancel]");
   } else if (tool === "surface") {
     _opPhase = { kind: "surface_pick" };
-    ptPrompt("Surface â€” click a closed curve to fill  [Escape = cancel]");
+    ptPrompt("Surface — click a closed curve to fill  [Escape = cancel]");
   } else if (tool === "boolean") {
     _opPhase = { kind: "bool_a" };
-    ptPrompt("Boolean â€” click first solid  (2D closed sketches auto-extrude to 3 m)");
+    ptPrompt("Boolean — click first solid  (2D closed sketches auto-extrude to 3 m)");
   } else if (tool === "bool-union") {
     _opPhase = { kind: "bool_a", presetOp: "union" };
-    ptPrompt("Union â€” click first solid  [Escape = cancel]");
+    ptPrompt("Union — click first solid  [Escape = cancel]");
   } else if (tool === "bool-diff") {
     _opPhase = { kind: "bool_a", presetOp: "difference" };
-    ptPrompt("Difference â€” click first solid (A)  [Escape = cancel]");
+    ptPrompt("Difference — click first solid (A)  [Escape = cancel]");
   } else if (tool === "bool-intersect") {
     _opPhase = { kind: "bool_a", presetOp: "split" };
-    ptPrompt("Intersect â€” click first solid  [Escape = cancel]");
+    ptPrompt("Intersect — click first solid  [Escape = cancel]");
   } else if (tool === "brep-explode") {
     _opPhase = { kind: "brep_explode_pick" };
-    ptPrompt("Explode â€” click a group to decompose into individual objects  [Escape = cancel]");
+    ptPrompt("Explode — click a group to decompose into individual objects  [Escape = cancel]");
   } else if (tool === "brep-join") {
     _opPhase = { kind: "brep_join_a" };
-    ptPrompt("Join â€” click first object  [Escape = cancel]");
+    ptPrompt("Join — click first object  [Escape = cancel]");
   } else if (tool === "brep-rebuild") {
     _opPhase = { kind: "brep_rebuild_pick" };
-    ptPrompt("Rebuild â€” click a curve to rebuild at higher resolution  [Escape = cancel]");
+    ptPrompt("Rebuild — click a curve to rebuild at higher resolution  [Escape = cancel]");
   } else if (tool === "brep-contour") {
     _opPhase = { kind: "brep_contour_pick" };
-    ptPrompt("Contour â€” click a solid to generate 5 horizontal section curves  [Escape = cancel]");
+    ptPrompt("Contour — click a solid to generate 5 horizontal section curves  [Escape = cancel]");
   } else if (tool === "fillet") {
     _opPhase = { kind: "fillet_select" };
-    ptPrompt("Fillet â€” click a solid mesh or a polyline/curve corner  [Escape = cancel]");
+    ptPrompt("Fillet — click a solid mesh or a polyline/curve corner  [Escape = cancel]");
   } else if (tool === "aligned-dim" || tool === "angular-dim" || tool === "area-dim" || tool === "volume-dim") {
     const t = tool as "aligned-dim" | "angular-dim" | "area-dim" | "volume-dim";
     _opPhase = { kind: "dim_a", tool: t };
     const msg: Record<string, string> = {
-      "aligned-dim":  "Aligned dimension â€” click first point",
-      "angular-dim":  "Angular dimension â€” click vertex point",
-      "area-dim":     "Area â€” click points to define polygon, Enter to compute",
-      "volume-dim":   "Volume â€” click an object to measure",
+      "aligned-dim":  "Aligned dimension — click first point",
+      "angular-dim":  "Angular dimension — click vertex point",
+      "area-dim":     "Area — click points to define polygon, Enter to compute",
+      "volume-dim":   "Volume — click an object to measure",
     };
     ptPrompt(msg[tool] ?? "Click to begin");
   } else if (tool === "sel-window") {
     _opPhase = { kind: "sel_window_sub" };
     const activateWindow = (sub: "crossing" | "window") => {
       _opPhase = { kind: "sel_window", subMode: sub, startX: -1, startY: -1 };
-      ptPrompt(`Window Select (${sub === "crossing" ? "Crossing" : "Window"}) â€” click and drag to define selection window  [Esc] cancel`);
+      ptPrompt(`Window Select (${sub === "crossing" ? "Crossing" : "Window"}) — click and drag to define selection window  [Esc] cancel`);
     };
     showRawChooser("Window Select:", [
       { label: "Crossing", description: "Objects that cross or are inside the window", onSelect: () => activateWindow("crossing") },
       { label: "Window",   description: "Objects fully inside the window",              onSelect: () => activateWindow("window") },
     ], () => activateWindow("crossing"));
-    ptPrompt("Window Select â€” choose mode above  [Enter=Crossing]");
+    ptPrompt("Window Select — choose mode above  [Enter=Crossing]");
   } else if (tool === "sel-lasso") {
     _opPhase = { kind: "sel_lasso_sub" };
     const activateLasso = (sub: "crossing" | "window") => {
       _opPhase = { kind: "sel_lasso", subMode: sub, points: [] };
-      ptPrompt(`Lasso Select (${sub === "crossing" ? "Crossing" : "Window"}) â€” click and drag to draw lasso  [Esc] cancel`);
+      ptPrompt(`Lasso Select (${sub === "crossing" ? "Crossing" : "Window"}) — click and drag to draw lasso  [Esc] cancel`);
     };
     showRawChooser("Lasso Select:", [
       { label: "Crossing", description: "Objects that cross or are inside the lasso", onSelect: () => activateLasso("crossing") },
       { label: "Window",   description: "Objects fully inside the lasso",              onSelect: () => activateLasso("window") },
     ], () => activateLasso("crossing"));
-    ptPrompt("Lasso Select â€” choose mode above  [Enter=Crossing]");
+    ptPrompt("Lasso Select — choose mode above  [Enter=Crossing]");
   } else if (tool === "label") {
     _opPhase = { kind: "label_pick" };
-    ptPrompt("Label â€” click a point in the scene");
+    ptPrompt("Label — click a point in the scene");
   } else if (tool === "transient-measure") {
     _opPhase = { kind: "tmeasure_a" };
-    ptPrompt("Transient Measure â€” click first point");
+    ptPrompt("Transient Measure — click first point");
   } else if (tool === "sel-boundary") {
     _opPhase = { kind: "sel_boundary_sub" };
     showRawChooser("Boundary input:", [
       { label: "Pick Curve",   description: "Click a closed curve/surface in the scene", onSelect: () => {
         _opPhase = { kind: "sel_boundary_pick" };
-        ptPrompt("Boundary Select â€” click a closed curve in the scene  [Esc] cancel");
+        ptPrompt("Boundary Select — click a closed curve in the scene  [Esc] cancel");
       }},
       { label: "Draw Polygon", description: "Click points to define boundary, Enter to close & select", onSelect: () => {
         _opPhase = { kind: "sel_boundary_draw", points: [] };
-        ptPrompt("Boundary Select â€” click points to define polygon  [Enter] close & select  [Esc] cancel");
+        ptPrompt("Boundary Select — click points to define polygon  [Enter] close & select  [Esc] cancel");
       }},
     ], () => {
       _opPhase = { kind: "sel_boundary_draw", points: [] };
-      ptPrompt("Boundary Select â€” click points to define polygon  [Enter] close & select  [Esc] cancel");
+      ptPrompt("Boundary Select — click points to define polygon  [Enter] close & select  [Esc] cancel");
     });
-    ptPrompt("Boundary Select â€” choose input method above  [Enter=Draw Polygon]");
+    ptPrompt("Boundary Select — choose input method above  [Enter=Draw Polygon]");
   } else if (tool === "copy") {
     const sel = ptGetTarget() ?? viewer.getTargetObject();
     if (sel) {
       const ctr = new THREE.Vector3(); new THREE.Box3().setFromObject(sel).getCenter(ctr);
       _opPhase = { kind: "copy_place", source: sel, srcPt: ctr };
-      ptPrompt("Copy â€” click destination point  or type  dx dy [dz]  [Esc] cancel");
+      ptPrompt("Copy — click destination point  or type  dx dy [dz]  [Esc] cancel");
       ptShowCoordInput("dx dy  or  dx dy dz");
     } else {
       _opPhase = { kind: "copy_select" };
-      ptPrompt("Copy â€” click an object to copy");
+      ptPrompt("Copy — click an object to copy");
     }
   } else if (tool === "array") {
     const sel = ptGetTarget() ?? viewer.getTargetObject();
@@ -1752,7 +1766,7 @@ export function opStartTool(viewer: Viewer, tool: string): void {
       _opPhaseStartArray(sel);
     } else {
       _opPhase = { kind: "array_select" };
-      ptPrompt("Array â€” click an object to array");
+      ptPrompt("Array — click an object to array");
     }
   }
 }
@@ -1793,29 +1807,29 @@ function _sampleAlongCurve(pts: THREE.Vector3[], count: number): THREE.Vector3[]
 
 function _opPhaseStartArray(source: THREE.Object3D): void {
   showRawChooser("Array mode:", [
-    { label: "Linear",       description: "Repeat along direction â€” pick base + endpoint + count",
+    { label: "Linear",       description: "Repeat along direction — pick base + endpoint + count",
       onSelect: () => {
         _opPhase = { kind: "array_linear_base", source };
-        ptPrompt("Linear Array â€” click base point  [Esc] cancel");
+        ptPrompt("Linear Array — click base point  [Esc] cancel");
       }},
-    { label: "Rectangular",  description: "Rows Ã— columns â€” click base, X-dir, Y-dir, then type rows cols",
+    { label: "Rectangular",  description: "Rows Ã— columns — click base, X-dir, Y-dir, then type rows cols",
       onSelect: () => {
         _opPhase = { kind: "array_rect_base", source };
-        ptPrompt("Rectangular Array â€” click base point  [Esc] cancel");
+        ptPrompt("Rectangular Array — click base point  [Esc] cancel");
       }},
-    { label: "Polar",        description: "Circular pattern â€” click center, then type total count",
+    { label: "Polar",        description: "Circular pattern — click center, then type total count",
       onSelect: () => {
         _opPhase = { kind: "array_polar_center", source };
-        ptPrompt("Polar Array â€” click center of rotation  [Esc] cancel");
+        ptPrompt("Polar Array — click center of rotation  [Esc] cancel");
       }},
-    { label: "Along Curve",  description: "Distribute along an existing curve â€” click curve + count",
+    { label: "Along Curve",  description: "Distribute along an existing curve — click curve + count",
       onSelect: () => {
         _opPhase = { kind: "array_curve_pick", source };
-        ptPrompt("Along Curve â€” click a curve or polyline  [Esc] cancel");
+        ptPrompt("Along Curve — click a curve or polyline  [Esc] cancel");
       }},
   ], () => {
     _opPhase = { kind: "array_linear_base", source };
-    ptPrompt("Linear Array â€” click base point  [Esc] cancel");
+    ptPrompt("Linear Array — click base point  [Esc] cancel");
   });
-  ptPrompt("Array â€” choose mode  [Enter = Linear]");
+  ptPrompt("Array — choose mode  [Enter = Linear]");
 }

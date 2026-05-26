@@ -15,7 +15,7 @@ import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMu
 import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView, getGeometryZ, showLevelChip } from "../viewer/projection";
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
-import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
+import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
 import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
@@ -1400,8 +1400,9 @@ export function initCreateMode(viewer: Viewer): void {
     if ((opPhase && opPhaseSupressesSnap(opPhase)) || ptPhaseIsObjectSelect() || tool === "wall-pick") {
       // During explicit object-select phases (extrude_select, bool_a/b, fillet_select),
       // keep the cursor visible so the user knows where they are clicking.
-      // Only hide cursor for non-select snap-suppressed phases (fillet_edge, lasso, window).
-      if (opPhase && opPhaseIsObjectSelect(opPhase)) {
+      // Curve-select phases (surface_pick, loft_curve1, sweep_rail, revolve_profile, etc.)
+      // use hover-highlight on the curve instead — cursor dot is misleading there.
+      if (opPhase && opPhaseIsObjectSelect(opPhase) && !opPhaseIsCurveSelect(opPhase)) {
         moveCursorDot(viewer, { x: ev.clientX, y: ev.clientY }, ev.clientX, ev.clientY, false);
       } else {
         hideCursorDot();
