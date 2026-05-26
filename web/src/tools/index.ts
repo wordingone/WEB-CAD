@@ -428,10 +428,12 @@ const TOOL_TODOS: Record<string, string> = {
 function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: number; y: number; z?: number }): void {
   clearPreview(viewer);
   const isUnlimited = handler.clicks === -1;
-  if (!isUnlimited && _pending.length !== 1) return;
+  if (!isUnlimited && (_pending.length < 1 || _pending.length >= handler.clicks)) return;
   if (isUnlimited && _pending.length < 1) return;
 
-  const previewPts = isUnlimited ? [..._pending, livePoint] : [_pending[0], livePoint];
+  const previewPts = [..._pending, livePoint];
+  // Fixed-click tools need exactly handler.clicks points to call the handler meaningfully.
+  if (!isUnlimited && previewPts.length < handler.clicks) return;
 
   const last = previewPts[previewPts.length - 1];
   const prev = previewPts[previewPts.length - 2];
@@ -439,8 +441,6 @@ function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: 
   const dy = last.y - prev.y;
   const dz = (last.z ?? 0) - (prev.z ?? 0);
   if (dx * dx + dy * dy + dz * dz < 1e-4) return;
-
-  if (isUnlimited && previewPts.length < 2) return;
 
   try {
     const out = handler.handler(previewPts);
@@ -717,6 +717,11 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   _pending.push(world);
   if (_pending.length === 1 && handler.clicks !== 1) {
     setMarker(viewer, world);
+  }
+  // Arc per-phase hints (#141).
+  if (tool === "arc") {
+    if (_pending.length === 1) setPickerHint("arc — click radius point  [Esc] cancel");
+    else if (_pending.length === 2) setPickerHint("arc — click end point  [Esc] cancel");
   }
   if (handler.clicks === -1) {
     setPickerHint(`${tool} — ${_pending.length} point${_pending.length > 1 ? "s" : ""}  [double-click, Enter, or Space] commit  [Esc] cancel`);
@@ -1070,6 +1075,8 @@ export function initCreateMode(viewer: Viewer): void {
         setPickerHint("Section Box — click corner A then corner B to define box footprint  [Esc] cancel");
       } else if (tool === "polygon") {
         setPickerHint(_polygonHint());
+      } else if (tool === "arc") {
+        setPickerHint("arc — click center  [Esc] cancel");
       }
     }
   });
