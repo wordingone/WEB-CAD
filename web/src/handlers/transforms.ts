@@ -253,6 +253,53 @@ export function registerTransformHandlers(viewer: Viewer): void {
     return { created: result.uuid, op: opArg };
   });
 
+  // §WEB-CAD#30 G8: SdBooleanUnion / SdBooleanDifference / SdBooleanIntersection handlers.
+  // These are the verb-specific forms of SdBoolean — no `op` arg, arg names differ for Difference.
+  function _doBoolOp(
+    aId: string | undefined,
+    bId: string | undefined,
+    op: "union" | "difference" | "intersection",
+  ): Record<string, unknown> {
+    if (!aId || !bId) return { error: `Sd${op.charAt(0).toUpperCase() + op.slice(1)} requires two object ids` };
+    const scene = viewer.getScene();
+    const objA = scene.getObjectByProperty("uuid", aId);
+    const objB = scene.getObjectByProperty("uuid", bId);
+    if (!objA || !objB) return { error: `boolean ${op} — object not found: ${!objA ? aId : bId}` };
+    if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh))
+      return { error: `boolean ${op} — both targets must be solid meshes` };
+    const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
+    let result: THREE.Mesh;
+    try {
+      if (op === "difference") result = csgDifference(objA, objB, mat);
+      else if (op === "intersection") result = csgIntersection(objA, objB, mat);
+      else result = csgUnion(objA, objB, mat);
+    } catch {
+      return { error: `boolean ${op} — CSG failed (geometry may be non-manifold)` };
+    }
+    if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0)
+      return { error: `boolean ${op} — result is empty (objects may not overlap)` };
+    const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
+    result.userData.kind = "brep";
+    result.userData.creator = creator;
+    scene.remove(objA); // audit-undo-ok
+    scene.remove(objB); // audit-undo-ok
+    viewer.addMesh(result, "brep", { noHistory: true });
+    pushReplaceAction(result, [objA, objB], creator);
+    return { created: result.uuid, op };
+  }
+
+  registerHandler("SdBooleanUnion", (args) =>
+    _doBoolOp(args.a as string | undefined, args.b as string | undefined, "union")
+  );
+
+  registerHandler("SdBooleanDifference", (args) =>
+    _doBoolOp(args.outer as string | undefined, args.inner as string | undefined, "difference")
+  );
+
+  registerHandler("SdBooleanIntersection", (args) =>
+    _doBoolOp(args.a as string | undefined, args.b as string | undefined, "intersection")
+  );
+
   registerHandler("SdFillet", (args) => {
     const targetId = args.target as string | undefined;
     if (!targetId) return { error: "SdFillet — target is required" };
