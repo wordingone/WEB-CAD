@@ -182,8 +182,10 @@ function wireDockResize(): void {
   divider.addEventListener("mousedown", (e: MouseEvent) => {
     dragging = true;
     startY = e.clientY;
-    const cur = getComputedStyle(app).getPropertyValue("--dock-h").trim();
-    startH = parseInt(cur || "340", 10);
+    // --dock-h is only set on .app after the first drag; read actual rendered height instead.
+    const centerCol = app.querySelector<HTMLElement>(".center-col");
+    const dockEl = centerCol?.children[2] as HTMLElement | undefined;
+    startH = dockEl ? dockEl.offsetHeight : 220;
     document.body.style.userSelect = "none";
   });
   window.addEventListener("mousemove", (e: MouseEvent) => {
