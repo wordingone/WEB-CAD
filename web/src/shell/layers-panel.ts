@@ -49,19 +49,26 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
   // ── Column headers ────────────────────────────────────────────────────────
   const colHdr = el("div");
   colHdr.style.cssText = [
-    "display:grid",
-    "grid-template-columns:16px 16px 16px 1fr 40px 80px 36px 16px",
-    "gap:2px", "padding:2px 8px",
+    "display:flex", "align-items:center", "gap:4px",
+    "padding:2px 8px",
     "border-bottom:1px solid var(--hairline)",
     "background:var(--paper-2)",
     "flex-shrink:0",
   ].join(";");
-  ["", "", "", "NAME", "LW", "LINETYPE", "PW", ""].forEach((t) => {
-    const c = el("span");
-    c.style.cssText = "font-size:8px; letter-spacing:0.10em; text-transform:uppercase; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
-    c.textContent = t;
-    colHdr.appendChild(c);
-  });
+  // Spacers for eye/lock/color icons
+  for (let i = 0; i < 3; i++) {
+    const s = el("span");
+    s.style.cssText = "width:16px;flex-shrink:0;";
+    colHdr.appendChild(s);
+  }
+  const nameHdr = el("span");
+  nameHdr.style.cssText = "flex:1;font-size:8px;letter-spacing:0.10em;text-transform:uppercase;color:var(--ink-faint);";
+  nameHdr.textContent = "NAME";
+  colHdr.appendChild(nameHdr);
+  const propsHdr = el("span");
+  propsHdr.style.cssText = "font-size:8px;letter-spacing:0.10em;text-transform:uppercase;color:var(--ink-faint);";
+  propsHdr.textContent = "LW · TYPE · PW";
+  colHdr.appendChild(propsHdr);
   host.appendChild(colHdr);
 
   // ── List ──────────────────────────────────────────────────────────────────
@@ -79,14 +86,18 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
 
       const row = el("div", "", { "data-layer-id": layer.id });
       row.style.cssText = [
-        "display:grid",
-        "grid-template-columns:16px 16px 16px 1fr 40px 80px 36px 16px",
-        "gap:2px", "align-items:center", "padding:2px 8px",
+        "display:flex", "flex-direction:column",
         "border-bottom:1px solid var(--hairline)",
-        "min-height:26px", "cursor:pointer",
+        "cursor:pointer",
         isActive ? "background:var(--paper-3);" : "",
         isActive ? "border-left:2px solid var(--sanguine);" : "border-left:2px solid transparent;",
       ].join(";");
+      // Row 1: icon controls + name + delete
+      const row1 = el("div");
+      row1.style.cssText = "display:flex;align-items:center;gap:4px;padding:3px 8px;";
+      // Row 2: LW / LINETYPE / PW selects
+      const row2 = el("div");
+      row2.style.cssText = "display:flex;align-items:center;gap:4px;padding:0 8px 3px 52px;";
 
       // Eye toggle
       const eyeBtn = el("button");
@@ -122,7 +133,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
 
       // Lineweight select
       const lwSel = el("select") as HTMLSelectElement;
-      lwSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;width:38px;border-radius:2px;";
+      lwSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;width:58px;border-radius:2px;";
       lwSel.title = "Lineweight (mm)";
       for (const lw of LINEWEIGHTS) {
         const opt = document.createElement("option");
@@ -138,7 +149,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
 
       // Linetype select
       const ltSel = el("select") as HTMLSelectElement;
-      ltSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;width:58px;border-radius:2px;overflow:hidden;";
+      ltSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;flex:1;min-width:70px;border-radius:2px;";
       ltSel.title = "Linetype";
       for (const lt of LINETYPES) {
         const opt = document.createElement("option");
@@ -154,7 +165,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
 
       // Print-width select
       const pwSel = el("select") as HTMLSelectElement;
-      pwSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;width:34px;border-radius:2px;";
+      pwSel.style.cssText = "font-size:9px;font-family:var(--mono);background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:1px 2px;width:58px;border-radius:2px;";
       pwSel.title = "Print width (mm)";
       for (const lw of LINEWEIGHTS) {
         const opt = document.createElement("option");
@@ -170,7 +181,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
 
       // Name (double-click to rename)
       const nameEl = el("span");
-      nameEl.style.cssText = "font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" + (isActive ? "font-weight:700;" : "");
+      nameEl.style.cssText = "flex:1;font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;" + (isActive ? "font-weight:700;" : "");
       nameEl.textContent = layer.name;
       nameEl.addEventListener("dblclick", (e) => {
         e.stopPropagation();
@@ -211,14 +222,16 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
         if (!isDefault) drawingLayerStore.remove(layer.id);
       });
 
-      row.appendChild(eyeBtn);
-      row.appendChild(lockBtn);
-      row.appendChild(colorInput);
-      row.appendChild(nameEl);
-      row.appendChild(lwSel);
-      row.appendChild(ltSel);
-      row.appendChild(pwSel);
-      row.appendChild(delBtn);
+      row1.appendChild(eyeBtn);
+      row1.appendChild(lockBtn);
+      row1.appendChild(colorInput);
+      row1.appendChild(nameEl);
+      row1.appendChild(delBtn);
+      row2.appendChild(lwSel);
+      row2.appendChild(ltSel);
+      row2.appendChild(pwSel);
+      row.appendChild(row1);
+      row.appendChild(row2);
 
       row.addEventListener("click", () => drawingLayerStore.setActive(layer.id));
       list.appendChild(row);
