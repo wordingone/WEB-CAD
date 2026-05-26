@@ -45,16 +45,29 @@ const newSheetId = (): string => `sheet-${++_sheetIdSeq}`;
 let _panelIdSeq = 0;
 const newPanelId = (): string => `panel-${++_panelIdSeq}`;
 
-type SheetPresetId = "perspective" | "axonometric" | "plan" | "section" | "elevation" | "blank";
-interface SheetPresetDef { name: string; viewport: ViewportId; scale: ScaleId; displayMode: DisplayMode; }
-const SHEET_PRESET_DEFS: Record<Exclude<SheetPresetId, "blank">, SheetPresetDef> = {
-  perspective: { name: "Perspective", viewport: "perspective", scale: "NTS",   displayMode: "technical" },
-  axonometric: { name: "Axonometric", viewport: "axonometric", scale: "1:50",  displayMode: "technical" },
-  plan:        { name: "Plan",        viewport: "top",         scale: "1:100", displayMode: "technical" },
-  section:     { name: "Section",     viewport: "front",       scale: "1:50",  displayMode: "technical" },
-  elevation:   { name: "Elevation",   viewport: "front",       scale: "1:50",  displayMode: "technical" },
+// Preset IDs available from the "+" sheet picker.
+type SheetPresetId = "plan" | "rcp" | "elevation" | "section" | "blank";
+
+// Static sheets always present: roof plan + 4 elevations + 2 sections.
+// Ordered front-to-back so the tab strip reads logically left-to-right.
+interface StaticSheetDef { name: string; viewport: ViewportId; scale: ScaleId; displayMode: DisplayMode; }
+const STATIC_SHEET_DEFS: StaticSheetDef[] = [
+  { name: "Roof Plan",            viewport: "top",   scale: "1:100", displayMode: "technical" },
+  { name: "South Elevation",      viewport: "front", scale: "1:100", displayMode: "technical" },
+  { name: "East Elevation",       viewport: "right", scale: "1:100", displayMode: "technical" },
+  { name: "North Elevation",      viewport: "back",  scale: "1:100", displayMode: "technical" },
+  { name: "West Elevation",       viewport: "left",  scale: "1:100", displayMode: "technical" },
+  { name: "Longitudinal Section", viewport: "front", scale: "1:100", displayMode: "technical" },
+  { name: "Transverse Section",   viewport: "right", scale: "1:100", displayMode: "technical" },
+];
+
+// Presets for user-added sheets via the "+" picker.
+const ADD_SHEET_DEFS: Record<Exclude<SheetPresetId, "blank">, StaticSheetDef> = {
+  plan:      { name: "Plan",         viewport: "top",   scale: "1:100", displayMode: "technical" },
+  rcp:       { name: "Ceiling Plan", viewport: "top",   scale: "1:100", displayMode: "technical" },
+  elevation: { name: "Elevation",    viewport: "front", scale: "1:100", displayMode: "technical" },
+  section:   { name: "Section",      viewport: "front", scale: "1:100", displayMode: "technical" },
 };
-const SHEET_PRESET_ORDER: Exclude<SheetPresetId, "blank">[] = ["section", "elevation", "axonometric", "perspective"];
 
 // LayoutController is the per-host instance state. Stored on the host element
 // via a WeakMap so the module-level export functions (addPanel, exportLayout*)
@@ -142,10 +155,10 @@ export class LayoutController {
     const size = opts.size ?? "Tabloid";
     const orientation = opts.orientation ?? "landscape";
     const customMm = opts.customMm ?? { ...DEFAULT_CUSTOM };
-    // 4 preset sheets (perspective/axonometric/section/elevation). Plan sheets added by syncPlanSheets (#1846).
-    this.sheets = SHEET_PRESET_ORDER.map((pid) => ({
+    // Static sheets (roof plan + 4 elevations + 2 sections). Plan/RCP sheets prepended by syncPlanSheets/syncRcpSheets.
+    this.sheets = STATIC_SHEET_DEFS.map((def) => ({
       id: newSheetId(),
-      name: SHEET_PRESET_DEFS[pid].name,
+      name: def.name,
       size,
       orientation,
       customMm: { ...customMm },
@@ -158,18 +171,17 @@ export class LayoutController {
     this._suppressSeed = (opts.initialPanels?.length ?? 0) > 0;
     this.build();
     this._suppressSeed = false;
-    // Spawn preset panels for each sheet unless caller overrides sheet 0 via initialPanels.
+    // Seed a full-page viewport into each static sheet.
     if (opts.spawnDefault !== false) {
       const hasInitial = (opts.initialPanels?.length ?? 0) > 0;
-      // Plan sheets occupy indices 0..(planCount-1); presets start at planCount (#1847).
-      const planCount = this._planSheetByLevelId.size;
-      SHEET_PRESET_ORDER.forEach((pid, i) => {
-        if (i === 0 && hasInitial) return; // initialPanels fill first preset sheet instead
-        this.switchSheet(planCount + i);
-        const def = SHEET_PRESET_DEFS[pid];
+      // Dynamic (plan+RCP) sheets occupy the front; static sheets follow.
+      const dynamicOffset = this._planSheetByLevelId.size + this._rcpSheetByLevelId.size;
+      STATIC_SHEET_DEFS.forEach((def, i) => {
+        if (i === 0 && hasInitial) return; // caller-supplied initialPanels go to first sheet instead
+        this.switchSheet(dynamicOffset + i);
         this._spawnPresetPanel(def.viewport, def.scale, def.displayMode);
       });
-      this.switchSheet(0); // activate first sheet (Plan: Level 1 or first preset)
+      this.switchSheet(0); // activate Plan: Level 1 (first sheet)
     }
     // initialPanels go to the active (first) sheet.
     for (const p of opts.initialPanels ?? []) this.addPanel(p);
@@ -555,9 +567,9 @@ export class LayoutController {
       const expectedName = `RCP: ${level.name}`;
       const existingSheetId = this._rcpSheetByLevelId.get(level.id);
       if (!existingSheetId) {
-        // Insert after plans (front) + 2 presets (section + elevation) + existing RCPs (#1847).
-        // Layout: [Plan(s)][Section][Elevation][RCP(s)][Axonometric][Perspective]
-        const insertIdx = this._planSheetByLevelId.size + 2 + this._rcpSheetByLevelId.size;
+        // Insert after all plan sheets and existing RCP sheets.
+        // Layout: [Plan(s)][RCP(s)][Static: Roof Plan, Elevations, Sections]
+        const insertIdx = this._planSheetByLevelId.size + this._rcpSheetByLevelId.size;
         const id = newSheetId();
         this._rcpSheetByLevelId.set(level.id, id);
         const refSheet = this.sheets[0];
@@ -571,7 +583,7 @@ export class LayoutController {
         };
         this.sheets.splice(insertIdx, 0, newSheet);
         if (this.activeSheetIdx >= insertIdx) this.activeSheetIdx++;
-        // Seed with a full-page top-down viewport.
+        // Seed with a full-page top-down viewport (reflected ceiling plan is a top view at ceiling height).
         // Suppressed during initial build when caller supplies initialPanels.
         if (!this._suppressSeed) {
           const mm = sheetMm(newSheet.size, newSheet.orientation, newSheet.customMm);
@@ -580,7 +592,7 @@ export class LayoutController {
             id: newPanelId(),
             x: Math.round(mm.w * MM_TO_PX * mr), y: Math.round(mm.h * MM_TO_PX * mr),
             w: Math.round(mm.w * MM_TO_PX * (1 - 2 * mr)), h: Math.round(mm.h * MM_TO_PX * (1 - 2 * mr)),
-            viewport: "top", scale: "1:100", title: VIEWPORT_LABELS["top"],
+            viewport: "top", scale: "1:100", title: "CEILING PLAN",
             border: "thin", displayMode: "technical",
           });
         }
@@ -624,27 +636,23 @@ export class LayoutController {
     return id;
   }
 
-  /** Compute the insertion index for a user-added sheet of the given type (#1847).
-   *  Keeps sheets grouped: [Plan(s)][Section(s)][Elevation(s)][RCP(s)][Axo][Perspective].
-   *  Name-based scan is safe for our fixed preset names and "Plan:"/"RCP:" prefixes. */
+  /** Compute the insertion index for a user-added sheet of the given type.
+   *  Layout groups: [Plan(s)][RCP(s)][Static: Roof Plan, Elevations, Sections]. */
   private _typeInsertIdx(presetId: SheetPresetId): number {
     let i = 0;
-    // Skip plan sheets (front group).
+    // Skip level-linked plan sheets.
     while (i < this.sheets.length && this.sheets[i].name.startsWith("Plan:")) i++;
     if (presetId === "plan") return i;
-    // Skip section sheets.
-    while (i < this.sheets.length && this.sheets[i].name.startsWith("Section")) i++;
-    if (presetId === "section") return i;
-    // Skip elevation sheets.
-    while (i < this.sheets.length && this.sheets[i].name.startsWith("Elevation")) i++;
-    if (presetId === "elevation") return i;
-    // Axo, perspective, blank → append at end.
+    // Skip level-linked RCP sheets.
+    while (i < this.sheets.length && this.sheets[i].name.startsWith("RCP:")) i++;
+    if (presetId === "rcp") return i;
+    // Elevation, section, blank → append after all dynamic sheets.
     return this.sheets.length;
   }
 
   private addSheet(presetId?: SheetPresetId): void {
     if (!presetId) { this._showPresetPicker(); return; }
-    const def = presetId !== "blank" ? SHEET_PRESET_DEFS[presetId as Exclude<SheetPresetId, "blank">] : null;
+    const def = presetId !== "blank" ? ADD_SHEET_DEFS[presetId] : null;
     const insertIdx = this._typeInsertIdx(presetId);
     const newSheet: SheetData = {
       id: newSheetId(),
@@ -657,7 +665,7 @@ export class LayoutController {
     this.sheets.splice(insertIdx, 0, newSheet);
     this.switchSheet(insertIdx);
     if (def) this._spawnPresetPanel(def.viewport, def.scale, def.displayMode);
-    else this._spawnDefaultPanel(); // blank sheets get a default perspective panel
+    else this._spawnDefaultPanel();
   }
 
   private _spawnPresetPanel(viewport: ViewportId, scale: ScaleId, displayMode: DisplayMode): void {
@@ -682,12 +690,11 @@ export class LayoutController {
     const dismiss = () => overlay.remove();
     overlay.addEventListener("click", (e) => { if (e.target === overlay) dismiss(); });
     const presets: Array<{ id: SheetPresetId; label: string }> = [
-      { id: "perspective", label: "Perspective" },
-      { id: "axonometric", label: "Axonometric" },
-      { id: "plan",        label: "Plan" },
-      { id: "section",     label: "Section" },
-      { id: "elevation",   label: "Elevation" },
-      { id: "blank",       label: "Blank" },
+      { id: "plan",      label: "Plan" },
+      { id: "rcp",       label: "Ceiling Plan" },
+      { id: "elevation", label: "Elevation" },
+      { id: "section",   label: "Section" },
+      { id: "blank",     label: "Blank" },
     ];
     const grid = document.createElement("div");
     grid.className = "sheet-preset-grid";

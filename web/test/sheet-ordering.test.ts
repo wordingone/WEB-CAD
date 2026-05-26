@@ -1,6 +1,5 @@
-// Regression-net: #1847 — Default sheet ordering.
-// Target order: Plan(s) → Section(s) → Elevation(s) → RCP(s) → Axonometric → Perspective
-// Also tests DEMO_SHEET_SET ordering (sections before elevations).
+// Regression-net for default sheet ordering.
+// New order: [Plan(s)][RCP(s)][Roof Plan][S Elev][E Elev][N Elev][W Elev][Lng Section][Trans Section]
 
 import { test, expect, describe, beforeEach } from "bun:test";
 import { levelStore } from "../src/geometry/levels";
@@ -14,7 +13,7 @@ beforeEach(() => {
 
 // ── DEMO_SHEET_SET ordering ────────────────────────────────────────────────────
 
-describe("DEMO_SHEET_SET ordering (#1847)", () => {
+describe("DEMO_SHEET_SET ordering", () => {
   test("sections come before elevations", () => {
     const secIdx = DEMO_SHEET_SET.findIndex(s => s.viewType === "section");
     const elvIdx = DEMO_SHEET_SET.findIndex(s => s.viewType === "elevation");
@@ -28,68 +27,65 @@ describe("DEMO_SHEET_SET ordering (#1847)", () => {
   });
 });
 
-// ── LayoutController sheet tab order ─────────────────────────────────────────
+// ── LayoutController default sheet tab order ─────────────────────────────────
 
-describe("LayoutController sheet order (#1847)", () => {
-  test("first sheet is 'Plan: Level 1' (plan at index 0)", () => {
+describe("LayoutController sheet order", () => {
+  test("first sheet is 'Plan: Level 1'", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     expect(c.sheets[0].name).toBe("Plan: Level 1");
   });
 
-  test("Section preset follows all Plan sheets", () => {
+  test("RCP: Level 1 follows all Plan sheets", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     const planCount = c.sheets.filter(s => s.name.startsWith("Plan:")).length;
-    expect(c.sheets[planCount].name).toBe("Section");
+    expect(c.sheets[planCount].name).toBe("RCP: Level 1");
   });
 
-  test("Elevation preset follows Section", () => {
+  test("Roof Plan follows all RCP sheets", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     const planCount = c.sheets.filter(s => s.name.startsWith("Plan:")).length;
-    expect(c.sheets[planCount + 1].name).toBe("Elevation");
+    const rcpCount  = c.sheets.filter(s => s.name.startsWith("RCP:")).length;
+    expect(c.sheets[planCount + rcpCount].name).toBe("Roof Plan");
   });
 
-  test("RCP sheet follows Elevation", () => {
+  test("South Elevation follows Roof Plan", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     const planCount = c.sheets.filter(s => s.name.startsWith("Plan:")).length;
-    // planCount presets: Section(+0), Elevation(+1), then RCP(+2)
-    expect(c.sheets[planCount + 2].name).toBe("RCP: Level 1");
+    const rcpCount  = c.sheets.filter(s => s.name.startsWith("RCP:")).length;
+    expect(c.sheets[planCount + rcpCount + 1].name).toBe("South Elevation");
   });
 
-  test("Axonometric follows RCP region", () => {
+  test("Transverse Section is last", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
-    const rcpIdx = c.sheets.findIndex(s => s.name === "RCP: Level 1");
-    expect(c.sheets[rcpIdx + 1].name).toBe("Axonometric");
+    expect(c.sheets[c.sheets.length - 1].name).toBe("Transverse Section");
   });
 
-  test("Perspective is last", () => {
-    const host = document.createElement("div");
-    const c = buildLayoutMode(host, { spawnDefault: false });
-    expect(c.sheets[c.sheets.length - 1].name).toBe("Perspective");
-  });
-
-  test("full order for single level: Plan → Section → Elevation → RCP → Axonometric → Perspective", () => {
+  test("full order for single level", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     const names = c.sheets.map(s => s.name);
     expect(names).toEqual([
       "Plan: Level 1",
-      "Section",
-      "Elevation",
       "RCP: Level 1",
-      "Axonometric",
-      "Perspective",
+      "Roof Plan",
+      "South Elevation",
+      "East Elevation",
+      "North Elevation",
+      "West Elevation",
+      "Longitudinal Section",
+      "Transverse Section",
     ]);
   });
 });
 
-// ── Plan sheet insertion index on level add ───────────────────────────────────
+// ── Plan sheet insertion index on level add ────────────────────────────────────
 
-describe("Plan sheet insertion order on level add (#1847)", () => {
+describe("Plan sheet insertion order on level add", () => {
   test("second plan sheet inserts at index 1 (after first plan)", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
@@ -98,11 +94,11 @@ describe("Plan sheet insertion order on level add (#1847)", () => {
     expect(c.sheets[1].name).toBe("Plan: Level 2");
   });
 
-  test("two plans: Section still follows both plans", () => {
+  test("two plans: RCP still follows both plans", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     levelStore.add({ name: "Level 2", elevation: 3.0 });
-    expect(c.sheets[2].name).toBe("Section");
+    expect(c.sheets[2].name).toBe("RCP: Level 1");
   });
 
   test("plan removal restores original order", () => {
@@ -111,31 +107,51 @@ describe("Plan sheet insertion order on level add (#1847)", () => {
     const l2 = levelStore.add({ name: "Level 2", elevation: 3.0 });
     levelStore.remove(l2.id);
     expect(c.sheets[0].name).toBe("Plan: Level 1");
-    expect(c.sheets[1].name).toBe("Section");
+    expect(c.sheets[1].name).toBe("RCP: Level 1");
   });
 });
 
 // ── RCP sheet insertion index on level add ────────────────────────────────────
 
-describe("RCP sheet insertion order on level add (#1847)", () => {
-  test("two levels: both RCP sheets are after both elevation presets", () => {
+describe("RCP sheet insertion order on level add", () => {
+  test("two levels: both RCP sheets are after both plan sheets", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     levelStore.add({ name: "Level 2", elevation: 3.0 });
-    // [Plan:L1, Plan:L2, Section, Elevation, RCP:L1, RCP:L2, Axo, Perspective]
+    // [Plan:L1, Plan:L2, RCP:L1, RCP:L2, Roof Plan, S Elev, E Elev, N Elev, W Elev, Lng, Trans]
     const names = c.sheets.map(s => s.name);
     const rcpIdxs = names.reduce<number[]>((a, n, i) => n.startsWith("RCP:") ? [...a, i] : a, []);
-    const elvIdx = names.indexOf("Elevation");
-    expect(rcpIdxs.every(i => i > elvIdx)).toBe(true);
+    const lastPlanIdx = names.reduce((a, n, i) => n.startsWith("Plan:") ? i : a, -1);
+    expect(rcpIdxs.every(i => i > lastPlanIdx)).toBe(true);
   });
 
-  test("RCP sheets appear before Axonometric", () => {
+  test("RCP sheets appear before Roof Plan", () => {
     const host = document.createElement("div");
     const c = buildLayoutMode(host, { spawnDefault: false });
     levelStore.add({ name: "Level 2", elevation: 3.0 });
     const names = c.sheets.map(s => s.name);
     const lastRcp = names.reduce((a, n, i) => n.startsWith("RCP:") ? i : a, -1);
-    const axoIdx = names.indexOf("Axonometric");
-    expect(lastRcp).toBeLessThan(axoIdx);
+    const roofIdx = names.indexOf("Roof Plan");
+    expect(lastRcp).toBeLessThan(roofIdx);
+  });
+
+  test("two levels full order", () => {
+    const host = document.createElement("div");
+    const c = buildLayoutMode(host, { spawnDefault: false });
+    levelStore.add({ name: "Level 2", elevation: 3.0 });
+    const names = c.sheets.map(s => s.name);
+    expect(names).toEqual([
+      "Plan: Level 1",
+      "Plan: Level 2",
+      "RCP: Level 1",
+      "RCP: Level 2",
+      "Roof Plan",
+      "South Elevation",
+      "East Elevation",
+      "North Elevation",
+      "West Elevation",
+      "Longitudinal Section",
+      "Transverse Section",
+    ]);
   });
 });
