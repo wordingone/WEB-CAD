@@ -1704,22 +1704,24 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   selfSpecController.recordTurn(_mtpActive ? _selfSpecAcceptRate : 0);
   console.debug(`[agent] prefill=${Math.round(prefillMs)}ms decode=${Math.round(decodeMs)}ms in=${inputLength} out=${tokensOut} tg=${tgTps.toFixed(1)}t/s mtp=${_mtpActive} self_spec=${_selfSpecDecision.active}(${_selfSpecDecision.reason})`);
   _arc.dispatch({ type: "GENERATE_DONE", turnId }); // §P0-ARC: state → ready
-  // §#88-B: re-add meshes removed before generate() — but only when re-adding won't push
-  // creatorCount back above SCENE_VRAM_RECYCLE_THRESHOLD. Re-adding above threshold triggers
-  // immediate disposal on the NEXT turn's pre-generate check, creating a rapid GPU
-  // allocate→destroy cycle that races with wgpuBufferMapAsync (same race as #1362).
-  // When above threshold: keep objects removed (VRAM stays free, no WGPU thrash).
+  // §#88-B: re-add meshes removed before generate() — but only after NL (non-build) turns.
+  // NL turn (currentCreatorCount===0): re-add is safe and required — the next turn's pre-generate
+  // disposal will fire on the restored objects, creating the GPU destruction sequence that makes
+  // _flushWgpuQueue("pre-generate") effective against the bufMgr race (buffer_manager.cc:553).
+  // Build turn (currentCreatorCount>0): skip re-add — newly-added Three.js GPU uploads would be
+  // immediately disposed on the next pre-generate, creating the rapid allocate→destroy cycle that
+  // races with wgpuBufferMapAsync. Keep removed; next turn's low count means no disposal, no thrash.
   if (_disposedCreatorMeshes.length > 0) {
     type CreatorChild = { userData?: Record<string, unknown> };
     const _sceneRef = (window as unknown as { __viewer?: { scene?: { children?: CreatorChild[]; add?: (obj: unknown) => void } } })
       .__viewer?.scene;
     const _currentCreatorCount = _sceneRef?.children?.filter(c => c.userData?.creator != null).length ?? 0;
     const _totalAfterReAdd = _currentCreatorCount + _disposedCreatorMeshes.length;
-    if (_sceneRef?.add && _totalAfterReAdd < SCENE_VRAM_RECYCLE_THRESHOLD) {
+    if (_sceneRef?.add && _currentCreatorCount === 0) {
       for (const _mesh of _disposedCreatorMeshes) _sceneRef.add(_mesh); // audit-undo-ok: restoring temporary VRAM disposal, not a user-undoable action
-      console.info(`[VRAM-RESTORE] re-added ${_disposedCreatorMeshes.length} creator meshes (total=${_totalAfterReAdd} < ${SCENE_VRAM_RECYCLE_THRESHOLD})`);
+      console.info(`[VRAM-RESTORE] re-added ${_disposedCreatorMeshes.length} creator meshes after NL turn (total=${_totalAfterReAdd})`);
     } else {
-      console.info(`[VRAM-RESTORE-SKIP] would create ${_totalAfterReAdd} creator objects >= threshold ${SCENE_VRAM_RECYCLE_THRESHOLD} — keeping removed to prevent WGPU alloc-destroy thrash`);
+      console.info(`[VRAM-RESTORE-SKIP] build turn — ${_currentCreatorCount} new creators; keeping ${_disposedCreatorMeshes.length} removed to prevent WGPU alloc-destroy thrash`);
     }
     _disposedCreatorMeshes.length = 0;
   }
