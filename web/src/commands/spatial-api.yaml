@@ -2267,14 +2267,29 @@
     type: object
     properties:
       format:
-        type: enum_format
+        type: enum_choice
+        description: "Export format"
+        options:
+          - {value: ifc,  label: "IFC4",      description: "IFC4 / STEP-21 architectural format (default)"}
+          - {value: ifc4, label: "IFC4",      description: "Alias for ifc"}
+          - {value: obj,  label: "OBJ",       description: "Wavefront OBJ mesh (three.js OBJExporter)"}
+          - {value: stl,  label: "STL",       description: "STL binary mesh for 3D printing"}
+          - {value: 3dm,  label: "Rhino 3DM", description: "Rhino native format via rhino3dm.js"}
+          - {value: step, label: "STEP",      description: "STEP AP203/242 (replicad geometry only)"}
+          - {value: glb,  label: "GLB",       description: "Binary glTF 2.0"}
+          - {value: gltf, label: "glTF",      description: "JSON glTF 2.0"}
+          - {value: usdz, label: "USDZ",      description: "USDZ / AR for iOS"}
+          - {value: svg,  label: "SVG",       description: "SVG top-view projection"}
+          - {value: dxf,  label: "DXF",       description: "AutoCAD DXF R12 vector"}
+          - {value: dwg,  label: "DWG",       description: "DWG (DXF fallback — true binary DWG unsupported in browser)"}
+          - {value: pdf,  label: "PDF",       description: "PDF top-view line drawing"}
       target:
         type: string
         default: scene
     required: [format]
   topology_role: system
   kg_predicates: []
-  synonyms: [export, save, write, "export ifc", "export glb", "save as ifc", "download ifc"]
+  synonyms: [export, save, write, "export ifc", "export glb", "save as ifc", "download ifc", "export obj", "export as obj", "save as obj", "export stl", "export as stl", "save as stl", "download obj", "download stl"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
