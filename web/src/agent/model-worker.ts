@@ -62,6 +62,8 @@ const MTP_VERIFICATION_WIRED = true;
 let _bootModelReady = false;
 let _bootWarmupDone = false;
 let _bootDrafterDone = false; // true when drafter-ready OR drafter-error OR no drafterUrl
+// §#88-C: stored for transparent ORT session refresh (no re-download needed)
+let _lastInitData: Record<string, unknown> | null = null;
 
 // Throughput tracking for progress events.
 let _progressLastBytes = 0;
@@ -157,6 +159,7 @@ self.onmessage = async (ev: MessageEvent<Record<string, unknown>>) => {
     else if (type === "generate")    await handleGenerate(data);
     else if (type === "shutdown")    await handleShutdown();
     else if (type === "destroy-device") handleDestroyDevice();
+    else if (type === "session-refresh") await handleSessionRefresh();
     // "abort" is handled via the AbortController in handleGenerate (future work)
   } catch (e) {
     post({ type: "error", error: (e as Error).message });
@@ -165,6 +168,7 @@ self.onmessage = async (ev: MessageEvent<Record<string, unknown>>) => {
 
 // ── Init: from_pretrained + warmup probe + drafter ───────────────────────────
 async function handleInit(data: Record<string, unknown>): Promise<void> {
+  _lastInitData = { ...data }; // §#88-C: store for transparent session refresh
   post({ type: "phase_timing", phase: "worker_init", elapsed_ms: Date.now() - _workerStartMs });
   // §A-init (#990): dispose prior ORT sessions on re-init (model swap) — prevents VRAM leak.
   if (_drafterSession) {
@@ -796,6 +800,61 @@ async function handleShutdown(): Promise<void> {
   }
   _processor = null;
   post({ type: "shutdown-complete" });
+}
+
+// §#88-C: transparent ORT session refresh — re-creates the ORT inference session from
+// Cache API (no re-download) to eliminate accumulated WGPU buffer pool state that causes
+// buffer_manager.cc:553 mapAsync race. Invisible to the ARC machine (no D3D12_OOM event,
+// no recycleCount increment). Called by agent-harness before high-pressure turns (T3+).
+async function handleSessionRefresh(): Promise<void> {
+  if (!_lastInitData) {
+    post({ type: "session-refresh-complete", skipped: true, reason: "no-init-data" });
+    return;
+  }
+
+  // Release drafter ORT session first
+  if (_drafterSession) {
+    try { await (_drafterSession as any).release?.(); } catch { /* non-fatal */ }
+    _drafterSession = null;
+  }
+  // Dispose main model — releases the ORT WebGPU buffer pool
+  if (_model) {
+    try { await (_model as any).dispose?.(); } catch { /* non-fatal */ }
+    _model = null;
+  }
+  _processor = null;
+
+  // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
+  // holds the shards so from_pretrained serves from cache without any network fetch.
+  // GPU device (_preAcquiredGpuDevice) persists — only ORT's buffer pool is reset.
+  const modelId = _lastInitData.modelId as string;
+  if (!modelId) {
+    post({ type: "session-refresh-complete", skipped: true, reason: "no-model-id" });
+    return;
+  }
+
+  // Mirror the backend priority from handleInit: WebGPU if device acquired, CPU fallback.
+  const refreshBackends: Array<{ device: "webgpu" | "cpu"; dtype: "q4f16" | "q4" }> = _preAcquiredGpuDevice
+    ? [{ device: "webgpu", dtype: "q4f16" }, { device: "cpu", dtype: "q4" }]
+    : [{ device: "cpu", dtype: "q4" }];
+
+  let refreshed = false;
+  for (const { device, dtype } of refreshBackends) {
+    try {
+      const model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, { dtype, device });
+      const processor = await AutoProcessor.from_pretrained(modelId);
+      _model = model;
+      _processor = processor;
+      refreshed = true;
+      break;
+    } catch (e) {
+      if (device === "webgpu") continue; // try CPU fallback
+      post({ type: "session-refresh-complete", skipped: false, error: (e as Error).message?.slice(0, 100) });
+      return;
+    }
+  }
+
+  post({ type: "session-refresh-complete", skipped: !refreshed });
 }
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────

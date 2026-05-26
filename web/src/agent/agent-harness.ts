@@ -197,6 +197,13 @@ const SCENE_VRAM_RECYCLE_THRESHOLD = 12;
 // user sees no permanent scene loss — just a blank viewport during the ~90s generation window.
 const _disposedCreatorMeshes: unknown[] = [];
 
+// §#88-C: transparent ORT session refresh before high-VRAM turns.
+// Fires once per worker lifetime when turnCount reaches this threshold, before the next generate.
+// Re-creates ORT buffer pool from Cache API (no network fetch) without touching the ARC machine.
+const ORT_SESSION_REFRESH_THRESHOLD = 2; // refresh before T3 (after T1 heavy build + T2 NL)
+let _ortSessionRefreshDone = false;      // guards against double-fire
+let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
+
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
 // Used by the turn-count gate (every MODEL_WORKER_RECYCLE_AFTER turns).
 async function _doPlannedRecycle(reason: string): Promise<void> {
@@ -262,6 +269,24 @@ function _disposeCreatorGeometryBuffers(): void {
 
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
+
+  // §#88-C: ORT session refresh — dispose accumulated WGPU buffer pool from prior turns
+  // and re-load from Cache API before the first high-pressure turn (T3+). This eliminates
+  // the buffer_manager.cc:553 mapAsync race that causes unplanned D3D12 OOM at T3.
+  // ARC state is NOT changed; recycleCount stays 0. ~60s overhead from cache load.
+  if (!_ortSessionRefreshDone && _arc.turnCount >= ORT_SESSION_REFRESH_THRESHOLD) {
+    _ortSessionRefreshDone = true; // set before await to prevent double-fire on concurrent calls
+    console.info(`[VRAM-REFRESH] ORT session refresh triggered: turnCount=${_arc.turnCount} threshold=${ORT_SESSION_REFRESH_THRESHOLD}`);
+    await Promise.race([
+      new Promise<void>(resolve => {
+        _sessionRefreshResolve = resolve;
+        _inferenceWorker!.postMessage({ type: "session-refresh" });
+      }),
+      new Promise<void>(resolve => setTimeout(resolve, 180_000)), // 3-min safety timeout
+    ]);
+    _sessionRefreshResolve = null;
+    console.info(`[VRAM-REFRESH] ORT session refresh complete`);
+  }
 
   // §#1505/#66: VRAM-aware early flush — count creator-tagged scene objects to estimate
   // GPU buffer pressure. Above threshold, dispose() their geometry/material buffers to
@@ -450,6 +475,12 @@ function initWorkerIfNeeded(): Worker {
         break;
       case "ready":
         // workerReady already set by MODEL_READY dispatch — no additional state mutation needed
+        break;
+      case "session-refresh-complete":
+        // §#88-C: resolve the waiting promise in recycleModelWorkerIfNeeded()
+        _sessionRefreshResolve?.();
+        _sessionRefreshResolve = null;
+        console.info(`[VRAM-REFRESH] worker confirmed session-refresh-complete skipped=${msg.skipped ?? false} error=${msg.error ?? "none"}`);
         break;
       case "context-budget":
         window.dispatchEvent(new CustomEvent("agentmodel:context-budget", {
