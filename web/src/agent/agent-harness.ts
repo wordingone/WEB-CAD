@@ -1095,6 +1095,36 @@ Assistant: SdContour — target UUID, interval=1.
 1. SdContour — target=<uuid>, interval=1
 </plan>
 <tool_call>{"name":"SdContour","arguments":{"target":"<uuid-of-solid>","interval":1},"metadata":{"source":"agent"}}</tool_call>
+
+User: revolve a 3m vertical line at x=2 around the Z axis, then cut a 1m cylindrical hole through it
+Assistant: Two-step NURBS chain — revolve to make a disk, then subtract a smaller cylinder. Both use the object UUIDs from scene context after each step.
+<plan>
+1. SdRevolve — profile={line from [2,0,0] to [2,0,3]}, Z axis, 0→2π → creates disk solid
+2. SdLine — vertical line at x=1, length 3 for the hole profile
+3. SdRevolve — profile={line from [1,0,0] to [1,0,3]}, Z axis, 0→2π → smaller cylinder
+4. SdBooleanDifference — outer=<disk-uuid>, inner=<cylinder-uuid>
+</plan>
+<tool_call>{"name":"SdRevolve","arguments":{"profile":{"kind":"line","from":[2,0,0],"to":[2,0,3]},"axisFrom":[0,0,0],"axisTo":[0,0,1],"angleStart":0,"angleEnd":6.2832},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdRevolve","arguments":{"profile":{"kind":"line","from":[1,0,0],"to":[1,0,3]},"axisFrom":[0,0,0],"axisTo":[0,0,1],"angleStart":0,"angleEnd":6.2832},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdBooleanDifference","arguments":{"outer":"<disk-uuid>","inner":"<cylinder-uuid>"},"metadata":{"source":"agent"}}</tool_call>
+
+User: loft a surface between a 4m baseline at z=0 and a 4m top edge at z=3, then export as IFC
+Assistant: Loft two parallel horizontal lines into a ruled surface patch, then export scene as IFC4.
+<plan>
+1. SdLoft — curves=[{line from [0,0,0] to [4,0,0]}, {line from [0,0,3] to [4,0,3]}]
+2. SdExport — format=ifc, target=scene
+</plan>
+<tool_call>{"name":"SdLoft","arguments":{"curves":[{"kind":"line","from":[0,0,0],"to":[4,0,0]},{"kind":"line","from":[0,0,3],"to":[4,0,3]}]},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdExport","arguments":{"format":"ifc","target":"scene"},"metadata":{"source":"agent"}}</tool_call>
+
+User: sweep a circular arc profile along a curved rail, then union it with the existing box
+Assistant: Sweep creates a tube-like solid; union merges it with the box. Both are NURBS-backed — the result inherits the NURBS surface userData.
+<plan>
+1. SdSweep — profile={arc radius=0.5, full circle}, rail={polyline [[0,0,0],[5,0,0],[8,3,0]]}
+2. SdBooleanUnion — a=<sweep-uuid>, b=<box-uuid>
+</plan>
+<tool_call>{"name":"SdSweep","arguments":{"profile":{"kind":"arc","center":[0,0,0],"radius":0.5,"startAngle":0,"endAngle":6.2832},"rail":{"points":[[0,0,0],[5,0,0],[8,3,0]]}},"metadata":{"source":"agent"}}</tool_call>
+<tool_call>{"name":"SdBooleanUnion","arguments":{"a":"<sweep-uuid>","b":"<box-uuid>"},"metadata":{"source":"agent"}}</tool_call>
 `.trim();
 
 const WEBGPU_HOUSE_FEW_SHOT = `
@@ -1161,6 +1191,17 @@ Assistant: Full 360° revolution around Z axis.
 User: union the two selected objects
 Assistant: SdBoolean union from scene UUIDs.
 <tool_call>{"command":"SdBoolean","parameters":{"op":"union","a":"<uuid-of-object-a>","b":"<uuid-of-object-b>"}}</tool_call>
+
+User: revolve a line at x=2 around Z, then cut a hole using a smaller revolved cylinder
+Assistant: Two revolutions + boolean difference — NURBS chain.
+<tool_call>{"command":"SdRevolve","parameters":{"profile":{"kind":"line","from":[2,0,0],"to":[2,0,3]},"axisFrom":[0,0,0],"axisTo":[0,0,1],"angleStart":0,"angleEnd":6.2832}}</tool_call>
+<tool_call>{"command":"SdRevolve","parameters":{"profile":{"kind":"line","from":[1,0,0],"to":[1,0,3]},"axisFrom":[0,0,0],"axisTo":[0,0,1],"angleStart":0,"angleEnd":6.2832}}</tool_call>
+<tool_call>{"command":"SdBooleanDifference","parameters":{"outer":"<disk-uuid>","inner":"<cylinder-uuid>"}}</tool_call>
+
+User: loft two parallel lines into a surface patch, then export as IFC
+Assistant: Loft + IFC export — NURBS surface travels through to IFC4.
+<tool_call>{"command":"SdLoft","parameters":{"curves":[{"kind":"line","from":[0,0,0],"to":[4,0,0]},{"kind":"line","from":[0,0,3],"to":[4,0,3]}]}}</tool_call>
+<tool_call>{"command":"SdExport","parameters":{"format":"ifc","target":"scene"}}</tool_call>
 `.trim();
 
 export function buildSystemPrompt(skills?: Skill[]): string {
