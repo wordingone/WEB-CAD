@@ -17,14 +17,10 @@ export type DrawingLayer = {
   printWidth: number;  // mm (separate from on-screen lineweight)
 };
 
-// AutoCAD-canonical starter set (#1854).
 const DEFAULT_LAYERS: DrawingLayer[] = [
-  { id: "default", name: "0",            visible: true, locked: false, color: "#9ec5d8", lineweight: 0.25, linetype: "Continuous", printWidth: 0.25 },
-  { id: "defpoints",    name: "Defpoints",    visible: true, locked: false, color: "#808080", lineweight: 0.09, linetype: "Continuous", printWidth: 0 },
-  { id: "annotations",  name: "Annotations",  visible: true, locked: false, color: "#f0d070", lineweight: 0.18, linetype: "Continuous", printWidth: 0.18 },
-  { id: "dimensions",   name: "Dimensions",   visible: true, locked: false, color: "#4a9eca", lineweight: 0.13, linetype: "Continuous", printWidth: 0.13 },
-  { id: "hatches",      name: "Hatches",      visible: true, locked: false, color: "#888888", lineweight: 0.09, linetype: "Continuous", printWidth: 0.09 },
-  { id: "construction", name: "Construction", visible: true, locked: false, color: "#ff8000", lineweight: 0.09, linetype: "Dashed",     printWidth: 0.09 },
+  { id: "default", name: "Layer 1", visible: true, locked: false, color: "#9ec5d8", lineweight: 0.25, linetype: "Continuous", printWidth: 0.25 },
+  { id: "layer-2", name: "Layer 2", visible: true, locked: false, color: "#f0d070", lineweight: 0.18, linetype: "Continuous", printWidth: 0.18 },
+  { id: "layer-3", name: "Layer 3", visible: true, locked: false, color: "#4a9eca", lineweight: 0.13, linetype: "Continuous", printWidth: 0.13 },
 ];
 
 type DLListener = () => void;
