@@ -30,20 +30,25 @@ export function isGpuWasmForced(): boolean {
 
 // ── Adapter detection ────────────────────────────────────────────────────────
 
-export async function detectAdapterClass(): Promise<{ classification: AdapterClass; deviceLabel: string }> {
+export async function detectAdapterClass(): Promise<{ classification: AdapterClass; deviceLabel: string; maxBufferSize: number }> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const gpu = (navigator as any).gpu;
-    if (!gpu) return { classification: "no-webgpu", deviceLabel: "" };
+    if (!gpu) return { classification: "no-webgpu", deviceLabel: "", maxBufferSize: 0 };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const adapter = await gpu.requestAdapter({ powerPreference: "high-performance" }).catch(() => null) as any | null;
-    if (!adapter) return { classification: "no-webgpu", deviceLabel: "" };
+    if (!adapter) return { classification: "no-webgpu", deviceLabel: "", maxBufferSize: 0 };
 
     const info = adapter.info ?? {};
     const vendor = String(info.vendor ?? "").toLowerCase();
     const arch   = String(info.architecture ?? "").toLowerCase();
     const isFallback = !!adapter.isFallbackAdapter;
     const deviceLabel = String(info.description ?? info.device ?? info.vendor ?? "").trim();
+    // §#156 Layer 1: WebGPU maxBufferSize as VRAM tier proxy — logged at boot for diagnostics.
+    const maxBufferSize: number = (adapter.limits?.maxBufferSize as number | undefined) ?? 0;
+    if (maxBufferSize > 0) {
+      console.info(`[boot-capability-gate] adapter maxBufferSize=${(maxBufferSize / 1024 ** 3).toFixed(1)}GB`);
+    }
 
     let classification: AdapterClass;
     if (isFallback) {
@@ -62,9 +67,9 @@ export async function detectAdapterClass(): Promise<{ classification: AdapterCla
     } else {
       classification = "dgpu";
     }
-    return { classification, deviceLabel };
+    return { classification, deviceLabel, maxBufferSize };
   } catch {
-    return { classification: "unknown", deviceLabel: "" };
+    return { classification: "unknown", deviceLabel: "", maxBufferSize: 0 };
   }
 }
 
@@ -326,7 +331,11 @@ export function initCapabilityGate(overlayContainer: HTMLElement): void {
     resolvedBootPath = "wasm-fallback";
   } else {
     _gatePromise = (async (): Promise<UserPath> => {
-      const { classification, deviceLabel } = await detectAdapterClass();
+      const { classification, deviceLabel, maxBufferSize } = await detectAdapterClass();
+      // §#156 Layer 1: expose VRAM budget for diagnostics.
+      if (maxBufferSize > 0) {
+        (window as unknown as Record<string, unknown>).__adapterMaxBufferSize = maxBufferSize;
+      }
       // §#1637-Leo: unknown defaults to dgpu-path (no modal). False-negative (slower inference
       // for one user) is much cheaper than false-positive (blocking a healthy user).
       if (classification === "dgpu" || classification === "unknown") {
@@ -351,6 +360,7 @@ export function initCapabilityGate(overlayContainer: HTMLElement): void {
       modalShown: wasCapabilityModalShown,
       path,
       tier: pathToTier(path),
+      maxBufferSize: (window as unknown as Record<string, unknown>).__adapterMaxBufferSize ?? 0,
     };
   });
 }

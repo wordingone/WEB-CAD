@@ -201,6 +201,14 @@ const _disposedCreatorMeshes: unknown[] = [];
 // Fires once per worker lifetime when turnCount reaches this threshold, before the next generate.
 // Re-creates ORT buffer pool from Cache API (no network fetch) without touching the ARC machine.
 const ORT_SESSION_REFRESH_THRESHOLD = 2; // refresh before T3 (after T1 heavy build + T2 NL)
+
+// §#156 Layer 3: visibility-based ORT session disposal.
+// When tab is hidden for VRAM_DISPOSE_DELAY_MS, dispose ORT sessions to release VRAM.
+// Session-refresh transparently re-creates from Cache API on next tab-visible event.
+const VRAM_DISPOSE_DELAY_MS = 5 * 60 * 1000; // 5 minutes hidden before dispose
+let _visibilityTimer: ReturnType<typeof setTimeout> | null = null;
+let _sessionSuspended = false; // true while session is disposed (tab was hidden >5min)
+let _visibilityRegistered = false; // register listener once across worker respawns
 let _ortSessionRefreshDone = false;      // guards against double-fire
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
@@ -481,6 +489,16 @@ function initWorkerIfNeeded(): Worker {
         _sessionRefreshResolve?.();
         _sessionRefreshResolve = null;
         console.info(`[VRAM-REFRESH] worker confirmed session-refresh-complete skipped=${msg.skipped ?? false} error=${msg.error ?? "none"}`);
+        // §#156: restore badge after visibility-triggered re-init (no resolver was set).
+        if (!msg.skipped && !msg.error) {
+          updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · READY`);
+        }
+        break;
+      case "session-disposed":
+        // §#156 Layer 3: worker released ORT sessions due to tab-hidden timer.
+        _sessionSuspended = true;
+        updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  PAUSED`);
+        console.info("[VRAM-DISPOSE] session disposed — VRAM released (tab hidden >5min)");
         break;
       case "context-budget":
         window.dispatchEvent(new CustomEvent("agentmodel:context-budget", {
@@ -691,6 +709,38 @@ function initWorkerIfNeeded(): Worker {
     for (const [, cb] of _generateCallbacks) cb.reject(new Error(errMsg));
     _generateCallbacks.clear();
   };
+
+  // §#156 Layer 3: register visibilitychange listener once (persists across worker respawns).
+  if (!_visibilityRegistered) {
+    _visibilityRegistered = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        // Tab hidden — start disposal countdown.
+        if (_visibilityTimer == null) {
+          _visibilityTimer = setTimeout(() => {
+            _visibilityTimer = null;
+            if (_inferenceWorker && _arc.state !== "generating") {
+              _inferenceWorker.postMessage({ type: "dispose-session" });
+              console.info("[VRAM-DISPOSE] tab hidden >5min — sending dispose-session");
+            }
+          }, VRAM_DISPOSE_DELAY_MS);
+        }
+      } else {
+        // Tab visible — cancel pending disposal.
+        if (_visibilityTimer != null) {
+          clearTimeout(_visibilityTimer);
+          _visibilityTimer = null;
+        }
+        // Re-init session if it was disposed while hidden.
+        if (_sessionSuspended && _inferenceWorker) {
+          _sessionSuspended = false;
+          updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
+          _inferenceWorker.postMessage({ type: "session-refresh" });
+          console.info("[VRAM-DISPOSE] tab visible — sending session-refresh to reinitialise");
+        }
+      }
+    });
+  }
 
   updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LOADING…`);
   window.dispatchEvent(new CustomEvent("agentmodel:loading", { detail: { progress: 0 } }));
