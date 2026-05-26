@@ -180,6 +180,7 @@ self.onmessage = async (ev: MessageEvent<Record<string, unknown>>) => {
     else if (type === "shutdown")    await handleShutdown();
     else if (type === "destroy-device") handleDestroyDevice();
     else if (type === "session-refresh") await handleSessionRefresh();
+    else if (type === "dispose-session") await handleDisposeSession();
     // "abort" is handled via the AbortController in handleGenerate (future work)
   } catch (e) {
     post({ type: "error", error: (e as Error).message });
@@ -821,6 +822,22 @@ async function handleShutdown(): Promise<void> {
   }
   _processor = null;
   post({ type: "shutdown-complete" });
+}
+
+// §#156 Layer 3: tab-hidden VRAM reclaim — releases ORT sessions + model when tab goes hidden.
+// Unlike handleShutdown, the worker stays alive and _lastInitData is preserved so
+// handleSessionRefresh() can transparently reinitialise on next tab-visible event.
+async function handleDisposeSession(): Promise<void> {
+  if (_drafterSession) {
+    try { await (_drafterSession as any).release?.(); } catch { /* non-fatal */ }
+    _drafterSession = null;
+  }
+  if (_model) {
+    try { await (_model as any).dispose?.(); } catch { /* non-fatal */ }
+    _model = null;
+  }
+  _processor = null;
+  post({ type: "session-disposed" });
 }
 
 // §#88-C: transparent ORT session refresh — re-creates the ORT inference session from
