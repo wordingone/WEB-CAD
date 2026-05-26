@@ -474,9 +474,20 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
           const _lostBudget = _adClassification === "dgpu" ? 1 : 0;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (_preAcquiredGpuDevice as any).lost
-            ?.then((info: { reason: string; message: string }) => {
+            ?.then(async (info: { reason: string; message: string }) => {
               if (info?.reason === "destroyed") return; // intentional — handleDestroyDevice, non-fatal
               console.log(`[#1627-D] device.lost reason=${info?.reason ?? "unknown"} adClass=${_adClassification} retryBudget=${_lostBudget}`);
+              // §#156 Layer 4: dispose ORT sessions before signaling harness — prevents holding
+              // references to a dead GPU context (eliminates "TDR + app retries on lost device").
+              if (_drafterSession) {
+                try { await (_drafterSession as any).release?.(); } catch { /* non-fatal */ }
+                _drafterSession = null;
+              }
+              if (_model) {
+                try { await (_model as any).dispose?.(); } catch { /* non-fatal */ }
+                _model = null;
+              }
+              _processor = null;
               post({ type: "device-lost", adClass: _adClassification, reason: info?.reason ?? "unknown", retryBudget: _lostBudget });
             })
             .catch(() => { /* device destroyed before .lost resolved — non-fatal */ });
@@ -837,6 +848,8 @@ async function handleDisposeSession(): Promise<void> {
     _model = null;
   }
   _processor = null;
+  // §#156 Layer 4: flush GPU queue after dispose to ensure memory returns to allocator.
+  await _flushWgpuQueue("dispose-session");
   post({ type: "session-disposed" });
 }
 
@@ -861,6 +874,10 @@ async function handleSessionRefresh(): Promise<void> {
     _model = null;
   }
   _processor = null;
+  // §#156 Layer 4: flush pending GPU ops after dispose to verify VRAM is returned to
+  // the allocator before reallocation. _flushWgpuQueue uses ort.env.webgpu.device
+  // (same device, module-scope path) so _preAcquiredGpuDevice locality is irrelevant.
+  await _flushWgpuQueue("session-refresh-pre-reload");
 
   // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
   // holds the shards so from_pretrained serves from cache without any network fetch.
