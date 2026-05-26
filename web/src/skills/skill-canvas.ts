@@ -8,7 +8,7 @@
 
 import { dispatchSync, registerPostDispatch, type DispatchArgs } from "../commands/dispatch";
 import { compileDsl } from "../commands/dsl-eval";
-import { saveSkill, listSavedSkills, listCanvasClusters, type SkillStep, type SavedSkill, type CanvasCluster } from "./skill-store";
+import { listSavedSkills, listCanvasClusters, type SkillStep, type SavedSkill, type CanvasCluster } from "./skill-store";
 import { openSaveSkillModal, openSaveClusterModal } from "./skill-modal";
 import { subscribe as subscribeAppState, getState } from "../app-state";
 import { purgeStarterClusters, STARTER_IDS } from "./starter-clusters";
@@ -581,8 +581,7 @@ export class SkillCanvas {
       listCanvasClusters().catch(() => [] as CanvasCluster[]),
     ]);
 
-    const starterClusters = clusters.filter(c => STARTER_IDS.has(c.id));
-    const userClusters    = clusters.filter(c => !STARTER_IDS.has(c.id));
+    const userClusters = clusters.filter(c => !STARTER_IDS.has(c.id));
 
     this._paletteEl.innerHTML = "";
 

@@ -17,7 +17,7 @@ import { classifyDispatchResult } from "./chat-dispatch-routing";
 import { buildContextAugmentation } from "../agent/agent-context-augmentor";
 import { setPickerHint } from "../viewer/picker-hint";
 import { openSaveSkillModal } from "../skills/skill-modal";
-import { getState, subscribe } from "../app-state";
+import { getState } from "../app-state";
 import { createGoal, getCachedGoal, updateGoalTokens, updateGoalContinuation } from "../agent/goal-state";
 import type { Goal, GoalTerminalReason } from "../agent/goal-state";
 
@@ -157,20 +157,6 @@ export function _rotateSkillSteps(steps: SkillStep[], cx: number, cy: number, de
       return [k, v];
     })),
   }));
-}
-
-function estimateMaxTokens(prompt: string): number {
-  const p = prompt.toLowerCase();
-  // Short informational queries rarely need more than 256 tokens.
-  if (/\?$/.test(p) || /^(what|how|why|is|are|show|list|describe|explain)\b/.test(p)) return 256;
-  // Multi-step design requests need headroom for plan + multiple tool_calls.
-  // Covers all 10 P8a benchmark prompt categories (fire-station→station,
-  // hospitality-cabin→cabin, walkup-4story→apartment, community-center→center/hall).
-  // 4096 (was 2048 #1243-fix): Schultz hit exactly 2048 cap before SdRoof (25th tool_call);
-  // raising to 4096 gives full plan + 30+ tool_calls headroom. WebGPU VRAM unaffected by cap.
-  if (/\b(design|pavilion|room|building|house|complex|floor|facade|station|cabin|apartment|center|hall|clinic|library|residence|create|model)\b/.test(p)) return 4096;
-  // Default: single geometry command fits in 512.
-  return 512;
 }
 
 // Keys whose values are angles (degrees) — must not be divided by ft2m.

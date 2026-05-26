@@ -4,7 +4,6 @@
 // first library open. Clicking a block activates the block-insert draft tool
 // and stores the selected blockId for the next sheet click.
 
-import { iconSVG } from "../ui/icons";
 import { setActiveDraftTool } from "./draft-elements";
 
 // --- Block catalog ----------------------------------------------------------

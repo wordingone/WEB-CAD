@@ -7,11 +7,11 @@
 // All implementations are clean-room paraphrases of algorithm descriptions.
 
 import {
-  type Point3, type Vector3, type Line, type Interval, type Xform,
+  type Point3, type Vector3, type Line,
   Point3 as Pt3, Vector3 as V3, Interval as Iv,
 } from "./nurbs-primitives";
-import { type Curve, pointAt as curvePointAt, tangentAt as curveTangentAt, domain as curveDomain, tessellate } from "./nurbs-curves";
-import { type RevSurface, type NurbsSurface, type Surface } from "./nurbs-surfaces";
+import { type Curve, pointAt as curvePointAt, tangentAt as curveTangentAt, domain as curveDomain } from "./nurbs-curves";
+import { type RevSurface, type NurbsSurface } from "./nurbs-surfaces";
 
 // ── surfaceOfRevolution ───────────────────────────────────────────────────────
 
@@ -145,7 +145,7 @@ export function loftSurfaces(
   options: { closed?: boolean; degreeV?: number } = {},
 ): NurbsSurface {
   if (curves.length < 2) throw new Error("loftSurfaces requires at least 2 curves");
-  const closed   = options.closed  ?? false;
+  const _closed  = options.closed  ?? false;
   const degreeV  = options.degreeV ?? Math.min(3, curves.length - 1);
   const PROF_SAMPLES = 32;
   const dim = 3;

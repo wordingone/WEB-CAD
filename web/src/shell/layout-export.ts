@@ -6,9 +6,9 @@ import type { Viewer, ExportFacePoly, ClassifiedEdgeSeg } from "../viewer/viewer
 import { LINEWEIGHT, DASH_PATTERN, DXF_LWEIGHT, DXF_LINETYPE } from "../viewer/viewer";
 import { clippingPlaneStore } from "../geometry/clipping-planes";
 import {
-  sheetMm, sheetPx, MM_TO_PX, DEFAULT_CUSTOM, parseScale,
+  sheetMm, sheetPx, MM_TO_PX, DEFAULT_CUSTOM,
   isStubBounds, renderScaleBar,
-  type SheetSizeId, type Orientation, type SheetDims, type ViewportId,
+  type SheetSizeId, type Orientation, type ViewportId,
   type PanelState, type SceneBounds,
 } from "./layout-types";
 

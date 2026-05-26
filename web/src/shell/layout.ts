@@ -9,8 +9,8 @@ import {
   sheetMm, sheetPx, MM_TO_PX, DEFAULT_CUSTOM, DEFAULT_PROVIDER, DEFAULT_TITLE,
   VIEWPORT_LABELS, activeScalePresets, DISPLAY_MODES, renderScaleBar,
   type SheetSizeId, type Orientation, type SheetDims, type ViewportId, type ScaleId,
-  type DisplayMode, type SceneBounds, type SceneBoundsProvider,
-  type PanelState, type PanelInit, type TitleBlock, type LayoutOptions, type DetailRef,
+  type DisplayMode, type SceneBoundsProvider,
+  type PanelState, type PanelInit, type TitleBlock, type LayoutOptions,
 } from "./layout-types";
 import {
   layoutViewportToViewName,

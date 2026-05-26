@@ -1,7 +1,7 @@
 // layers-panel.ts — Layout-tab layers panel (#1854).
 // Illustrator/Rhino-style: visible, locked, color, lineweight, linetype, print-width.
 
-import { drawingLayerStore, LINEWEIGHTS, LINETYPES, type DrawingLayer } from "../geometry/drawing-layers";
+import { drawingLayerStore, LINEWEIGHTS, LINETYPES } from "../geometry/drawing-layers";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K, cls?: string, attrs?: Record<string, string>

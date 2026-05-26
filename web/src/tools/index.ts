@@ -4,21 +4,20 @@
 
 import * as THREE from "three";
 import type { Viewer } from "../viewer/viewer";
-import { getState, setState, subscribe } from "../app-state";
+import { getState, subscribe } from "../app-state";
 import { dispatchSync } from "../commands/dispatch";
-import { getSnap, snapPoint } from "../viewer/snap-state";
-import { getSnapTarget, setSnapTarget, getLastSnapEdgeDir, getLastSurfaceHit, HOST_TOOL_CREATORS, getPendingHostId, setPendingHostId, findHostMesh, nearestSnapVertex } from "../viewer/snap-state";
+import { getSnap } from "../viewer/snap-state";
+import { getSnapTarget, setSnapTarget, getLastSurfaceHit, HOST_TOOL_CREATORS, setPendingHostId, findHostMesh, nearestSnapVertex } from "../viewer/snap-state";
 import { pushAction, pushReplaceAction, beginTransaction, endTransaction, pushCustomAction, setOnActionPushed } from "../history";
-import { getActiveCommandSession, provideSessionPick, provideSessionChoice, clearCommandSession, commitCommandSession } from "../commands/command-session";
-import type { ChoiceOption } from "../commands/dictionary";
+import { getActiveCommandSession, provideSessionPick, clearCommandSession, commitCommandSession } from "../commands/command-session";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
 import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected } from "../viewer/selection-state";
 import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView, getGeometryZ, showLevelChip } from "../viewer/projection";
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
-import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptClearPrompt, ptShowCoordInput, ptHideCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptFinish, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
-import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging, opGetScreenYtoDz } from "../viewer/op-tool";
+import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
+import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, rebuildWallInPlace, attemptWallJoins, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlane, buildClipPlanePlan, buildClipPlaneSection, buildBox, buildExtrude } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";

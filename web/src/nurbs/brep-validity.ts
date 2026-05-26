@@ -9,7 +9,7 @@
 //   ORIENTATION  — degenerate: face.orientation field is undefined (structural only)
 
 import {
-  type Brep, type BrepShell, type BrepFace, type BrepEdge,
+  type Brep, type BrepShell,
   type TrimLoop, BREP_DEFAULT_TOLERANCE,
 } from "./nurbs-brep";
 import {
