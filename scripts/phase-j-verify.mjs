@@ -635,9 +635,13 @@ if (bootComplete) {
     let outcome = "timeout";
     let workerRecycled = false;
     let _recycleRecoveryPending = false;  // §#688: recycle seen, awaiting auto-retry generation
+    let _pageReloadDuringTurn = false;    // §#61: page navigated mid-turn (recycleCount reset to 0)
     const turnDeadline = Date.now() + TURN_TIMEOUT_MS;
     // §#1461: snapshot recycleCount BEFORE this turn to detect per-turn recycles.
     const initialRecycleCount = await evaluate("window.__arc?.recycleCount ?? 0");
+    // §#61: track minimum recycleCount seen during this turn — a drop signals a page reload
+    // that reset __arc.recycleCount to 0 (hiding the recycle from the post-turn check).
+    let _prevSeenRecycleCount = initialRecycleCount;
     // §#1666: reset dead-model sentinel before this turn's poll loop.
     await evaluate("window.__model_dead = false").catch(() => null);
 
@@ -647,6 +651,17 @@ if (bootComplete) {
       const recycleCount = await evaluate("window.__arc?.recycleCount ?? 0");
       const elapsed = Date.now() - turnMs0;
       console.log(`  [+${elapsed}ms] arc.state=${state} recycleCount=${recycleCount}`);
+
+      // §#61: page-reload detection. If recycleCount drops below a previously-seen value,
+      // the page navigated (location.assign / location.reload) and ARC was re-initialized,
+      // resetting recycleCount to 0. The post-turn check (finalRecycleCount > initialRecycleCount)
+      // reads 0 > prev → false and misses this. Catch it here while it's still in-flight.
+      if (typeof recycleCount === "number" && recycleCount < _prevSeenRecycleCount) {
+        workerRecycled = true;
+        _pageReloadDuringTurn = true;
+        console.log(`  → recycleCount dropped ${_prevSeenRecycleCount} → ${recycleCount}: page reload detected (workerRecycled=true)`);
+      }
+      if (typeof recycleCount === "number") _prevSeenRecycleCount = Math.min(_prevSeenRecycleCount, recycleCount);
 
       if (state === "recycling" || state === "recovering") {
         workerRecycled = true;
@@ -720,6 +735,7 @@ if (bootComplete) {
     const turnArcInvalids   = arcInvalidTransitions.slice(preArcInvalidCount);
     const flags = [];
     if (workerRecycled) flags.push("WORKER_RECYCLED");
+    if (_pageReloadDuringTurn) flags.push("PAGE_RELOAD");  // §#61: page navigated mid-turn
     if (turnBufferErrors > 0) flags.push("BUFFER_MGR_RACE");
     if (outcome === "fatal-error") flags.push("MODEL_STALL");
     if (outcome === "model-not-loaded") flags.push("MODEL_DEAD");
@@ -737,6 +753,7 @@ if (bootComplete) {
       sent: true,
       outcome,
       workerRecycled,
+      pageReloadDetected: _pageReloadDuringTurn,  // §#61: true when page navigated mid-turn
       bufferManagerErrors: turnBufferErrors,
       dispatchCount,
       dispatchVerbs,
@@ -770,6 +787,14 @@ for (let gi = 0; gi < turnResults.length - 1; gi++) {
   if (afterCount !== null && beforeCount !== null && beforeCount !== afterCount) {
     cumulativeGrowthOk = false;
     cumulativeGrowthViolations.push({ turn: gi, sceneChildrenAfter: afterCount, nextTurnBefore: beforeCount, delta: beforeCount - afterCount });
+  }
+  // §#61: page-reload clears the scene but agent:turn-complete never fires on the old page,
+  // so sceneChildrenAfter stays null and the check above is skipped. Catch via pageReloadDetected:
+  // if this turn had a page reload AND the next turn starts near infra baseline (< 20 children),
+  // the scene was lost mid-run.
+  if (afterCount === null && turnResults[gi].pageReloadDetected && beforeCount !== null && beforeCount < 20) {
+    cumulativeGrowthOk = false;
+    cumulativeGrowthViolations.push({ turn: gi, sceneChildrenAfter: null, nextTurnBefore: beforeCount, delta: null, reason: "page-reload-cleared-scene" });
   }
 }
 
