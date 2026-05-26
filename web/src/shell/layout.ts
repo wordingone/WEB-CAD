@@ -69,6 +69,44 @@ const ADD_SHEET_DEFS: Record<Exclude<SheetPresetId, "blank">, StaticSheetDef> = 
   section:   { name: "Section",      viewport: "front", scale: "1:100", displayMode: "technical" },
 };
 
+// Plan-view SVG blocks placed on the paper sheet when the user clicks in layout mode.
+// Dimensions in CSS px at paper-space zoom. Blocks remain active for repeated placement.
+function _stairSvg(dir: "UP" | "DN", w: number, h: number): string {
+  const steps = 8;
+  const rh = h / steps;
+  let lines = "";
+  for (let i = 1; i <= steps; i++) lines += `<line x1="0" y1="${Math.round(i * rh)}" x2="${w}" y2="${Math.round(i * rh)}"/>`;
+  const mid = Math.round(w / 2);
+  const ay = Math.round(h * 0.5);
+  const al = Math.round(h * 0.15);
+  const arrow = dir === "UP"
+    ? `<path d="M${mid} ${ay + al} L${mid} ${ay - al} M${mid - 5} ${ay - al + 5} L${mid} ${ay - al} L${mid + 5} ${ay - al + 5}"/>`
+    : `<path d="M${mid} ${ay - al} L${mid} ${ay + al} M${mid - 5} ${ay + al - 5} L${mid} ${ay + al} L${mid + 5} ${ay + al - 5}"/>`;
+  return `<svg width="100%" height="100%" viewBox="0 0 ${w} ${h}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="${w}" height="${h}"/>${lines}${arrow}<text x="${mid + 8}" y="${ay + 5}" font-family="monospace" font-size="10" fill="currentColor" stroke="none">${dir}</text></svg>`;
+}
+const BLOCK_DEFS: Record<string, { w: number; h: number; svg: string }> = {
+  "door-single":    { w: 64,  h: 64,  svg: `<svg width="100%" height="100%" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="0" y1="0" x2="64" y2="0"/><path d="M64 0 A64 64 0 0 0 0 64"/><line x1="0" y1="0" x2="0" y2="9"/><line x1="0" y1="64" x2="0" y2="55"/><line x1="64" y1="0" x2="64" y2="9"/></svg>` },
+  "door-double":    { w: 128, h: 64,  svg: `<svg width="100%" height="100%" viewBox="0 0 128 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M0 0 L64 0"/><path d="M64 0 A64 64 0 0 0 0 64"/><path d="M128 0 L64 0"/><path d="M64 0 A64 64 0 0 1 128 64"/><line x1="0" y1="0" x2="0" y2="9"/><line x1="0" y1="64" x2="0" y2="55"/><line x1="128" y1="0" x2="128" y2="9"/><line x1="128" y1="64" x2="128" y2="55"/></svg>` },
+  "door-sliding":   { w: 130, h: 28,  svg: `<svg width="100%" height="100%" viewBox="0 0 130 28" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="4" width="76" height="16"/><rect x="54" y="8" width="76" height="16"/><line x1="0" y1="0" x2="0" y2="28"/><line x1="130" y1="0" x2="130" y2="28"/></svg>` },
+  "window-single":  { w: 96,  h: 18,  svg: `<svg width="100%" height="100%" viewBox="0 0 96 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="96" height="18"/><line x1="0" y1="6" x2="96" y2="6"/><line x1="0" y1="12" x2="96" y2="12"/></svg>` },
+  "window-casement":{ w: 96,  h: 18,  svg: `<svg width="100%" height="100%" viewBox="0 0 96 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="96" height="18"/><line x1="0" y1="6" x2="96" y2="6"/><line x1="0" y1="12" x2="96" y2="12"/><line x1="0" y1="12" x2="96" y2="0" stroke-dasharray="4 2"/></svg>` },
+  "stair-up":       { w: 72,  h: 140, svg: _stairSvg("UP", 72, 140) },
+  "stair-down":     { w: 72,  h: 140, svg: _stairSvg("DN", 72, 140) },
+  "toilet":         { w: 36,  h: 60,  svg: `<svg width="100%" height="100%" viewBox="0 0 36 60" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="36" height="20" rx="2"/><ellipse cx="18" cy="44" rx="16" ry="15"/></svg>` },
+  "sink":           { w: 52,  h: 44,  svg: `<svg width="100%" height="100%" viewBox="0 0 52 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="52" height="44" rx="2"/><ellipse cx="26" cy="22" rx="18" ry="14"/><circle cx="26" cy="22" r="3"/></svg>` },
+  "bathtub":        { w: 56,  h: 120, svg: `<svg width="100%" height="100%" viewBox="0 0 56 120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="56" height="120" rx="4"/><ellipse cx="28" cy="72" rx="20" ry="38"/><circle cx="28" cy="16" r="7"/></svg>` },
+  "shower":         { w: 72,  h: 72,  svg: `<svg width="100%" height="100%" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="72" height="72" rx="4"/><path d="M0 0 Q36 36 72 0" fill="none"/><circle cx="56" cy="56" r="5"/></svg>` },
+  "desk":           { w: 100, h: 50,  svg: `<svg width="100%" height="100%" viewBox="0 0 100 50" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="100" height="50"/><path d="M0 40 Q50 50 100 40"/></svg>` },
+  "chair":          { w: 40,  h: 40,  svg: `<svg width="100%" height="100%" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="4" y="14" width="32" height="26"/><path d="M4 14 A18 18 0 0 1 36 14"/></svg>` },
+  "table-rnd":      { w: 60,  h: 60,  svg: `<svg width="100%" height="100%" viewBox="0 0 60 60" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="30" cy="30" r="28"/></svg>` },
+  "sofa":           { w: 130, h: 55,  svg: `<svg width="100%" height="100%" viewBox="0 0 130 55" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="130" height="55" rx="4"/><rect x="4" y="4" width="16" height="47" rx="3"/><rect x="110" y="4" width="16" height="47" rx="3"/><line x1="20" y1="38" x2="110" y2="38"/><line x1="65" y1="38" x2="65" y2="51"/></svg>` },
+  "bed-sgl":        { w: 80,  h: 120, svg: `<svg width="100%" height="100%" viewBox="0 0 80 120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="80" height="120"/><rect x="0" y="0" width="80" height="28"/><ellipse cx="40" cy="55" rx="22" ry="16"/></svg>` },
+  "bed-dbl":        { w: 120, h: 120, svg: `<svg width="100%" height="100%" viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0" y="0" width="120" height="120"/><rect x="0" y="0" width="120" height="28"/><ellipse cx="32" cy="55" rx="20" ry="16"/><ellipse cx="88" cy="55" rx="20" ry="16"/><line x1="60" y1="28" x2="60" y2="120" stroke-dasharray="4 2"/></svg>` },
+  "tree":           { w: 72,  h: 72,  svg: `<svg width="100%" height="100%" viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="36" cy="36" r="34"/><circle cx="36" cy="36" r="22"/><circle cx="36" cy="36" r="10"/><circle cx="20" cy="20" r="9"/><circle cx="52" cy="20" r="9"/><circle cx="20" cy="52" r="9"/><circle cx="52" cy="52" r="9"/></svg>` },
+  "car":            { w: 90,  h: 190, svg: `<svg width="100%" height="100%" viewBox="0 0 90 190" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="5" y="5" width="80" height="180" rx="12"/><path d="M5 30 Q5 8 22 8"/><path d="M85 30 Q85 8 68 8"/><path d="M5 160 Q5 182 22 182"/><path d="M85 160 Q85 182 68 182"/><rect x="10" y="15" width="70" height="30" rx="4" stroke-width="0.8"/></svg>` },
+  "person":         { w: 28,  h: 48,  svg: `<svg width="100%" height="100%" viewBox="0 0 28 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="14" cy="8" r="7"/><path d="M4 48 L4 22 Q4 16 14 16 Q24 16 24 22 L24 48"/><line x1="4" y1="32" x2="24" y2="32"/></svg>` },
+};
+
 // LayoutController is the per-host instance state. Stored on the host element
 // via a WeakMap so the module-level export functions (addPanel, exportLayout*)
 // can resolve it without callers passing the instance back in.
@@ -913,6 +951,15 @@ export class LayoutController {
       this.sheetEl.style.cursor = e.shiftKey ? "zoom-out" : "zoom-in";
       return;
     }
+    if (this.activeTool?.startsWith("block:")) {
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && tgt.closest(".paper-cell, .paper-titleblock, .paper-toolbar")) return;
+      const rect = this.sheetEl.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) / this.zoomFactor;
+      const cy = (e.clientY - rect.top)  / this.zoomFactor;
+      this.placeBlock(this.activeTool.slice("block:".length), cx, cy);
+      return;
+    }
     if (this.activeTool !== "viewport") return;
     const tgt = e.target as HTMLElement | null;
     if (tgt && tgt.closest(".paper-cell, .paper-titleblock, .paper-toolbar")) return;
@@ -1006,6 +1053,17 @@ export class LayoutController {
       }
     };
     this._thumbRAF = requestAnimationFrame(tick);
+  }
+
+  private placeBlock(blockId: string, cx: number, cy: number): void {
+    const def = BLOCK_DEFS[blockId];
+    if (!def) return;
+    const el = document.createElement("div");
+    el.className = "paper-block";
+    el.dataset.blockId = blockId;
+    el.style.cssText = `position:absolute;left:${Math.round(cx - def.w / 2)}px;top:${Math.round(cy - def.h / 2)}px;width:${def.w}px;height:${def.h}px;pointer-events:none;color:var(--fg,#111);`;
+    el.innerHTML = def.svg;
+    this.sheetEl.appendChild(el);
   }
 
   pauseThumbLoop(): void {

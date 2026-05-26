@@ -87,11 +87,42 @@ const MENUS: MenuItem[] = [
 ];
 
 type ToolGroup = { label: string; tools: string[] };
-const LAYOUT_TOOL_GROUPS: ToolGroup[] = [
-  { label: "NAVIGATE",  tools: ["Select", "Pan", "Zoom"] },
-  { label: "VIEWPORT",  tools: ["Viewport", "Frame", "Scale", "Align", "Detail"] },
-  { label: "DRAW",      tools: ["Line", "Rect", "Circle"] },
-  { label: "MEASURE",   tools: ["Ruler", "Compass", "Text", "Leader", "Callout", "Aligned-Dim", "Angular-Dim", "Area-Dim"] },
+
+type LayoutBlock = { id: string; label: string; icon: string };
+type LayoutBlockSection = { label: string; blocks: LayoutBlock[] };
+const LAYOUT_BLOCK_SECTIONS: LayoutBlockSection[] = [
+  { label: "DOORS", blocks: [
+    { id: "block:door-single",  label: "Single",  icon: "door" },
+    { id: "block:door-double",  label: "Double",  icon: "door" },
+    { id: "block:door-sliding", label: "Sliding", icon: "door" },
+  ]},
+  { label: "WINDOWS", blocks: [
+    { id: "block:window-single",   label: "Fixed",    icon: "window" },
+    { id: "block:window-casement", label: "Casement", icon: "window" },
+  ]},
+  { label: "STAIRS", blocks: [
+    { id: "block:stair-up",   label: "Stair Up", icon: "stair" },
+    { id: "block:stair-down", label: "Stair Dn", icon: "stair" },
+  ]},
+  { label: "FIXTURES", blocks: [
+    { id: "block:toilet",  label: "Toilet",  icon: "circle" },
+    { id: "block:sink",    label: "Sink",    icon: "rect"   },
+    { id: "block:bathtub", label: "Bathtub", icon: "rect"   },
+    { id: "block:shower",  label: "Shower",  icon: "rect"   },
+  ]},
+  { label: "FURNITURE", blocks: [
+    { id: "block:desk",      label: "Desk",    icon: "rect"   },
+    { id: "block:chair",     label: "Chair",   icon: "circle" },
+    { id: "block:table-rnd", label: "Table",   icon: "circle" },
+    { id: "block:sofa",      label: "Sofa",    icon: "rect"   },
+    { id: "block:bed-sgl",   label: "Bed Sgl", icon: "rect"   },
+    { id: "block:bed-dbl",   label: "Bed Dbl", icon: "rect"   },
+  ]},
+  { label: "ENTOURAGE", blocks: [
+    { id: "block:tree",   label: "Tree",   icon: "circle" },
+    { id: "block:car",    label: "Car",    icon: "rect"   },
+    { id: "block:person", label: "Person", icon: "circle" },
+  ]},
 ];
 
 const RESEARCH_TOOL_GROUPS: ToolGroup[] = [
@@ -350,6 +381,54 @@ function appendRibbonAssets(ribbonHost: HTMLElement) {
   else ribbonHost.appendChild(wrap);
 }
 
+function appendLayoutBlocksGrid(ribbonEl: HTMLElement): void {
+  const wrap = document.createElement("div");
+  wrap.className = "ribbon-assets ribbon-layout-blocks";
+
+  let _activeChip: HTMLElement | null = null;
+
+  for (const section of LAYOUT_BLOCK_SECTIONS) {
+    const col = document.createElement("div");
+    col.className = "ribbon-section-col";
+
+    const hdr = document.createElement("span");
+    hdr.className = "ribbon-asset-section-header";
+    hdr.textContent = section.label;
+    col.appendChild(hdr);
+
+    const cards = document.createElement("div");
+    cards.className = "ribbon-assets-cards ribbon-assets-cards--element-tools";
+
+    for (const block of section.blocks) {
+      const chip = document.createElement("div");
+      chip.className = "ribbon-element-chip";
+      chip.dataset.tool = block.id;
+      chip.title = block.label;
+      chip.innerHTML = `<span class="ribbon-chip-icon">${iconSVG(block.icon, 16)}</span><span class="ribbon-chip-name">${block.label}</span>`;
+      chip.addEventListener("click", () => {
+        if (_activeChip === chip) {
+          _activeChip.classList.remove("ribbon-element-chip--active");
+          _activeChip = null;
+          window.dispatchEvent(new CustomEvent("ribbon:tool-click", { detail: { tool: null } }));
+        } else {
+          _activeChip?.classList.remove("ribbon-element-chip--active");
+          _activeChip = chip;
+          chip.classList.add("ribbon-element-chip--active");
+          window.dispatchEvent(new CustomEvent("ribbon:tool-click", { detail: { tool: block.id } }));
+        }
+      });
+      cards.appendChild(chip);
+    }
+
+    col.appendChild(cards);
+    wrap.appendChild(col);
+  }
+
+  const rightEl = ribbonEl.querySelector(".ribbon-right");
+  if (rightEl) ribbonEl.insertBefore(wrap, rightEl);
+  else ribbonEl.appendChild(wrap);
+}
+
 // Map IFC class name to an icon key in icons.ts (fallback "model").
 function ifcClassIcon(cls: string): string {
   const lower = cls.toLowerCase();
@@ -423,9 +502,10 @@ export function setRibbonMode(mode: "model" | "layout" | "research") {
     if (!_ribbonTabsEl || !_ribbonToolsEl) return;
   }
   if (mode === "layout") {
-    _ribbonTabsEl.style.display = "none";  // no section tabs in layout mode
-    fillRibbonTools(_ribbonToolsEl, LAYOUT_TOOL_GROUPS);
+    _ribbonTabsEl.style.display = "none";
+    fillRibbonTools(_ribbonToolsEl, []);
     _ribbonEl?.querySelector(".ribbon-assets")?.remove();
+    if (_ribbonEl) appendLayoutBlocksGrid(_ribbonEl);
   } else if (mode === "research") {
     _ribbonTabsEl.style.display = "none";  // no section tabs in research mode
     fillRibbonTools(_ribbonToolsEl, RESEARCH_TOOL_GROUPS);
