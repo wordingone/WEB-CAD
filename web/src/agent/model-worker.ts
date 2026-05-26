@@ -151,6 +151,26 @@ async function checkReturningUser(modelId: string): Promise<boolean> {
   return false;
 }
 
+// §#26: evict Cache API entries for old model versions — runs after init confirms currentModelId.
+// Deletes any cache whose URLs contain model file extensions but NO URLs for currentModelId.
+async function evictStaleModelCaches(currentModelId: string): Promise<void> {
+  if (!("caches" in globalThis)) return;
+  try {
+    const cs = (globalThis as unknown as { caches: CacheStorage }).caches;
+    const names = await cs.keys();
+    for (const name of names) {
+      const cache = await cs.open(name);
+      const keys = await cache.keys();
+      const hasCurrentModel = keys.some((r) => r.url.includes(currentModelId));
+      const hasModelFiles = keys.some((r) => /\.(onnx|safetensors|bin|msgpack)/.test(r.url));
+      if (!hasCurrentModel && hasModelFiles) {
+        await cs.delete(name);
+        console.info(`[model-worker] §#26 evicted stale cache "${name}" (no URLs for ${currentModelId})`);
+      }
+    }
+  } catch { /* non-fatal */ }
+}
+
 // ── Message router ────────────────────────────────────────────────────────────
 self.onmessage = async (ev: MessageEvent<Record<string, unknown>>) => {
   const { type, ...data } = ev.data;
@@ -758,6 +778,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   }
 
   checkBootComplete();
+  void evictStaleModelCaches(modelId); // §#26: fire-and-forget; non-fatal
   post({ type: "ready", device: loadedLabel });
 }
 
