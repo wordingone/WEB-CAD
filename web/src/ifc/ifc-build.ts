@@ -4,6 +4,8 @@
 // environments (Bun self-harness, Node tests). Only the round-trip half in
 // ifc.ts pulls in web-ifc + the `?url` WASM import that's Vite-specific.
 
+import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
+
 export type IfcMesh = {
   vertices: Float32Array; // flat [x,y,z, ...]
   indices: Uint32Array;   // flat triangle indices into vertices
@@ -87,6 +89,8 @@ export type IfcSceneElement = {
   label?: string;
   levelId?: string;                        // #243: storey assignment — matches IfcLevel.levelId
   dispatchArgs?: Record<string, unknown>;  // #244: numeric/string args → IfcPropertySet
+  // §WEB-CAD#30 G9: when present, emit IfcAdvancedBrep instead of IfcFacetedBrep.
+  nurbsSurface?: KernelNurbsSurface;
 };
 
 // Caller passes one entry per level (from levelStore). buildIfcScene emits one
@@ -219,6 +223,98 @@ function emitMeshBrep(mesh: IfcMesh, lines: string[], next: () => string, scale 
   return brep;
 }
 
+// §WEB-CAD#30 G9: NURBS → IFC4 IfcAdvancedBrep emitter.
+//
+// Converts a flat knot vector (OpenNURBS / kernel convention) to the (distinct
+// knot values, multiplicities) pair that IFC4 IfcBSplineSurface uses.
+function flatKnotsToIfc(flat: number[]): { knots: number[]; mults: number[] } {
+  const knots: number[] = [];
+  const mults: number[] = [];
+  for (const k of flat) {
+    if (knots.length === 0 || k !== knots[knots.length - 1]) {
+      knots.push(k);
+      mults.push(1);
+    } else {
+      mults[mults.length - 1]++;
+    }
+  }
+  return { knots, mults };
+}
+
+/**
+ * Emit IfcRationalBSplineSurfaceWithKnots (or non-rational variant) + the
+ * wrapping IfcAdvancedFace + IfcClosedShell + IfcAdvancedBrep.
+ *
+ * Returns the IFCADVANCEDBREP entity ref. The caller inserts it wherever
+ * IFCFACETEDBREP would normally go in the product shape.
+ *
+ * Limitation (G9 scope): emits a single-face open brep — valid for IFC
+ * shell-based surface models. Production-grade closed-brep (all 6 box faces)
+ * is a follow-up.
+ */
+export function emitNurbsAdvancedBrep(
+  surface: KernelNurbsSurface,
+  lines: string[],
+  next: () => string,
+  scale = 1.0,
+): string {
+  const { degreeU, degreeV, controlPoints, weights, countU, countV, knotsU, knotsV } = surface;
+  const isRational = weights.some((w) => Math.abs(w - 1.0) > 1e-10);
+
+  // Emit control points: nU rows × nV cols.
+  const cpRefs: string[][] = [];
+  for (let i = 0; i < countU; i++) {
+    const row: string[] = [];
+    for (let j = 0; j < countV; j++) {
+      const p = controlPoints[i * countV + j];
+      const ref = next();
+      lines.push(`${ref}=IFCCARTESIANPOINT((${stepFloat(p[0] * scale)},${stepFloat(p[1] * scale)},${stepFloat(p[2] * scale)}));`);
+      row.push(ref);
+    }
+    cpRefs.push(row);
+  }
+
+  // 2D control-point list: ((row0),(row1),...).
+  const cpList = `(${cpRefs.map((row) => `(${row.join(",")})`).join(",")})`;
+
+  // Knot vectors → distinct + multiplicities.
+  const ku = flatKnotsToIfc(knotsU);
+  const kv = flatKnotsToIfc(knotsV);
+  const multsU = `(${ku.mults.join(",")})`;
+  const multsV = `(${kv.mults.join(",")})`;
+  const knotsUStr = `(${ku.knots.map(stepFloat).join(",")})`;
+  const knotsVStr = `(${kv.knots.map(stepFloat).join(",")})`;
+
+  const surfRef = next();
+  if (isRational) {
+    // Weights: 2D array matching control-point layout.
+    const wRows: string[] = [];
+    for (let i = 0; i < countU; i++) {
+      wRows.push(`(${Array.from({ length: countV }, (_, j) => stepFloat(weights[i * countV + j])).join(",")})`);
+    }
+    const wList = `(${wRows.join(",")})`;
+    lines.push(
+      `${surfRef}=IFCRATIONALBSPLINESURFACEWITHKNOTS(${degreeU},${degreeV},${cpList},.UNSPECIFIED.,.F.,.F.,.F.,${multsU},${multsV},${knotsUStr},${knotsVStr},.UNSPECIFIED.,${wList});`,
+    );
+  } else {
+    lines.push(
+      `${surfRef}=IFCBSPLINESURFACEWITHKNOTS(${degreeU},${degreeV},${cpList},.UNSPECIFIED.,.F.,.F.,.F.,${multsU},${multsV},${knotsUStr},${knotsVStr},.UNSPECIFIED.);`,
+    );
+  }
+
+  // Wrap in IfcAdvancedFace (no boundary loop in this scaffold — G9 scope).
+  const faceRef = next();
+  lines.push(`${faceRef}=IFCADVANCEDFACE((),$,.T.);`);
+
+  const shellRef = next();
+  lines.push(`${shellRef}=IFCOPENSHELL((${faceRef}));`);
+
+  const brepRef = next();
+  lines.push(`${brepRef}=IFCSHELLBASEDSURFACEMODEL((${shellRef}));`);
+
+  return brepRef;
+}
+
 // Sentinel key for elements with no matching levelId.
 const FALLBACK_LEVEL_ID = "__default__";
 
@@ -264,9 +360,13 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
     const spec = IFC4_ENTITY[el.creator] ?? { name: "IFCBUILDINGELEMENTPROXY", tail: ",$,.NOTDEFINED." };
     const label = el.label ?? el.creator;
 
-    const brep = emitMeshBrep(el.mesh, lines, next, coordScale);
+    // §WEB-CAD#30 G9: prefer NURBS path when userData carries a KernelNurbsSurface.
+    const brep = el.nurbsSurface
+      ? emitNurbsAdvancedBrep(el.nurbsSurface, lines, next, coordScale)
+      : emitMeshBrep(el.mesh, lines, next, coordScale);
+    const repType = el.nurbsSurface ? "SurfaceModel" : "Brep";
     const shapeRep = next();
-    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString("Brep")},(${brep}));`);
+    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${brep}));`);
     const productShape = next();
     lines.push(`${productShape}=IFCPRODUCTDEFINITIONSHAPE($,$,(${shapeRep}));`);
     const elPlacement = next();
