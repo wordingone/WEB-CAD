@@ -105,13 +105,17 @@
   --glass-edge-light:    oklch(1.0 0 0 / 0.45);
 
   --chrome-seam: oklch(0.65 0.012 250 / 0.28);
+  --chrome:       oklch(0.962 0.007 85);   /* solid warm-neutral surface for toolbars */
+  --chrome-hover: oklch(0.948 0.009 85);   /* toolbar control hover state */
 
   /* layout grid widths — shared between workbench columns and ribbon tabs */
   --palette-w: 80px;
 }
 
 html[data-mode="night"] {
-  --chrome-seam: oklch(0.85 0.020 220 / 0.22);
+  --chrome-seam:  oklch(0.85 0.020 220 / 0.22);
+  --chrome:       oklch(0.22 0.068 248);
+  --chrome-hover: oklch(0.26 0.070 248);
 }
 
 html[data-mode="night"] {
