@@ -7,14 +7,14 @@
   height: 100%;
   display: grid;
   grid-template:
-    "palette stage layers" 1fr
-    "toolbar toolbar toolbar" auto
+    "palette stage layers" minmax(0, 1fr)
+    "toolbar toolbar toolbar" 28px
     / var(--palette-w) 1fr 320px;
   overflow: hidden;
 }
 
 /* Assign grid areas to elements injected by layout.ts and buildPaperMode */
-.paper-mode .paper-stage   { grid-area: stage; overflow: auto; }
+.paper-mode .paper-stage   { grid-area: stage; overflow: auto; min-height: 0; }
 .paper-mode .paper-toolbar { grid-area: toolbar; }
 
 /* Leftside palette strip inside layout mode */
