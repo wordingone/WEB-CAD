@@ -40,6 +40,9 @@
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  /* isolation:isolate establishes a stacking context so opacity=1 children
+     are not occluded by promoted compositing layers from the paper-stage */
+  isolation: isolate;
 }
 
 /* Bottom toolbar injected by layout.ts */
