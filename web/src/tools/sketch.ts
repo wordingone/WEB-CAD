@@ -298,6 +298,10 @@ export function buildSpline(pts: Array<{ x: number; y: number }>): { mesh: THREE
   mesh.userData.kind = "spline";
   mesh.userData.creator = "spline";
   mesh.userData.controlPoints = localVecs;
+  // §WEB-CAD#30 G2: preserve NurbsCurve for downstream boolean / IFC export / refit.
+  mesh.userData.nurbsCurve = nurbs;
+  mesh.userData.nurbsDegree = 3;
+  mesh.userData.nurbsCVs = nurbs.cvs;
   mesh.userData.endpoints = pts.map((p) => ({ x: p.x, y: p.y, z: 0, id: makeSnapId(p.x, p.y, 0) })) as SnapVertex[];
   const worldPts = pts.map((p) => `[${round(p.x)}, ${round(p.y)}]`).join(", ");
   const chain = `const spl = drawSpline([${worldPts}]);`;
