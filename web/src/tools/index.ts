@@ -24,6 +24,8 @@ import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolylin
 import { buildDoor, buildWindow, buildOpening, FZK_DOOR_W, FZK_DOOR_H, FZK_WINDOW_W, FZK_WINDOW_H, FZK_WINDOW_SILL } from "./openings";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "./dimensions";
 import { drawingLayerStore, SKETCH_KINDS } from "../geometry/drawing-layers";
+import { clippingPlaneStore } from "../geometry/clipping-planes";
+import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
 
@@ -833,6 +835,26 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
     pushCustomAction(
       () => { _viewer?.clearSectionBox(); document.dispatchEvent(new CustomEvent("viewer:clip-changed")); },
       () => { _viewer?.setSectionBox(min, max); document.dispatchEvent(new CustomEvent("viewer:clip-changed")); },
+    );
+  }
+  if (out.dispatchOnCommit?.verb === "SdClippingPlane") {
+    // SdClippingPlane state (viewer._clipPlanes, clippingPlaneStore, active handles) lives
+    // outside the scene graph — capture in the transaction so Ctrl+Z hides the handle dots.
+    const { origin, normal, label } = out.dispatchOnCommit.args as { origin: [number,number,number]; normal: [number,number,number]; label: string };
+    pushCustomAction(
+      () => {
+        _viewer?.removeClippingPlane(label);
+        clippingPlaneStore.removeByLabel(label);
+        setActiveClipPlaneEntity(null);
+        document.dispatchEvent(new CustomEvent("viewer:clip-changed"));
+      },
+      () => {
+        if (!_viewer) return;
+        _viewer.addClippingPlane(origin, normal, label);
+        const entity = clippingPlaneStore.add(origin, normal, label);
+        setActiveClipPlaneEntity(entity.id);
+        document.dispatchEvent(new CustomEvent("viewer:clip-changed"));
+      },
     );
   }
   endTransaction();

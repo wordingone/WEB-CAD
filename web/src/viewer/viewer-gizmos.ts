@@ -16,6 +16,8 @@ import {
   rerecutVoid, rehostVoidCut, restoreVoidCut,
 } from "../tools/join-groups.js";
 import { resetWallCorners, recomputeWallEndpoints, attemptWallCornerJoins } from "../tools/wall-corners.js";
+import { clippingPlaneStore } from "../geometry/clipping-planes.js";
+import { setActiveClipPlaneEntity } from "./clip-plane-handles.js";
 
 export interface DragState {
   snapshot: TransformSnapshot | null;
@@ -515,7 +517,16 @@ export function deleteSelected(v: Viewer): boolean {
   for (const removed of targets) {
     dissolveGroupForMesh(removed.uuid, v.scene);
     const clipLabel = removed.userData.clipLabel as string | undefined;
-    if (clipLabel) removeClippingPlane(v, clipLabel);
+    // Capture entity data before removing — needed to restore on undo.
+    const _cpEntity = clipLabel ? clippingPlaneStore.getByLabel(clipLabel) : null;
+    const _cpOrigin = _cpEntity ? [..._cpEntity.origin] as [number,number,number] : null;
+    const _cpNormal = _cpEntity ? [..._cpEntity.normal] as [number,number,number] : null;
+    const _cpBounds = _cpEntity ? { ..._cpEntity.bounds } : null;
+    if (clipLabel) {
+      removeClippingPlane(v, clipLabel);
+      clippingPlaneStore.removeByLabel(clipLabel);
+      setActiveClipPlaneEntity(null);
+    }
     if (removed.userData.kind === "section-box") clearSectionBox(v);
     const removedParent = removed.parent;
     if (removed.parent === v.scene) {
@@ -527,12 +538,34 @@ export function deleteSelected(v: Viewer): boolean {
     }
     const _creator = (removed.userData as Record<string, unknown>).creator as string | undefined;
     const _voidRestore = isOpening(_creator) ? restoreVoidCut(removed, v.scene) : null;
-    if (_voidRestore) beginTransaction("delete-opening");
+    // Clip-plane and void-restore are mutually exclusive creators — open at most one tx.
+    const _needsTx = !!_voidRestore || (!!clipLabel && !!_cpOrigin);
+    if (_needsTx) beginTransaction(_voidRestore ? "delete-opening" : "delete-clip-plane");
     pushDeleteAction(removed, removedParent);
     if (_voidRestore) {
       pushReplaceAction(_voidRestore.newWall, [_voidRestore.oldGroup], "wall-void-restore");
-      endTransaction();
     }
+    if (clipLabel && _cpOrigin) {
+      const _lbl = clipLabel;
+      const [_o, _n, _b] = [_cpOrigin, _cpNormal!, _cpBounds];
+      pushCustomAction(
+        () => {
+          // Undo delete: restore viewer clip state + store entity + handles.
+          v.addClippingPlane(_o, _n, _lbl);
+          const ent = clippingPlaneStore.add(_o, _n, _lbl, _b ?? undefined);
+          setActiveClipPlaneEntity(ent.id);
+          document.dispatchEvent(new CustomEvent("viewer:clip-changed"));
+        },
+        () => {
+          // Redo delete: remove clip state + store entity + handles again.
+          v.removeClippingPlane(_lbl);
+          clippingPlaneStore.removeByLabel(_lbl);
+          setActiveClipPlaneEntity(null);
+          document.dispatchEvent(new CustomEvent("viewer:clip-changed"));
+        },
+      );
+    }
+    if (_needsTx) endTransaction();
     v.pivotOffsetByUuid.delete(removed.uuid);
     anyRemoved = true;
   }
