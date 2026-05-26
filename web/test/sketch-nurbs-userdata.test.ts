@@ -1,7 +1,7 @@
 // Regression net for #30 G1+G3: buildLine + buildArc store NurbsCurve in userData.
 import { describe, test, expect } from "bun:test";
 import * as THREE from "three";
-import { buildLine, buildArc, buildSpline } from "../src/tools/sketch";
+import { buildLine, buildArc, buildSpline, buildPoint } from "../src/tools/sketch";
 import type { NurbsCurve } from "../src/nurbs/nurbs-curves";
 
 describe("sketch NURBS userData — G3 buildLine", () => {
@@ -94,5 +94,24 @@ describe("sketch NURBS userData — G1 buildArc", () => {
   test("buildArc render unchanged — mesh is THREE.Line", () => {
     const { mesh } = buildArc({ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 1 });
     expect(mesh).toBeInstanceOf(THREE.Line);
+  });
+});
+
+describe("sketch NURBS userData — G4 buildPoint", () => {
+  test("buildPoint stores Point3 in userData", () => {
+    const { mesh } = buildPoint({ x: 3, y: 5 });
+    expect(mesh.userData.point3).toEqual({ x: 3, y: 5, z: 0 });
+    expect(mesh.userData.nurbsKind).toBe("point");
+  });
+
+  test("buildPoint chain uses makePoint not makeCylinder", () => {
+    const { chain } = buildPoint({ x: 1, y: 2 });
+    expect(chain).toContain("makePoint");
+    expect(chain).not.toContain("makeCylinder");
+  });
+
+  test("buildPoint render unchanged — mesh is THREE.Points", () => {
+    const { mesh } = buildPoint({ x: 0, y: 0 });
+    expect(mesh).toBeInstanceOf(THREE.Points);
   });
 });

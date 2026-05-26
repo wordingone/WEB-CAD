@@ -351,17 +351,19 @@ export function buildRailing(a: { x: number; y: number }, b: { x: number; y: num
 function makePointMaterial(sizePx = 14): THREE.PointsMaterial {
   const canvas = document.createElement("canvas");
   canvas.width = 32; canvas.height = 32;
-  const ctx = canvas.getContext("2d")!;
-  ctx.beginPath();
-  ctx.arc(16, 16, 12, 0, Math.PI * 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.strokeStyle = "#111111";
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.beginPath();
+    ctx.arc(16, 16, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#111111";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
   return new THREE.PointsMaterial({
     size: sizePx, sizeAttenuation: false,
-    map: new THREE.CanvasTexture(canvas),
+    map: ctx ? new THREE.CanvasTexture(canvas) : undefined,
     transparent: true, alphaTest: 0.1, depthTest: false,
   });
 }
@@ -375,6 +377,9 @@ export function buildPoint(p: { x: number; y: number }): { mesh: THREE.Object3D;
   group.renderOrder = 1;
   group.userData.kind = "point";
   group.userData.creator = "point";
-  const chain = `const pt = makeCylinder(${round(r)}, ${round(r * 2)}).translate([${round(p.x)}, ${round(p.y)}, 0]);`;
+  // §WEB-CAD#30 G4: store exact Point3 for downstream boolean / IFC export / refit.
+  group.userData.point3 = { x: p.x, y: p.y, z: 0 };
+  group.userData.nurbsKind = "point";
+  const chain = `const pt = makePoint([${round(p.x)}, ${round(p.y)}, 0]);`;
   return { mesh: group, chain };
 }
