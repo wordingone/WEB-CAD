@@ -849,9 +849,7 @@ async function handleDisposeSession(): Promise<void> {
   }
   _processor = null;
   // §#156 Layer 4: flush GPU queue after dispose to ensure memory returns to allocator.
-  if (_preAcquiredGpuDevice?.queue) {
-    try { await (_preAcquiredGpuDevice.queue as { onSubmittedWorkDone?: () => Promise<void> }).onSubmittedWorkDone?.(); } catch { /* non-fatal */ }
-  }
+  await _flushWgpuQueue("dispose-session");
   post({ type: "session-disposed" });
 }
 
@@ -877,11 +875,9 @@ async function handleSessionRefresh(): Promise<void> {
   }
   _processor = null;
   // §#156 Layer 4: flush pending GPU ops after dispose to verify VRAM is returned to
-  // the allocator before reallocation. onSubmittedWorkDone drains the WebGPU command
-  // queue — without this, Chrome may defer the memory reclaim past the next alloc.
-  if (_preAcquiredGpuDevice?.queue) {
-    try { await (_preAcquiredGpuDevice.queue as { onSubmittedWorkDone?: () => Promise<void> }).onSubmittedWorkDone?.(); } catch { /* non-fatal */ }
-  }
+  // the allocator before reallocation. _flushWgpuQueue uses ort.env.webgpu.device
+  // (same device, module-scope path) so _preAcquiredGpuDevice locality is irrelevant.
+  await _flushWgpuQueue("session-refresh-pre-reload");
 
   // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
   // holds the shards so from_pretrained serves from cache without any network fetch.
