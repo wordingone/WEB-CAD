@@ -68,7 +68,8 @@
   flex-direction: row;
   align-items: stretch;
   border-left: var(--lw-construction) solid var(--ink-construction);
-  flex-shrink: 0;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .ribbon-section-col {
   display: flex;
@@ -133,6 +134,19 @@
   text-align: center;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+/* Elements section grows to fill available ribbon-assets width (#137). */
+.ribbon-section-col[data-section="ELEMENTS"] {
+  flex: 1;
+  min-width: 0;
+}
+/* Element tool chips wrap into 2 rows to use the full ribbon height (#137). */
+.ribbon-assets-cards--element-tools {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  max-height: 72px;
 }
 
 /* Dynamic IFC element-type chips — sibling row below the static .ribbon-assets-cards.
