@@ -50,13 +50,13 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
   const colHdr = el("div");
   colHdr.style.cssText = [
     "display:grid",
-    "grid-template-columns:16px 16px 16px 40px 60px 36px 1fr 16px",
+    "grid-template-columns:16px 16px 16px 1fr 40px 60px 36px 16px",
     "gap:2px", "padding:2px 8px",
     "border-bottom:1px solid var(--hairline)",
     "background:var(--paper-2)",
     "flex-shrink:0",
   ].join(";");
-  ["", "", "", "LW", "LINETYPE", "PW", "NAME", ""].forEach((t) => {
+  ["", "", "", "NAME", "LW", "LINETYPE", "PW", ""].forEach((t) => {
     const c = el("span");
     c.style.cssText = "font-size:8px; letter-spacing:0.10em; text-transform:uppercase; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
     c.textContent = t;
@@ -80,7 +80,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
       const row = el("div", "", { "data-layer-id": layer.id });
       row.style.cssText = [
         "display:grid",
-        "grid-template-columns:16px 16px 16px 40px 60px 36px 1fr 16px",
+        "grid-template-columns:16px 16px 16px 1fr 40px 60px 36px 16px",
         "gap:2px", "align-items:center", "padding:2px 8px",
         "border-bottom:1px solid var(--hairline)",
         "min-height:26px", "cursor:pointer",
@@ -202,10 +202,10 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
       row.appendChild(eyeBtn);
       row.appendChild(lockBtn);
       row.appendChild(colorInput);
+      row.appendChild(nameEl);
       row.appendChild(lwSel);
       row.appendChild(ltSel);
       row.appendChild(pwSel);
-      row.appendChild(nameEl);
       row.appendChild(delBtn);
 
       row.addEventListener("click", () => drawingLayerStore.setActive(layer.id));
