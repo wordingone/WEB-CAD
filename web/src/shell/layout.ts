@@ -134,6 +134,8 @@ export class LayoutController {
   private _navPanelId: string | null = null;
   private _navDispose: (() => void) | null = null;
   private _navDocListener: ((e: MouseEvent) => void) | null = null;
+  // Skip default panel seeding during initial build when caller supplies initialPanels.
+  private _suppressSeed = false;
 
   constructor(host: HTMLElement, opts: LayoutOptions) {
     this.host = host;
@@ -153,7 +155,9 @@ export class LayoutController {
     this.bounds = opts.bounds ?? DEFAULT_PROVIDER;
     this.title = { ...DEFAULT_TITLE, ...(opts.titleBlock ?? {}) };
     this._showTitleBlock = opts.showTitleBlock ?? false;
+    this._suppressSeed = (opts.initialPanels?.length ?? 0) > 0;
     this.build();
+    this._suppressSeed = false;
     // Spawn preset panels for each sheet unless caller overrides sheet 0 via initialPanels.
     if (opts.spawnDefault !== false) {
       const hasInitial = (opts.initialPanels?.length ?? 0) > 0;
@@ -493,6 +497,19 @@ export class LayoutController {
         };
         this.sheets.splice(insertIdx, 0, newSheet);
         if (this.activeSheetIdx >= insertIdx) this.activeSheetIdx++;
+        // Seed with a full-page top-down viewport so the sheet isn't blank.
+        // Suppressed during initial build when caller supplies initialPanels.
+        if (!this._suppressSeed) {
+          const mm = sheetMm(newSheet.size, newSheet.orientation, newSheet.customMm);
+          const mr = 0.015;
+          newSheet.panels.push({
+            id: newPanelId(),
+            x: Math.round(mm.w * MM_TO_PX * mr), y: Math.round(mm.h * MM_TO_PX * mr),
+            w: Math.round(mm.w * MM_TO_PX * (1 - 2 * mr)), h: Math.round(mm.h * MM_TO_PX * (1 - 2 * mr)),
+            viewport: "top", scale: "1:100", title: VIEWPORT_LABELS["top"],
+            border: "thin", displayMode: "technical",
+          });
+        }
       } else if (!this._planSheetUserRenamed.has(existingSheetId)) {
         // Rename if level was renamed.
         const sheet = this.sheets.find(s => s.id === existingSheetId);
@@ -554,6 +571,19 @@ export class LayoutController {
         };
         this.sheets.splice(insertIdx, 0, newSheet);
         if (this.activeSheetIdx >= insertIdx) this.activeSheetIdx++;
+        // Seed with a full-page top-down viewport.
+        // Suppressed during initial build when caller supplies initialPanels.
+        if (!this._suppressSeed) {
+          const mm = sheetMm(newSheet.size, newSheet.orientation, newSheet.customMm);
+          const mr = 0.015;
+          newSheet.panels.push({
+            id: newPanelId(),
+            x: Math.round(mm.w * MM_TO_PX * mr), y: Math.round(mm.h * MM_TO_PX * mr),
+            w: Math.round(mm.w * MM_TO_PX * (1 - 2 * mr)), h: Math.round(mm.h * MM_TO_PX * (1 - 2 * mr)),
+            viewport: "top", scale: "1:100", title: VIEWPORT_LABELS["top"],
+            border: "thin", displayMode: "technical",
+          });
+        }
       } else if (!this._rcpSheetUserRenamed.has(existingSheetId)) {
         const sheet = this.sheets.find(s => s.id === existingSheetId);
         if (sheet && sheet.name !== expectedName) sheet.name = expectedName;
@@ -627,6 +657,7 @@ export class LayoutController {
     this.sheets.splice(insertIdx, 0, newSheet);
     this.switchSheet(insertIdx);
     if (def) this._spawnPresetPanel(def.viewport, def.scale, def.displayMode);
+    else this._spawnDefaultPanel(); // blank sheets get a default perspective panel
   }
 
   private _spawnPresetPanel(viewport: ViewportId, scale: ScaleId, displayMode: DisplayMode): void {
