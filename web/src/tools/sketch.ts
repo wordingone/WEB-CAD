@@ -4,6 +4,10 @@ import * as THREE from "three";
 import { makeSnapId } from "../viewer/snap-state";
 import type { SnapVertex } from "../viewer/snap-state";
 import { createCatmullRomAsNurbs, createClampedUniformNurbs, tessellate } from "../nurbs/nurbs-curves.js";
+import type { NurbsCurve } from "../nurbs/nurbs-curves.js";
+import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
+import type { Arc as NurbsArc } from "../nurbs/nurbs-primitives.js";
+import { Plane as NurbsPlane } from "../nurbs/nurbs-primitives.js";
 
 const DEFAULT_RECT_HEIGHT = 2.8;
 const DEFAULT_POLYGON_SIDES = 6;
@@ -127,6 +131,16 @@ export function buildArc(
     { x: startX, y: startY, z: 0, id: makeSnapId(startX, startY, 0) },
     { x: endX, y: endY, z: 0, id: makeSnapId(endX, endY, 0) },
   ] as SnapVertex[];
+  // §WEB-CAD#30 G1: rational quadratic NurbsCurve in local coords (center at origin).
+  const arcSpec: NurbsArc = {
+    center: { x: 0, y: 0, z: 0 },
+    radius: r,
+    startAngle: startAng,
+    endAngle: endAng,
+    plane: NurbsPlane.worldXY(),
+  };
+  mesh.userData.nurbsCurve = nurbsCurveFromArc(arcSpec);
+  mesh.userData.nurbsDegree = 2;
   const chain = `const arc = SdArc({ center: [${round(center.x)}, ${round(center.y)}, 0], radius: ${round(r)}, startAngle: ${round(startAng)}, endAngle: ${round(endAng)} });`;
   return { mesh, chain };
 }
@@ -151,6 +165,17 @@ export function buildLine(a: { x: number; y: number }, b: { x: number; y: number
     { x: a.x, y: a.y, z: 0, id: makeSnapId(a.x, a.y, 0) },
     { x: b.x, y: b.y, z: 0, id: makeSnapId(b.x, b.y, 0) },
   ] as SnapVertex[];
+  // §WEB-CAD#30 G3: degree-1 NurbsCurve in local (centroid-relative) coords for
+  // downstream boolean / IFC export / refit consumers.
+  const nc: NurbsCurve = {
+    kind: "nurbs", dim: 3, isRational: false,
+    order: 2, cvCount: 2,
+    knots: [0, 1],  // OpenNURBS convention: order+cvCount-2 entries
+    cvs: [a.x - cx, a.y - cy, 0, b.x - cx, b.y - cy, 0],
+    cvStride: 3,
+  };
+  mesh.userData.nurbsCurve = nc;
+  mesh.userData.nurbsDegree = 1;
   const chain = `const line = drawPolyline([[${round(a.x)}, ${round(a.y)}], [${round(b.x)}, ${round(b.y)}]]).sketchOnPlane("XY").extrude(0.002);`;
   return { mesh, chain };
 }
