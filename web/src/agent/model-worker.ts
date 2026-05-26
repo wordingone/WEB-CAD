@@ -1022,11 +1022,6 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
         throw genErr;
       }
     }
-    // §#88-post: flush immediately after generate completes — drains ORT buffer destructions
-    // accumulated during long decode before the worker goes idle. The next turn's pre-generate
-    // flush cannot capture these because buffer.destroy() completes asynchronously; flushing
-    // here gives the next turn's pre-generate a clean device with no pending destructions.
-    await _flushWgpuQueue("post-generate");
   }
 
   const tGen = performance.now();
