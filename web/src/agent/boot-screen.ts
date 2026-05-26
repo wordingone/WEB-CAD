@@ -468,13 +468,17 @@ function _onDone(): void {
   if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
   cancelAnimationFrame(_rafId);
   if (!_overlay) return;
+  // Restore interaction before the visual fade — the progress div (position:absolute,
+  // bottom:0, pointer-events:auto) would otherwise block sheet-tab clicks for 250ms
+  // after fade-start on the first LAYOUT switch (#170).
+  _overlay.style.pointerEvents = 'none';
+  const shell = document.getElementById('app-shell');
+  if (shell) shell.style.pointerEvents = '';
   _overlay.style.transition = `opacity ${FADE_MS}ms ease`;
   _overlay.style.opacity = '0';
   setTimeout(() => {
     _overlay?.remove();
     _overlay = null;
-    const shell = document.getElementById('app-shell');
-    if (shell) shell.style.pointerEvents = '';
   }, FADE_MS + 50);
 }
 
