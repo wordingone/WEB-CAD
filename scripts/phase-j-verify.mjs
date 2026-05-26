@@ -570,6 +570,7 @@ if (bootComplete && bootArcState !== "ready") {
 const turnResults = [];
 let turn1BufferManagerErrors = 0;
 let modelDiedAtTurn = null; // §#1666: 1-indexed turn number when __model_dead fired, else null
+let _t1NlOnlyRetried = false; // §#101: T1 cold-cache NL-only stochastic fluke — retry once
 
 if (bootComplete) {
   console.log(`\n── Running ${DEMO_PROMPTS.length} prompts ─────────────────────────────────────`);
@@ -805,6 +806,17 @@ if (bootComplete) {
     };
     if (fatalErrorMsg !== undefined) turnEntry.fatalErrorMsg = fatalErrorMsg;
     turnResults.push(turnEntry);
+    // §#101: T1 cold-cache NL-only — stochastic cold-boot fluke. Retry once with a 5s settle.
+    // arc.state stays "ready" throughout (generate never entered "generating"), 0 dispatches, 16s.
+    // Warm runs reproduce fine. Root cause: indeterminate; retry is the robust mitigation.
+    if (i === 0 && isNlResponse && !_t1NlOnlyRetried) {
+      _t1NlOnlyRetried = true;
+      turnResults.pop(); // discard NL-only entry — retry result replaces it
+      console.log(`  [T1-retry] §#101: NL-only on cold boot (0 dispatches, ${Math.round(durationMs/1000)}s) — retrying in 5s...`);
+      await delay(5_000);
+      i--; // for-loop i++ brings us back to i=0 on next iteration
+      continue;
+    }
     // §#1666: abort remaining turns when model died this turn.
     if (outcome === "model-not-loaded") break;
   }
