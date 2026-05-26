@@ -20,21 +20,20 @@
 //   - OCCT BRepPrimAPI_MakePrism (bilinear ruled surface from wire)
 
 import {
-  type Point3, type Vector3, type Plane, type Interval,
+  type Point3, type Vector3,
   Point3 as Pt3, Vector3 as V3, Plane as Pl, Interval as Iv,
 } from "./nurbs-primitives";
 import {
-  type Curve, type PolylineCurve, type LineCurve,
+  type Curve, type LineCurve,
   domain as curveDomain, pointAt as curvePointAt,
-  isClosed as curveIsClosed, tessellate as curveTessellate,
+  tessellate as curveTessellate,
 } from "./nurbs-curves";
 import {
-  type Surface, type PlaneSurface, type SumSurface,
-  domainU as surfDomainU, domainV as surfDomainV,
+  type PlaneSurface, type SumSurface,
 } from "./nurbs-surfaces";
 import {
   type Brep, type BrepShell, type BrepFace, type BrepEdge, type BrepVertex,
-  type TrimLoop, BREP_DEFAULT_TOLERANCE,
+  BREP_DEFAULT_TOLERANCE,
 } from "./nurbs-brep";
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -254,7 +253,6 @@ function _buildShellEdges(
   tol: number,
 ): BrepEdge[] {
   const capBottomIdx = faceCount - 2;
-  const capTopIdx    = faceCount - 1;
   const lateralCount = faceCount - 2;
 
   const edges: BrepEdge[] = [];

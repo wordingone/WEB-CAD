@@ -1,13 +1,11 @@
 // workbench-sidebar.ts — all sidebar tab content + sidebar frame.
 
-import { layerStore, type Layer, DEFAULT_LAYER_ID } from "../geometry/layers";
+import { layerStore, DEFAULT_LAYER_ID } from "../geometry/layers";
 import { drawingLayerStore, type DrawingLayer } from "../geometry/drawing-layers";
 import { pushCustomAction } from "../history";
-import { dispatchSync } from "../commands/dispatch";
 import { getState, subscribe as subscribeAppState } from "../app-state";
 import { formatLength, formatLengthNum, parseLength, unitLabel } from "../units";
 import { levelStore, type Level } from "../geometry/levels";
-import { refLineStore } from "../geometry/ref-lines";
 import * as THREE from "three";
 import { subscribe, getSelected, subscribeMulti, getMultiSelected, type Selection } from "../viewer/selection-state";
 import { buildSelectionFiltersPanel } from "../scene/scene-panel";
@@ -869,48 +867,6 @@ function build2DLayersTab(): HTMLElement {
   }
 
   drawingLayerStore.subscribe(renderList);
-  renderList();
-  return wrap;
-}
-
-function buildDatumsTab(): HTMLElement {
-  const wrap = el("div", "tab-body datums-tab");
-
-  const header = el("div", "datums-header");
-  header.style.cssText = "display:flex; align-items:center; padding:4px 2px 6px;";
-  const title = el("div");
-  title.style.cssText = "font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-dim); font-weight:600;";
-  title.textContent = "REFERENCE LINES";
-  header.appendChild(title);
-  wrap.appendChild(header);
-
-  const list = el("div", "datum-list");
-  list.style.cssText = "display:flex; flex-direction:column; gap:2px;";
-  wrap.appendChild(list);
-
-  function renderList(): void {
-    list.innerHTML = "";
-    for (const rl of refLineStore.all()) {
-      const row = el("div", "layer-row");
-      row.style.cssText = "display:flex; align-items:center; gap:6px; padding:3px 2px; border-bottom:1px solid var(--hairline);";
-
-      const posEl = el("span");
-      posEl.style.cssText = "flex:1; font-size:11px; color:var(--ink-body); font-family:monospace;";
-      const [ax, ay] = rl.start, [bx, by] = rl.end;
-      posEl.textContent = rl.label ?? `(${ax.toFixed(1)},${ay.toFixed(1)}) → (${bx.toFixed(1)},${by.toFixed(1)})`;
-
-      row.appendChild(posEl);
-      list.appendChild(row);
-    }
-    if (refLineStore.all().length === 0) {
-      const empty = el("div");
-      empty.style.cssText = "font-size:11px; color:var(--ink-dim); padding:4px 2px;";
-      empty.textContent = "No reference lines placed";
-      list.appendChild(empty);
-    }
-  }
-
-  refLineStore.subscribe(renderList);
   renderList();
   return wrap;
 }

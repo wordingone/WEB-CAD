@@ -87,9 +87,6 @@ const MENUS: MenuItem[] = [
 ];
 
 type ToolGroup = { label: string; tools: string[] };
-const LAYOUT_RIBBON_TABS = [] as const;
-type LayoutRibbonTab = typeof LAYOUT_RIBBON_TABS[number];
-
 const LAYOUT_TOOL_GROUPS: ToolGroup[] = [
   { label: "NAVIGATE",  tools: ["Select", "Pan", "Zoom"] },
   { label: "VIEWPORT",  tools: ["Viewport", "Frame", "Scale", "Align", "Detail"] },
@@ -111,7 +108,6 @@ const MODES: ModeDef[] = [
 ];
 
 const RIBBON_TABS = [] as const;
-type RibbonTab = typeof RIBBON_TABS[number];
 
 // Module-level refs used by setRibbonMode to swap ribbon content in-place.
 let _ribbonTabsEl: HTMLElement | null = null;

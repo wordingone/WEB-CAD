@@ -104,8 +104,6 @@ interface Point {
 
 type Stmt = (Wall | Slab | Column | Cut | Box | Line | Circle | Rect | Point) & { binding: string };
 
-const NUM = /-?\d+(?:\.\d+)?(?:e-?\d+)?/;
-
 function parseNumber(tok: string): number | null {
   const m = tok.match(/^(-?\d+(?:\.\d+)?(?:e-?\d+)?)(mm|cm|m)?$/i);
   if (!m) return null;

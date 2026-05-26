@@ -196,26 +196,6 @@ function basisFunctions(span: number, degree: number, u: number, knots: number[]
   return N;
 }
 
-/** Evaluate a non-rational B-spline curve C(u) at u. */
-function bsplineCurvePoint(
-  controlPoints: Vec3[],
-  degree: number,
-  knots: number[],
-  u: number,
-): Vec3 {
-  const n = controlPoints.length - 1;
-  const span = findSpan(n, degree, u, knots);
-  const N = basisFunctions(span, degree, u, knots);
-  let x = 0, y = 0, z = 0;
-  for (let i = 0; i <= degree; i++) {
-    const cp = controlPoints[span - degree + i];
-    x += N[i] * cp[0];
-    y += N[i] * cp[1];
-    z += N[i] * cp[2];
-  }
-  return [x, y, z];
-}
-
 /** Evaluate a rational NURBS curve C(u) at u. */
 export function evalCurve(curve: NurbsCurve, u: number): Vec3 {
   const { controlPoints, weights, knots, degree } = curve;

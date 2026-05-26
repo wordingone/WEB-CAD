@@ -2,7 +2,7 @@ import { registerHandler } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 import { getSelected, setSelected, clearMultiSelected, addToMultiSelected, topologyAllowed, getFilters } from "../viewer/selection-state";
-import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchAction, pushCustomAction } from "../history";
+import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchAction } from "../history";
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";

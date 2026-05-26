@@ -4,7 +4,7 @@
 // opennurbs_intersect.h (ON_IntersectCurveCurve), opennurbs_curve.h (GetClosestPoint).
 // Paraphrase of algorithmic notes; no copyrightable code reproduced.
 
-import { type Point3, type Arc, Plane as Pl } from "./nurbs-primitives";
+import { type Point3, type Arc } from "./nurbs-primitives";
 import { type Curve, type NurbsCurve, pointAt, tangentAt, domain, tessellate } from "./nurbs-curves";
 
 // ── nurbsCurveFromArc ─────────────────────────────────────────────────────────
