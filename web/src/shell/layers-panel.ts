@@ -50,7 +50,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
   const colHdr = el("div");
   colHdr.style.cssText = [
     "display:grid",
-    "grid-template-columns:16px 16px 16px 1fr 40px 72px 36px 16px",
+    "grid-template-columns:16px 16px 16px 1fr 40px 80px 36px 16px",
     "gap:2px", "padding:2px 8px",
     "border-bottom:1px solid var(--hairline)",
     "background:var(--paper-2)",
@@ -80,7 +80,7 @@ export function buildLayoutLayersPanel(host: HTMLElement): void {
       const row = el("div", "", { "data-layer-id": layer.id });
       row.style.cssText = [
         "display:grid",
-        "grid-template-columns:16px 16px 16px 1fr 40px 72px 36px 16px",
+        "grid-template-columns:16px 16px 16px 1fr 40px 80px 36px 16px",
         "gap:2px", "align-items:center", "padding:2px 8px",
         "border-bottom:1px solid var(--hairline)",
         "min-height:26px", "cursor:pointer",

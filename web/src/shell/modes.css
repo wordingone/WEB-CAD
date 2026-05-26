@@ -9,7 +9,7 @@
   grid-template:
     "palette stage layers" minmax(0, 1fr)
     "toolbar toolbar toolbar" 28px
-    / var(--palette-w) 1fr 320px;
+    / var(--palette-w) 1fr 400px;
   overflow: hidden;
 }
 
