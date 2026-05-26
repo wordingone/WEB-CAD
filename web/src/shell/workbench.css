@@ -18,7 +18,7 @@
 .workbench[data-mode="layout"],
 .workbench[data-mode="research"] {
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr;   /* constrain row to workbench height */
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 .workbench[data-mode="layout"] > .palette,
