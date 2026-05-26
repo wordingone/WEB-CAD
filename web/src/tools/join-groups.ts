@@ -44,6 +44,7 @@ function _isJoinable(mesh: THREE.Object3D): boolean {
   if (!creator) return false;
   if (SKIP_CREATORS.has(creator)) return false;
   if (mesh.userData?.isJoinDisplay) return false;
+  if (mesh.userData?.isJoinShell) return false; // curtain wall proxy shells never form CSG groups
   if (mesh.userData?.noSnap) return false;
   return JOIN_CREATORS.has(creator);
 }
