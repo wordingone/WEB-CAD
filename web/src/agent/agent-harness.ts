@@ -212,6 +212,12 @@ let _visibilityRegistered = false; // register listener once across worker respa
 let _ortSessionRefreshDone = false;      // guards against double-fire
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
+// §#156 Layer 2: inference-boundary memory pressure monitoring.
+// Checked after each ONNX WebGPU turn (not polled on RAF). Chrome-only (performance.memory).
+const MEMORY_PRESSURE_THRESHOLD_BYTES = 8 * 1024 ** 3; // 8GB JS heap → pressure
+const MEMORY_PRESSURE_COOLDOWN_MS = 5 * 60 * 1000;     // max once per 5 min
+let _lastMemoryPressureMs = 0;
+
 // §#156 Layer 5: GPU health indicator
 type GpuHealthTier = "green" | "yellow" | "red";
 let _gpuHealthTier: GpuHealthTier = "yellow"; // yellow until first LIVE·READY confirmed
@@ -277,6 +283,32 @@ function _disposeCreatorGeometryBuffers(): void {
     _disposedCreatorMeshes.push(child);
   }
   console.info(`[VRAM-DISPOSE] freed GPU buffers + scene-remove for ${disposed} creator-tagged objects; will re-add post-generate`);
+}
+
+// §#156 Layer 2: check JS heap pressure after each inference turn. Chrome-only.
+// On pressure: emit event, compact ORT session if idle, update health tier.
+function _checkMemoryPressure(): void {
+  type PerfMemory = { usedJSHeapSize: number; jsHeapSizeLimit: number };
+  const mem = (performance as unknown as { memory?: PerfMemory }).memory;
+  if (!mem) return; // Firefox/Safari — no performance.memory
+  const used = mem.usedJSHeapSize;
+  if (used < MEMORY_PRESSURE_THRESHOLD_BYTES) return;
+  const now = Date.now();
+  if (now - _lastMemoryPressureMs < MEMORY_PRESSURE_COOLDOWN_MS) return;
+  _lastMemoryPressureMs = now;
+  const usedGB = (used / 1024 ** 3).toFixed(1);
+  const limitGB = (mem.jsHeapSizeLimit / 1024 ** 3).toFixed(1);
+  console.warn(`[#156-L2] memory pressure: heap=${usedGB}GB / ${limitGB}GB limit`);
+  window.dispatchEvent(new CustomEvent("memory_pressure", {
+    detail: { usedBytes: used, limitBytes: mem.jsHeapSizeLimit, thresholdBytes: MEMORY_PRESSURE_THRESHOLD_BYTES },
+  }));
+  // Compact ORT buffer pool if worker is idle — frees ONNX WGPU allocator fragmentation.
+  if (_inferenceWorker && _arc.state !== "generating" && !_sessionSuspended) {
+    console.info("[#156-L2] ORT compact triggered by memory pressure");
+    _inferenceWorker.postMessage({ type: "session-refresh" });
+  }
+  // Update health indicator (dot turns yellow until next READY)
+  setGpuHealthTier("yellow", `Heavy GPU load — ${usedGB}GB heap, performance may degrade`);
 }
 
 async function recycleModelWorkerIfNeeded(): Promise<void> {
@@ -1918,6 +1950,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   (window as unknown as { __agentRawOutputs: _RawOutputEntry[] }).__agentRawOutputs.push({ turnId: ++_rawOutIdx, ts: new Date().toISOString(), raw: responseText.slice(0, 102400) }); // §#1659 AC5
   const { dispatches, text } = parseDispatches(afterPlan);
   emitDispatchTurn(dispatches.length, prefillMs + decodeMs); // §#1628: 10% sample
+  _checkMemoryPressure(); // §#156 Layer 2: post-turn heap check
   return { dispatches, text: text.trim() || responseText, plan, raw: undefined };
 }
 
