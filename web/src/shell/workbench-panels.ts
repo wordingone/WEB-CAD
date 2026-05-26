@@ -151,8 +151,11 @@ const LAYOUT_PALETTE_SECTIONS: PaletteSection[] = [
 const LAYOUT_NAV_TOOL_IDS = new Set(["select", "pan", "zoom"]);
 
 // PALETTE_SECTIONS indices
-const ARCH_SECTION_IDX = 4;
-const COMP_SECTION_IDX = 5;
+const DRAW_SECTION_IDX  = 1;
+const SOLID_SECTION_IDX = 2;
+const BREP_SECTION_IDX  = 3;
+const ARCH_SECTION_IDX  = 4;
+const COMP_SECTION_IDX  = 5;
 
 // Single shared tooltip element — created once, reused across all palette instances.
 function getPaletteTip(): HTMLDivElement {
@@ -603,7 +606,10 @@ export function buildPalette(host: HTMLElement) {
   for (let i = 0; i < PALETTE_SECTIONS.length; i++) {
     const section = PALETTE_SECTIONS[i];
     const sec = el("div", "palette-section");
-    if (i === COMP_SECTION_IDX) sec.classList.add("palette-section--hidden");
+    // Initial tab = ARCH: hide geometry sections (1+2+3); both BIM sections (4+5) visible.
+    if (i === DRAW_SECTION_IDX || i === SOLID_SECTION_IDX || i === BREP_SECTION_IDX) {
+      sec.classList.add("palette-section--hidden");
+    }
     for (const tool of section.tools) {
       const btn = el("button", "palette-btn", { type: "button", "aria-label": tool.label, "data-tool": tool.id });
       const hasCorner = tool.id === "select" || tool.id === "scale" || tool.id === "wall" || tool.id === "stair" || tool.id === "clip";
@@ -650,8 +656,13 @@ export function buildPalette(host: HTMLElement) {
 
   function showSectionTab(tab: "ARCH" | "CAD") {
     const showArch = tab === "ARCH";
-    sectionEls[ARCH_SECTION_IDX]?.classList.toggle("palette-section--hidden", !showArch);
-    sectionEls[COMP_SECTION_IDX]?.classList.toggle("palette-section--hidden", showArch);
+    // ARCH: show BIM elements (structural §4 + openings §5), hide geometry tools (draw §1 + solid §2 + brep §3)
+    // CAD:  show geometry tools (draw §1 + solid §2 + brep §3), hide BIM elements (§4 + §5)
+    sectionEls[DRAW_SECTION_IDX]?.classList.toggle("palette-section--hidden",  showArch);
+    sectionEls[SOLID_SECTION_IDX]?.classList.toggle("palette-section--hidden", showArch);
+    sectionEls[BREP_SECTION_IDX]?.classList.toggle("palette-section--hidden",  showArch);
+    sectionEls[ARCH_SECTION_IDX]?.classList.toggle("palette-section--hidden",  !showArch);
+    sectionEls[COMP_SECTION_IDX]?.classList.toggle("palette-section--hidden",  !showArch);
   }
 
   window.addEventListener("ribbon:section-tab", (rawEv) => {
