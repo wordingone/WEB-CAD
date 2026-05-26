@@ -224,6 +224,7 @@ export class ChatPanel {
       <div class="chat-goal-banner" style="display:none"></div>
       <div class="chat-list"></div>
       <div class="chat-starters"></div>
+      <div class="chat-disclaimer">AI-generated. Not for construction. Always consult a licensed professional.</div>
       <div class="chat-perf-strip" style="display:none"></div>
       <div class="chat-image-preview" style="display:none"></div>
       <div class="chat-context-chip" style="display:none"></div>

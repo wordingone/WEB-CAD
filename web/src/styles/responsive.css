@@ -367,6 +367,13 @@
 .chat-starter-chip {
   cursor: pointer;
 }
+.chat-disclaimer {
+  flex-shrink: 0;
+  padding: 0 10px 6px;
+  font: 9px/1.4 var(--mono);
+  color: var(--ink-faint, #aaa);
+  letter-spacing: 0.02em;
+}
 .chat-perf-strip {
   flex-shrink: 0;
   padding: 3px 10px;
