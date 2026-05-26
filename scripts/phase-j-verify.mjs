@@ -614,6 +614,44 @@ if (bootComplete) {
       await delay(500);
     }
 
+    // §#61: restore-prompt auto-click. After a page reload mid-run, initSceneRestore() in
+    // dom-events.ts surfaces a #restore-prompt toast if saved scene data exists in IDB.
+    // The harness does not have a user to click it, so click #restore-btn automatically.
+    // This re-populates the Three.js scene before the model generates, so T5+ runs with
+    // the correct scene context from prior turns instead of on an empty scene.
+    const _restoreVisible = await evaluate(
+      `!!(document.getElementById('restore-prompt') && !document.getElementById('restore-prompt').hidden)`,
+      5000,
+    ).catch(() => false);
+    if (_restoreVisible) {
+      console.log(`  [restore-prompt] visible — auto-clicking #restore-btn to recover scene`);
+      const _restoreBtnRect = await evaluate(
+        `JSON.stringify(document.getElementById('restore-btn')?.getBoundingClientRect()?.toJSON() ?? null)`,
+        5000,
+      ).catch(() => null);
+      const _rbr = (() => { try { return _restoreBtnRect ? JSON.parse(_restoreBtnRect) : null; } catch { return null; } })();
+      if (_rbr) {
+        const _rbx = Math.round(_rbr.left + _rbr.width / 2);
+        const _rby = Math.round(_rbr.top + _rbr.height / 2);
+        await cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: _rbx, y: _rby, button: "none" });
+        await delay(50);
+        await cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: _rbx, y: _rby, button: "left", clickCount: 1, buttons: 1 });
+        await delay(50);
+        await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", x: _rbx, y: _rby, button: "left", clickCount: 1 });
+        // Wait for importScene to complete — scene.children grows above infra baseline (~13)
+        const _restoreDeadline = Date.now() + 30_000;
+        let _restoreOk = false;
+        while (Date.now() < _restoreDeadline) {
+          await delay(1000);
+          const _childCount = await evaluate("window.__viewer?.scene?.children?.length ?? 0", 3000).catch(() => 0);
+          if (typeof _childCount === "number" && _childCount > 13) { _restoreOk = true; break; }
+        }
+        console.log(`  [restore-prompt] restore ${_restoreOk ? "complete" : "timed-out"} — sceneChildren=${await evaluate("window.__viewer?.scene?.children?.length ?? 0").catch(() => "?")} `);
+      } else {
+        console.log(`  [restore-prompt] #restore-btn not found — skipping auto-restore`);
+      }
+    }
+
     // Type prompt into chat input and submit
     const sent = await evaluate(`(function() {
       const inp = document.querySelector('.chat-input, textarea[name="prompt"], [data-role="chat-input"]');
