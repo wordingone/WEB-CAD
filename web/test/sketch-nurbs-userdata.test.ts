@@ -1,7 +1,7 @@
 // Regression net for #30 G1+G3: buildLine + buildArc store NurbsCurve in userData.
 import { describe, test, expect } from "bun:test";
 import * as THREE from "three";
-import { buildLine, buildArc } from "../src/tools/sketch";
+import { buildLine, buildArc, buildSpline } from "../src/tools/sketch";
 import type { NurbsCurve } from "../src/nurbs/nurbs-curves";
 
 describe("sketch NURBS userData — G3 buildLine", () => {
@@ -36,6 +36,33 @@ describe("sketch NURBS userData — G3 buildLine", () => {
     expect(nc.knots.length).toBe(2);
     expect(nc.knots[0]).toBe(0);
     expect(nc.knots[1]).toBe(1);
+  });
+});
+
+describe("sketch NURBS userData — G2 buildSpline", () => {
+  const fourPts = [
+    { x: 0, y: 0 }, { x: 1, y: 2 }, { x: 3, y: 1 }, { x: 4, y: 3 },
+  ];
+
+  test("buildSpline stores cubic NurbsCurve in userData", () => {
+    const result = buildSpline(fourPts);
+    expect(result).not.toBeNull();
+    const nc = result!.mesh.userData.nurbsCurve as NurbsCurve;
+    expect(nc).toBeDefined();
+    expect(nc.kind).toBe("nurbs");
+    expect(nc.order).toBe(4);            // degree 3 = cubic = order 4
+    expect(nc.isRational).toBe(false);
+    expect(result!.mesh.userData.nurbsDegree).toBe(3);
+  });
+
+  test("buildSpline nurbsCVs matches nurbsCurve.cvs", () => {
+    const result = buildSpline(fourPts);
+    const nc = result!.mesh.userData.nurbsCurve as NurbsCurve;
+    expect(result!.mesh.userData.nurbsCVs).toBe(nc.cvs);
+  });
+
+  test("buildSpline returns null for fewer than 4 points", () => {
+    expect(buildSpline([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 0 }])).toBeNull();
   });
 });
 
