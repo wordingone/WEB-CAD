@@ -1055,6 +1055,9 @@ const receipt = {
   cdp_permissions_granted: _cdpPromptState.permissionsGranted,
   cdp_dialogs_handled: _cdpPromptState.dialogsHandled,
   cdp_downloads_allowed: _cdpPromptState.downloadsAllowed,
+  // §WEB-CAD#11 AC #4: exact field names per umbrella closure spec.
+  dialog_auto_handled: _cdpPromptState.dialogsHandled,
+  permission_auto_granted: _cdpPromptState.permissionsGranted,
   // §#1740: continuation loop telemetry — how many turns ran and why it stopped.
   goal_continuation: _cont ? { iterations: _cont.iterations, terminal: _cont.terminal } : null,
   // §WEB-CAD#14-F: progress bar + boot path receipt fields.
