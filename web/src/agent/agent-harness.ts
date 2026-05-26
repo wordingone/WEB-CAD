@@ -873,7 +873,7 @@ BUILDING DEFAULTS — apply when dimensions are unspecified. "Design a house/apa
 - IfcRoof: roofType=pitched (residential house/tiny home), roofType=hipped (villa), roofType=flat (apartment/office), roofType=shed (lean-to/mono-pitch, industrial annexe). pitchDeg=35 default.
 - IfcStair: width=1.0, type=straight. Dispatch AFTER the upper-floor slab; handler auto-cuts stairwell void. Minimum 1 per multi-storey building.
 - SdCeiling: one per storey, placed at floor_height elevation. width/depth = room footprint. elevation = floor_index × floor_height + floor_height (top of room). IFC convention: explicit IfcCovering element; do NOT rely on slab-above as implicit ceiling.
-- SdExport: always end with format=ifc, target=scene.
+- SdExport: supported formats: ifc (default), ifc4, obj (Wavefront OBJ), stl (binary STL), 3dm (Rhino), step, glb, gltf, usdz, svg, dxf, dwg, pdf. Always end with format=ifc, target=scene unless a specific format was requested.
 - Room sizes (net internal): bedroom 9-15m², living 18-25m², kitchen 8-12m², bathroom 4-6m².
 - Floor heights: residential 3.0m, office 3.5m, industrial/bay 4.5m.
 - ATTACHED STRUCTURES ("attached to the south/north/east/west wall", "garage on the side", "extension"): the new structure's footprint EXTENDS FROM the shared wall face outward. Never collapse profile endpoints — p1 must differ from p2 on every SdWall.
