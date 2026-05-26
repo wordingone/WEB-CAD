@@ -36,7 +36,7 @@ bun run web:typecheck   # web/tsconfig.json (strict mode)
 ## Tests
 
 ```bash
-bun test web/           # full web test suite (~1400 tests)
+bun test web/           # full web test suite (~1509 tests)
 ```
 
 ## Audit gate stack
@@ -71,10 +71,33 @@ bash scripts/enable-auto-merge.sh   # enable GitHub auto-merge on the repo (admi
 - `outputs/` and `data/` are gitignored — built training artifacts.
 - Vite config: `web/vite.config.ts`. Plugin deps: `vite-plugin-wasm`, `vite-plugin-top-level-await`.
 
-## Worktree layout (team context)
+## Build and deploy
 
-| Path | Purpose |
-|---|---|
-| `B:/M/WEB-CAD/` | Read-only inspection tree |
-| `B:/M/WEB-CAD-archie/` | Active feature development (Archie's worktree) |
-| `B:/M/WEB-CAD-master/` | Serving tree — Vite on `:5175`, autofwd after merge |
+### Build for production
+
+```bash
+bun run web:build       # outputs to web/dist/
+bun run web:preview     # serve built dist locally at http://localhost:4173
+```
+
+### Deploy to GitHub Pages
+
+The repo uses GitHub Actions to deploy `web/dist/` to GitHub Pages on every push to `master`. No manual step needed — merge to master, CI builds and publishes.
+
+To verify the deployment pipeline locally before pushing:
+
+```bash
+bun run verify:deploy   # validates dist/ structure, checks required assets exist
+```
+
+### Cold-cache first-visit verification
+
+After a Pages deploy, verify that a first-time visitor (empty cache) sees a working app:
+
+1. Open Chrome DevTools → Application → Storage → Clear site data.
+2. Navigate to the Pages URL.
+3. Wait for the boot screen to clear (the AI model weights download on first visit — may take 30–60 s on a cold cache).
+4. Type a prompt in the chat panel: `draw a 5m wall facing north`.
+5. Confirm a wall appears in the 3D viewport without console errors.
+
+If the model weights are served via the GitHub Pages CDN, the `VITE_GEMMA_AGENT_URL` env var must point to the correct HuggingFace endpoint (set in `.env.production` or the Actions workflow). A missing or wrong endpoint causes a silent fallback to CPU inference — verify in DevTools Network that the model fetch resolves.

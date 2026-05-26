@@ -1,5 +1,16 @@
 # Contributing to WEB-CAD
 
+## Dev setup
+
+```bash
+git clone https://github.com/wordingone/WEB-CAD
+cd WEB-CAD
+bun install
+bun run web:dev         # http://localhost:5847 — hot reload
+```
+
+See [SETUP.md](SETUP.md) for full prerequisites and build/deploy steps.
+
 ## Branch conventions
 
 - `master` is the deployed branch. All code PRs target `master`.
@@ -50,6 +61,14 @@ gh pr merge <N> --auto --squash --delete-branch
 
 CI green → merge fires automatically.
 
+## Test suite
+
+```bash
+bun test web/           # ~1509 tests, should report 0 fail
+```
+
+Tests live in `web/test/`. Each handler module has a corresponding `*.test.ts` file. When adding a new verb, add a test file alongside it.
+
 ## Schema changes
 
 The spatial SDK contract lives in `web/src/commands/spatial-api.yaml`. Any change to a verb's parameters must be reflected in both:
@@ -65,6 +84,16 @@ Run `bun run audit:dispatch` to verify they agree. See `docs/dev/add-a-handler.m
 - No `scene.add()` / `scene.remove()` outside of viewer wrappers or `// audit-undo-ok` justified bypasses.
 - Handler registration goes in `web/src/register-handlers.ts` (or a domain handler module under `web/src/handlers/`). DOM wiring goes in `web/src/dom-events.ts`.
 - New palette tools follow the pattern in `docs/dev/add-a-palette-tool.md`.
+
+## Adding a NURBS / geometry handler
+
+1. Define the verb in `web/src/commands/spatial-api.yaml` — required/optional args, units, synonyms.
+2. Implement the handler in `web/src/handlers/` (or `sketch.ts` for surface-producing ops).
+3. Register it in `web/src/register-handlers.ts`.
+4. Add a test in `web/test/your-handler.test.ts` — import `dispatchSync`, call it, check `{ ok: true, result: { created: "<kind>" } }`.
+5. Run `bun run audit:dispatch` to confirm schema and handler agree.
+
+NURBS results should store `userData.nurbsSurface` (or `nurbsCurve`) so that IFC export and the Gumball sub-object handles pick them up automatically.
 
 ## Issues
 
