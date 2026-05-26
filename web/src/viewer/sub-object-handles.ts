@@ -6,7 +6,10 @@
 
 import * as THREE from "three";
 import type { Viewer } from "./viewer.js";
-import { createClampedUniformNurbs, createCatmullRomAsNurbs, tessellate } from "../nurbs/nurbs-curves.js";
+import { createClampedUniformNurbs, createCatmullRomAsNurbs, tessellate, type NurbsCurve } from "../nurbs/nurbs-curves.js";
+import type { LineCurve } from "../nurbs/nurbs-curves.js";
+import type { SumSurface } from "../nurbs/nurbs-surfaces.js";
+import { Interval as Iv } from "../nurbs/nurbs-primitives.js";
 import { makeSnapId } from "./snap-state.js";
 
 const HANDLE_RADIUS = 0.06;
@@ -108,6 +111,12 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
       { x: wA.x, y: wA.y, z: 0, id: makeSnapId(wA.x, wA.y, 0) },
       { x: wB.x, y: wB.y, z: 0, id: makeSnapId(wB.x, wB.y, 0) },
     ];
+    // §WEB-CAD#30 G7: keep nurbsSurface in sync (front face, local space).
+    const cU: LineCurve = { kind: "line", from: {x:0,y:0,z:0}, to: {x:len,y:0,z:0}, domain: Iv.create(0,len) };
+    const cV: LineCurve = { kind: "line", from: {x:0,y:0,z:0}, to: {x:0,y:0,z:h}, domain: Iv.create(0,h) };
+    const ss: SumSurface = { kind: "sum", curveU: cU, curveV: cV, basepoint: {x:-len/2,y:t/2,z:0} };
+    parent.userData.nurbsSurface = ss;
+    parent.userData.nurbsKind = "surface";
     return;
   }
 
@@ -118,6 +127,16 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
   let newGeom: THREE.BufferGeometry | null = null;
   if (creator === "line" && cps.length === 2) {
     newGeom = new THREE.BufferGeometry().setFromPoints([cps[0], cps[1]]);
+    // §WEB-CAD#30 G7: keep nurbsCurve in sync (local-space CVs).
+    const nc: NurbsCurve = {
+      kind: "nurbs", dim: 3, isRational: false,
+      order: 2, cvCount: 2,
+      knots: [0, 1],
+      cvs: [cps[0].x, cps[0].y, cps[0].z, cps[1].x, cps[1].y, cps[1].z],
+      cvStride: 3,
+    };
+    parent.userData.nurbsCurve = nc;
+    parent.userData.nurbsDegree = 1;
   } else if (creator === "polyline") {
     newGeom = new THREE.BufferGeometry().setFromPoints(cps);
   } else if (creator === "curve") {
@@ -141,6 +160,10 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
     const sampled = raw.map((p) => new THREE.Vector3(p.x, p.y, p.z));
     if (isClosed && sampled.length > 1) sampled[sampled.length - 1].copy(sampled[0]);
     newGeom = new THREE.BufferGeometry().setFromPoints(sampled);
+    // §WEB-CAD#30 G7: keep nurbsCurve in sync.
+    parent.userData.nurbsCurve = nurbs;
+    parent.userData.nurbsDegree = degree;
+    parent.userData.nurbsCVs = nurbs.cvs;
   }
 
   if (!newGeom) return;
