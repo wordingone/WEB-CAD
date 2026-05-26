@@ -833,8 +833,11 @@ async function handleSessionRefresh(): Promise<void> {
     return;
   }
 
-  // Mirror the backend priority from handleInit: WebGPU if device acquired, CPU fallback.
-  const refreshBackends: Array<{ device: "webgpu" | "cpu"; dtype: "q4f16" | "q4" }> = _preAcquiredGpuDevice
+  // Mirror the backend priority from handleInit: WebGPU if device was acquired, CPU fallback.
+  // _preAcquiredGpuDevice is handleInit-local; detect via ort.env.webgpu.device (set at init line 447).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _hasWgpuDevice = !!((ort.env as any)?.webgpu?.device);
+  const refreshBackends: Array<{ device: "webgpu" | "cpu"; dtype: "q4f16" | "q4" }> = _hasWgpuDevice
     ? [{ device: "webgpu", dtype: "q4f16" }, { device: "cpu", dtype: "q4" }]
     : [{ device: "cpu", dtype: "q4" }];
 
