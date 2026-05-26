@@ -180,11 +180,10 @@ export function buildLine(a: { x: number; y: number }, b: { x: number; y: number
   return { mesh, chain };
 }
 
-export function buildPolygon(center: { x: number; y: number }, radial: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
+export function buildPolygon(center: { x: number; y: number }, radial: { x: number; y: number }, sides = DEFAULT_POLYGON_SIDES): { mesh: THREE.Mesh; chain: string } {
   const dx = radial.x - center.x;
   const dy = radial.y - center.y;
   const r = Math.max(0.05, Math.sqrt(dx * dx + dy * dy));
-  const sides = DEFAULT_POLYGON_SIDES;
   const startAng = Math.atan2(dy, dx);
   const verts: Array<[number, number]> = [];
   const pts: number[] = [];

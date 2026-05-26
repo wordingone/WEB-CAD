@@ -54,6 +54,12 @@ export function clearCreateSequence(): void {
 // z is only set for the "level" tool (geometry raycast elevation).
 
 let _pending: Array<{ x: number; y: number; z?: number }> = [];
+
+// ── Polygon n-gon state (#140) ────────────────────────────────────────────────
+let _polygonSides = 6;
+function _polygonHint(): string {
+  return `polygon — ${_polygonSides} sides  [ ] to change  click center then radius  [Esc] cancel`;
+}
 // #943: section-box single-drag mode — mousedown sets A, mouseup sets B.
 // #951: last non-select tool activated — spacebar re-activates it.
 let _lastActivatedTool: string | null = null;
@@ -384,7 +390,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   }) },
   "stair-polyline": { clicks: -1, handler: atZ((pts) => { const lvl = levelStore.get(getActiveLevelId()); const rise = lvl?.height ?? 3.0; const { group, chain } = buildStairOnPolyline(pts, { rise }); return { mesh: group, chain }; }) },
   "stair-curve":    { clicks: -1, handler: atZ((pts) => { const lvl = levelStore.get(getActiveLevelId()); const rise = lvl?.height ?? 3.0; const { group, chain } = buildStairOnCurve(pts, { rise }); return { mesh: group, chain }; }) },
-  polygon:     { clicks: 2, handler: atZ(([a, b]) => buildPolygon(a, b)) },
+  polygon:     { clicks: 2, handler: atZ(([a, b]) => buildPolygon(a, b, _polygonSides)) },
   arc:         { clicks: 3, handler: atZ(([c, s, e]) => buildArc(c, s, e)) },
   polyline:    { clicks: -1, handler: atZ((pts) => buildPolyline(pts)) },
   curve:       { clicks: -1, handler: atZ((pts) => buildCurve(pts)) },
@@ -1062,6 +1068,8 @@ export function initCreateMode(viewer: Viewer): void {
         setPickerHint("Clip Section — click point A then point B to define section line  [Esc] cancel");
       } else if (tool === "section") {
         setPickerHint("Section Box — click corner A then corner B to define box footprint  [Esc] cancel");
+      } else if (tool === "polygon") {
+        setPickerHint(_polygonHint());
       }
     }
   });
@@ -1659,6 +1667,13 @@ export function initCreateMode(viewer: Viewer): void {
         if (basePt) ptSetAxisLockLine(viewer, basePt);
         return;
       }
+    }
+    // [ / ] adjust polygon sides when polygon tool is active (#140).
+    if ((ev.key === "[" || ev.key === "]") && !ev.ctrlKey && !ev.metaKey && readActiveTool() === "polygon") {
+      ev.preventDefault();
+      _polygonSides = Math.max(3, Math.min(99, _polygonSides + (ev.key === "]" ? 1 : -1)));
+      setPickerHint(_polygonHint());
+      return;
     }
     // Ctrl+Z during in-progress draw/op: cancel the active state first, don't
     // undo the last placed object. Matches Rhino/Blender cancel-before-undo convention.
