@@ -4,6 +4,9 @@
 // environments (Bun self-harness, Node tests). Only the round-trip half in
 // ifc.ts pulls in web-ifc + the `?url` WASM import that's Vite-specific.
 
+import type { NurbsSurface } from "../nurbs/nurbs-surfaces.js";
+import { pointAtUV, domainU, domainV } from "../nurbs/nurbs-surfaces.js";
+
 export type IfcMesh = {
   vertices: Float32Array; // flat [x,y,z, ...]
   indices: Uint32Array;   // flat triangle indices into vertices
@@ -87,6 +90,7 @@ export type IfcSceneElement = {
   label?: string;
   levelId?: string;                        // #243: storey assignment — matches IfcLevel.levelId
   dispatchArgs?: Record<string, unknown>;  // #244: numeric/string args → IfcPropertySet
+  nurbsSurface?: NurbsSurface;            // #125: G9 — emit IfcAdvancedBrep when present
 };
 
 // Caller passes one entry per level (from levelStore). buildIfcScene emits one
@@ -194,6 +198,165 @@ function emitElementPropertySet(
   lines.push(`${relDef}=IFCRELDEFINESBYPROPERTIES(${stepString(ifcGuid())},${ownerHistory},$,$,(${entityRef}),${pset});`);
 }
 
+// ── NURBS → IFC helpers (#125 G9) ─────────────────────────────────────────────
+
+// Convert a flat OpenNURBS knot vector (length = cvCount + order - 2) to
+// IFC compressed (distinct knots, multiplicities) format.
+// IFC constraint: sum(mults) = cvCount + degree + 1 = cvCount + order - 1 + 1.
+// OpenNURBS drops the first and last knot once → add 1 to first and last mult.
+function _compressOpenNurbsKnots(flat: number[]): { knots: number[]; mults: number[] } {
+  const knots: number[] = [];
+  const mults: number[] = [];
+  let i = 0;
+  while (i < flat.length) {
+    const k = flat[i];
+    let m = 0;
+    while (i < flat.length && Math.abs(flat[i] - k) < 1e-10) { i++; m++; }
+    knots.push(k);
+    mults.push(m);
+  }
+  // Restore the dropped first and last knot repeats.
+  if (mults.length > 0) { mults[0]++; mults[mults.length - 1]++; }
+  return { knots, mults };
+}
+
+// Emit IfcRationalBSplineSurfaceWithKnots (or non-rational variant) and the
+// control-point IfcCartesianPoint grid. Returns the surface entity ref.
+function _emitNurbsSurfaceEntity(
+  ns: NurbsSurface,
+  lines: string[],
+  next: () => string,
+  scale: number,
+): string {
+  const [nU, nV] = ns.cvCount;
+  const degU = ns.order[0] - 1;
+  const degV = ns.order[1] - 1;
+
+  // Emit IfcCartesianPoint for each control vertex, build the 2D list literal.
+  const rows: string[] = [];
+  for (let i = 0; i < nU; i++) {
+    const row: string[] = [];
+    for (let j = 0; j < nV; j++) {
+      const base = i * ns.cvStride[0] + j * ns.cvStride[1];
+      const x = ns.cvs[base] * scale;
+      const y = ns.cvs[base + 1] * scale;
+      const z = ns.cvs[base + 2] * scale;
+      const ptRef = next();
+      lines.push(`${ptRef}=IFCCARTESIANPOINT((${stepFloat(x)},${stepFloat(y)},${stepFloat(z)}));`);
+      row.push(ptRef);
+    }
+    rows.push(`(${row.join(",")})`);
+  }
+  const ctrlPts = `(${rows.join(",")})`;
+
+  const { knots: uK, mults: uM } = _compressOpenNurbsKnots(ns.knots[0]);
+  const { knots: vK, mults: vM } = _compressOpenNurbsKnots(ns.knots[1]);
+  const uMStr = uM.join(",");
+  const vMStr = vM.join(",");
+  const uKStr = uK.map(stepFloat).join(",");
+  const vKStr = vK.map(stepFloat).join(",");
+
+  const surfRef = next();
+  if (ns.isRational) {
+    const wRows: string[] = [];
+    for (let i = 0; i < nU; i++) {
+      const row: string[] = [];
+      for (let j = 0; j < nV; j++) {
+        const base = i * ns.cvStride[0] + j * ns.cvStride[1];
+        const w = ns.cvStride[1] >= 4 ? ns.cvs[base + 3] : 1.0;
+        row.push(stepFloat(w));
+      }
+      wRows.push(`(${row.join(",")})`);
+    }
+    lines.push(
+      `${surfRef}=IFCRATIONALBSPLINESURFACEWITHKNOTS(${degU},${degV},${ctrlPts},.UNSPECIFIED.,.F.,.F.,.F.,(${uMStr}),(${vMStr}),(${uKStr}),(${vKStr}),.UNSPECIFIED.,(${wRows.join(",")}));`,
+    );
+  } else {
+    lines.push(
+      `${surfRef}=IFCBSPLINESURFACEWITHKNOTS(${degU},${degV},${ctrlPts},.UNSPECIFIED.,.F.,.F.,.F.,(${uMStr}),(${vMStr}),(${uKStr}),(${vKStr}),.UNSPECIFIED.);`,
+    );
+  }
+  return surfRef;
+}
+
+// Emit a full IfcAdvancedBrep for a single NurbsSurface.
+// The solid is a single IfcAdvancedFace with a rectangular edge-loop boundary
+// derived from the 4 parametric corners of the surface.
+function _emitNurbsAdvancedBrep(
+  ns: NurbsSurface,
+  lines: string[],
+  next: () => string,
+  scale: number,
+): string {
+  // 1. Surface entity.
+  const surfRef = _emitNurbsSurfaceEntity(ns, lines, next, scale);
+
+  // 2. Evaluate 4 parametric corners → IfcCartesianPoint + IfcVertexPoint.
+  const u0 = domainU(ns).min, u1 = domainU(ns).max;
+  const v0 = domainV(ns).min, v1 = domainV(ns).max;
+  const corners: Array<[number, number]> = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+
+  const vtxRefs: string[] = [];
+  const ptRefs: string[] = [];
+  for (const [u, v] of corners) {
+    const p = pointAtUV(ns, u, v);
+    const ptRef = next();
+    lines.push(`${ptRef}=IFCCARTESIANPOINT((${stepFloat(p.x * scale)},${stepFloat(p.y * scale)},${stepFloat(p.z * scale)}));`);
+    ptRefs.push(ptRef);
+    const vtx = next();
+    lines.push(`${vtx}=IFCVERTEXPOINT(${ptRef});`);
+    vtxRefs.push(vtx);
+  }
+
+  // 3. Emit 4 IfcLine + 4 IfcEdgeCurve for the rectangular boundary.
+  const edgeRefs: string[] = [];
+  for (let k = 0; k < 4; k++) {
+    const fromVtx = vtxRefs[k];
+    const toVtx   = vtxRefs[(k + 1) % 4];
+    const fromPt  = ptRefs[k];
+    const toPt    = ptRefs[(k + 1) % 4];
+
+    // Edge direction vector (not normalized — magnitude == length).
+    const p0 = pointAtUV(ns, corners[k][0], corners[k][1]);
+    const p1 = pointAtUV(ns, corners[(k + 1) % 4][0], corners[(k + 1) % 4][1]);
+    const dx = (p1.x - p0.x), dy = (p1.y - p0.y), dz = (p1.z - p0.z);
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    const nx = dx / len, ny = dy / len, nz = dz / len;
+
+    const dirRef = next();
+    lines.push(`${dirRef}=IFCDIRECTION((${stepFloat(nx)},${stepFloat(ny)},${stepFloat(nz)}));`);
+    const vecRef = next();
+    lines.push(`${vecRef}=IFCVECTOR(${dirRef},${stepFloat(len * scale)});`);
+    const lineRef = next();
+    lines.push(`${lineRef}=IFCLINE(${fromPt},${vecRef});`);
+    const edgeCurve = next();
+    lines.push(`${edgeCurve}=IFCEDGECURVE(${fromVtx},${toVtx},${lineRef},.T.);`);
+    edgeRefs.push(edgeCurve);
+  }
+
+  // 4. IfcOrientedEdge list → IfcEdgeLoop → IfcFaceOuterBound.
+  const orEdgeRefs: string[] = edgeRefs.map(e => {
+    const oe = next();
+    lines.push(`${oe}=IFCORIENTEDEDGE(*,*,${e},.T.);`);
+    return oe;
+  });
+  const edgeLoop = next();
+  lines.push(`${edgeLoop}=IFCEDGELOOP((${orEdgeRefs.join(",")}));`);
+  const outerBound = next();
+  lines.push(`${outerBound}=IFCFACEOUTERBOUND(${edgeLoop},.T.);`);
+
+  // 5. IfcAdvancedFace (face_surface, bounds, same_sense=T).
+  const advFace = next();
+  lines.push(`${advFace}=IFCADVANCEDFACE((${outerBound}),${surfRef},.T.);`);
+
+  // 6. IfcClosedShell → IfcAdvancedBrep.
+  const shell = next();
+  lines.push(`${shell}=IFCCLOSEDSHELL((${advFace}));`);
+  const brep = next();
+  lines.push(`${brep}=IFCADVANCEDBREP(${shell});`);
+  return brep;
+}
+
 // Emit brep geometry for one mesh, return the IFCFACETEDBREP ref.
 // scale is applied to every coordinate (1.0 for metric; M_TO_FT for imperial).
 function emitMeshBrep(mesh: IfcMesh, lines: string[], next: () => string, scale = 1.0): string {
@@ -264,9 +427,13 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
     const spec = IFC4_ENTITY[el.creator] ?? { name: "IFCBUILDINGELEMENTPROXY", tail: ",$,.NOTDEFINED." };
     const label = el.label ?? el.creator;
 
-    const brep = emitMeshBrep(el.mesh, lines, next, coordScale);
+    const hasNurbs = !!el.nurbsSurface;
+    const brep = hasNurbs
+      ? _emitNurbsAdvancedBrep(el.nurbsSurface!, lines, next, coordScale)
+      : emitMeshBrep(el.mesh, lines, next, coordScale);
+    const repType = hasNurbs ? "AdvancedBrep" : "Brep";
     const shapeRep = next();
-    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString("Brep")},(${brep}));`);
+    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${brep}));`);
     const productShape = next();
     lines.push(`${productShape}=IFCPRODUCTDEFINITIONSHAPE($,$,(${shapeRep}));`);
     const elPlacement = next();
@@ -296,7 +463,7 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
   return new TextEncoder().encode(lines.join("\n"));
 }
 
-export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts?: { imperial?: boolean }): Uint8Array {
+export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts?: { imperial?: boolean; nurbsSurface?: NurbsSurface }): Uint8Array {
   const lines: string[] = [];
   let id = 0;
   const next = () => `#${++id}`;
@@ -375,39 +542,47 @@ export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts
   const bldAggStorey = next();
   lines.push(`${bldAggStorey}=IFCRELAGGREGATES(${stepString(ifcGuid())},${ownerHistory},$,$,${refs.building},(${refs.storey}));`);
 
-  // Mesh → IFC. Build IfcCartesianPoint per vertex, IfcPolyLoop per triangle,
-  // IfcFaceOuterBound per loop, IfcFace per triangle, IfcClosedShell wrapping
-  // them, IfcFacetedBrep wrapping the shell.
-  const vertexIds: string[] = [];
-  for (let i = 0; i < mesh.vertices.length; i += 3) {
-    const x = mesh.vertices[i] * coordScale, y = mesh.vertices[i + 1] * coordScale, z = mesh.vertices[i + 2] * coordScale;
-    const ptId = next();
-    lines.push(`${ptId}=IFCCARTESIANPOINT((${stepFloat(x)},${stepFloat(y)},${stepFloat(z)}));`);
-    vertexIds.push(ptId);
+  // Geometry: NURBS AdvancedBrep path or mesh FacetedBrep fallback.
+  const hasNurbs = !!opts?.nurbsSurface;
+  let brep: string;
+  if (hasNurbs) {
+    brep = _emitNurbsAdvancedBrep(opts!.nurbsSurface!, lines, next, coordScale);
+  } else {
+    // Mesh → IFC. Build IfcCartesianPoint per vertex, IfcPolyLoop per triangle,
+    // IfcFaceOuterBound per loop, IfcFace per triangle, IfcClosedShell wrapping
+    // them, IfcFacetedBrep wrapping the shell.
+    const vertexIds: string[] = [];
+    for (let i = 0; i < mesh.vertices.length; i += 3) {
+      const x = mesh.vertices[i] * coordScale, y = mesh.vertices[i + 1] * coordScale, z = mesh.vertices[i + 2] * coordScale;
+      const ptId = next();
+      lines.push(`${ptId}=IFCCARTESIANPOINT((${stepFloat(x)},${stepFloat(y)},${stepFloat(z)}));`);
+      vertexIds.push(ptId);
+    }
+
+    const faceIds: string[] = [];
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const a = vertexIds[mesh.indices[i]];
+      const b = vertexIds[mesh.indices[i + 1]];
+      const c = vertexIds[mesh.indices[i + 2]];
+      const loop = next();
+      lines.push(`${loop}=IFCPOLYLOOP((${a},${b},${c}));`);
+      const bound = next();
+      lines.push(`${bound}=IFCFACEOUTERBOUND(${loop},.T.);`);
+      const face = next();
+      lines.push(`${face}=IFCFACE((${bound}));`);
+      faceIds.push(face);
+    }
+
+    const shell = next();
+    lines.push(`${shell}=IFCCLOSEDSHELL((${faceIds.join(",")}));`);
+    brep = next();
+    lines.push(`${brep}=IFCFACETEDBREP(${shell});`);
   }
 
-  const faceIds: string[] = [];
-  for (let i = 0; i < mesh.indices.length; i += 3) {
-    const a = vertexIds[mesh.indices[i]];
-    const b = vertexIds[mesh.indices[i + 1]];
-    const c = vertexIds[mesh.indices[i + 2]];
-    const loop = next();
-    lines.push(`${loop}=IFCPOLYLOOP((${a},${b},${c}));`);
-    const bound = next();
-    lines.push(`${bound}=IFCFACEOUTERBOUND(${loop},.T.);`);
-    const face = next();
-    lines.push(`${face}=IFCFACE((${bound}));`);
-    faceIds.push(face);
-  }
-
-  const shell = next();
-  lines.push(`${shell}=IFCCLOSEDSHELL((${faceIds.join(",")}));`);
-  const brep = next();
-  lines.push(`${brep}=IFCFACETEDBREP(${shell});`);
-
+  const repType = hasNurbs ? "AdvancedBrep" : "Brep";
   // Shape representation + element placement.
   const shapeRep = next();
-  lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString("Brep")},(${brep}));`);
+  lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${brep}));`);
   const productShape = next();
   lines.push(`${productShape}=IFCPRODUCTDEFINITIONSHAPE($,$,(${shapeRep}));`);
   const elementPlacement = next();
