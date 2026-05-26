@@ -58,6 +58,22 @@ export async function fetchDrafterCached(
   let db: IDBDatabase | null = null;
   try {
     db = await openDb();
+    // §#26: evict stale drafter entries — any IDB key other than the current cacheKey is a
+    // leftover from a prior model version bump. Fire-and-forget; errors are non-fatal.
+    void new Promise<void>((resolve) => {
+      const tx = db!.transaction(STORE_NAME, "readwrite");
+      const req = tx.objectStore(STORE_NAME).getAllKeys();
+      req.onsuccess = () => {
+        for (const k of req.result as string[]) {
+          if (k !== cacheKey) {
+            tx.objectStore(STORE_NAME).delete(k);
+            console.info(`[drafter-cache] §#26 evicted stale IDB entry: ${k}`);
+          }
+        }
+        resolve();
+      };
+      req.onerror = () => resolve();
+    });
     const cached = await idbGet(db, cacheKey);
     if (cached) {
       console.info(`[drafter-cache] IDB hit for ${cacheKey} (${(cached.byteLength / 1e6).toFixed(1)} MB)`);

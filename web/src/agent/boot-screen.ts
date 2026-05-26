@@ -159,9 +159,15 @@ function _showStalled(): void {
     req.onupgradeneeded = () => req.result.createObjectStore('stall-traces');
     req.onsuccess = () => {
       const db = req.result;
-      db.transaction('stall-traces', 'readwrite')
-        .objectStore('stall-traces')
-        .put(_trace, new Date().toISOString());
+      const tx = db.transaction('stall-traces', 'readwrite');
+      const store = tx.objectStore('stall-traces');
+      store.put(_trace, new Date().toISOString());
+      // §#26: cap at 20 entries — evict oldest (ISO keys sort chronologically)
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const keys = (keysReq.result as string[]).sort();
+        for (const k of keys.slice(0, Math.max(0, keys.length - 20))) store.delete(k);
+      };
     };
   } catch (_) {}
 }
