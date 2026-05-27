@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
+import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
+  createCanonicalGeometryStore,
+  type CanonicalGeometryStore,
+} from "../src/geometry/canonical-geometry";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
 import { WORLD_XY } from "../src/viewer/cplane";
 import type { Viewer } from "../src/viewer/viewer";
@@ -13,13 +18,18 @@ function source(path: string): string {
 function makeViewer(): {
   viewer: Viewer;
   scene: THREE.Scene;
+  store: CanonicalGeometryStore;
   lastObject: () => THREE.Object3D | null;
 } {
   const scene = new THREE.Scene();
+  const store = createCanonicalGeometryStore();
   let last: THREE.Object3D | null = null;
   const viewer = {
     activeView: "top",
     activeCPlane: WORLD_XY,
+    getCanonicalGeometryStore() {
+      return store;
+    },
     addMesh(obj: THREE.Object3D, kind?: string) {
       if (kind) obj.userData.kind = kind;
       last = obj;
@@ -29,7 +39,7 @@ function makeViewer(): {
       return scene;
     },
   } as unknown as Viewer;
-  return { viewer, scene, lastObject: () => last };
+  return { viewer, scene, store, lastObject: () => last };
 }
 
 beforeEach(() => {
@@ -57,7 +67,7 @@ describe("BRep canonical migration characterization", () => {
   });
 
   test("SdBox currently creates a display mesh with a partial NURBS sidecar", () => {
-    const { viewer, lastObject } = makeViewer();
+    const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
 
     const result = dispatchSync("SdBox", { width: 2, depth: 3, height: 4 });
@@ -71,7 +81,13 @@ describe("BRep canonical migration characterization", () => {
     expect(mesh.userData.creator).toBe("box");
     expect(mesh.userData.nurbsSurface).toBeDefined();
     expect(mesh.userData.nurbsKind).toBe("surface");
-    expect(mesh.userData.canonicalGeometryId).toBeUndefined();
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("surface");
+    expect(canonical.createdBy).toBe("SdBox");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toBe(mesh.userData.nurbsSurface);
   });
 
   test("project save/open is currently the deprecated gemarch scene snapshot path", () => {

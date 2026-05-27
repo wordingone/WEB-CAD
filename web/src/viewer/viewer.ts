@@ -23,6 +23,11 @@ import { ClipFillManager } from "./clip-fill.js";
 import { getLayerForCreator } from "../geometry/layers.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
 import type { ClassifiedEdgeSeg } from "./edge-classifier.js";
+import {
+  createCanonicalGeometryStore,
+  type CanonicalGeometry,
+  type CanonicalGeometryStore,
+} from "../geometry/canonical-geometry.js";
 export type { ClassifiedEdgeSeg } from "./edge-classifier.js";
 export { LINEWEIGHT, DASH_PATTERN, DXF_LWEIGHT, DXF_LINETYPE } from "./edge-classifier.js";
 
@@ -179,6 +184,7 @@ export class Viewer {
   // Construction plane (W-1). Updated by setView(); overridden by SdSetCPlane (W-4).
   activeView:   string = "persp";
   activeCPlane: CPlane = WORLD_XY;
+  private canonicalGeometryStore: CanonicalGeometryStore = createCanonicalGeometryStore();
   // CPlane gizmo (#361) — grid + axis lines rendered at the active construction plane.
   _cplaneGizmo: CPlaneGizmo = new CPlaneGizmo();
   // W-6 host-pick (#343): when set, the next canvas click picks a face and derives a CPlane from its normal.
@@ -611,6 +617,14 @@ export class Viewer {
 
   getScene(): THREE.Scene {
     return this.scene;
+  }
+
+  getCanonicalGeometryStore(): CanonicalGeometryStore {
+    return this.canonicalGeometryStore;
+  }
+
+  getCanonicalGeometryForObject(obj: THREE.Object3D): CanonicalGeometry | undefined {
+    return this.canonicalGeometryStore.resolveObject(obj);
   }
 
   getCanvas(): HTMLCanvasElement {

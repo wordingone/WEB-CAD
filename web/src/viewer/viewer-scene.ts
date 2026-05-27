@@ -5,6 +5,7 @@ import { clearSelected } from "./selection-state.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
 
 export function clearScene(v: Viewer): void {
+  v.getCanonicalGeometryStore().clear();
   if (v.currentMesh) {
     v.scene.remove(v.currentMesh); // audit-undo-ok: currentMesh is the IFC model view object set by file-load; clearScene is the file-load/reset path, not a user spatial action
     v.currentMesh.geometry.dispose();
