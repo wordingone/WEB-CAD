@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
-import { inspectCanonicalGeometry } from "../src/geometry/canonical-introspection";
+import { inspectCanonicalGeometry, inspectCanonicalSelection } from "../src/geometry/canonical-introspection";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 
 const surface: Surface = {
@@ -63,5 +63,49 @@ describe("canonical geometry introspection", () => {
     ]);
     expect(snapshot.linkedRecordIds).toEqual([linkedRecord.id]);
     expect(snapshot.unlinkedRecordIds).toEqual([unlinkedRecord.id]);
+  });
+
+  test("resolves sub-object selection to the linked canonical surface record", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdWall",
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    mesh.position.set(2, 3, 4);
+    mesh.userData.creator = "wall";
+    mesh.userData.kind = "brep";
+    store.linkObject(mesh, record.id);
+    const edgeProxy = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1));
+
+    const selection = inspectCanonicalSelection(store, {
+      topology: "edge",
+      uuid: edgeProxy.uuid,
+      object: edgeProxy,
+      parent: mesh,
+      parentUuid: mesh.uuid,
+      edgeIndex: 7,
+      transformTarget: mesh,
+    });
+
+    expect(selection).toMatchObject({
+      topology: "edge",
+      pickedObjectUuid: edgeProxy.uuid,
+      ownerObjectUuid: mesh.uuid,
+      canonicalGeometryId: record.id,
+      edgeIndex: 7,
+      recordSummary: {
+        canonicalGeometryId: record.id,
+        kind: "surface",
+        surfaceKind: "sum",
+        surfaceDomain: {
+          u: [0, 2],
+          v: [0, 3],
+        },
+      },
+    });
+    expect(selection?.ownerWorldMatrix).toEqual(mesh.matrixWorld.elements.slice());
   });
 });
