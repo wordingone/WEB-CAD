@@ -3,6 +3,33 @@ const DB_VERSION = 1;
 const STORE = "autosave";
 const KEY = "scene";
 
+export type SceneAutosavePayload = {
+  version: 2;
+  canonicalGeometry: unknown[];
+  objects: unknown[];
+};
+
+export function createSceneAutosavePayload(objects: unknown[], canonicalGeometry: unknown[]): SceneAutosavePayload {
+  return {
+    version: 2,
+    canonicalGeometry,
+    objects,
+  };
+}
+
+export function readSceneAutosavePayload(saved: unknown): SceneAutosavePayload | null {
+  if (Array.isArray(saved)) {
+    return createSceneAutosavePayload(saved, []);
+  }
+  if (!saved || typeof saved !== "object") return null;
+  const payload = saved as Partial<SceneAutosavePayload>;
+  if (!Array.isArray(payload.objects)) return null;
+  return createSceneAutosavePayload(
+    payload.objects,
+    Array.isArray(payload.canonicalGeometry) ? payload.canonicalGeometry : [],
+  );
+}
+
 function _openDB(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);

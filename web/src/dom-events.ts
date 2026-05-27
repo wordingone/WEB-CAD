@@ -19,7 +19,13 @@ import { detectFormat, loadMainThreadFormat, buildIfcMesh, buildStepMesh, WORKER
 import { exportObj, exportGltfJson, exportGlb, exportUsdz, exportStl, export3dm, exportSvg, exportDxf, exportPdf } from "./io/exporters";
 import { undo, redo, clearHistory } from "./history";
 import { dispatchSync, registerHandler, registerPostDispatch } from "./commands/dispatch";
-import { sceneStoreSave, sceneStoreLoad, sceneStoreClear } from "./io/scene-store";
+import {
+  createSceneAutosavePayload,
+  readSceneAutosavePayload,
+  sceneStoreSave,
+  sceneStoreLoad,
+  sceneStoreClear,
+} from "./io/scene-store";
 import type { RoofParams } from "./tools/structural";
 import { DEFAULT_WALL_HEIGHT, rebuildWallParams, rebuildGroupWallHeight } from "./tools/structural";
 import { DEFAULT_DOOR_W, DEFAULT_DOOR_H } from "./tools/dimensions";
@@ -842,8 +848,12 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     _autoSaveTimer = setTimeout(async () => {
       _autoSaveTimer = null;
       try {
-        const data = viewer.exportScene();
-        if (data.length > 0) await sceneStoreSave(data); else await sceneStoreClear();
+        const objects = viewer.exportScene();
+        if (objects.length > 0) {
+          await sceneStoreSave(createSceneAutosavePayload(objects, viewer.exportCanonicalGeometry()));
+        } else {
+          await sceneStoreClear();
+        }
         _idbDiag.saveCount++; _idbDiag.lastSaveOk = true; _idbDiag.lastErr = null;
         _setDirty(false, "autosave-ok");
       } catch (err) {
@@ -862,7 +872,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
   setInterval(async () => {
     if (_hasUserContent()) {
       try {
-        await sceneStoreSave(viewer.exportScene());
+        await sceneStoreSave(createSceneAutosavePayload(viewer.exportScene(), viewer.exportCanonicalGeometry()));
         _idbDiag.saveCount++; _idbDiag.lastSaveOk = true; _idbDiag.lastErr = null;
         _setDirty(false, "heartbeat-ok");
       } catch (err) { _idbDiag.failCount++; _idbDiag.lastErr = String(err); console.warn("[idb] heartbeat save failed:", err); }
@@ -872,13 +882,19 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
   async function initSceneRestore(): Promise<void> {
     try {
       const saved = await sceneStoreLoad();
-      if (!saved || !Array.isArray(saved) || saved.length === 0) return;
+      const payload = readSceneAutosavePayload(saved);
+      if (!payload || payload.objects.length === 0) return;
       if (_hasUserContent()) return;
       const prompt = document.getElementById("restore-prompt") as HTMLElement | null; if (!prompt) return;
       prompt.hidden = false;
       document.getElementById("restore-btn")?.addEventListener("click", async () => {
         prompt.hidden = true;
-        try { viewer.importScene(saved as Parameters<typeof viewer.importScene>[0]); await sceneStoreClear(); setStatus("Session restored.", "ok"); }
+        try {
+          viewer.importCanonicalGeometry(payload.canonicalGeometry);
+          viewer.importScene(payload.objects as Parameters<typeof viewer.importScene>[0]);
+          await sceneStoreClear();
+          setStatus("Session restored.", "ok");
+        }
         catch { setStatus("Restore failed.", "err"); }
       }, { once: true });
       document.getElementById("restore-discard-btn")?.addEventListener("click", async () => {
