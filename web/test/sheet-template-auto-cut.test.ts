@@ -125,48 +125,58 @@ describe("DEMO_SHEET_SET", () => {
 // ── applySheetCut — plan view ──────────────────────────────────────────────
 
 describe("applySheetCut — plan", () => {
-  test("calls clearClippingPlanes and clearSectionBox before applying", () => {
+  test("calls clearClippingPlanes before applying", () => {
     const { viewer, state } = makeMockViewer();
     const t: SheetTemplate = { id: "S1", viewType: "plan", title: "Plan L1", levelId: "L1", cutOffset: 1.372, camera: "top" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t, { L1: { elevation: 0 } });
     expect(state.clearClippingPlanesCalled).toBeGreaterThanOrEqual(1);
-    expect(state.clearSectionBoxCalled).toBeGreaterThanOrEqual(1);
+    // plan uses clipping planes, not section box — clearSectionBox is no longer called
+    expect(state.clearSectionBoxCalled).toBe(0);
   });
 
-  test("calls setSectionBox with Z range [elevation, elevation + cutOffset]", () => {
+  test("calls addClippingPlane for Z floor and Z ceil, not setSectionBox", () => {
     const { viewer, state } = makeMockViewer();
     const levels: Record<string, SheetLevelRef> = { "level/0": { elevation: 0 } };
     const t: SheetTemplate = { id: "S1", viewType: "plan", title: "Plan L1", levelId: "level/0", cutOffset: 1.372, camera: "top" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t, levels);
-    expect(state.setSectionBoxCalled).toBe(1);
-    const [min, max] = [state.sectionBoxCalls[0].min, state.sectionBoxCalls[0].max];
-    expect(min[2]).toBeCloseTo(0);
-    expect(max[2]).toBeCloseTo(1.372);
+    expect(state.setSectionBoxCalled).toBe(0);
+    expect(state.clipCalls).toHaveLength(2);
+    const floor = state.clipCalls.find(c => c.label === "sheet-z-floor");
+    const ceil  = state.clipCalls.find(c => c.label === "sheet-z-ceil");
+    expect(floor).toBeDefined();
+    expect(ceil).toBeDefined();
+    expect(floor!.origin[2]).toBeCloseTo(0);      // at elevation
+    expect(floor!.normal[2]).toBeCloseTo(1);       // upward — clips below
+    expect(ceil!.origin[2]).toBeCloseTo(1.372);    // at elevation + cut
+    expect(ceil!.normal[2]).toBeCloseTo(-1);       // downward — clips above
   });
 
-  test("plan with level elevation 3m: sectionBox Z range is 3..4.372", () => {
+  test("plan with level elevation 3m: clip planes at 3 and 4.372", () => {
     const { viewer, state } = makeMockViewer();
     const levels: Record<string, SheetLevelRef> = { "level/1": { elevation: 3.0 } };
     const t: SheetTemplate = { id: "S2", viewType: "plan", title: "Plan L2", levelId: "level/1", cutOffset: 1.372, camera: "top" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t, levels);
-    const { min, max } = state.sectionBoxCalls[0];
-    expect(min[2]).toBeCloseTo(3.0);
-    expect(max[2]).toBeCloseTo(3.0 + 1.372);
+    const floor = state.clipCalls.find(c => c.label === "sheet-z-floor");
+    const ceil  = state.clipCalls.find(c => c.label === "sheet-z-ceil");
+    expect(floor!.origin[2]).toBeCloseTo(3.0);
+    expect(ceil!.origin[2]).toBeCloseTo(3.0 + 1.372);
   });
 
   test("plan without levelId uses elevation 0 as fallback", () => {
     const { viewer, state } = makeMockViewer();
     const t: SheetTemplate = { id: "S1", viewType: "plan", title: "Plan", camera: "top" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t, {});
-    expect(state.setSectionBoxCalled).toBe(1);
-    expect(state.sectionBoxCalls[0].min[2]).toBeCloseTo(0);
+    const floor = state.clipCalls.find(c => c.label === "sheet-z-floor");
+    expect(floor).toBeDefined();
+    expect(floor!.origin[2]).toBeCloseTo(0);
   });
 
-  test("plan does NOT call addClippingPlane", () => {
+  test("plan uses addClippingPlane (2 planes), not setSectionBox", () => {
     const { viewer, state } = makeMockViewer();
     const t: SheetTemplate = { id: "S1", viewType: "plan", title: "Plan", levelId: "L1", cutOffset: 1.0, camera: "top" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t, { L1: { elevation: 0 } });
-    expect(state.clipCalls).toHaveLength(0);
+    expect(state.setSectionBoxCalled).toBe(0);
+    expect(state.clipCalls).toHaveLength(2);
   });
 });
 
@@ -356,22 +366,22 @@ describe("applySheetCut — 3d (no cut)", () => {
     expect(state.clipCalls).toHaveLength(0);
   });
 
-  test("still calls clearClippingPlanes and clearSectionBox", () => {
+  test("still calls clearClippingPlanes (no clearSectionBox — layout no longer manages section box)", () => {
     const { viewer, state } = makeMockViewer();
     const t: SheetTemplate = { id: "S0", viewType: "3d", title: "Perspective", camera: "front" };
     applySheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer, t);
     expect(state.clearClippingPlanesCalled).toBeGreaterThanOrEqual(1);
-    expect(state.clearSectionBoxCalled).toBeGreaterThanOrEqual(1);
+    expect(state.clearSectionBoxCalled).toBe(0);
   });
 });
 
 // ── resetSheetCut ──────────────────────────────────────────────────────────
 
 describe("resetSheetCut", () => {
-  test("calls clearClippingPlanes and clearSectionBox", () => {
+  test("calls clearClippingPlanes only (no clearSectionBox — layout no longer manages section box)", () => {
     const { viewer, state } = makeMockViewer();
     resetSheetCut(viewer as unknown as import("../src/viewer/viewer").Viewer);
     expect(state.clearClippingPlanesCalled).toBeGreaterThanOrEqual(1);
-    expect(state.clearSectionBoxCalled).toBeGreaterThanOrEqual(1);
+    expect(state.clearSectionBoxCalled).toBe(0);
   });
 });
