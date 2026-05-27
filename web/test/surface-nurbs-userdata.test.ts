@@ -7,15 +7,22 @@ import type { Viewer } from "../src/viewer/viewer";
 import { registerSketchHandlers } from "../src/handlers/sketch";
 import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
+import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
+  createCanonicalGeometryStore,
+  type CanonicalGeometryStore,
+} from "../src/geometry/canonical-geometry";
 
 // Minimal mock viewer: captures the last mesh passed to addMesh.
-function makeViewer(): { viewer: Viewer; lastMesh: () => THREE.Object3D | null } {
+function makeViewer(): { viewer: Viewer; store: CanonicalGeometryStore; lastMesh: () => THREE.Object3D | null } {
   let _last: THREE.Object3D | null = null;
+  const store = createCanonicalGeometryStore();
   const v = {
+    getCanonicalGeometryStore() { return store; },
     addMesh(m: THREE.Object3D) { _last = m; },
     getScene() { return new THREE.Scene(); },
   } as unknown as Viewer;
-  return { viewer: v, lastMesh: () => _last };
+  return { viewer: v, store, lastMesh: () => _last };
 }
 
 beforeEach(() => {
@@ -26,7 +33,7 @@ type OkResult = { ok: true; canonical: string; result: { created: string } };
 
 describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
   test("revolve mesh has userData.nurbsSurface after dispatch", () => {
-    const { viewer, lastMesh } = makeViewer();
+    const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
     const dr = dispatchSync("SdRevolve", {
@@ -45,12 +52,18 @@ describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
     expect(s).toBeDefined();
     expect(typeof s.kind).toBe("string");
     expect(mesh.userData.nurbsKind).toBe("surface");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdRevolve");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toBe(s);
   });
 });
 
 describe("G6 — SdSweep preserves nurbsSurface in userData", () => {
   test("sweep mesh has userData.nurbsSurface after dispatch", () => {
-    const { viewer, lastMesh } = makeViewer();
+    const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
     const dr = dispatchSync("SdSweep", {
@@ -64,12 +77,18 @@ describe("G6 — SdSweep preserves nurbsSurface in userData", () => {
     const s = mesh.userData.nurbsSurface as Surface;
     expect(s).toBeDefined();
     expect(mesh.userData.nurbsKind).toBe("surface");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdSweep");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toBe(s);
   });
 });
 
 describe("G6 — SdLoft preserves nurbsSurface in userData", () => {
   test("loft mesh has userData.nurbsSurface after dispatch", () => {
-    const { viewer, lastMesh } = makeViewer();
+    const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
     const dr = dispatchSync("SdLoft", {
@@ -85,5 +104,11 @@ describe("G6 — SdLoft preserves nurbsSurface in userData", () => {
     const s = mesh.userData.nurbsSurface as Surface;
     expect(s).toBeDefined();
     expect(mesh.userData.nurbsKind).toBe("surface");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdLoft");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toBe(s);
   });
 });

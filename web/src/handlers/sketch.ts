@@ -10,6 +10,7 @@ import {
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
+import { linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
 void curvePointAt; void curveDomain;
@@ -248,6 +249,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "revolution";
       obj.userData.creator = "revolve";
+      linkCanonicalSurface(viewer, obj, "SdRevolve");
       viewer.addMesh(obj, "mesh");
       return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end };
     } catch (e) {
@@ -264,6 +266,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "sweep";
       obj.userData.creator = "sweep";
+      linkCanonicalSurface(viewer, obj, "SdSweep");
       viewer.addMesh(obj, "mesh");
       return { created: "sweep" };
     } catch (e) {
@@ -284,6 +287,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "loft";
       obj.userData.creator = "loft";
+      linkCanonicalSurface(viewer, obj, "SdLoft");
       viewer.addMesh(obj, "mesh");
       return { created: "loft", curveCount: curves.length };
     } catch (e) {
