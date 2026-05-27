@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
-import { canonicalGeometryToIfcNurbs, surfaceToIfcNurbs } from "../src/ifc/canonical-ifc";
+import { canonicalGeometryToIfcNurbs, canonicalGeometryToIfcNurbsSurfaces, surfaceToIfcNurbs } from "../src/ifc/canonical-ifc";
 import { buildIfcScene } from "../src/ifc/ifc-build";
+import { extrude } from "../src/nurbs/brep-extrude";
+import type { PolylineCurve } from "../src/nurbs/nurbs-curves";
 import { surfaceOfRevolution } from "../src/nurbs/nurbs-surface-algorithms";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 
@@ -65,6 +67,34 @@ describe("canonical IFC export", () => {
 
     expect(nurbs?.controlPoints[0]).toEqual([1, 2, 3]);
     expect(nurbs?.controlPoints[3]).toEqual([3, 5, 3]);
+  });
+
+  test("resolves canonical BRep face surfaces for NURBS-capable export", () => {
+    const profile: PolylineCurve = {
+      kind: "polyline",
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 2, y: 1, z: 0 },
+        { x: 0, y: 1, z: 0 },
+        { x: 0, y: 0, z: 0 },
+      ],
+      parameters: [0, 2, 3, 5, 6],
+    };
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "brep",
+      brep: extrude(profile, { x: 0, y: 0, z: 1 }, 3),
+      source: "command",
+      createdBy: "SdExtrude",
+    });
+
+    const surfaces = canonicalGeometryToIfcNurbsSurfaces(record, new THREE.Matrix4().makeTranslation(10, 20, 30));
+
+    expect(surfaces).toHaveLength(6);
+    expect(surfaces.every((s) => s.degreeU === 1 && s.degreeV === 1)).toBe(true);
+    expect(surfaces[0].controlPoints[0]).toEqual([10, 20, 30]);
+    expect(canonicalGeometryToIfcNurbs(record)?.controlPoints[0]).toEqual([0, 0, 0]);
   });
 
   test("converts full Z-axis line RevSurface to exact rational IFC NURBS", () => {

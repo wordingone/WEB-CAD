@@ -221,7 +221,7 @@ describe("BRep canonical migration characterization", () => {
     const exporters = source("io/exporters.ts");
 
     expect(exporters).toContain("export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array>");
-    expect(exporters).toContain("canonicalGeometryToIfcNurbs(canonical, mesh.matrixWorld)");
+    expect(exporters).toContain("canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld)");
     expect(exporters).toContain("surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld)");
     expect(exporters).toContain("file.objects().addSurface(ns)");
     expect(exporters).toContain("object.traverse((child) =>");

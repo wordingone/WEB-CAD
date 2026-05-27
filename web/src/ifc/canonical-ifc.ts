@@ -164,6 +164,39 @@ function revSurfaceToIfcNurbs(surface: RevSurface, matrix?: THREE.Matrix4): Kern
 
 export function surfaceToIfcNurbs(surface: Surface, matrix?: THREE.Matrix4): KernelNurbsSurface | null {
   switch (surface.kind) {
+    case "plane": {
+      const p00 = {
+        x: surface.plane.origin.x + surface.plane.xAxis.x * surface.uExtent.min + surface.plane.yAxis.x * surface.vExtent.min,
+        y: surface.plane.origin.y + surface.plane.xAxis.y * surface.uExtent.min + surface.plane.yAxis.y * surface.vExtent.min,
+        z: surface.plane.origin.z + surface.plane.xAxis.z * surface.uExtent.min + surface.plane.yAxis.z * surface.vExtent.min,
+      };
+      const p10 = {
+        x: surface.plane.origin.x + surface.plane.xAxis.x * surface.uExtent.max + surface.plane.yAxis.x * surface.vExtent.min,
+        y: surface.plane.origin.y + surface.plane.xAxis.y * surface.uExtent.max + surface.plane.yAxis.y * surface.vExtent.min,
+        z: surface.plane.origin.z + surface.plane.xAxis.z * surface.uExtent.max + surface.plane.yAxis.z * surface.vExtent.min,
+      };
+      const p01 = {
+        x: surface.plane.origin.x + surface.plane.xAxis.x * surface.uExtent.min + surface.plane.yAxis.x * surface.vExtent.max,
+        y: surface.plane.origin.y + surface.plane.xAxis.y * surface.uExtent.min + surface.plane.yAxis.y * surface.vExtent.max,
+        z: surface.plane.origin.z + surface.plane.xAxis.z * surface.uExtent.min + surface.plane.yAxis.z * surface.vExtent.max,
+      };
+      const p11 = {
+        x: surface.plane.origin.x + surface.plane.xAxis.x * surface.uExtent.max + surface.plane.yAxis.x * surface.vExtent.max,
+        y: surface.plane.origin.y + surface.plane.xAxis.y * surface.uExtent.max + surface.plane.yAxis.y * surface.vExtent.max,
+        z: surface.plane.origin.z + surface.plane.xAxis.z * surface.uExtent.max + surface.plane.yAxis.z * surface.vExtent.max,
+      };
+      return nurbsSurfaceFromGrid(
+        [
+          [toVec3(p00, matrix), toVec3(p01, matrix)],
+          [toVec3(p10, matrix), toVec3(p11, matrix)],
+        ],
+        undefined,
+        undefined,
+        undefined,
+        1,
+        1,
+      );
+    }
     case "sum": {
       const u = lineDelta(surface.curveU);
       const v = lineDelta(surface.curveV);
@@ -220,6 +253,24 @@ export function canonicalGeometryToIfcNurbs(
   canonical: CanonicalGeometry | undefined,
   matrix?: THREE.Matrix4,
 ): KernelNurbsSurface | null {
-  if (!canonical || canonical.kind !== "surface") return null;
-  return surfaceToIfcNurbs(canonical.surface, matrix);
+  return canonicalGeometryToIfcNurbsSurfaces(canonical, matrix)[0] ?? null;
+}
+
+export function canonicalGeometryToIfcNurbsSurfaces(
+  canonical: CanonicalGeometry | undefined,
+  matrix?: THREE.Matrix4,
+): KernelNurbsSurface[] {
+  if (!canonical) return [];
+  if (canonical.kind === "surface") {
+    const surface = surfaceToIfcNurbs(canonical.surface, matrix);
+    return surface ? [surface] : [];
+  }
+  if (canonical.kind === "brep") {
+    return canonical.brep.shells.flatMap((shell) =>
+      shell.faces.flatMap((face) => {
+        const surface = surfaceToIfcNurbs(face.surface, matrix);
+        return surface ? [surface] : [];
+      }));
+  }
+  return [];
 }

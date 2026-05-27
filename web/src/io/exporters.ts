@@ -23,7 +23,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
-import { canonicalGeometryToIfcNurbs, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
+import { canonicalGeometryToIfcNurbsSurfaces, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
 import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
 import type { Curve, NurbsCurve as KernelNurbsCurve } from "../nurbs/nurbs-curves.js";
@@ -259,12 +259,13 @@ function canonicalCurveToRhinoNurbs(curve: Curve, matrix?: THREE.Matrix4): Kerne
 function canonicalOrSidecarNurbsFor3dm(
   mesh: THREE.Mesh,
   options: Export3dmOptions,
-): KernelNurbsSurface | null {
+): KernelNurbsSurface[] {
   const canonical = options.getCanonicalGeometryForObject?.(mesh);
-  const fromCanonical = canonicalGeometryToIfcNurbs(canonical, mesh.matrixWorld);
-  if (fromCanonical) return fromCanonical;
+  const fromCanonical = canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld);
+  if (fromCanonical.length > 0) return fromCanonical;
   const sidecarSurface = mesh.userData.nurbsSurface as Surface | undefined;
-  return sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld) : null;
+  const fromSidecar = sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld) : null;
+  return fromSidecar ? [fromSidecar] : [];
 }
 
 // Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, writes
@@ -288,9 +289,9 @@ export async function export3dm(object: THREE.Object3D, options: Export3dmOption
 
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
-    const nurbsSurface = canonicalOrSidecarNurbsFor3dm(mesh, options);
-    if (nurbsSurface) {
-      addKernelNurbsSurfaceToRhinoFile(rh, file, nurbsSurface);
+    const nurbsSurfaces = canonicalOrSidecarNurbsFor3dm(mesh, options);
+    if (nurbsSurfaces.length > 0) {
+      for (const surface of nurbsSurfaces) addKernelNurbsSurfaceToRhinoFile(rh, file, surface);
       return;
     }
 
