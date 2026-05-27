@@ -24,6 +24,7 @@ import { getLayerForCreator } from "../geometry/layers.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
 import type { ClassifiedEdgeSeg } from "./edge-classifier.js";
 import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
   createCanonicalGeometryStore,
   type CanonicalGeometry,
   type CanonicalGeometryStore,
@@ -789,12 +790,16 @@ export type SerializedSceneObj = {
 
 function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
   if (obj.userData.creator == null && obj.userData.kind == null) return null;
+  const userData = { ...obj.userData };
+  if (typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string") {
+    delete userData.nurbsSurface;
+  }
   const s: SerializedSceneObj = {
     uuid: obj.uuid,
     position: obj.position.toArray() as [number, number, number],
     quaternion: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w],
     scale: obj.scale.toArray() as [number, number, number],
-    userData: { ...obj.userData },
+    userData,
   };
   const mesh = obj as THREE.Mesh;
   if (mesh.isMesh && mesh.geometry) {
@@ -839,4 +844,9 @@ function _deserializeSceneObj(s: SerializedSceneObj): THREE.Object3D | null {
   }
   return obj;
 }
+
+export const __sceneSerializationForTests = {
+  serializeSceneObj: _serializeSceneObj,
+  deserializeSceneObj: _deserializeSceneObj,
+};
 
