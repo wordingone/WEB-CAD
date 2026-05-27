@@ -5,6 +5,7 @@ import { gridStore } from "../geometry/grids";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
 import { makeLevelSprite } from "../tools/structural";
 import { resolveLayerId } from "./shared";
+import type { Point3 } from "../nurbs/nurbs-primitives";
 
 function getActiveLevelElevation(): number {
   return levelStore.get(getActiveLevelId())?.elevation ?? 0;
@@ -160,6 +161,24 @@ export function registerDatumHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "datum";
     if (args.label) mesh.userData.label = args.label as string;
+    const point: Point3 = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
+    const canonical = viewer.getCanonicalGeometryStore().create({
+      kind: "point",
+      point,
+      source: "command",
+      createdBy: "SdDatum",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        vertexCount: geom.getAttribute("position")?.count,
+        derivation: "reference-marker",
+      },
+      metadata: {
+        creator: mesh.userData.creator,
+        label: mesh.userData.label,
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(mesh, canonical.id);
     viewer.addMesh(mesh, "brep");
     return { created: "datum", elevation: elev };
   });

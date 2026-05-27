@@ -18,6 +18,7 @@ export type CanonicalGeometryRecordSummary = {
   };
   curveKind?: string;
   curveDomain?: [number, number];
+  point?: [number, number, number];
   brepTopology?: {
     shellCount: number;
     faceCount: number;
@@ -109,6 +110,14 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
       kind: "curve",
       curveKind: record.curve.kind,
       curveDomain: [d.min, d.max],
+    };
+  }
+
+  if (record.kind === "point") {
+    return {
+      canonicalGeometryId: record.id,
+      kind: "point",
+      point: [record.point.x, record.point.y, record.point.z],
     };
   }
 

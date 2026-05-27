@@ -1,5 +1,6 @@
 import type { Brep } from "../nurbs/nurbs-brep";
 import type { Curve } from "../nurbs/nurbs-curves";
+import type { Point3 } from "../nurbs/nurbs-primitives";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 
 export const CANONICAL_GEOMETRY_USERDATA_KEY = "canonicalGeometryId";
@@ -18,7 +19,7 @@ export type CanonicalDisplayMeshCache = {
   generatedAt: number;
   vertexCount?: number;
   triangleCount?: number;
-  derivation: "tessellated-brep" | "tessellated-surface" | "tessellated-curve";
+  derivation: "tessellated-brep" | "tessellated-surface" | "tessellated-curve" | "reference-marker";
 };
 
 export type CanonicalGeometryBase = {
@@ -47,12 +48,22 @@ export type CanonicalCurveGeometry = CanonicalGeometryBase & {
   curve: Curve;
 };
 
-export type CanonicalGeometry = CanonicalBrepGeometry | CanonicalSurfaceGeometry | CanonicalCurveGeometry;
+export type CanonicalPointGeometry = CanonicalGeometryBase & {
+  kind: "point";
+  point: Point3;
+};
+
+export type CanonicalGeometry =
+  | CanonicalBrepGeometry
+  | CanonicalSurfaceGeometry
+  | CanonicalCurveGeometry
+  | CanonicalPointGeometry;
 
 export type CanonicalGeometryDraft =
   | Omit<CanonicalBrepGeometry, "id" | "schemaVersion" | "units">
   | Omit<CanonicalSurfaceGeometry, "id" | "schemaVersion" | "units">
-  | Omit<CanonicalCurveGeometry, "id" | "schemaVersion" | "units">;
+  | Omit<CanonicalCurveGeometry, "id" | "schemaVersion" | "units">
+  | Omit<CanonicalPointGeometry, "id" | "schemaVersion" | "units">;
 
 export type CanonicalGeometryLinkable = {
   userData: Record<string, unknown>;
@@ -74,7 +85,7 @@ export function isCanonicalGeometry(value: unknown): value is CanonicalGeometry 
     rec.schemaVersion === CANONICAL_GEOMETRY_SCHEMA_VERSION
     && rec.units === "m"
     && typeof rec.id === "string"
-    && (rec.kind === "brep" || rec.kind === "surface" || rec.kind === "curve")
+    && (rec.kind === "brep" || rec.kind === "surface" || rec.kind === "curve" || rec.kind === "point")
   );
 }
 
