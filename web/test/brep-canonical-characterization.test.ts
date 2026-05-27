@@ -105,7 +105,7 @@ describe("BRep canonical migration characterization", () => {
     }
   });
 
-  test("SdBox currently creates a display mesh with a partial NURBS sidecar", () => {
+  test("SdBox keeps its display mesh while linking a canonical extruded BRep", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
 
@@ -123,10 +123,39 @@ describe("BRep canonical migration characterization", () => {
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
     const canonical = store.require(canonicalId as string);
-    expect(canonical.kind).toBe("surface");
+    expect(canonical.kind).toBe("brep");
     expect(canonical.createdBy).toBe("SdBox");
-    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-    expect(canonical.surface).toBe(mesh.userData.nurbsSurface);
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.brep.shells).toHaveLength(1);
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
+  test("SdExtrude links profile extrusion output to a canonical BRep", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+
+    const result = dispatchSync("SdExtrude", {
+      profile: [[0, 0], [2, 0], [2, 1], [0, 1]],
+      distance: 3,
+    });
+    expect(result.ok).toBe(true);
+
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    const mesh = obj as THREE.Mesh;
+    expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+    expect(mesh.userData.kind).toBe("brep");
+    expect(mesh.userData.creator).toBe("extrude");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("brep");
+    expect(canonical.createdBy).toBe("SdExtrude");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.brep.shells).toHaveLength(1);
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
   test("structural commands with NURBS sidecars link canonical surface records", () => {

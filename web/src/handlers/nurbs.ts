@@ -7,10 +7,12 @@ import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { linkCanonicalSurface } from "./canonical-surface";
-import type { Curve } from "../nurbs/nurbs-curves";
+import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
 import type { Line, Plane } from "../nurbs/nurbs-primitives";
+import type { Brep } from "../nurbs/nurbs-brep";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 
 const TWO_PI = Math.PI * 2;
 
@@ -62,6 +64,41 @@ function linkAnalyticSurface(viewer: Viewer, mesh: THREE.Mesh, surface: Surface,
   linkCanonicalSurface(viewer, mesh, createdBy);
 }
 
+function polylineProfile(points: Array<[number, number]>): PolylineCurve {
+  const profilePoints = points.map(([x, y]) => ({ x, y, z: 0 }));
+  const parameters = [0];
+  for (let i = 1; i < profilePoints.length; i++) {
+    const a = profilePoints[i - 1];
+    const b = profilePoints[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points: profilePoints, parameters };
+}
+
+function linkCanonicalBrep(viewer: Viewer, obj: THREE.Object3D, brep: Brep, createdBy: string): void {
+  const mesh = obj as THREE.Mesh;
+  const position = mesh.geometry?.getAttribute("position");
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "brep",
+    brep,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: position?.count,
+      derivation: "tessellated-brep",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      cplaneKind: obj.userData.cplaneKind,
+      levelId: obj.userData.levelId,
+      layerId: obj.userData.layerId,
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+}
+
 export function registerNurbsHandlers(viewer: Viewer): void {
   registerHandler("SdBox", (args) => {
     const w = (args.width as number | undefined) ?? (args.size as number | undefined) ?? 1;
@@ -80,7 +117,14 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.creator = "box";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkCanonicalSurface(viewer, mesh, "SdBox");
+    const profile = polylineProfile([
+      [-w / 2, -d / 2],
+      [w / 2, -d / 2],
+      [w / 2, d / 2],
+      [-w / 2, d / 2],
+      [-w / 2, -d / 2],
+    ]);
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(profile, { x: 0, y: 0, z: 1 }, h), "SdBox");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh as THREE.Mesh, viewer.getScene());
     return { created: "box", width: w, depth: d, height: h };
@@ -192,6 +236,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(polylineProfile(pts), { x: 0, y: 0, z: 1 }, distance), "SdExtrude");
     viewer.addMesh(mesh, "brep");
     return { created: "extrude", profile_points: pts.length, distance };
   });
