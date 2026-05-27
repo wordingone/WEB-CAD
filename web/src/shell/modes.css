@@ -6,7 +6,7 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--palette-w) 1fr 400px;
-  grid-template-rows: 1fr;
+  grid-template-rows: calc(100% - 28px);
   min-height: 0;
   overflow: hidden;
   padding-bottom: 28px;
