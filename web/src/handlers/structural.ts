@@ -19,6 +19,7 @@ import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensi
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
 import { linkCanonicalSurface } from "./canonical-surface";
+import type { LineCurve } from "../nurbs/nurbs-curves";
 
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
@@ -644,6 +645,32 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const curve: LineCurve = {
+      kind: "line",
+      from: { x: 0, y: -len / 2, z: 0 },
+      to: { x: 0, y: len / 2, z: 0 },
+      domain: { min: 0, max: len },
+    };
+    const canonical = viewer.getCanonicalGeometryStore().create({
+      kind: "curve",
+      curve,
+      source: "command",
+      createdBy: "SdReferenceLine",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        vertexCount: 2,
+        derivation: "tessellated-curve",
+      },
+      metadata: {
+        worldStart: [a.x, a.y, 0],
+        worldEnd: [b.x, b.y, 0],
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(mesh, canonical.id);
     viewer.addMesh(mesh, "brep");
     return { created: "reference-line", origin: [a.x, a.y], end: [b.x, b.y] };
   });

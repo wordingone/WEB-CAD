@@ -5,6 +5,7 @@ import type {
   CanonicalGeometryStore,
 } from "./canonical-geometry";
 import type { Selection, Topology } from "../viewer/selection-state";
+import { domain as curveDomain } from "../nurbs/nurbs-curves";
 import { domainU, domainV } from "../nurbs/nurbs-surfaces";
 
 export type CanonicalGeometryRecordSummary = {
@@ -15,6 +16,8 @@ export type CanonicalGeometryRecordSummary = {
     u: [number, number];
     v: [number, number];
   };
+  curveKind?: string;
+  curveDomain?: [number, number];
   brepTopology?: {
     shellCount: number;
     faceCount: number;
@@ -96,6 +99,16 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
         u: [u.min, u.max],
         v: [v.min, v.max],
       },
+    };
+  }
+
+  if (record.kind === "curve") {
+    const d = curveDomain(record.curve);
+    return {
+      canonicalGeometryId: record.id,
+      kind: "curve",
+      curveKind: record.curve.kind,
+      curveDomain: [d.min, d.max],
     };
   }
 
