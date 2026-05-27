@@ -9,6 +9,7 @@ import { initExportDrawer } from "./io/export-drawer";
 import { Viewer } from "./viewer/viewer";
 import { ScenePanel } from "./scene/scene-panel";
 import { applyDrafting, removeDrafting } from "./geometry/drafting";
+import { resetSheetCut } from "./shell/layout";
 import { layerStore } from "./geometry/layers";
 import { drawingLayerStore, loadDrawingLayers } from "./geometry/drawing-layers";
 import { levelStore } from "./geometry/levels";
@@ -145,6 +146,7 @@ initShellChrome({
     if (k === "layout") applyDrafting(viewer.getScene());
     else {
       removeDrafting(viewer.getScene());
+      resetSheetCut(viewer);
       if (k === "model") {
         viewer.setView("persp");
         viewer.activeCPlane = { ...WORLD_XY };
