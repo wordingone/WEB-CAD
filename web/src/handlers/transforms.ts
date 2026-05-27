@@ -6,6 +6,50 @@ import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchActi
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
+import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
+
+type BooleanOp = "union" | "difference" | "intersection";
+
+function isIdentityMatrix(matrix: THREE.Matrix4, tolerance = 1e-9): boolean {
+  const id = new THREE.Matrix4();
+  return matrix.elements.every((value, index) => Math.abs(value - id.elements[index]) <= tolerance);
+}
+
+function linkCanonicalBooleanResult(
+  viewer: Viewer,
+  objA: THREE.Object3D,
+  objB: THREE.Object3D,
+  result: THREE.Object3D,
+  op: BooleanOp,
+  createdBy: string,
+): void {
+  objA.updateMatrixWorld(true);
+  objB.updateMatrixWorld(true);
+  if (!isIdentityMatrix(objA.matrixWorld) || !isIdentityMatrix(objB.matrixWorld)) return;
+  const store = viewer.getCanonicalGeometryStore();
+  const canonicalA = store.resolveObject(objA);
+  const canonicalB = store.resolveObject(objB);
+  if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return;
+
+  const backend = new NurbsBooleanBackend();
+  const canonicalResult =
+    op === "difference" ? backend.difference(canonicalA.brep, canonicalB.brep)
+      : op === "intersection" ? backend.intersection(canonicalA.brep, canonicalB.brep)
+        : backend.union(canonicalA.brep, canonicalB.brep);
+  if (!canonicalResult.ok) return;
+
+  const record = store.create({
+    kind: "brep",
+    brep: canonicalResult.brep,
+    source: "edit",
+    createdBy,
+    metadata: {
+      operation: `boolean-${op}`,
+      operands: [canonicalA.id, canonicalB.id],
+    },
+  });
+  store.linkObject(result, record.id);
+}
 
 function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   const canvas = document.createElement("canvas");
@@ -246,6 +290,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     result.userData.kind = "brep";
     result.userData.creator = creator;
     result.userData.dispatchArgs = args;
+    linkCanonicalBooleanResult(viewer, objA, objB, result, opArg === "difference" || opArg === "intersection" ? opArg : "union", creator);
     scene.remove(objA); // audit-undo-ok — paired with pushReplaceAction below
     scene.remove(objB); // audit-undo-ok — paired with pushReplaceAction below
     viewer.addMesh(result, "brep", { noHistory: true });
@@ -281,6 +326,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
     result.userData.kind = "brep";
     result.userData.creator = creator;
+    linkCanonicalBooleanResult(viewer, objA, objB, result, op, creator);
     scene.remove(objA); // audit-undo-ok
     scene.remove(objB); // audit-undo-ok
     viewer.addMesh(result, "brep", { noHistory: true });

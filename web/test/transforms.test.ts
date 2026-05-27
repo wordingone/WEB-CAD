@@ -13,6 +13,10 @@ import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
 import { inspectCanonicalGeometry } from "../src/geometry/canonical-introspection";
 import { registerTransformHandlers } from "../src/handlers/transforms";
+import type { Brep, BrepFace, BrepShell } from "../src/nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE } from "../src/nurbs/nurbs-brep";
+import { Interval, Plane } from "../src/nurbs/nurbs-primitives";
+import type { PlaneSurface } from "../src/nurbs/nurbs-surfaces";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 import {
   resetSelectionState,
@@ -35,6 +39,10 @@ beforeEach(() => {
     "SdArrayGrid",
     "SdArrayPolar",
     "SdArray",
+    "SdBoolean",
+    "SdBooleanUnion",
+    "SdBooleanDifference",
+    "SdBooleanIntersection",
   ]) {
     unregisterHandler(name);
   }
@@ -76,6 +84,9 @@ function makeCanonicalTransformViewer() {
     getScene() {
       return scene;
     },
+    getCanonicalGeometryStore() {
+      return store;
+    },
     selectObject(obj: THREE.Object3D | null) {
       active = obj;
     },
@@ -93,6 +104,46 @@ function makeCanonicalTransformViewer() {
   scene.add(mesh);
   active = mesh;
   return { viewer, scene, store, mesh, record, added };
+}
+
+function planeFace(origin: [number, number, number], normal: [number, number, number], extent: number): BrepFace {
+  const surf: PlaneSurface = {
+    kind: "plane",
+    plane: Plane.fromPointNormal(
+      { x: origin[0], y: origin[1], z: origin[2] },
+      { x: normal[0], y: normal[1], z: normal[2] },
+    ),
+    uDomain: Interval.create(0, 1),
+    vDomain: Interval.create(0, 1),
+    uExtent: Interval.create(-extent, extent),
+    vExtent: Interval.create(-extent, extent),
+  };
+  return {
+    surface: surf,
+    outerLoop: { curves: [], orientation: true },
+    innerLoops: [],
+    orientation: true,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function axisBoxBrep(xMin: number, xMax: number, yMin: number, yMax: number, zMin: number, zMax: number): Brep {
+  const cx = (xMin + xMax) / 2;
+  const cy = (yMin + yMax) / 2;
+  const cz = (zMin + zMax) / 2;
+  const hx = (xMax - xMin) / 2;
+  const hy = (yMax - yMin) / 2;
+  const hz = (zMax - zMin) / 2;
+  const faces: BrepFace[] = [
+    planeFace([xMin, cy, cz], [-1, 0, 0], Math.max(hy, hz)),
+    planeFace([xMax, cy, cz], [1, 0, 0], Math.max(hy, hz)),
+    planeFace([cx, yMin, cz], [0, -1, 0], Math.max(hx, hz)),
+    planeFace([cx, yMax, cz], [0, 1, 0], Math.max(hx, hz)),
+    planeFace([cx, cy, zMin], [0, 0, -1], Math.max(hx, hy)),
+    planeFace([cx, cy, zMax], [0, 0, 1], Math.max(hx, hy)),
+  ];
+  const shell: BrepShell = { faces, edges: [], vertices: [], isClosed: true };
+  return { shells: [shell] };
 }
 
 // Mirror of TransformBinder.onDragEnd's chain emission. Kept in lockstep
@@ -408,5 +459,55 @@ describe("canonical geometry transform instances", () => {
       [20, 0, 0],
       [20, 20, 0],
     ]);
+  });
+
+  test("SdBooleanUnion links the display result to a canonical BRep when both operands have canonical BReps", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const geomA = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
+    const geomB = new THREE.BoxGeometry(1, 1, 1).translate(1.5, 0.5, 0.5);
+    const a = new THREE.Mesh(geomA, new THREE.MeshStandardMaterial());
+    const b = new THREE.Mesh(geomB, new THREE.MeshStandardMaterial());
+    a.userData.kind = "brep";
+    b.userData.kind = "brep";
+    scene.add(a, b);
+    const recordA = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(1, 2, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    store.linkObject(a, recordA.id);
+    store.linkObject(b, recordB.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdBooleanUnion", { a: a.uuid, b: b.uuid });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(1);
+    const output = added[0];
+    const canonical = store.resolveObject(output);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("boolean-union");
+    expect(canonical.metadata).toMatchObject({
+      operation: "boolean-union",
+      operands: [recordA.id, recordB.id],
+    });
+    const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
+    expect(faceCount).toBeLessThan(12);
   });
 });
