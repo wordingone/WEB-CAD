@@ -501,20 +501,25 @@ export class LayoutController {
       const isLinked = _sheetClipLinks.has(this.activeSheet.id);
       this._unlinkBtn.style.display = isLinked ? "inline-block" : "none";
     }
-    // Apply or reset sheet cut (#187).
-    const _viewer = (window as unknown as { __viewer?: Viewer }).__viewer;
-    if (_viewer) {
-      const { template } = this.activeSheet;
-      if (template) {
-        const levels: Record<string, SheetLevelRef> = {};
-        for (const lvl of levelStore.all()) levels[lvl.id] = { elevation: lvl.elevation, height: lvl.height };
-        applySheetCut(_viewer, template, levels);
-      } else {
-        resetSheetCut(_viewer);
-      }
-    }
+    // Apply or reset sheet cut (#187) — only when the layout panel is visible.
+    // During LayoutController initialization the host has display:none, so this
+    // guard prevents clip planes from leaking into the model viewport at startup.
+    if (this.host.style.display !== "none") this.applyActiveCut();
     // Update tab highlight.
     this.renderTabs();
+  }
+
+  applyActiveCut(): void {
+    const _viewer = (window as unknown as { __viewer?: Viewer }).__viewer;
+    if (!_viewer) return;
+    const { template } = this.activeSheet;
+    if (template) {
+      const levels: Record<string, SheetLevelRef> = {};
+      for (const lvl of levelStore.all()) levels[lvl.id] = { elevation: lvl.elevation, height: lvl.height };
+      applySheetCut(_viewer, template, levels);
+    } else {
+      resetSheetCut(_viewer);
+    }
   }
 
   /**
