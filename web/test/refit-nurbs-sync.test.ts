@@ -7,6 +7,10 @@ import * as THREE from "three";
 import { refitParentGeometry } from "../src/viewer/sub-object-handles";
 import type { NurbsCurve } from "../src/nurbs/nurbs-curves";
 import type { SumSurface } from "../src/nurbs/nurbs-surfaces";
+import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
+  createCanonicalGeometryStore,
+} from "../src/geometry/canonical-geometry";
 
 function makeLine(ax: number, ay: number, bx: number, by: number): THREE.Line {
   const cx = (ax + bx) / 2, cy = (ay + by) / 2;
@@ -76,6 +80,45 @@ describe("G7 — refitParentGeometry syncs nurbsCurve for line", () => {
     const nc = line.userData.nurbsCurve as NurbsCurve;
     expect(nc.knots.length).toBe(2);
   });
+
+  test("linked canonical curve record updates when line CP moves", () => {
+    const line = makeLine(0, 0, 4, 0);
+    const store = createCanonicalGeometryStore();
+    const initial = store.create({
+      kind: "curve",
+      curve: {
+        kind: "nurbs",
+        dim: 3,
+        isRational: false,
+        order: 2,
+        cvCount: 2,
+        knots: [0, 1],
+        cvs: [-2, 0, 0, 2, 0, 0],
+        cvStride: 3,
+      },
+      source: "command",
+      createdBy: "SdLine",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 2,
+        derivation: "tessellated-curve",
+      },
+    });
+    store.linkObject(line, initial.id);
+
+    (line.userData.controlPoints as THREE.Vector3[])[1].set(3, 0, 0);
+    refitParentGeometry(line, store);
+
+    expect(line.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBe(initial.id);
+    const updated = store.require(initial.id);
+    expect(updated.kind).toBe("curve");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "curve" || updated.curve.kind !== "nurbs") throw new Error("expected canonical NURBS curve");
+    expect(updated.curve.cvs[3]).toBeCloseTo(3, 5);
+  });
 });
 
 describe("G7 — refitParentGeometry syncs nurbsCurve for spline", () => {
@@ -120,5 +163,42 @@ describe("G7 — refitParentGeometry syncs nurbsSurface for wall", () => {
     // height = 3 (default)
     const lv = ss.curveV as { to: { z: number } };
     expect(lv.to.z).toBeCloseTo(3, 5);
+  });
+
+  test("linked canonical surface record updates when wall endpoint moves", () => {
+    const wall = makeWall(0, 0, 4, 0);
+    const initialSurface = wall.userData.nurbsSurface as SumSurface | undefined;
+    refitParentGeometry(wall);
+    const store = createCanonicalGeometryStore();
+    const currentSurface = (wall.userData.nurbsSurface as SumSurface) ?? initialSurface;
+    const record = store.create({
+      kind: "surface",
+      surface: currentSurface,
+      source: "command",
+      createdBy: "SdWall",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 8,
+        triangleCount: 12,
+        derivation: "tessellated-surface",
+      },
+    });
+    store.linkObject(wall, record.id);
+
+    const cps = wall.userData.controlPoints as THREE.Vector3[];
+    cps[1].set(4, 0, 0);
+    refitParentGeometry(wall, store);
+
+    const updated = store.require(record.id);
+    expect(updated.kind).toBe("surface");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "surface") throw new Error("expected canonical surface");
+    const sum = updated.surface as SumSurface;
+    expect(sum.curveU.kind).toBe("line");
+    if (sum.curveU.kind !== "line") throw new Error("expected line curveU");
+    expect(sum.curveU.domain.max).toBeCloseTo(6, 5);
   });
 });

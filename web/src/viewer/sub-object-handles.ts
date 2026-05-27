@@ -7,10 +7,11 @@
 import * as THREE from "three";
 import type { Viewer } from "./viewer.js";
 import { createClampedUniformNurbs, createCatmullRomAsNurbs, tessellate, type NurbsCurve } from "../nurbs/nurbs-curves.js";
-import type { LineCurve } from "../nurbs/nurbs-curves.js";
+import type { Curve, LineCurve } from "../nurbs/nurbs-curves.js";
 import type { SumSurface } from "../nurbs/nurbs-surfaces.js";
 import { Interval as Iv } from "../nurbs/nurbs-primitives.js";
 import { makeSnapId } from "./snap-state.js";
+import type { CanonicalGeometryStore } from "../geometry/canonical-geometry.js";
 
 const HANDLE_RADIUS = 0.06;
 
@@ -76,10 +77,53 @@ export function isSubObjectHandle(obj: THREE.Object3D): boolean {
   return !!obj.userData.isSubObjectHandle;
 }
 
+function meshDisplayRevision(parent: THREE.Object3D): number {
+  const existing = parent.userData.canonicalDisplayRevision;
+  const revision = typeof existing === "number" ? existing + 1 : 2;
+  parent.userData.canonicalDisplayRevision = revision;
+  return revision;
+}
+
+function syncCanonicalCurve(parent: THREE.Object3D, store: CanonicalGeometryStore | undefined, curve: Curve): void {
+  if (!store) return;
+  const record = store.resolveObject(parent);
+  if (!record || record.kind !== "curve") return;
+  store.upsert({
+    ...record,
+    curve,
+    source: "edit",
+    displayMesh: record.displayMesh
+      ? { ...record.displayMesh, revision: meshDisplayRevision(parent), generatedAt: Date.now() }
+      : undefined,
+    metadata: {
+      ...record.metadata,
+      editedBy: "refitParentGeometry",
+    },
+  });
+}
+
+function syncCanonicalSurface(parent: THREE.Object3D, store: CanonicalGeometryStore | undefined, surface: SumSurface): void {
+  if (!store) return;
+  const record = store.resolveObject(parent);
+  if (!record || record.kind !== "surface") return;
+  store.upsert({
+    ...record,
+    surface,
+    source: "edit",
+    displayMesh: record.displayMesh
+      ? { ...record.displayMesh, revision: meshDisplayRevision(parent), generatedAt: Date.now() }
+      : undefined,
+    metadata: {
+      ...record.metadata,
+      editedBy: "refitParentGeometry",
+    },
+  });
+}
+
 // Rebuild the parent mesh's geometry in-place after a control point has moved.
 // Works for line (2 CPs), polyline (N CPs), curve/spline (N CPs via B-spline),
 // and wall Mesh/Group (Group = void-cut wall: only transform updates, no segment rebuild).
-export function refitParentGeometry(parent: THREE.Object3D): void {
+export function refitParentGeometry(parent: THREE.Object3D, canonicalStore?: CanonicalGeometryStore): void {
   const cps = parent.userData.controlPoints as THREE.Vector3[] | undefined;
   if (!cps || cps.length < 2) return;
   const creator = parent.userData.creator as string;
@@ -117,6 +161,7 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
     const ss: SumSurface = { kind: "sum", curveU: cU, curveV: cV, basepoint: {x:-len/2,y:t/2,z:0} };
     parent.userData.nurbsSurface = ss;
     parent.userData.nurbsKind = "surface";
+    syncCanonicalSurface(parent, canonicalStore, ss);
     return;
   }
 
@@ -137,8 +182,17 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
     };
     parent.userData.nurbsCurve = nc;
     parent.userData.nurbsDegree = 1;
+    syncCanonicalCurve(parent, canonicalStore, nc);
   } else if (creator === "polyline") {
     newGeom = new THREE.BufferGeometry().setFromPoints(cps);
+    const points = cps.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const parameters = [0];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      parameters.push(parameters[i - 1] + Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2));
+    }
+    syncCanonicalCurve(parent, canonicalStore, { kind: "polyline", points, parameters });
   } else if (creator === "curve") {
     // Curve tool: Catmull-Rom — handle positions ARE the data points.
     const isClosed = !!(parent.userData.isClosed as boolean | undefined);
@@ -147,6 +201,7 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
     const nurbs = createCatmullRomAsNurbs(dataPts, { closed: isClosed });
     const raw = tessellate(nurbs, sampleCount + 1);
     newGeom = new THREE.BufferGeometry().setFromPoints(raw.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
+    syncCanonicalCurve(parent, canonicalStore, nurbs);
   } else if (creator === "spline") {
     // Spline tool: approximating — handles are NURBS control points (curve pulled toward them).
     const isClosed = !!(parent.userData.isClosed as boolean | undefined);
@@ -164,6 +219,7 @@ export function refitParentGeometry(parent: THREE.Object3D): void {
     parent.userData.nurbsCurve = nurbs;
     parent.userData.nurbsDegree = degree;
     parent.userData.nurbsCVs = nurbs.cvs;
+    syncCanonicalCurve(parent, canonicalStore, nurbs);
   }
 
   if (!newGeom) return;

@@ -69,7 +69,7 @@ export function makeObjectChangeListener(
       if (parent && Array.isArray(parent.userData.controlPoints)) {
         const local = parent.worldToLocal(v.subTargetObject.position.clone());
         (parent.userData.controlPoints as THREE.Vector3[])[cpIndex].copy(local);
-        refitParentGeometry(parent);
+        refitParentGeometry(parent, v.getCanonicalGeometryStore());
       }
     }
     if (!v.subTargetObject) {
