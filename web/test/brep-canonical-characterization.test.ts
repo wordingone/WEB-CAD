@@ -133,6 +133,7 @@ describe("BRep canonical migration characterization", () => {
     expect(viewer).toContain("exportScene(): SerializedSceneObj[]");
     expect(viewer).toContain("exportCanonicalGeometry(): CanonicalGeometry[]");
     expect(viewer).toContain("importCanonicalGeometry(records: unknown[]): number");
+    expect(viewer).toContain("inspectCanonicalGeometry(): CanonicalGeometrySnapshot");
     expect(viewer).toContain("geometry?: { position: number[]; normal?: number[]; index?: number[] }");
     expect(viewer).toContain("const geo = mesh.geometry as THREE.BufferGeometry");
     expect(viewer).toContain("const geo = new THREE.BufferGeometry()");

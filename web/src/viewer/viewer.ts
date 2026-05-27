@@ -28,6 +28,10 @@ import {
   type CanonicalGeometry,
   type CanonicalGeometryStore,
 } from "../geometry/canonical-geometry.js";
+import {
+  inspectCanonicalGeometry,
+  type CanonicalGeometrySnapshot,
+} from "../geometry/canonical-introspection.js";
 export type { ClassifiedEdgeSeg } from "./edge-classifier.js";
 export { LINEWEIGHT, DASH_PATTERN, DXF_LWEIGHT, DXF_LINETYPE } from "./edge-classifier.js";
 
@@ -633,6 +637,10 @@ export class Viewer {
 
   importCanonicalGeometry(records: unknown[]): number {
     return this.canonicalGeometryStore.importRecords(records);
+  }
+
+  inspectCanonicalGeometry(): CanonicalGeometrySnapshot {
+    return inspectCanonicalGeometry(this.canonicalGeometryStore, this.scene.children);
   }
 
   getCanvas(): HTMLCanvasElement {
