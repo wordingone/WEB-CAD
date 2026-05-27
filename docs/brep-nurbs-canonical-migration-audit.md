@@ -80,6 +80,12 @@ These are not necessarily bugs in current user behavior; they are migration haza
 - `web/src/viewer/op-tool-extrude-mesh.ts` explicitly extrudes selected profiles into mesh results.
 - Selection and snapping frequently depend on `Object3D`, `Mesh`, `BufferGeometry`, `userData.creator`, and `userData.kind`.
 
+Reproducible scan:
+
+- Run `bun run audit:brep-canonical` to print an informational count/sample report for mesh construction, BRep tags, `viewer.addMesh(..., "brep")`, NURBS `userData` sidecars, BufferGeometry serialization, mesh export paths, and existing BRep/NURBS footholds.
+- The initial scan on this branch reported 277 Three.js mesh/group/buffer-geometry construction lines, 41 BRep runtime tags, 44 `viewer.addMesh(..., "brep")` calls, 8 NURBS sidecars on `userData`, 61 BufferGeometry serialization/deserialization matches, 29 mesh-export traversal matches, and 468 existing BRep/NURBS foothold matches.
+- The scan is intentionally informational, not a pass/fail gate. Counts should fall or be reclassified as source-backed display caches over the migration.
+
 ## Existing BRep/NURBS Footholds
 
 These are useful, but they are not yet a canonical document/runtime model.
