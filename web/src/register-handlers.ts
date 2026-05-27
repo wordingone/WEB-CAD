@@ -8,7 +8,6 @@ import { clippingPlaneStore, type CPlaneBounds } from "./geometry/clipping-plane
 import { setActiveClipPlaneEntity } from "./viewer/clip-plane-handles";
 import { getLayoutHost } from "./shell/modes";
 import { addLinkedClipPlaneSheet } from "./shell/layout";
-import { resetRibbonElementTypes } from "./shell/shell";
 import { clearSelected } from "./viewer/selection-state";
 import * as THREE from "three";
 import { registerGoalHandlers } from "./agent/goal-handlers";
@@ -323,7 +322,6 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     viewer.clearScene();
     clearHistory();
     scenePanel.clear();
-    resetRibbonElementTypes();
     clearSelected();
     window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
     return { ok: true, cleared: true };

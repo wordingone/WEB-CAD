@@ -135,24 +135,6 @@
   white-space: nowrap;
 }
 
-/* Dynamic IFC element-type chips — sibling row below the static .ribbon-assets-cards.
-   :empty hides the row when no IFC is loaded so no visual gap appears. */
-.ribbon-assets-cards--chips {
-  flex-wrap: wrap;
-  gap: 3px;
-  max-height: 60px;
-  overflow-y: auto;
-  align-items: flex-start;
-}
-.ribbon-assets-cards--chips:empty { display: none; }
-.ribbon-assets-cards--element-tools {
-  flex-wrap: wrap;
-  gap: 3px;
-  max-height: 88px;
-  overflow-y: auto;
-  align-items: flex-start;
-  max-width: 220px;
-}
 .ribbon-element-chip {
   display: flex;
   flex-direction: column;

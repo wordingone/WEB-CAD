@@ -141,24 +141,6 @@
   flex: 1;
   min-width: 0;
 }
-/* Element tool chips wrap into 2 rows to use the full ribbon height (#137). */
-.ribbon-assets-cards--element-tools {
-  flex-wrap: wrap;
-  align-content: flex-start;
-  align-items: flex-start;
-  max-height: 72px;
-}
-
-/* Dynamic IFC element-type chips — sibling row below the static .ribbon-assets-cards.
-   :empty hides the row when no IFC is loaded so no visual gap appears. */
-.ribbon-assets-cards--chips {
-  flex-wrap: wrap;
-  gap: 3px;
-  max-height: 60px;
-  overflow-y: auto;
-  align-items: flex-start;
-}
-.ribbon-assets-cards--chips:empty { display: none; }
 .ribbon-element-chip {
   display: flex;
   flex-direction: column;

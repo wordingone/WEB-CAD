@@ -10,7 +10,6 @@ import { levelStore, loadLevelLocks } from "./geometry/levels";
 import { SAMPLES } from "./io/sample-files";
 import type { WorkerOut } from "./worker";
 import { getState } from "./app-state";
-import { setRibbonElementTypes, resetRibbonElementTypes } from "./shell/shell";
 import { getLayoutHost, activateMode } from "./shell/modes";
 import { exportLayoutAsSvg, exportLayoutAsPdf, exportLayoutAsDwgFallback, exportLayoutAsDxf, addPanel, getPanels } from "./shell/layout";
 import { buildIfc, buildIfcScene, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
@@ -304,13 +303,6 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     const sm = scene.summary.match(/IFC[24X]+/i);
     if (sm) summary.schema = sm[0].toUpperCase();
     scenePanel.update(summary);
-    if (summary.hierarchy && summary.hierarchy.length > 0) {
-      const classCount = new Map<string, number>();
-      for (const el of summary.hierarchy) classCount.set(el.ifcClass, (classCount.get(el.ifcClass) ?? 0) + 1);
-      setRibbonElementTypes([...classCount.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([cls, count]) => ({ cls, count })));
-    } else {
-      resetRibbonElementTypes();
-    }
     refreshExportButtons();
   }
 

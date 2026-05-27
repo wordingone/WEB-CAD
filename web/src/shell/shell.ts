@@ -144,13 +144,6 @@ const RIBBON_TABS = [] as const;
 let _ribbonTabsEl: HTMLElement | null = null;
 let _ribbonToolsEl: HTMLElement | null = null;
 let _ribbonEl: HTMLElement | null = null;
-// Live reference to the Elements section's cards container, updated each time
-// appendRibbonAssets builds it. Used by setRibbonElementTypes / reset.
-let _elemCardsEl: HTMLElement | null = null;
-let _elemCardWrapEl: HTMLElement | null = null; // the wrap passed to buildAssetCard
-// Separate chips container for dynamic IFC element-type chips — lives BELOW the static
-// Wall/Sweep cards. Hidden via :empty CSS when no IFC is loaded.
-let _elemChipsEl: HTMLElement | null = null;
 
 function fillRibbonTabs(tabsEl: HTMLElement, tabs: readonly string[], initialTab: string) {
   tabsEl.querySelectorAll<HTMLElement>(".ribbon-tab").forEach(el => el.remove());
@@ -234,27 +227,6 @@ const RIBBON_SCENE_SAMPLES = [
 ];
 // All architectural element tools — ARCH (section 4) + COMP (section 5) of the model palette.
 // Shown as clickable tool-activation chips in the ribbon Elements column.
-const ELEMENT_PALETTE_TOOLS: { id: string; label: string }[] = [
-  { id: "wall",        label: "Wall" },
-  { id: "slab",        label: "Slab" },
-  { id: "column",      label: "Column" },
-  { id: "beam",        label: "Beam" },
-  { id: "roof",        label: "Roof" },
-  { id: "space",       label: "Space" },
-  { id: "foundation",  label: "Foundation" },
-  { id: "ceiling",     label: "Ceiling" },
-  { id: "grid",        label: "Grid" },
-  { id: "level",       label: "Level" },
-  { id: "datum",       label: "Datum" },
-  { id: "stair",       label: "Stair" },
-  { id: "door",        label: "Door" },
-  { id: "window",      label: "Window" },
-  { id: "ramp",        label: "Ramp" },
-  { id: "railing",     label: "Railing" },
-  { id: "curtainwall", label: "Curtain Wall" },
-  { id: "skylight",    label: "Skylight" },
-  { id: "opening",     label: "Opening" },
-];
 
 function buildAssetCard(
   s: { name: string; v: string; thumb: string },
@@ -306,76 +278,10 @@ function appendRibbonAssets(ribbonHost: HTMLElement) {
     for (const s of samples) cards.appendChild(buildAssetCard(s, wrap));
     col.appendChild(cards);
 
-    if (label === "Elements") {
-      _elemCardsEl = cards;
-      _elemCardWrapEl = wrap;
-      // Chips container — dynamic IFC type chips sit below the static cards.
-      // :empty CSS hides it when no IFC is loaded.
-      const chips = document.createElement("div");
-      chips.className = "ribbon-assets-cards ribbon-assets-cards--chips";
-      col.appendChild(chips);
-      _elemChipsEl = chips;
-    }
-
-    return col;
-  }
-
-  function buildElementsColumn(): HTMLElement {
-    const col = document.createElement("div");
-    col.className = "ribbon-section-col";
-    col.dataset.section = "ELEMENTS";
-
-    const hdr = document.createElement("span");
-    hdr.className = "ribbon-asset-section-header";
-    hdr.textContent = "Elements";
-    col.appendChild(hdr);
-
-    const cards = document.createElement("div");
-    cards.className = "ribbon-assets-cards ribbon-assets-cards--element-tools";
-
-    let _activeChip: HTMLElement | null = null;
-
-    for (const tool of ELEMENT_PALETTE_TOOLS) {
-      const chip = document.createElement("div");
-      chip.className = "ribbon-element-chip";
-      chip.dataset.tool = tool.id;
-      chip.title = tool.label;
-      chip.innerHTML = `<span class="ribbon-chip-icon">${iconSVG(tool.id, 16)}</span><span class="ribbon-chip-name">${tool.label}</span>`;
-      chip.addEventListener("click", () => {
-        if (_activeChip === chip) {
-          _activeChip.classList.remove("ribbon-element-chip--active");
-          _activeChip = null;
-          dispatchSync("setActiveTool", { toolId: "select" });
-        } else {
-          _activeChip?.classList.remove("ribbon-element-chip--active");
-          _activeChip = chip;
-          chip.classList.add("ribbon-element-chip--active");
-          dispatchSync("setActiveTool", { toolId: tool.id });
-        }
-      });
-      cards.appendChild(chip);
-    }
-
-    col.appendChild(cards);
-    _elemCardsEl = cards;
-    _elemCardWrapEl = wrap;
-
-    // Dynamic IFC type chips row — appears after model load via setRibbonElementTypes.
-    const chips = document.createElement("div");
-    chips.className = "ribbon-assets-cards ribbon-assets-cards--chips";
-    col.appendChild(chips);
-    _elemChipsEl = chips;
-
     return col;
   }
 
   wrap.appendChild(buildColumn("Projects", RIBBON_SCENE_SAMPLES));
-
-  const divider = document.createElement("div");
-  divider.className = "ribbon-asset-divider";
-  wrap.appendChild(divider);
-
-  wrap.appendChild(buildElementsColumn());
   const rightEl = ribbonHost.querySelector(".ribbon-right");
   if (rightEl) ribbonHost.insertBefore(wrap, rightEl);
   else ribbonHost.appendChild(wrap);
@@ -429,54 +335,7 @@ function appendLayoutBlocksGrid(ribbonEl: HTMLElement): void {
   else ribbonEl.appendChild(wrap);
 }
 
-// Map IFC class name to an icon key in icons.ts (fallback "model").
-function ifcClassIcon(cls: string): string {
-  const lower = cls.toLowerCase();
-  if (lower.includes("wall"))        return "wall";
-  if (lower.includes("slab"))        return "slab";
-  if (lower.includes("column"))      return "column";
-  if (lower.includes("beam"))        return "beam";
-  if (lower.includes("stair"))       return "stair";
-  if (lower.includes("door"))        return "door";
-  if (lower.includes("window"))      return "window";
-  if (lower.includes("roof"))        return "roof";
-  if (lower.includes("space"))       return "space";
-  if (lower.includes("foundation") || lower.includes("footing")) return "foundation";
-  if (lower.includes("ceiling"))     return "ceiling";
-  if (lower.includes("curtain"))     return "curtainwall";
-  if (lower.includes("railing"))     return "railing";
-  if (lower.includes("ramp"))        return "ramp";
-  if (lower.includes("opening") || lower.includes("void")) return "opening";
-  return "model";
-}
 
-// Populate the dynamic IFC element-type chips below the always-visible static cards.
-// Static Wall/Sweep cards are untouched; chips appear in the separate _elemChipsEl row.
-export function setRibbonElementTypes(types: { cls: string; count: number }[]): void {
-  if (!_elemChipsEl) return;
-  _elemChipsEl.innerHTML = "";
-  for (const { cls, count } of types) {
-    const chip = document.createElement("div");
-    chip.className = "ribbon-element-chip";
-    chip.dataset.ifcClass = cls;
-    chip.title = `${cls} (${count})`;
-    chip.innerHTML = `
-      <span class="ribbon-chip-icon">${iconSVG(ifcClassIcon(cls), 16)}</span>
-      <span class="ribbon-chip-name">${escapeHtml(cls.replace(/^Ifc/, ""))}</span>
-      <span class="ribbon-chip-count">${count}</span>
-    `;
-    chip.addEventListener("click", () => {
-      window.dispatchEvent(new CustomEvent("ribbon:ifc-type", { detail: { cls } }));
-    });
-    _elemChipsEl.appendChild(chip);
-  }
-}
-
-// Clear dynamic chips on scene clear / non-IFC load. Static cards remain.
-export function resetRibbonElementTypes(): void {
-  if (!_elemChipsEl) return;
-  _elemChipsEl.innerHTML = "";
-}
 
 // Append the ARCH|CAD toggle into the ribbon tabs strip (MODEL mode only).
 function appendArchCadSlider(tabsEl: HTMLElement) {
