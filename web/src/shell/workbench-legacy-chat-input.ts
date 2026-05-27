@@ -131,19 +131,7 @@ export async function _refreshChatSkills(): Promise<void> {
   _chatPanel.setSkills([..._buildTimeSkills(), ..._savedSkillsAsSkills(saved)]);
 }
 
-// ── Suggestion chips + recent history ─────────────────────────────────────────
-
-const PROMPT_CHIPS: { label: string; demoId: string }[] = [
-  { label: "Wall",                               demoId: "wall" },
-  { label: "Circular column",                   demoId: "column" },
-  { label: "Raised slab",                       demoId: "raised-slab" },
-  { label: "Slab w/ stair hole",                demoId: "slab-with-hole" },
-  { label: "Wall with doorway",                 demoId: "wall-with-door" },
-  { label: "L-shape walls",                     demoId: "l-walls" },
-  { label: "Four-walled room",                  demoId: "four-walled-room" },
-  { label: "Stair-step",                        demoId: "stair-step" },
-  { label: "Schultz Residence · 14 components",  demoId: "schultz-residence" },
-];
+// ── Recent history ─────────────────────────────────────────────────────────────
 
 const RECENT_LS_KEY = "web-cad:recent-v1";
 type RecentEntry = { ts: string; label: string };
@@ -176,16 +164,6 @@ function renderRecentList(host: HTMLElement | null): void {
     line.appendChild(document.createTextNode(r.label));
     host.appendChild(line);
   }
-}
-
-const DEMO_ID_ORDER = [
-  "wall", "column", "raised-slab", "slab-with-hole",
-  "wall-with-door", "l-walls", "four-walled-room", "stair-step",
-  "schultz-residence",
-];
-function demoIdToIndex(id: string): string | null {
-  const i = DEMO_ID_ORDER.indexOf(id);
-  return i >= 0 ? String(i) : null;
 }
 
 // ── PROMPT tab body ────────────────────────────────────────────────────────────
@@ -260,25 +238,6 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
   if (promptPane) {
     promptPane.classList.add("prompt-pane-embed");
   }
-
-  // Render chip suggestions; demoIdToIndex resolves the dropdown option value.
-  const chipsHost = el("div", "ai-chips");
-  for (const chip of PROMPT_CHIPS) {
-    const btn = el("button", "ai-chip", { type: "button" });
-    btn.textContent = chip.label;
-    btn.addEventListener("click", () => {
-      const sel = document.getElementById("prompt-select") as HTMLSelectElement | null;
-      if (sel) {
-        const idx = demoIdToIndex(chip.demoId);
-        if (idx !== null) {
-          sel.value = idx;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-      }
-    });
-    chipsHost.appendChild(btn);
-  }
-  wrap.appendChild(chipsHost);
 
   const recentList = el("div", "ai-recent-list", { id: "ai-recent-list" });
   wrap.appendChild(recentList);
