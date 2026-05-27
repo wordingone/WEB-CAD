@@ -8,6 +8,7 @@ import {
   type CanonicalGeometryStore,
 } from "../src/geometry/canonical-geometry";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
+import { registerStructuralHandlers } from "../src/handlers/structural";
 import { WORLD_XY } from "../src/viewer/cplane";
 import type { Viewer } from "../src/viewer/viewer";
 
@@ -43,7 +44,7 @@ function makeViewer(): {
 }
 
 beforeEach(() => {
-  for (const name of ["SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude"]) {
+  for (const name of ["SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude", "SdWall", "SdSlab", "SdColumn"]) {
     unregisterHandler(name);
   }
 });
@@ -88,6 +89,30 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.createdBy).toBe("SdBox");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
     expect(canonical.surface).toBe(mesh.userData.nurbsSurface);
+  });
+
+  test("structural commands with NURBS sidecars link canonical surface records", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    for (const [verb, args] of [
+      ["SdWall", { length: 4, height: 3 }],
+      ["SdSlab", { width: 4, depth: 3, thickness: 0.2 }],
+      ["SdColumn", { position: [1, 2, 0], height: 4 }],
+    ] as const) {
+      const result = dispatchSync(verb, args);
+      expect(result.ok).toBe(true);
+      const obj = lastObject();
+      expect(obj).toBeInstanceOf(THREE.Mesh);
+      expect(obj?.userData.nurbsSurface).toBeDefined();
+      const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+      expect(typeof canonicalId).toBe("string");
+      const canonical = store.require(canonicalId as string);
+      expect(canonical.kind).toBe("surface");
+      expect(canonical.createdBy).toBe(verb);
+      if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+      expect(canonical.surface).toBe(obj?.userData.nurbsSurface);
+    }
   });
 
   test("project save/open is currently the deprecated gemarch scene snapshot path", () => {

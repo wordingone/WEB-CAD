@@ -6,48 +6,7 @@ import { resolveCPlane } from "../viewer/cplane";
 import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
-import type { CanonicalGeometryStore } from "../geometry/canonical-geometry";
-import type { Surface } from "../nurbs/nurbs-surfaces";
-
-type CanonicalGeometryViewer = Viewer & {
-  getCanonicalGeometryStore?: () => CanonicalGeometryStore;
-};
-
-function meshTriangleCount(mesh: THREE.Mesh): number | undefined {
-  const geom = mesh.geometry as THREE.BufferGeometry | undefined;
-  if (!geom) return undefined;
-  if (geom.index) return Math.floor(geom.index.count / 3);
-  const pos = geom.getAttribute("position");
-  return pos ? Math.floor(pos.count / 3) : undefined;
-}
-
-function linkCanonicalSurface(viewer: CanonicalGeometryViewer, obj: THREE.Object3D, createdBy: string): void {
-  const store = viewer.getCanonicalGeometryStore?.();
-  const surface = obj.userData.nurbsSurface as Surface | undefined;
-  if (!store || !surface) return;
-  const mesh = obj as THREE.Mesh;
-  const position = mesh.geometry?.getAttribute("position");
-  const record = store.create({
-    kind: "surface",
-    surface,
-    source: "command",
-    createdBy,
-    displayMesh: {
-      revision: 1,
-      generatedAt: Date.now(),
-      vertexCount: position?.count,
-      triangleCount: mesh.isMesh ? meshTriangleCount(mesh) : undefined,
-      derivation: "tessellated-surface",
-    },
-    metadata: {
-      creator: obj.userData.creator,
-      cplaneKind: obj.userData.cplaneKind,
-      levelId: obj.userData.levelId,
-      layerId: obj.userData.layerId,
-    },
-  });
-  store.linkObject(obj, record.id);
-}
+import { linkCanonicalSurface } from "./canonical-surface";
 
 export function registerNurbsHandlers(viewer: Viewer): void {
   registerHandler("SdBox", (args) => {
@@ -67,7 +26,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.creator = "box";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkCanonicalSurface(viewer as CanonicalGeometryViewer, mesh, "SdBox");
+    linkCanonicalSurface(viewer, mesh, "SdBox");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh as THREE.Mesh, viewer.getScene());
     return { created: "box", width: w, depth: d, height: h };

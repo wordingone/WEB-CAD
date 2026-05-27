@@ -18,6 +18,7 @@ import { DEFAULT_CEILING_OFFSET } from "../tools/index";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensions";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
+import { linkCanonicalSurface } from "./canonical-surface";
 
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
@@ -70,6 +71,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.creator = "wall";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalSurface(viewer, mesh, "SdWall");
     viewer.addMesh(mesh, "brep");
     if (topProfile !== "pitched") attemptWallCornerJoins(mesh, viewer.getScene());
     onElementCommitted(mesh, viewer.getScene());
@@ -99,6 +101,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalSurface(viewer, mesh, "SdSlab");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "slab", width: w, depth: d };
@@ -115,6 +118,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalSurface(viewer, mesh, "SdColumn");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "column" };
