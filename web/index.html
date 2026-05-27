@@ -12,6 +12,8 @@
   <script src="./coi-serviceworker.js"></script>
 </head>
 <body>
+  <!-- Pre-boot cover: hides raw HTML (white sidebar) before JS loads the animated boot overlay -->
+  <div id="pre-boot" style="position:fixed;inset:0;background:#0d0d0d;z-index:9999;pointer-events:none;"></div>
   <div class="app" style="--dock-h: min(340px, 35vh);">
     <div class="reg-mark tl"></div>
     <div class="reg-mark tr"></div>
