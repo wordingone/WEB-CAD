@@ -29,9 +29,9 @@
 .workbench[data-mode="research"] > .sidebar {
   display: none;
 }
-.workbench > .mode-pane { display: none; }
-.workbench[data-mode="layout"]   > .paper-mode    { display: grid; }
-.workbench[data-mode="research"] > .research-mode { display: grid; }
+.workbench > .mode-pane { display: none; visibility: hidden; }
+.workbench[data-mode="layout"]   > .paper-mode    { display: grid; visibility: visible; }
+.workbench[data-mode="research"] > .research-mode { display: grid; visibility: visible; }
 
 /* ============================================================
    TOOL PALETTE (left)
