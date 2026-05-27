@@ -118,8 +118,8 @@ if (Test-Path $SweepScript) {
     Get-CimInstance Win32_Process | Where-Object {
         $_.Name -eq 'node.exe' -and $_.CommandLine -like "*shared-browser-watch*"
     } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    Start-Process -FilePath "node" -ArgumentList $SweepScript -WindowStyle Hidden
-    Write-Host "  tab-sweep: started (10 min interval)"
+    Start-Process -FilePath "node" -ArgumentList @($SweepScript, "--canonical-url=$DEV_URL") -WindowStyle Hidden
+    Write-Host "  tab-sweep: started (10 min interval, canonical-url=$DEV_URL)"
 } else {
     Write-Host "  tab-sweep: script not found at $SweepScript (skipped)"
 }

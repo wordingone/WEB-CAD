@@ -16,8 +16,11 @@ const INTERVAL_MS = Number(
   process.argv.find((a) => a.startsWith("--interval-ms="))?.split("=")[1] ?? 600_000,
 );
 
+// Forward --canonical-url= args from this watcher's argv down to each sweep invocation.
+const FORWARD_ARGS = process.argv.slice(2).filter((a) => a.startsWith("--canonical-url="));
+
 function runSweep() {
-  const child = spawn(process.execPath, [SWEEP], { stdio: "inherit" });
+  const child = spawn(process.execPath, [SWEEP, ...FORWARD_ARGS], { stdio: "inherit" });
   child.on("error", (e) => console.error(`sweep spawn error: ${e.message}`));
 }
 
