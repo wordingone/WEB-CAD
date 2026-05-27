@@ -445,8 +445,12 @@ export function activateMode(key: string, workbench: HTMLElement | null) {
   const showResearch = key === "research";
   if (paperEl) {
     paperEl.style.display = showPaper ? "" : "none";
-    if (showPaper) getController(paperEl)?.resumeThumbLoop();
-    else           getController(paperEl)?.pauseThumbLoop();
+    if (showPaper) {
+      getController(paperEl)?.resumeThumbLoop();
+      getController(paperEl)?.applyActiveCut();
+    } else {
+      getController(paperEl)?.pauseThumbLoop();
+    }
   }
   if (researchEl) researchEl.style.display = showResearch ? "" : "none";
   // Reset accumulated body scroll so the ribbon/modebar are never off-screen.
