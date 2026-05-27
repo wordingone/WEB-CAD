@@ -55,8 +55,10 @@ export function fitCamera(v: Viewer, bounds: Bounds): void {
   v.axes.dispose();
   v.axes = new THREE.AxesHelper(triadLen);
   v.axes.userData.noSnap = true;
+  v.axes.visible = false;
   v.scene.add(v.axes);
   createAxisLabels(v, triadLen);
+  for (const s of v.axisLabels) s.visible = false;
 }
 
 export function createAxisLabels(v: Viewer, length = 2): void {
