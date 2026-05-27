@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
-import { inspectCanonicalGeometry, inspectCanonicalSelection } from "../src/geometry/canonical-introspection";
+import { inspectCanonicalClipping, inspectCanonicalGeometry, inspectCanonicalSelection } from "../src/geometry/canonical-introspection";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 
 const surface: Surface = {
@@ -107,5 +107,61 @@ describe("canonical geometry introspection", () => {
       },
     });
     expect(selection?.ownerWorldMatrix).toEqual(mesh.matrixWorld.elements.slice());
+  });
+
+  test("reports active clip planes against linked canonical display objects", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdWall",
+    });
+    const cutMesh = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2));
+    cutMesh.userData.creator = "wall";
+    cutMesh.userData.kind = "brep";
+    store.linkObject(cutMesh, record.id);
+
+    const keptMesh = cutMesh.clone();
+    keptMesh.position.x = 5;
+    store.linkObject(keptMesh, record.id);
+
+    const outsideMesh = cutMesh.clone();
+    outsideMesh.position.x = -5;
+    store.linkObject(outsideMesh, record.id);
+
+    const plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+    const snapshot = inspectCanonicalClipping(store, [cutMesh, keptMesh, outsideMesh], [
+      { label: "clip-x0", source: "clipping-plane", plane },
+    ]);
+
+    expect(snapshot.planes).toEqual([
+      {
+        label: "clip-x0",
+        source: "clipping-plane",
+        origin: [0, 0, 0],
+        normal: [1, 0, 0],
+        constant: 0,
+      },
+    ]);
+    expect(snapshot.objectLinks.map((link) => ({
+      objectUuid: link.objectUuid,
+      canonicalGeometryId: link.canonicalGeometryId,
+      planeLabel: link.planeLabel,
+      relation: link.relation,
+    }))).toEqual([
+      {
+        objectUuid: cutMesh.uuid,
+        canonicalGeometryId: record.id,
+        planeLabel: "clip-x0",
+        relation: "intersecting",
+      },
+      {
+        objectUuid: outsideMesh.uuid,
+        canonicalGeometryId: record.id,
+        planeLabel: "clip-x0",
+        relation: "outside",
+      },
+    ]);
   });
 });

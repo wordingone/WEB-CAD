@@ -30,7 +30,9 @@ import {
   type CanonicalGeometryStore,
 } from "../geometry/canonical-geometry.js";
 import {
+  inspectCanonicalClipping,
   inspectCanonicalGeometry,
+  type CanonicalClippingSnapshot,
   type CanonicalGeometrySnapshot,
 } from "../geometry/canonical-introspection.js";
 export type { ClassifiedEdgeSeg } from "./edge-classifier.js";
@@ -642,6 +644,22 @@ export class Viewer {
 
   inspectCanonicalGeometry(): CanonicalGeometrySnapshot {
     return inspectCanonicalGeometry(this.canonicalGeometryStore, this.scene.children);
+  }
+
+  inspectCanonicalClipping(): CanonicalClippingSnapshot {
+    const sectionPlanes = this._sectionPlanes.map((plane, index) => ({
+      label: `section-box-${index}`,
+      source: "section-box" as const,
+      plane,
+    }));
+    const clipLabels = new Map<THREE.Plane, string>();
+    this._clipLabels.forEach((plane, label) => clipLabels.set(plane, label));
+    const clipPlanes = this._clipPlanes.map((plane, index) => ({
+      label: clipLabels.get(plane) ?? `clip-${index}`,
+      source: "clipping-plane" as const,
+      plane,
+    }));
+    return inspectCanonicalClipping(this.canonicalGeometryStore, this.scene.children, [...sectionPlanes, ...clipPlanes]);
   }
 
   getCanvas(): HTMLCanvasElement {
