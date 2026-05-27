@@ -279,9 +279,7 @@ export class Viewer {
     this.axes.userData.noSnap = true;
     this.axes.userData.noRenderMode = true;
     this.scene.add(this.axes);
-    this.axes.visible = false;
     this.createAxisLabels();
-    for (const s of this.axisLabels) s.visible = false;
 
     // Build per-pane cameras and controls from DOM.
     viewportAreaEl.querySelectorAll<HTMLElement>(".viewport[data-view]").forEach((el, idx) => {
@@ -591,7 +589,7 @@ export class Viewer {
   startHostPick(cb: (cplane: CPlane) => void): void { this._hostPickCallback = cb; this.canvas.style.cursor = "crosshair"; }
   cancelHostPick(): void { this._hostPickCallback = null; this.canvas.style.cursor = ""; }
   setOpToolActive(active: boolean): void { this._opToolActive = active; }
-  setGridAxesVisible(visible: boolean): void { this.grid.visible = visible; this._cplaneGizmo.group.visible = visible; }
+  setGridAxesVisible(visible: boolean): void { this.grid.visible = visible; this.axes.visible = visible; this._cplaneGizmo.group.visible = visible; }
 
   syncPivot(): void { Gizmos.syncPivot(this); }
   isAnyGumballDragging(): boolean { return Gizmos.isAnyGumballDragging(this); }
