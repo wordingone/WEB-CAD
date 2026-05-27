@@ -144,6 +144,7 @@ describe("BRep canonical migration characterization", () => {
     const domEvents = source("dom-events.ts");
 
     expect(domEvents).toContain("function sceneElementsForExport(): IfcSceneElement[]");
+    expect(domEvents).toContain("canonicalGeometryToIfcNurbs(viewer.getCanonicalGeometryForObject(obj), obj.matrixWorld)");
     expect(domEvents).toContain("const g = mesh.geometry as THREE.BufferGeometry");
     expect(domEvents).toContain("const pos = g.attributes.position?.array as Float32Array | undefined");
     expect(domEvents).toContain("mesh: { vertices: new Float32Array(verts), indices: new Uint32Array(idx) }");
