@@ -9,6 +9,8 @@ import {
 } from "../src/geometry/canonical-geometry";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
 import { registerStructuralHandlers } from "../src/handlers/structural";
+import { domain as curveDomain } from "../src/nurbs/nurbs-curves";
+import { pointAtUV } from "../src/nurbs/nurbs-surfaces";
 import { WORLD_XY } from "../src/viewer/cplane";
 import type { Viewer } from "../src/viewer/viewer";
 
@@ -50,21 +52,57 @@ beforeEach(() => {
 });
 
 describe("BRep canonical migration characterization", () => {
-  test("SdSphere currently creates a mesh-backed object labeled as brep", () => {
-    const { viewer, lastObject } = makeViewer();
+  test("analytic primitive commands keep display meshes while linking canonical revolution surfaces", () => {
+    const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
 
-    const result = dispatchSync("SdSphere", { radius: 2 });
-    expect(result.ok).toBe(true);
+    for (const [verb, args, creator] of [
+      ["SdSphere", { radius: 2 }, "sphere"],
+      ["SdCylinder", { radius: 0.75, height: 3 }, "cylinder"],
+      ["SdCone", { radius: 0.75, height: 3 }, "cone"],
+    ] as const) {
+      const result = dispatchSync(verb, args);
+      expect(result.ok).toBe(true);
 
-    const obj = lastObject();
-    expect(obj).toBeInstanceOf(THREE.Mesh);
-    const mesh = obj as THREE.Mesh;
-    expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
-    expect(mesh.userData.kind).toBe("brep");
-    expect(mesh.userData.creator).toBe("sphere");
-    expect(mesh.userData.nurbsSurface).toBeUndefined();
-    expect(mesh.userData.canonicalGeometryId).toBeUndefined();
+      const obj = lastObject();
+      expect(obj).toBeInstanceOf(THREE.Mesh);
+      const mesh = obj as THREE.Mesh;
+      expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+      expect(mesh.userData.kind).toBe("brep");
+      expect(mesh.userData.creator).toBe(creator);
+      expect(mesh.userData.nurbsSurface).toBeDefined();
+      expect(mesh.userData.nurbsSurface.kind).toBe("rev");
+      expect(mesh.userData.nurbsKind).toBe("surface");
+      const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+      expect(typeof canonicalId).toBe("string");
+      const canonical = store.require(canonicalId as string);
+      expect(canonical.kind).toBe("surface");
+      expect(canonical.createdBy).toBe(verb);
+      if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+      expect(canonical.surface).toBe(mesh.userData.nurbsSurface);
+
+      const surface = canonical.surface;
+      if (surface.kind !== "rev") throw new Error("expected revolution surface");
+      const profileDomain = curveDomain(surface.profile);
+      if (verb === "SdSphere") {
+        const p = pointAtUV(surface, profileDomain.max / 2, Math.PI / 2);
+        expect(p.x).toBeCloseTo(0, 6);
+        expect(p.y).toBeCloseTo(args.radius, 6);
+        expect(p.z).toBeCloseTo(0, 6);
+      } else if (verb === "SdCylinder") {
+        const p0 = pointAtUV(surface, profileDomain.min, 0);
+        const p1 = pointAtUV(surface, profileDomain.max, Math.PI / 2);
+        expect(p0.x).toBeCloseTo(args.radius, 6);
+        expect(p0.z).toBeCloseTo(-args.height / 2, 6);
+        expect(p1.y).toBeCloseTo(args.radius, 6);
+        expect(p1.z).toBeCloseTo(args.height / 2, 6);
+      } else {
+        const apex = pointAtUV(surface, profileDomain.max, Math.PI);
+        expect(apex.x).toBeCloseTo(0, 6);
+        expect(apex.y).toBeCloseTo(0, 6);
+        expect(apex.z).toBeCloseTo(args.height / 2, 6);
+      }
+    }
   });
 
   test("SdBox currently creates a display mesh with a partial NURBS sidecar", () => {

@@ -7,6 +7,60 @@ import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { linkCanonicalSurface } from "./canonical-surface";
+import type { Curve } from "../nurbs/nurbs-curves";
+import type { Surface } from "../nurbs/nurbs-surfaces";
+import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
+import type { Line, Plane } from "../nurbs/nurbs-primitives";
+
+const TWO_PI = Math.PI * 2;
+
+function zAxis(): Line {
+  return { from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 0, z: 1 } };
+}
+
+function lineProfile(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): Curve {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = to.z - from.z;
+  return {
+    kind: "line",
+    from,
+    to,
+    domain: { min: 0, max: Math.sqrt(dx * dx + dy * dy + dz * dz) },
+  };
+}
+
+function cylinderSurface(radius: number, height: number): Surface {
+  return surfaceOfRevolution(lineProfile({ x: radius, y: 0, z: -height / 2 }, { x: radius, y: 0, z: height / 2 }), zAxis(), 0, TWO_PI);
+}
+
+function coneSurface(radius: number, height: number): Surface {
+  return surfaceOfRevolution(lineProfile({ x: radius, y: 0, z: -height / 2 }, { x: 0, y: 0, z: height / 2 }), zAxis(), 0, TWO_PI);
+}
+
+function sphereSurface(radius: number): Surface {
+  const profilePlane: Plane = {
+    origin: { x: 0, y: 0, z: 0 },
+    xAxis: { x: 1, y: 0, z: 0 },
+    yAxis: { x: 0, y: 0, z: 1 },
+    normal: { x: 0, y: -1, z: 0 },
+  };
+  return surfaceOfRevolution({
+    kind: "arc",
+    center: { x: 0, y: 0, z: 0 },
+    radius,
+    startAngle: -Math.PI / 2,
+    endAngle: Math.PI / 2,
+    plane: profilePlane,
+    domain: { min: 0, max: Math.PI * radius },
+  }, zAxis(), 0, TWO_PI);
+}
+
+function linkAnalyticSurface(viewer: Viewer, mesh: THREE.Mesh, surface: Surface, createdBy: string): void {
+  mesh.userData.nurbsSurface = surface;
+  mesh.userData.nurbsKind = "surface";
+  linkCanonicalSurface(viewer, mesh, createdBy);
+}
 
 export function registerNurbsHandlers(viewer: Viewer): void {
   registerHandler("SdBox", (args) => {
@@ -42,6 +96,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "sphere";
     mesh.userData.cplaneKind = cplane.kind;
+    linkAnalyticSurface(viewer, mesh, sphereSurface(r), "SdSphere");
     viewer.addMesh(mesh, "brep");
     return { created: "sphere", radius: r };
   });
@@ -59,6 +114,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "cylinder";
     mesh.userData.cplaneKind = cplane.kind;
+    linkAnalyticSurface(viewer, mesh, cylinderSurface(r, h), "SdCylinder");
     viewer.addMesh(mesh, "brep");
     return { created: "cylinder", radius: r, height: h };
   });
@@ -76,6 +132,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "cone";
     mesh.userData.cplaneKind = cplane.kind;
+    linkAnalyticSurface(viewer, mesh, coneSurface(r, h), "SdCone");
     viewer.addMesh(mesh, "brep");
     return { created: "cone", radius: r, height: h };
   });
