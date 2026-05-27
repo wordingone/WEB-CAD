@@ -2,9 +2,9 @@ import { registerHandler, registerRuntimeAlias } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 import { buildPoint, buildLine, buildRect, buildCircle, buildPolyline, buildCurve } from "../tools/sketch";
-import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc } from "../nurbs/nurbs-primitives";
+import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc, type Point3 } from "../nurbs/nurbs-primitives";
 import {
-  tessellate, createClampedUniformNurbs, type Curve,
+  tessellate, createCatmullRomAsNurbs, createClampedUniformNurbs, type Curve,
   pointAt as curvePointAt, domain as curveDomain,
 } from "../nurbs/nurbs-curves";
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
@@ -28,6 +28,74 @@ function polylineToGeom(pts: { x: number; y: number; z: number }[]): THREE.Buffe
 
 function curveMat(): THREE.LineBasicMaterial {
   return new THREE.LineBasicMaterial({ color: 0x000000 });
+}
+
+function vertexCount(obj: THREE.Object3D): number | undefined {
+  if (!("geometry" in obj)) return undefined;
+  const geom = (obj as { geometry?: THREE.BufferGeometry }).geometry;
+  return geom?.getAttribute("position")?.count;
+}
+
+function curveParameters(points: Point3[]): number[] {
+  const params = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    params.push(params[i - 1] + Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2));
+  }
+  return params;
+}
+
+function linkCanonicalCurve(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  curve: Curve,
+  createdBy: string,
+  metadata?: Record<string, unknown>,
+): void {
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "curve",
+    curve,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: vertexCount(obj),
+      derivation: "tessellated-curve",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      ...metadata,
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+}
+
+function linkCanonicalPoint(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  point: Point3,
+  createdBy: string,
+  metadata?: Record<string, unknown>,
+): void {
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "point",
+    point,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: vertexCount(obj),
+      derivation: "reference-marker",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      ...metadata,
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
 }
 
 function resolveCurve(arg: unknown): Curve {
@@ -87,6 +155,9 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "point";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalPoint(viewer, mesh, { x: 0, y: 0, z: 0 }, "SdPoint", {
+      worldPoint: [p.x, p.y, 0],
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "point", position: [p.x, p.y, 0] };
   });
@@ -100,6 +171,13 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "line";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const lineCurve = mesh.userData.nurbsCurve as Curve | undefined;
+    if (lineCurve) {
+      linkCanonicalCurve(viewer, mesh, lineCurve, "SdLine", {
+        worldStart: [a.x, a.y, 0],
+        worldEnd: [b.x, b.y, 0],
+      });
+    }
     viewer.addMesh(mesh, "mesh");
     return { created: "line", start, end };
   });
@@ -137,6 +215,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "polyline";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[]).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: localPoints,
+      parameters: curveParameters(localPoints),
+    }, "SdPolyline", {
+      worldPoints: pts.map((p) => [p.x, p.y, 0]),
+      closed: mesh.userData.isClosed === true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "polyline", points };
   });
@@ -158,6 +245,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const obj = new THREE.Line(polylineToGeom(pts), curveMat());
     obj.userData.kind = "arc";
     obj.userData.creator = "arc";
+    linkCanonicalCurve(viewer, obj, {
+      kind: "arc",
+      center: arc.center,
+      radius,
+      startAngle,
+      endAngle,
+      plane: arc.plane,
+      domain: { min: 0, max: radius * Math.abs(endAngle - startAngle) },
+    }, "SdArc");
     viewer.addMesh(obj, "mesh");
     return { created: "arc", center: ptToArray(arc.center), radius, startAngle, endAngle };
   });
@@ -171,6 +267,18 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "circle";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "arc",
+      center: { x: 0, y: 0, z: 0 },
+      radius,
+      startAngle: 0,
+      endAngle: 2 * Math.PI,
+      plane: PrimPlane.worldXY(),
+      domain: { min: 0, max: 2 * Math.PI * radius },
+    }, "SdCircle", {
+      worldCenter: [center.x, center.y, 0],
+      radius,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "circle", center: [center.x, center.y, 0], radius };
   });
@@ -204,6 +312,11 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const obj = new THREE.LineLoop(polylineToGeom(pts), curveMat());
     obj.userData.kind = "ellipse";
     obj.userData.creator = "ellipse";
+    linkCanonicalCurve(viewer, obj, ellipseNurbs, "SdEllipse", {
+      center: ptToArray(center),
+      rx,
+      ry,
+    });
     viewer.addMesh(obj, "mesh");
     return { created: "ellipse", center: ptToArray(center), rx, ry };
   });
@@ -220,6 +333,9 @@ export function registerSketchHandlers(viewer: Viewer): void {
     obj.userData.kind = "spline";
     obj.userData.creator = "spline";
     obj.userData.controlPoints = pts3.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    linkCanonicalCurve(viewer, obj, nurbs, "SdSpline", {
+      controlPoints: pts3.map((p) => ptToArray(p)),
+    });
     viewer.addMesh(obj, "mesh");
     return { created: "spline", points: pts3.map(p => ptToArray(p)) };
   });
@@ -232,6 +348,13 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const pts = rawPts.map(p => ({ x: p[0] ?? 0, y: p[1] ?? 0 }));
     const { mesh } = buildCurve(pts);
     mesh.userData.creator = "curve";
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[]).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, createCatmullRomAsNurbs(localPoints, {
+      closed: mesh.userData.isClosed === true,
+    }), "SdCurve", {
+      worldPoints: pts.map((p) => [p.x, p.y, 0]),
+      closed: mesh.userData.isClosed === true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "curve", points: pts.length, nurbsKind: "catmull-rom" };
   });
