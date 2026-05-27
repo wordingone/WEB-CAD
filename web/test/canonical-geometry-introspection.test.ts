@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
 import { inspectCanonicalClipping, inspectCanonicalGeometry, inspectCanonicalSelection } from "../src/geometry/canonical-introspection";
+import type { Curve } from "../src/nurbs/nurbs-curves";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 
 const surface: Surface = {
@@ -99,6 +100,10 @@ describe("canonical geometry introspection", () => {
       recordSummary: {
         canonicalGeometryId: record.id,
         kind: "surface",
+        exactGeometry: {
+          kind: "surface",
+          surface,
+        },
         surfaceKind: "sum",
         surfaceDomain: {
           u: [0, 2],
@@ -107,6 +112,50 @@ describe("canonical geometry introspection", () => {
       },
     });
     expect(selection?.ownerWorldMatrix).toEqual(mesh.matrixWorld.elements.slice());
+  });
+
+  test("selection summaries expose exact canonical curve coordinates for agents", () => {
+    const store = createCanonicalGeometryStore();
+    const curve: Curve = {
+      kind: "polyline",
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 2, y: 3, z: 0 },
+      ],
+      parameters: [0, 2, 5],
+    };
+    const record = store.create({
+      kind: "curve",
+      curve,
+      source: "command",
+      createdBy: "SdPolyline",
+    });
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(curve.points.map((p) => new THREE.Vector3(p.x, p.y, p.z))),
+    );
+    store.linkObject(line, record.id);
+
+    const selection = inspectCanonicalSelection(store, {
+      topology: "edge",
+      uuid: line.uuid,
+      object: line,
+      parent: line,
+      parentUuid: line.uuid,
+      edgeIndex: 1,
+      transformTarget: line,
+    });
+
+    expect(selection?.recordSummary).toMatchObject({
+      canonicalGeometryId: record.id,
+      kind: "curve",
+      curveKind: "polyline",
+      curveDomain: [0, 5],
+      exactGeometry: {
+        kind: "curve",
+        curve,
+      },
+    });
   });
 
   test("reports active clip planes against linked canonical display objects", () => {

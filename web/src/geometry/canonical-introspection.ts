@@ -5,12 +5,23 @@ import type {
   CanonicalGeometryStore,
 } from "./canonical-geometry";
 import type { Selection, Topology } from "../viewer/selection-state";
+import type { Brep } from "../nurbs/nurbs-brep";
+import type { Curve } from "../nurbs/nurbs-curves";
 import { domain as curveDomain } from "../nurbs/nurbs-curves";
+import type { Point3 } from "../nurbs/nurbs-primitives";
+import type { Surface } from "../nurbs/nurbs-surfaces";
 import { domainU, domainV } from "../nurbs/nurbs-surfaces";
+
+export type CanonicalExactGeometry =
+  | { kind: "surface"; surface: Surface }
+  | { kind: "curve"; curve: Curve }
+  | { kind: "point"; point: Point3 }
+  | { kind: "brep"; brep: Brep };
 
 export type CanonicalGeometryRecordSummary = {
   canonicalGeometryId: CanonicalGeometryId;
   kind: CanonicalGeometry["kind"];
+  exactGeometry: CanonicalExactGeometry;
   surfaceKind?: string;
   surfaceDomain?: {
     u: [number, number];
@@ -95,6 +106,7 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
     return {
       canonicalGeometryId: record.id,
       kind: "surface",
+      exactGeometry: { kind: "surface", surface: record.surface },
       surfaceKind: record.surface.kind,
       surfaceDomain: {
         u: [u.min, u.max],
@@ -108,6 +120,7 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
     return {
       canonicalGeometryId: record.id,
       kind: "curve",
+      exactGeometry: { kind: "curve", curve: record.curve },
       curveKind: record.curve.kind,
       curveDomain: [d.min, d.max],
     };
@@ -117,6 +130,7 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
     return {
       canonicalGeometryId: record.id,
       kind: "point",
+      exactGeometry: { kind: "point", point: record.point },
       point: [record.point.x, record.point.y, record.point.z],
     };
   }
@@ -132,6 +146,7 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
   return {
     canonicalGeometryId: record.id,
     kind: "brep",
+    exactGeometry: { kind: "brep", brep: record.brep },
     brepTopology: {
       shellCount: record.brep.shells.length,
       faceCount,
