@@ -3,13 +3,13 @@
    ============================================================ */
 
 .paper-mode {
-  width: 100%;
-  height: 100%;
   display: grid;
-  grid-template:
-    "palette stage layers" calc(100% - 28px)
-    "toolbar toolbar toolbar" 28px
-    / var(--palette-w) 1fr 400px;
+  grid-template-areas:
+    "palette stage layers"
+    "toolbar toolbar toolbar";
+  grid-template-columns: var(--palette-w) 1fr 400px;
+  grid-template-rows: 1fr 28px;
+  min-height: 0;
   overflow: hidden;
 }
 
