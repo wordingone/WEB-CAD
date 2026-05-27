@@ -38,6 +38,9 @@ describe("canonical geometry introspection", () => {
     });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
     mesh.name = "wall-display";
+    mesh.position.set(4, 5, 6);
+    mesh.scale.set(2, 3, 4);
+    mesh.updateMatrixWorld(true);
     mesh.userData.creator = "wall";
     mesh.userData.kind = "brep";
     store.linkObject(mesh, linkedRecord.id);
@@ -52,6 +55,10 @@ describe("canonical geometry introspection", () => {
         canonicalGeometryId: linkedRecord.id,
         creator: "wall",
         runtimeKind: "brep",
+        position: [4, 5, 6],
+        quaternion: [0, 0, 0, 1],
+        scale: [2, 3, 4],
+        worldMatrix: mesh.matrixWorld.elements.slice(),
       },
     ]);
     expect(snapshot.linkedRecordIds).toEqual([linkedRecord.id]);

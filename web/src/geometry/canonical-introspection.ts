@@ -11,6 +11,10 @@ export type CanonicalGeometryObjectLink = {
   canonicalGeometryId: CanonicalGeometryId;
   creator?: string;
   runtimeKind?: string;
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+  scale: [number, number, number];
+  worldMatrix: number[];
 };
 
 export type CanonicalGeometrySnapshot = {
@@ -39,6 +43,10 @@ export function inspectCanonicalGeometry(
         canonicalGeometryId,
         ...(typeof obj.userData.creator === "string" ? { creator: obj.userData.creator } : {}),
         ...(typeof obj.userData.kind === "string" ? { runtimeKind: obj.userData.kind } : {}),
+        position: obj.position.toArray() as [number, number, number],
+        quaternion: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w],
+        scale: obj.scale.toArray() as [number, number, number],
+        worldMatrix: obj.matrixWorld.elements.slice(),
       });
     });
   }
