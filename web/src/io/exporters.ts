@@ -24,6 +24,7 @@ import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
 import { canonicalGeometryToIfcNurbs, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
+import { tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
 import type { Surface } from "../nurbs/nurbs-surfaces.js";
 import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
 
@@ -104,6 +105,12 @@ export function exportStl(object: THREE.Object3D): ArrayBuffer {
 export type Export3dmOptions = {
   getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
 };
+
+export type CanonicalExportOptions = {
+  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
+};
+
+type Segment3 = [number, number, number, number, number, number];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function addKernelNurbsSurfaceToRhinoFile(rh: any, file: any, surface: KernelNurbsSurface): void {
@@ -215,36 +222,52 @@ export async function export3dm(object: THREE.Object3D, options: Export3dmOption
   return bytes;
 }
 
-// --- SVG (top-view edge projection) ---
-
-// Walks the scene graph and accumulates world-space line segments from
-// EdgesGeometry built per-mesh. Then projects (x, y) to 2D — viewer is Z-up
-// so XY is the architectural plan view. Outputs an SVG document scaled to
-// fit a 800x600 viewport with a thin uniform stroke.
-export function exportSvg(object: THREE.Object3D): string {
-  const segments: Array<[number, number, number, number]> = [];
+function collectWorldLineSegments(object: THREE.Object3D, options: CanonicalExportOptions = {}): Segment3[] {
+  const segments: Segment3[] = [];
   const tmpA = new THREE.Vector3();
   const tmpB = new THREE.Vector3();
   const matWorld = new THREE.Matrix4();
 
   object.updateMatrixWorld(true);
   object.traverse((child) => {
+    const canonical = options.getCanonicalGeometryForObject?.(child);
+    if (canonical?.kind === "curve") {
+      const pts = tessellateCurve(canonical.curve, 64);
+      for (let i = 1; i < pts.length; i++) {
+        tmpA.set(pts[i - 1].x, pts[i - 1].y, pts[i - 1].z).applyMatrix4(child.matrixWorld);
+        tmpB.set(pts[i].x, pts[i].y, pts[i].z).applyMatrix4(child.matrixWorld);
+        segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
+      }
+      return;
+    }
+
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
     const geom = mesh.geometry as THREE.BufferGeometry;
     if (!geom.attributes.position) return;
     matWorld.copy(mesh.matrixWorld);
-    // 25° threshold matches viewer.ts:124 for visual consistency.
     const edges = new THREE.EdgesGeometry(geom, 25);
     const pos = edges.attributes.position.array as Float32Array;
     for (let i = 0; i < pos.length; i += 6) {
       tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
       tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      // Drop Z (top-view); SVG y axis flipped (web convention).
-      segments.push([tmpA.x, -tmpA.y, tmpB.x, -tmpB.y]);
+      segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
     }
     edges.dispose();
   });
+
+  return segments;
+}
+
+// --- SVG (top-view edge projection) ---
+
+// Walks the scene graph and accumulates world-space line segments from
+// EdgesGeometry built per-mesh. Then projects (x, y) to 2D — viewer is Z-up
+// so XY is the architectural plan view. Outputs an SVG document scaled to
+// fit a 800x600 viewport with a thin uniform stroke.
+export function exportSvg(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
+  const segments = collectWorldLineSegments(object, options)
+    .map((s): [number, number, number, number] => [s[0], -s[1], s[3], -s[4]]);
 
   if (segments.length === 0) {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><text x="20" y="40" font-family="monospace" font-size="14" fill="#666">no geometry</text></svg>\n`;
@@ -292,28 +315,8 @@ export function exportSvg(object: THREE.Object3D): string {
 // Hand-rolled minimal AC1009 (R12) DXF emitter. AC1009 reads natively in
 // every Autodesk product since DOS, plus FreeCAD / LibreCAD / QCAD. Group-
 // code pairs follow the standard format: code on its own line, value next.
-export function exportDxf(object: THREE.Object3D): string {
-  const segments: Array<[number, number, number, number, number, number]> = [];
-  const tmpA = new THREE.Vector3();
-  const tmpB = new THREE.Vector3();
-  const matWorld = new THREE.Matrix4();
-
-  object.updateMatrixWorld(true);
-  object.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geom = mesh.geometry as THREE.BufferGeometry;
-    if (!geom.attributes.position) return;
-    matWorld.copy(mesh.matrixWorld);
-    const edges = new THREE.EdgesGeometry(geom, 25);
-    const pos = edges.attributes.position.array as Float32Array;
-    for (let i = 0; i < pos.length; i += 6) {
-      tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
-      tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
-    }
-    edges.dispose();
-  });
+export function exportDxf(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
+  const segments = collectWorldLineSegments(object, options);
 
   const lines: string[] = [];
   // Header
@@ -346,29 +349,9 @@ export function exportDxf(object: THREE.Object3D): string {
 
 // Minimal hand-rolled PDF 1.4 with one page containing the same line set as
 // the SVG export. No external dep — adding pdf-lib is overkill for line art.
-export function exportPdf(object: THREE.Object3D): Uint8Array {
-  const segments: Array<[number, number, number, number]> = [];
-  const tmpA = new THREE.Vector3();
-  const tmpB = new THREE.Vector3();
-  const matWorld = new THREE.Matrix4();
-
-  object.updateMatrixWorld(true);
-  object.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geom = mesh.geometry as THREE.BufferGeometry;
-    if (!geom.attributes.position) return;
-    matWorld.copy(mesh.matrixWorld);
-    const edges = new THREE.EdgesGeometry(geom, 25);
-    const pos = edges.attributes.position.array as Float32Array;
-    for (let i = 0; i < pos.length; i += 6) {
-      tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
-      tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      // PDF y axis is bottom-up — keep y as-is (no flip).
-      segments.push([tmpA.x, tmpA.y, tmpB.x, tmpB.y]);
-    }
-    edges.dispose();
-  });
+export function exportPdf(object: THREE.Object3D, options: CanonicalExportOptions = {}): Uint8Array {
+  const segments = collectWorldLineSegments(object, options)
+    .map((s): [number, number, number, number] => [s[0], s[1], s[3], s[4]]);
 
   // Bounds.
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

@@ -452,7 +452,10 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/octet-stream" }), `${stem}.3dm`);
         setStatus(`3DM \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "dwg") {
-        const text = exportDxf(obj); downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
+        const text = exportDxf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
         setStatus(`DXF (AutoCAD-compatible; true DWG binary not available in browser) \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "glb") {
         const buf = await exportGlb(obj); downloadBlob(new Blob([buf], { type: "model/gltf-binary" }), `${stem}.glb`);
@@ -465,13 +468,21 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "model/vnd.usdz+zip" }), `${stem}.usdz`);
         setStatus(`USDZ \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "svg") {
-        const text = exportSvg(obj); downloadBlob(new Blob([text], { type: "image/svg+xml" }), `${stem}.svg`);
+        const text = exportSvg(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/svg+xml" }), `${stem}.svg`);
         setStatus(`SVG \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "dxf") {
-        const text = exportDxf(obj); downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
+        const text = exportDxf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
         setStatus(`DXF \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "pdf") {
-        const buf = exportPdf(obj);
+        const buf = exportPdf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/pdf" }), `${stem}.pdf`);
         setStatus(`PDF \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "step") {
