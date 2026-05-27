@@ -16,6 +16,8 @@ import {
   layoutViewportToViewName,
   composeSvg, exportLayoutAsPdfImpl, exportLayoutAsAiImpl,
   exportLayoutAsDwgFallbackImpl, exportLayoutAsDxfImpl,
+  applySheetCut, resetSheetCut,
+  type SheetTemplate, type SheetLevelRef,
 } from "./layout-export";
 
 // Re-export public types so existing callers (modes.ts, dom-events.ts, etc.) are unaffected.
@@ -37,6 +39,7 @@ interface SheetData {
   orientation: Orientation;
   customMm: SheetDims;
   panels: PanelState[];
+  template?: SheetTemplate;
 }
 
 let _sheetIdSeq = 0;
@@ -50,15 +53,15 @@ type SheetPresetId = "plan" | "rcp" | "elevation" | "section" | "blank";
 
 // Static sheets always present: roof plan + 4 elevations + 2 sections.
 // Ordered front-to-back so the tab strip reads logically left-to-right.
-interface StaticSheetDef { name: string; viewport: ViewportId; scale: ScaleId; displayMode: DisplayMode; }
+interface StaticSheetDef { name: string; viewport: ViewportId; scale: ScaleId; displayMode: DisplayMode; template?: SheetTemplate; }
 const STATIC_SHEET_DEFS: StaticSheetDef[] = [
   { name: "Roof Plan",            viewport: "top",   scale: "1:100", displayMode: "technical" },
-  { name: "South Elevation",      viewport: "front", scale: "1:100", displayMode: "technical" },
-  { name: "East Elevation",       viewport: "right", scale: "1:100", displayMode: "technical" },
-  { name: "North Elevation",      viewport: "back",  scale: "1:100", displayMode: "technical" },
-  { name: "West Elevation",       viewport: "left",  scale: "1:100", displayMode: "technical" },
-  { name: "Longitudinal Section", viewport: "front", scale: "1:100", displayMode: "technical" },
-  { name: "Transverse Section",   viewport: "right", scale: "1:100", displayMode: "technical" },
+  { name: "South Elevation",      viewport: "front", scale: "1:100", displayMode: "technical", template: { id: "S3", viewType: "elevation", title: "South Elevation",      cardinalDir: "S", farClip: 40, camera: "front" } },
+  { name: "East Elevation",       viewport: "right", scale: "1:100", displayMode: "technical", template: { id: "S2", viewType: "elevation", title: "East Elevation",       cardinalDir: "E", farClip: 40, camera: "right" } },
+  { name: "North Elevation",      viewport: "back",  scale: "1:100", displayMode: "technical", template: { id: "S1", viewType: "elevation", title: "North Elevation",      cardinalDir: "N", farClip: 40, camera: "front" } },
+  { name: "West Elevation",       viewport: "left",  scale: "1:100", displayMode: "technical", template: { id: "S4", viewType: "elevation", title: "West Elevation",       cardinalDir: "W", farClip: 40, camera: "right" } },
+  { name: "Longitudinal Section", viewport: "front", scale: "1:100", displayMode: "technical", template: { id: "S5", viewType: "section",   title: "Longitudinal Section", sectionAxis: "NS-1",           camera: "front" } },
+  { name: "Transverse Section",   viewport: "right", scale: "1:100", displayMode: "technical", template: { id: "S7", viewType: "section",   title: "Transverse Section",   sectionAxis: "EW-1",           camera: "right" } },
 ];
 
 // Presets for user-added sheets via the "+" picker.
@@ -201,6 +204,7 @@ export class LayoutController {
       orientation,
       customMm: { ...customMm },
       panels: [],
+      template: def.template,
     }));
     this.activeSheetIdx = 0;
     this.bounds = opts.bounds ?? DEFAULT_PROVIDER;
@@ -497,6 +501,18 @@ export class LayoutController {
       const isLinked = _sheetClipLinks.has(this.activeSheet.id);
       this._unlinkBtn.style.display = isLinked ? "inline-block" : "none";
     }
+    // Apply or reset sheet cut (#187).
+    const _viewer = (window as unknown as { __viewer?: Viewer }).__viewer;
+    if (_viewer) {
+      const { template } = this.activeSheet;
+      if (template) {
+        const levels: Record<string, SheetLevelRef> = {};
+        for (const lvl of levelStore.all()) levels[lvl.id] = { elevation: lvl.elevation, height: lvl.height };
+        applySheetCut(_viewer, template, levels);
+      } else {
+        resetSheetCut(_viewer);
+      }
+    }
     // Update tab highlight.
     this.renderTabs();
   }
@@ -544,6 +560,7 @@ export class LayoutController {
           orientation: refSheet?.orientation ?? "landscape",
           customMm: refSheet ? { ...refSheet.customMm } : { ...DEFAULT_CUSTOM },
           panels: [],
+          template: { id: `plan-${level.id}`, viewType: "plan", title: expectedName, levelId: level.id, cutOffset: 1.372, camera: "top" },
         };
         this.sheets.splice(insertIdx, 0, newSheet);
         if (this.activeSheetIdx >= insertIdx) this.activeSheetIdx++;
@@ -618,6 +635,7 @@ export class LayoutController {
           orientation: refSheet?.orientation ?? "landscape",
           customMm: refSheet ? { ...refSheet.customMm } : { ...DEFAULT_CUSTOM },
           panels: [],
+          template: { id: `rcp-${level.id}`, viewType: "rcp", title: expectedName, levelId: level.id, rcpCutOffset: 2.44, camera: "top" },
         };
         this.sheets.splice(insertIdx, 0, newSheet);
         if (this.activeSheetIdx >= insertIdx) this.activeSheetIdx++;
@@ -668,6 +686,7 @@ export class LayoutController {
       orientation: this.orientation,
       customMm: { ...this.customMm },
       panels: [],
+      template: clipPlaneId ? { id: `linked-${id}`, viewType: "section", title: name, clipPlaneId, camera: "front" } : undefined,
     });
     this.renderTabs();
     this.switchSheet(this.sheets.length - 1);
