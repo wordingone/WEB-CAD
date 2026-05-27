@@ -443,7 +443,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
             baseObj.position.y + dy,
             baseObj.position.z + dz,
           );
-          clone.userData.creator = "array";
+          clone.userData = { ...baseObj.userData, creator: "array" };
           viewer.addMesh(clone, (clone.userData.kind as string | undefined) ?? "mesh", { noHistory: true });
           batchObjs.push(clone);
         }

@@ -9,6 +9,11 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import * as THREE from "three";
+import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
+import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
+import { inspectCanonicalGeometry } from "../src/geometry/canonical-introspection";
+import { registerTransformHandlers } from "../src/handlers/transforms";
+import type { Surface } from "../src/nurbs/nurbs-surfaces";
 import {
   resetSelectionState,
   resetFilters,
@@ -21,7 +26,74 @@ import { makeTestViewer, addBoxBrep } from "./test-helpers";
 beforeEach(() => {
   resetSelectionState();
   resetFilters();
+  for (const name of [
+    "SdMove",
+    "SdScale",
+    "SdRotate",
+    "SdCopy",
+    "SdArrayLinear",
+    "SdArrayGrid",
+    "SdArrayPolar",
+    "SdArray",
+  ]) {
+    unregisterHandler(name);
+  }
 });
+
+const canonicalSurface: Surface = {
+  kind: "sum",
+  basepoint: { x: 0, y: 0, z: 0 },
+  curveU: {
+    kind: "line",
+    from: { x: 0, y: 0, z: 0 },
+    to: { x: 2, y: 0, z: 0 },
+    domain: { min: 0, max: 2 },
+  },
+  curveV: {
+    kind: "line",
+    from: { x: 0, y: 0, z: 0 },
+    to: { x: 0, y: 0, z: 3 },
+    domain: { min: 0, max: 3 },
+  },
+};
+
+function makeCanonicalTransformViewer() {
+  const scene = new THREE.Scene();
+  const store = createCanonicalGeometryStore();
+  let active: THREE.Object3D | null = null;
+  const added: THREE.Object3D[] = [];
+  const viewer = {
+    getActiveObject() {
+      return active;
+    },
+    addMesh(obj: THREE.Object3D, kind?: string) {
+      if (kind) obj.userData.kind = kind;
+      scene.add(obj);
+      added.push(obj);
+      active = obj;
+      return obj;
+    },
+    getScene() {
+      return scene;
+    },
+    selectObject(obj: THREE.Object3D | null) {
+      active = obj;
+    },
+  };
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial());
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "box";
+  const record = store.create({
+    kind: "surface",
+    surface: canonicalSurface,
+    source: "command",
+    createdBy: "SdBox",
+  });
+  store.linkObject(mesh, record.id);
+  scene.add(mesh);
+  active = mesh;
+  return { viewer, scene, store, mesh, record, added };
+}
 
 // Mirror of TransformBinder.onDragEnd's chain emission. Kept in lockstep
 // with src/transforms.ts; if those change shape, these tests need to be
@@ -266,5 +338,75 @@ describe("Phase 3 — create-mode click-to-place", () => {
     const r = emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "extrude" });
     expect(r).toBeNull();
     expect(getCreateSequence().length).toBe(0);
+  });
+});
+
+describe("canonical geometry transform instances", () => {
+  test("SdMove edits the linked object transform without replacing its canonical surface", () => {
+    const { viewer, scene, store, mesh, record } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdMove", { x: 4, y: 5, z: 6 });
+
+    expect(result.ok).toBe(true);
+    expect(store.resolveObject(mesh)).toBe(record);
+    const snapshot = inspectCanonicalGeometry(store, scene.children);
+    expect(snapshot.records).toHaveLength(1);
+    expect(snapshot.objectLinks).toHaveLength(1);
+    expect(snapshot.objectLinks[0].canonicalGeometryId).toBe(record.id);
+    expect(snapshot.objectLinks[0].position).toEqual([4, 5, 6]);
+    expect(snapshot.objectLinks[0].worldMatrix).toEqual(mesh.matrixWorld.elements.slice());
+  });
+
+  test("SdCopy creates a second object instance linked to the same canonical geometry", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdCopy", { target: mesh.uuid, x: 7, y: 0, z: 0 });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(1);
+    const clone = added[0];
+    expect(clone).not.toBe(mesh);
+    expect(store.resolveObject(clone)).toBe(record);
+    expect(clone.position.x).toBe(7);
+
+    const snapshot = inspectCanonicalGeometry(store, scene.children);
+    const links = snapshot.objectLinks.filter((link) => link.canonicalGeometryId === record.id);
+    expect(links).toHaveLength(2);
+    expect(snapshot.linkedRecordIds).toEqual([record.id]);
+    expect(snapshot.unlinkedRecordIds).toEqual([]);
+  });
+
+  test("SdArray preserves canonical geometry links across generated instances", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdArray", {
+      target: mesh.uuid,
+      cols: 3,
+      rows: 2,
+      spacing: [10, 0, 0],
+      spacingY: [0, 20, 0],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(6);
+    for (const obj of added) {
+      expect(store.resolveObject(obj)).toBe(record);
+    }
+
+    const snapshot = inspectCanonicalGeometry(store, scene.children);
+    const links = snapshot.objectLinks.filter((link) => link.canonicalGeometryId === record.id);
+    expect(links).toHaveLength(7);
+    expect(links.map((link) => link.position).sort()).toEqual([
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 20, 0],
+      [10, 0, 0],
+      [10, 20, 0],
+      [20, 0, 0],
+      [20, 20, 0],
+    ]);
   });
 });
