@@ -446,7 +446,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         setStatus(`OBJ \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "3dm") {
         setStatus("Exporting 3DM (loading Rhino runtime)…", "info");
-        const buf = await export3dm(obj);
+        const buf = await export3dm(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/octet-stream" }), `${stem}.3dm`);
         setStatus(`3DM \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "dwg") {

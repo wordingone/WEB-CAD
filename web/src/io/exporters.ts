@@ -22,6 +22,10 @@ import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
+import { canonicalGeometryToIfcNurbs, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
+import type { Surface } from "../nurbs/nurbs-surfaces.js";
+import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
 
 // --- OBJ ---
 
@@ -97,9 +101,61 @@ export function exportStl(object: THREE.Object3D): ArrayBuffer {
 
 // --- 3DM (Rhino) ---
 
-// Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, converts
-// each mesh to a rhino3dm.Mesh, adds to a File3dm, serializes to bytes.
-export async function export3dm(object: THREE.Object3D): Promise<Uint8Array> {
+export type Export3dmOptions = {
+  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function addKernelNurbsSurfaceToRhinoFile(rh: any, file: any, surface: KernelNurbsSurface): void {
+  const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
+  const isRational = weights.some((w) => w !== 1);
+  const ns = rh.NurbsSurface.create(3, isRational, degreeU + 1, degreeV + 1, countU, countV);
+  if (!ns) throw new Error("addKernelNurbsSurfaceToRhinoFile: NurbsSurface.create returned null");
+
+  const pts = ns.points();
+  for (let i = 0; i < countU; i++) {
+    for (let j = 0; j < countV; j++) {
+      const idx = i * countV + j;
+      const p = controlPoints[idx];
+      const w = weights[idx] ?? 1;
+      if (!p) continue;
+      pts.set(i, j, isRational ? [p[0] * w, p[1] * w, p[2] * w, w] : [p[0], p[1], p[2]]);
+    }
+  }
+
+  const ku = ns.knotsU();
+  const kv = ns.knotsV();
+  const truncU = knotsU.slice(1, knotsU.length - 1);
+  const truncV = knotsV.slice(1, knotsV.length - 1);
+  if (truncU.length !== ku.count) {
+    ns.delete?.();
+    throw new Error(`addKernelNurbsSurfaceToRhinoFile: U-knot length mismatch ${truncU.length} vs ${ku.count}`);
+  }
+  if (truncV.length !== kv.count) {
+    ns.delete?.();
+    throw new Error(`addKernelNurbsSurfaceToRhinoFile: V-knot length mismatch ${truncV.length} vs ${kv.count}`);
+  }
+  for (let i = 0; i < truncU.length; i++) ku.set(i, truncU[i]);
+  for (let i = 0; i < truncV.length; i++) kv.set(i, truncV[i]);
+
+  file.objects().addSurface(ns);
+  ns.delete?.();
+}
+
+function canonicalOrSidecarNurbsFor3dm(
+  mesh: THREE.Mesh,
+  options: Export3dmOptions,
+): KernelNurbsSurface | null {
+  const canonical = options.getCanonicalGeometryForObject?.(mesh);
+  const fromCanonical = canonicalGeometryToIfcNurbs(canonical, mesh.matrixWorld);
+  if (fromCanonical) return fromCanonical;
+  const sidecarSurface = mesh.userData.nurbsSurface as Surface | undefined;
+  return sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld) : null;
+}
+
+// Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, writes
+// canonical/runtime NURBS surfaces where available, and falls back to meshes.
+export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rhino3dmInit = ((await import("rhino3dm")) as any).default;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,6 +168,12 @@ export async function export3dm(object: THREE.Object3D): Promise<Uint8Array> {
   object.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
+    const nurbsSurface = canonicalOrSidecarNurbsFor3dm(mesh, options);
+    if (nurbsSurface) {
+      addKernelNurbsSurfaceToRhinoFile(rh, file, nurbsSurface);
+      return;
+    }
+
     const geom = mesh.geometry as THREE.BufferGeometry;
     const posAttr = geom.attributes.position;
     if (!posAttr) return;

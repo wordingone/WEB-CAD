@@ -188,10 +188,13 @@ describe("BRep canonical migration characterization", () => {
     expect(domEvents).toContain("mesh: { vertices: new Float32Array(verts), indices: new Uint32Array(idx) }");
   });
 
-  test("3DM export currently writes Rhino mesh objects, not BRep/NURBS objects", () => {
+  test("3DM export prefers canonical NURBS surfaces while retaining mesh fallback", () => {
     const exporters = source("io/exporters.ts");
 
-    expect(exporters).toContain("export async function export3dm(object: THREE.Object3D): Promise<Uint8Array>");
+    expect(exporters).toContain("export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array>");
+    expect(exporters).toContain("canonicalGeometryToIfcNurbs(canonical, mesh.matrixWorld)");
+    expect(exporters).toContain("surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld)");
+    expect(exporters).toContain("file.objects().addSurface(ns)");
     expect(exporters).toContain("object.traverse((child) =>");
     expect(exporters).toContain("const geom = mesh.geometry as THREE.BufferGeometry");
     expect(exporters).toContain("const rhinoMesh: any = new rh.Mesh()");
