@@ -24,7 +24,9 @@ import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
 import { canonicalGeometryToIfcNurbs, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
-import { tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
+import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
+import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
+import type { Curve, NurbsCurve as KernelNurbsCurve } from "../nurbs/nurbs-curves.js";
 import type { Surface } from "../nurbs/nurbs-surfaces.js";
 import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
 
@@ -149,6 +151,111 @@ export function addKernelNurbsSurfaceToRhinoFile(rh: any, file: any, surface: Ke
   ns.delete?.();
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function addKernelNurbsCurveToRhinoFile(rh: any, file: any, curve: KernelNurbsCurve): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nc: any = new rh.NurbsCurve(curve.dim, curve.isRational, curve.order, curve.cvCount);
+  const pts = nc.points();
+  for (let i = 0; i < curve.cvCount; i++) {
+    const base = i * curve.cvStride;
+    const w = curve.isRational ? curve.cvs[base + curve.dim] ?? 1 : 1;
+    const point = [
+      curve.cvs[base] ?? 0,
+      curve.cvs[base + 1] ?? 0,
+      curve.dim >= 3 ? curve.cvs[base + 2] ?? 0 : 0,
+    ];
+    pts.set(i, curve.isRational ? [...point, w] : point);
+  }
+
+  const knots = nc.knots();
+  if (curve.knots.length !== knots.count) {
+    nc.delete?.();
+    throw new Error(`addKernelNurbsCurveToRhinoFile: knot length mismatch ${curve.knots.length} vs ${knots.count}`);
+  }
+  for (let i = 0; i < curve.knots.length; i++) knots.set(i, curve.knots[i]);
+
+  file.objects().addCurve(nc);
+  nc.delete?.();
+}
+
+function lineCurveToNurbs(curve: Extract<Curve, { kind: "line" }>): KernelNurbsCurve {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: 2,
+    knots: [0, 1],
+    cvs: [
+      curve.from.x, curve.from.y, curve.from.z,
+      curve.to.x, curve.to.y, curve.to.z,
+    ],
+    cvStride: 3,
+  };
+}
+
+function polylineCurveToNurbs(curve: Extract<Curve, { kind: "polyline" }>): KernelNurbsCurve {
+  const points = curve.points.length >= 2 ? curve.points : [
+    curve.points[0] ?? { x: 0, y: 0, z: 0 },
+    curve.points[0] ?? { x: 0, y: 0, z: 0 },
+  ];
+  const max = points.length - 1;
+  const knots = points.map((_, i) => {
+    const param = curve.parameters[i];
+    return Number.isFinite(param) ? param : i / max;
+  });
+  const cvs = points.flatMap((point) => [point.x, point.y, point.z]);
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: points.length,
+    knots,
+    cvs,
+    cvStride: 3,
+  };
+}
+
+function exactCanonicalCurveToNurbs(curve: Curve): KernelNurbsCurve {
+  switch (curve.kind) {
+    case "nurbs":
+      return curve;
+    case "line":
+      return lineCurveToNurbs(curve);
+    case "polyline":
+      return polylineCurveToNurbs(curve);
+    case "arc":
+      return nurbsCurveFromArc(curve);
+  }
+}
+
+function canonicalCurveToRhinoNurbs(curve: Curve, matrix?: THREE.Matrix4): KernelNurbsCurve {
+  let nurbs: KernelNurbsCurve;
+  try {
+    nurbs = exactCanonicalCurveToNurbs(curve);
+  } catch {
+    nurbs = curveToNurbsForm(curve).curve;
+  }
+  if (!matrix) return nurbs;
+  const cvs: number[] = [];
+  for (let i = 0; i < nurbs.cvCount; i++) {
+    const base = i * nurbs.cvStride;
+    const w = nurbs.isRational ? nurbs.cvs[base + nurbs.dim] ?? 1 : 1;
+    const point = new THREE.Vector3(
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base] ?? 0) / w : nurbs.cvs[base] ?? 0,
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base + 1] ?? 0) / w : nurbs.cvs[base + 1] ?? 0,
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base + 2] ?? 0) / w : nurbs.cvs[base + 2] ?? 0,
+    ).applyMatrix4(matrix);
+    if (nurbs.isRational) {
+      cvs.push(point.x * w, point.y * w, point.z * w, w);
+    } else {
+      cvs.push(point.x, point.y, point.z);
+    }
+  }
+  return { ...nurbs, dim: 3, cvs, cvStride: nurbs.isRational ? 4 : 3 };
+}
+
 function canonicalOrSidecarNurbsFor3dm(
   mesh: THREE.Mesh,
   options: Export3dmOptions,
@@ -173,6 +280,12 @@ export async function export3dm(object: THREE.Object3D, options: Export3dmOption
 
   object.updateMatrixWorld(true);
   object.traverse((child) => {
+    const canonical = options.getCanonicalGeometryForObject?.(child);
+    if (canonical?.kind === "curve") {
+      addKernelNurbsCurveToRhinoFile(rh, file, canonicalCurveToRhinoNurbs(canonical.curve, child.matrixWorld));
+      return;
+    }
+
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
     const nurbsSurface = canonicalOrSidecarNurbsFor3dm(mesh, options);

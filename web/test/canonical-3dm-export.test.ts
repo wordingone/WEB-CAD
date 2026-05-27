@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
-import { addKernelNurbsSurfaceToRhinoFile, export3dm } from "../src/io/exporters";
+import { addKernelNurbsCurveToRhinoFile, addKernelNurbsSurfaceToRhinoFile, export3dm } from "../src/io/exporters";
 import { surfaceToIfcNurbs } from "../src/ifc/canonical-ifc";
+import type { NurbsCurve } from "../src/nurbs/nurbs-curves";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 
 const surface: Surface = {
@@ -24,7 +25,8 @@ const surface: Surface = {
 
 function makeRhinoFake() {
   const addedSurfaces: unknown[] = [];
-  const created: Array<{
+  const addedCurves: unknown[] = [];
+  const createdSurfaces: Array<{
     dim: number;
     isRational: boolean;
     orderU: number;
@@ -36,8 +38,52 @@ function makeRhinoFake() {
     knotsV: number[];
     deleted: boolean;
   }> = [];
+  const createdCurves: Array<{
+    dim: number;
+    isRational: boolean;
+    order: number;
+    count: number;
+    points: Array<{ i: number; point: number[] }>;
+    knots: number[];
+    deleted: boolean;
+  }> = [];
+
+  class NurbsCurveFake {
+    private readonly record: (typeof createdCurves)[number];
+
+    constructor(dim: number, isRational: boolean, order: number, count: number) {
+      this.record = {
+        dim,
+        isRational,
+        order,
+        count,
+        points: [],
+        knots: [],
+        deleted: false,
+      };
+      createdCurves.push(this.record);
+    }
+
+    points() {
+      return {
+        set: (i: number, point: number[]) => this.record.points.push({ i, point }),
+      };
+    }
+
+    knots() {
+      return {
+        count: this.record.count + this.record.order - 2,
+        set: (i: number, knot: number) => { this.record.knots[i] = knot; },
+      };
+    }
+
+    delete() {
+      this.record.deleted = true;
+    }
+  }
 
   const rh = {
+    NurbsCurve: NurbsCurveFake,
     NurbsSurface: {
       create(dim: number, isRational: boolean, orderU: number, orderV: number, countU: number, countV: number) {
         const record = {
@@ -52,7 +98,7 @@ function makeRhinoFake() {
           knotsV: [] as number[],
           deleted: false,
         };
-        created.push(record);
+        createdSurfaces.push(record);
         return {
           points: () => ({
             set: (i: number, j: number, point: number[]) => record.points.push({ i, j, point }),
@@ -72,10 +118,11 @@ function makeRhinoFake() {
   };
   const file = {
     objects: () => ({
+      addCurve: (nc: unknown) => addedCurves.push(nc),
       addSurface: (ns: unknown) => addedSurfaces.push(ns),
     }),
   };
-  return { rh, file, created, addedSurfaces };
+  return { rh, file, createdCurves, createdSurfaces, addedCurves, addedSurfaces };
 }
 
 describe("canonical 3DM export", () => {
@@ -87,8 +134,8 @@ describe("canonical 3DM export", () => {
     addKernelNurbsSurfaceToRhinoFile(fake.rh, fake.file, nurbs);
 
     expect(fake.addedSurfaces).toHaveLength(1);
-    expect(fake.created).toHaveLength(1);
-    expect(fake.created[0]).toMatchObject({
+    expect(fake.createdSurfaces).toHaveLength(1);
+    expect(fake.createdSurfaces[0]).toMatchObject({
       dim: 3,
       isRational: false,
       orderU: 2,
@@ -97,14 +144,68 @@ describe("canonical 3DM export", () => {
       countV: 2,
       deleted: true,
     });
-    expect(fake.created[0].points.map((p) => p.point)).toEqual([
+    expect(fake.createdSurfaces[0].points.map((p) => p.point)).toEqual([
       [0, 0, 0],
       [0, 3, 0],
       [2, 0, 0],
       [2, 3, 0],
     ]);
-    expect(fake.created[0].knotsU).toEqual([0, 1]);
-    expect(fake.created[0].knotsV).toEqual([0, 1]);
+    expect(fake.createdSurfaces[0].knotsU).toEqual([0, 1]);
+    expect(fake.createdSurfaces[0].knotsV).toEqual([0, 1]);
+  });
+
+  test("writes kernel NURBS curves to Rhino File3dm curves", () => {
+    const curve: NurbsCurve = {
+      kind: "nurbs",
+      dim: 3,
+      isRational: false,
+      order: 2,
+      cvCount: 2,
+      knots: [0, 1],
+      cvs: [0, 0, 0, 3, 4, 0],
+      cvStride: 3,
+    };
+    const fake = makeRhinoFake();
+
+    addKernelNurbsCurveToRhinoFile(fake.rh, fake.file, curve);
+
+    expect(fake.addedCurves).toHaveLength(1);
+    expect(fake.createdCurves).toHaveLength(1);
+    expect(fake.createdCurves[0]).toMatchObject({
+      dim: 3,
+      isRational: false,
+      order: 2,
+      count: 2,
+      deleted: true,
+    });
+    expect(fake.createdCurves[0].points.map((p) => p.point)).toEqual([
+      [0, 0, 0],
+      [3, 4, 0],
+    ]);
+    expect(fake.createdCurves[0].knots).toEqual([0, 1]);
+  });
+
+  test("writes rational kernel NURBS curves with homogeneous control points", () => {
+    const curve: NurbsCurve = {
+      kind: "nurbs",
+      dim: 3,
+      isRational: true,
+      order: 3,
+      cvCount: 3,
+      knots: [0, 0, 1, 1],
+      cvs: [1, 0, 0, 1, 2, 2, 0, 0.5, 0, 1, 0, 1],
+      cvStride: 4,
+    };
+    const fake = makeRhinoFake();
+
+    addKernelNurbsCurveToRhinoFile(fake.rh, fake.file, curve);
+
+    expect(fake.createdCurves[0].points.map((p) => p.point)).toEqual([
+      [1, 0, 0, 1],
+      [2, 2, 0, 0.5],
+      [0, 1, 0, 1],
+    ]);
+    expect(fake.createdCurves[0].knots).toEqual([0, 0, 1, 1]);
   });
 
   test("export3dm accepts canonical geometry resolver option", () => {
