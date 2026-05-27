@@ -86,6 +86,7 @@ export type CanonicalClipPlaneSnapshot = {
 export type CanonicalClippedObjectLink = {
   objectUuid: string;
   canonicalGeometryId: CanonicalGeometryId;
+  recordSummary?: CanonicalGeometryRecordSummary;
   planeLabel: string;
   relation: "intersecting" | "inside" | "outside";
   bounds: {
@@ -255,6 +256,7 @@ export function inspectCanonicalClipping(
     root.traverse((obj) => {
       const canonicalGeometryId = store.getLinkedId(obj);
       if (!canonicalGeometryId) return;
+      const record = store.get(canonicalGeometryId);
       const box = new Box3().setFromObject(obj);
       if (box.isEmpty()) return;
       for (const { label, plane } of planes) {
@@ -263,6 +265,7 @@ export function inspectCanonicalClipping(
         objectLinks.push({
           objectUuid: obj.uuid,
           canonicalGeometryId,
+          ...(record ? { recordSummary: summarizeCanonicalGeometry(record) } : {}),
           planeLabel: label,
           relation,
           bounds: {

@@ -196,18 +196,45 @@ describe("canonical geometry introspection", () => {
     expect(snapshot.objectLinks.map((link) => ({
       objectUuid: link.objectUuid,
       canonicalGeometryId: link.canonicalGeometryId,
+      recordSummary: link.recordSummary,
       planeLabel: link.planeLabel,
       relation: link.relation,
     }))).toEqual([
       {
         objectUuid: cutMesh.uuid,
         canonicalGeometryId: record.id,
+        recordSummary: {
+          canonicalGeometryId: record.id,
+          kind: "surface",
+          exactGeometry: {
+            kind: "surface",
+            surface,
+          },
+          surfaceKind: "sum",
+          surfaceDomain: {
+            u: [0, 2],
+            v: [0, 3],
+          },
+        },
         planeLabel: "clip-x0",
         relation: "intersecting",
       },
       {
         objectUuid: outsideMesh.uuid,
         canonicalGeometryId: record.id,
+        recordSummary: {
+          canonicalGeometryId: record.id,
+          kind: "surface",
+          exactGeometry: {
+            kind: "surface",
+            surface,
+          },
+          surfaceKind: "sum",
+          surfaceDomain: {
+            u: [0, 2],
+            v: [0, 3],
+          },
+        },
         planeLabel: "clip-x0",
         relation: "outside",
       },
