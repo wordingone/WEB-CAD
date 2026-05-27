@@ -461,7 +461,7 @@ describe("canonical geometry transform instances", () => {
     ]);
   });
 
-  test("SdBooleanUnion links the display result to a canonical BRep when both operands have canonical BReps", () => {
+  test("SdBooleanUnion links transformed display operands to a world-space canonical BRep result", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -482,14 +482,15 @@ describe("canonical geometry transform instances", () => {
       },
     };
     const geomA = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
-    const geomB = new THREE.BoxGeometry(1, 1, 1).translate(1.5, 0.5, 0.5);
+    const geomB = new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5);
     const a = new THREE.Mesh(geomA, new THREE.MeshStandardMaterial());
     const b = new THREE.Mesh(geomB, new THREE.MeshStandardMaterial());
+    b.position.x = 1;
     a.userData.kind = "brep";
     b.userData.kind = "brep";
     scene.add(a, b);
     const recordA = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
-    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(1, 2, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
     store.linkObject(a, recordA.id);
     store.linkObject(b, recordB.id);
     registerTransformHandlers(viewer as never);

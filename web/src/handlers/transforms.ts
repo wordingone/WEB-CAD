@@ -7,12 +7,21 @@ import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
+import { transformBrep } from "../nurbs/nurbs-brep";
+import type { Xform } from "../nurbs/nurbs-primitives";
 
 type BooleanOp = "union" | "difference" | "intersection";
 
-function isIdentityMatrix(matrix: THREE.Matrix4, tolerance = 1e-9): boolean {
-  const id = new THREE.Matrix4();
-  return matrix.elements.every((value, index) => Math.abs(value - id.elements[index]) <= tolerance);
+function threeMatrixToXform(matrix: THREE.Matrix4): Xform {
+  const e = matrix.elements;
+  return {
+    m: [
+      e[0], e[4], e[8], e[12],
+      e[1], e[5], e[9], e[13],
+      e[2], e[6], e[10], e[14],
+      e[3], e[7], e[11], e[15],
+    ],
+  };
 }
 
 function linkCanonicalBooleanResult(
@@ -25,17 +34,18 @@ function linkCanonicalBooleanResult(
 ): void {
   objA.updateMatrixWorld(true);
   objB.updateMatrixWorld(true);
-  if (!isIdentityMatrix(objA.matrixWorld) || !isIdentityMatrix(objB.matrixWorld)) return;
   const store = viewer.getCanonicalGeometryStore();
   const canonicalA = store.resolveObject(objA);
   const canonicalB = store.resolveObject(objB);
   if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return;
+  const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
+  const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
 
   const backend = new NurbsBooleanBackend();
   const canonicalResult =
-    op === "difference" ? backend.difference(canonicalA.brep, canonicalB.brep)
-      : op === "intersection" ? backend.intersection(canonicalA.brep, canonicalB.brep)
-        : backend.union(canonicalA.brep, canonicalB.brep);
+    op === "difference" ? backend.difference(brepA, brepB)
+      : op === "intersection" ? backend.intersection(brepA, brepB)
+        : backend.union(brepA, brepB);
   if (!canonicalResult.ok) return;
 
   const record = store.create({
