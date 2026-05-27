@@ -627,6 +627,14 @@ export class Viewer {
     return this.canonicalGeometryStore.resolveObject(obj);
   }
 
+  exportCanonicalGeometry(): CanonicalGeometry[] {
+    return this.canonicalGeometryStore.exportRecords();
+  }
+
+  importCanonicalGeometry(records: unknown[]): number {
+    return this.canonicalGeometryStore.importRecords(records);
+  }
+
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
   }

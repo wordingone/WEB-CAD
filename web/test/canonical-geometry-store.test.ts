@@ -87,4 +87,21 @@ describe("canonical geometry store", () => {
 
     expect(() => store.linkObject(mesh, "missing")).toThrow("Unknown canonical geometry id: missing");
   });
+
+  test("exports and imports canonical records for project persistence", () => {
+    const sourceStore = createCanonicalGeometryStore();
+    const record = sourceStore.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdBox",
+    });
+
+    const exported = sourceStore.exportRecords();
+    const targetStore = createCanonicalGeometryStore();
+    const imported = targetStore.importRecords(exported);
+
+    expect(imported).toBe(1);
+    expect(targetStore.require(record.id)).toEqual(record);
+  });
 });

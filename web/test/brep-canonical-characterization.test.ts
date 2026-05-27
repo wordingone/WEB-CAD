@@ -94,7 +94,9 @@ describe("BRep canonical migration characterization", () => {
     const shell = source("shell/shell.ts");
 
     expect(shell).toContain("version: 1");
+    expect(shell).toContain("canonicalGeometry: w.__viewer?.exportCanonicalGeometry?.() ?? []");
     expect(shell).toContain("__viewer?.exportScene?.()");
+    expect(shell).toContain("w.__viewer?.importCanonicalGeometry?.(parsed.canonicalGeometry)");
     expect(shell).toContain("__viewer?.importScene?.(parsed.objects)");
     expect(shell).toContain('picker.accept = ".gemarch,.json"');
     expect(shell).toContain('name.endsWith(".gemarch")');
@@ -104,6 +106,8 @@ describe("BRep canonical migration characterization", () => {
     const viewer = source("viewer/viewer.ts");
 
     expect(viewer).toContain("exportScene(): SerializedSceneObj[]");
+    expect(viewer).toContain("exportCanonicalGeometry(): CanonicalGeometry[]");
+    expect(viewer).toContain("importCanonicalGeometry(records: unknown[]): number");
     expect(viewer).toContain("geometry?: { position: number[]; normal?: number[]; index?: number[] }");
     expect(viewer).toContain("const geo = mesh.geometry as THREE.BufferGeometry");
     expect(viewer).toContain("const geo = new THREE.BufferGeometry()");

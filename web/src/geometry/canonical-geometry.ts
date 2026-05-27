@@ -122,6 +122,20 @@ export function createCanonicalGeometryStore(initial: CanonicalGeometry[] = []) 
       return [...records.values()];
     },
 
+    exportRecords(): CanonicalGeometry[] {
+      return store.list();
+    },
+
+    importRecords(nextRecords: unknown[]): number {
+      let count = 0;
+      for (const record of nextRecords) {
+        if (!isCanonicalGeometry(record)) continue;
+        records.set(record.id, record);
+        count++;
+      }
+      return count;
+    },
+
     linkObject(obj: CanonicalGeometryLinkable, id: CanonicalGeometryId): void {
       assertKnown(id);
       obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY] = id;

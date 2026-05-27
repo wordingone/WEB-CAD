@@ -406,11 +406,21 @@ function addToRecentFiles(name: string, data: string): void {
 
 function snapshotState(): object {
   const units = getState("unitSystem") ?? "metric";
-  const w = window as Window & { __viewer?: { exportScene?: () => unknown[] } };
-  return { version: 1, meta: { units, name: _currentFileName }, objects: w.__viewer?.exportScene?.() ?? [] };
+  const w = window as Window & { __viewer?: { exportScene?: () => unknown[]; exportCanonicalGeometry?: () => unknown[] } };
+  return {
+    version: 1,
+    meta: { units, name: _currentFileName },
+    canonicalGeometry: w.__viewer?.exportCanonicalGeometry?.() ?? [],
+    objects: w.__viewer?.exportScene?.() ?? [],
+  };
 }
 
-type _ParsedProject = { version?: number; meta?: { units?: string; name?: string }; objects?: unknown[] };
+type _ParsedProject = {
+  version?: number;
+  meta?: { units?: string; name?: string };
+  canonicalGeometry?: unknown[];
+  objects?: unknown[];
+};
 
 function setCurrentFileName(name: string): void {
   _currentFileName = name;
@@ -423,6 +433,10 @@ function loadProjectData(data: string, fileName: string): void {
     if (parsed.meta?.units) dispatchSync("SdSetUnits", { system: parsed.meta.units });
     const baseName = fileName.replace(/\.(gemarch|json)$/i, "");
     setCurrentFileName(parsed.meta?.name ?? baseName);
+    if (Array.isArray(parsed.canonicalGeometry)) {
+      const w = window as Window & { __viewer?: { importCanonicalGeometry?: (records: unknown[]) => number } };
+      w.__viewer?.importCanonicalGeometry?.(parsed.canonicalGeometry);
+    }
     if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
       const w = window as Window & { __viewer?: { importScene?: (o: unknown[]) => void } };
       w.__viewer?.importScene?.(parsed.objects);
