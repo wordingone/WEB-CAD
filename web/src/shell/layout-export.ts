@@ -265,25 +265,18 @@ export function applySheetCut(
   levels?: Record<string, SheetLevelRef>,
 ): void {
   viewer.clearClippingPlanes();
-  viewer.clearSectionBox();
-
-  const BIG = 1e6;
 
   if (t.viewType === "plan") {
     const lvl = levels?.[t.levelId ?? ""] ?? { elevation: 0 };
     const cut = (t.cutOffset ?? 1.372);
-    viewer.setSectionBox(
-      [-BIG, -BIG, lvl.elevation],
-      [ BIG,  BIG, lvl.elevation + cut],
-    );
+    viewer.addClippingPlane([0, 0, lvl.elevation],           [0,  0,  1], "sheet-z-floor");
+    viewer.addClippingPlane([0, 0, lvl.elevation + cut],     [0,  0, -1], "sheet-z-ceil");
   } else if (t.viewType === "rcp") {
     const lvl = levels?.[t.levelId ?? ""] ?? { elevation: 0, height: 3.0 };
     const rcpCut = t.rcpCutOffset ?? 2.44;
     const levelHeight = lvl.height ?? 3.0;
-    viewer.setSectionBox(
-      [-BIG, -BIG, lvl.elevation + rcpCut],
-      [ BIG,  BIG, lvl.elevation + levelHeight],
-    );
+    viewer.addClippingPlane([0, 0, lvl.elevation + rcpCut],       [0,  0,  1], "sheet-z-floor");
+    viewer.addClippingPlane([0, 0, lvl.elevation + levelHeight],  [0,  0, -1], "sheet-z-ceil");
   } else if (t.viewType === "section") {
     let origin: [number, number, number] = t.origin ?? [0, 0, 0];
     let normal: [number, number, number] = t.normal ?? [0, -1, 0];
@@ -330,10 +323,10 @@ export function applySheetCut(
       const cz = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
       const margin = 0.1;
       switch (t.cardinalDir) {
-        case "N": origin = [cx, bounds ? bounds.max.y + margin : BIG, cz]; normal = [0, -1, 0]; break;
-        case "S": origin = [cx, bounds ? bounds.min.y - margin : -BIG, cz]; normal = [0,  1, 0]; break;
-        case "E": origin = [bounds ? bounds.max.x + margin : BIG, cy, cz]; normal = [-1, 0, 0]; break;
-        case "W": origin = [bounds ? bounds.min.x - margin : -BIG, cy, cz]; normal = [ 1, 0, 0]; break;
+        case "N": origin = [cx, bounds ? bounds.max.y + margin : 1e6, cz]; normal = [0, -1, 0]; break;
+        case "S": origin = [cx, bounds ? bounds.min.y - margin : -1e6, cz]; normal = [0,  1, 0]; break;
+        case "E": origin = [bounds ? bounds.max.x + margin : 1e6, cy, cz]; normal = [-1, 0, 0]; break;
+        case "W": origin = [bounds ? bounds.min.x - margin : -1e6, cy, cz]; normal = [ 1, 0, 0]; break;
       }
     } else {
       origin = t.origin ?? [0, 0, 0];
@@ -354,7 +347,6 @@ export function applySheetCut(
 
 export function resetSheetCut(viewer: Viewer): void {
   viewer.clearClippingPlanes();
-  viewer.clearSectionBox();
 }
 
 export async function exportSheetSetAsPdf(

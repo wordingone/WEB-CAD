@@ -7,6 +7,7 @@
 import * as THREE from "three";
 import type { Viewer } from "./viewer";
 import { formatLength } from "../units.js";
+import { getState } from "../app-state.js";
 
 type Face = '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
 
@@ -93,6 +94,14 @@ function updatePositions(): void {
   if (!box) {
     _container.style.display = "none";
     updateDimChip();
+    return;
+  }
+  // Hidden in model mode by default — layout sheet cuts are internal and should
+  // not expose interactive handles in the model viewport. A future user-facing
+  // toggle may allow section-handle visibility/interactability in model mode.
+  if (getState('viewMode') !== 'layout') {
+    _container.style.display = "none";
+    if (_dimChip) _dimChip.style.display = "none";
     return;
   }
   _container.style.display = "block";
