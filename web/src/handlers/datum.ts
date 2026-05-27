@@ -6,6 +6,7 @@ import { levelStore, getActiveLevelId } from "../geometry/levels";
 import { makeLevelSprite } from "../tools/structural";
 import { resolveLayerId } from "./shared";
 import type { Point3 } from "../nurbs/nurbs-primitives";
+import type { Surface } from "../nurbs/nurbs-surfaces";
 
 function getActiveLevelElevation(): number {
   return levelStore.get(getActiveLevelId())?.elevation ?? 0;
@@ -104,6 +105,40 @@ export function registerDatumHandlers(viewer: Viewer): void {
     mesh.userData.creator = "IfcLevel";
     mesh.userData.levelId = level.id;
     mesh.userData.noSnap = true;
+    const surface: Surface = {
+      kind: "plane",
+      plane: {
+        origin: { x: 0, y: 0, z: 0 },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      uDomain: { min: -extent / 2, max: extent / 2 },
+      vDomain: { min: -extent / 2, max: extent / 2 },
+      uExtent: { min: -extent / 2, max: extent / 2 },
+      vExtent: { min: -extent / 2, max: extent / 2 },
+    };
+    const canonical = viewer.getCanonicalGeometryStore().create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdLevel",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        vertexCount: geom.getAttribute("position")?.count,
+        triangleCount: geom.index ? Math.floor(geom.index.count / 3) : undefined,
+        derivation: "tessellated-surface",
+      },
+      metadata: {
+        creator: mesh.userData.creator,
+        levelId: level.id,
+        elevation: elev,
+        height,
+        extent,
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(mesh, canonical.id);
     const label = makeLevelSprite(level.name);
     label.position.set(extent / 2 - 2.5, extent / 2 - 2.5, 0.3);
     mesh.add(label);

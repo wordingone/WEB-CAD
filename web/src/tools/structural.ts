@@ -1439,7 +1439,8 @@ function _drawLevelCanvas(name: string): HTMLCanvasElement {
   const W = 192, H = 48;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
   ctx.clearRect(0, 0, W, H);
   ctx.font = "500 20px system-ui,sans-serif";
   ctx.textAlign = "center";

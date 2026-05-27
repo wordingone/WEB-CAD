@@ -7,6 +7,7 @@ import {
   type CanonicalGeometryStore,
 } from "../src/geometry/canonical-geometry";
 import { inspectCanonicalGeometry, inspectCanonicalSelection } from "../src/geometry/canonical-introspection";
+import { levelStore } from "../src/geometry/levels";
 import { registerDatumHandlers } from "../src/handlers/datum";
 import type { Viewer } from "../src/viewer/viewer";
 
@@ -40,6 +41,10 @@ function makeViewer(): {
 
 beforeEach(() => {
   unregisterHandler("SdDatum");
+  unregisterHandler("SdLevel");
+  for (const level of levelStore.all().filter((l) => l.id !== "level/0")) {
+    levelStore.remove(level.id);
+  }
 });
 
 describe("canonical datum geometry", () => {
@@ -106,6 +111,39 @@ describe("canonical datum geometry", () => {
       canonicalGeometryId: canonicalId,
       kind: "point",
       point: [7, 8, 9],
+    });
+  });
+
+  test("SdLevel links its display plane to a canonical NURBS surface", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerDatumHandlers(viewer);
+
+    const result = dispatchSync("SdLevel", { elevation: 3, height: 4, extent: 12 });
+
+    if (!result.ok) throw new Error(result.detail ?? result.error);
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    expect(obj?.userData.kind).toBe("brep");
+    expect(obj?.userData.creator).toBe("IfcLevel");
+    expect(obj?.position.z).toBe(3);
+    const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("surface");
+    expect(canonical.createdBy).toBe("SdLevel");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toMatchObject({
+      kind: "plane",
+      uDomain: { min: -6, max: 6 },
+      vDomain: { min: -6, max: 6 },
+      uExtent: { min: -6, max: 6 },
+      vExtent: { min: -6, max: 6 },
+    });
+    expect(canonical.metadata).toMatchObject({
+      creator: "IfcLevel",
+      elevation: 3,
+      height: 4,
+      extent: 12,
     });
   });
 });
