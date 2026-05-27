@@ -120,6 +120,7 @@ function _updatePhaseLabel(): void {
 export function initBootScreen(): void {
   if (_initialized) return;
   _initialized = true;
+  document.getElementById('pre-boot')?.remove();
   _buildOverlay();
   // §#1637: capability gate runs after overlay is mounted; modal injects into document.body
   // at z-index:9999 (same layer as overlay), visible before model loading starts.
