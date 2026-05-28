@@ -322,13 +322,14 @@ function canonicalCurveToRhinoNurbs(curve: Curve, matrix?: THREE.Matrix4): Kerne
   return { ...nurbs, dim: 3, cvs, cvStride: nurbs.isRational ? 4 : 3 };
 }
 
-function canonicalOrSidecarNurbsFor3dm(
+export function canonicalOrSidecarNurbsFor3dm(
   mesh: THREE.Mesh,
   options: Export3dmOptions,
 ): KernelNurbsSurface[] {
   const canonical = options.getCanonicalGeometryForObject?.(mesh);
   const fromCanonical = canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld);
   if (fromCanonical.length > 0) return fromCanonical;
+  if (canonical) return [];
   const sidecarSurface = mesh.userData.nurbsSurface as Surface | undefined;
   const fromSidecar = sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld) : null;
   return fromSidecar ? [fromSidecar] : [];
