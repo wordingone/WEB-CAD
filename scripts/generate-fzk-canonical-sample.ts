@@ -79,7 +79,7 @@ try {
       expressID: flatMesh.expressID,
       sourceIfc: IFC_PATH,
     };
-    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: true });
+    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: false, surfaceKind: "nurbs" });
     if (!brep) {
       skipped++;
       continue;
@@ -107,7 +107,7 @@ try {
         expressID: flatMesh.expressID,
         schema,
         losslessFrom: "web-ifc placed triangle mesh",
-        facePolicy: "merge adjacent coplanar source triangles into exact planar trimmed BRep faces when the boundary is a single loop; otherwise preserve one planar face per triangle",
+        facePolicy: "preserve one exact degree-1 planar NURBS-trimmed BRep face per source triangle; no coplanar merging or geometric simplification",
         sourceTriangleCount: triangles,
         canonicalFaceCount: faceCount,
         closedShells,
@@ -134,7 +134,7 @@ try {
       name: "KIT FZK-Haus actual IFC mesh to planar BRep",
       sourceIfc: IFC_PATH.replace(/^web\/public\//, ""),
       conversion: "actual-ifc-mesh-to-planar-brep",
-      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Each source triangle becomes an exact planar trimmed BRep face; no hand-authored parametric substitution.",
+      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Each source triangle becomes one exact degree-1 planar NURBS-trimmed BRep face; no hand-authored parametric substitution or coplanar simplification.",
       sourceElements: flatMeshes.size(),
       convertedObjects: objects.length,
       skippedObjects: skipped,

@@ -13,7 +13,7 @@ type ProjectPayload = {
     kind?: string;
     metadata?: { conversion?: string; losslessFrom?: string; facePolicy?: string; sourceTriangleCount?: number; canonicalFaceCount?: number };
     displayMesh?: { triangleCount?: number };
-    brep?: { shells?: Array<{ isClosed?: boolean; faces?: unknown[]; edges?: Array<{ faceIndex2?: number | null }> }> };
+    brep?: { shells?: Array<{ isClosed?: boolean; faces?: Array<{ surface?: { kind?: string } }>; edges?: Array<{ faceIndex2?: number | null }> }> };
   }>;
   objects?: Array<{ displaySource?: string; userData?: Record<string, unknown> }>;
 };
@@ -42,15 +42,19 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     expect(payload.canonicalGeometry?.every((record) => record.kind === "brep")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.conversion === "actual-ifc-web-ifc-mesh-to-planar-brep")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.losslessFrom === "web-ifc placed triangle mesh")).toBe(true);
-    expect(payload.canonicalGeometry?.every((record) => record.metadata?.facePolicy?.includes("merge adjacent coplanar source triangles"))).toBe(true);
+    expect(payload.canonicalGeometry?.every((record) => record.metadata?.facePolicy?.includes("one exact degree-1 planar NURBS-trimmed BRep face per source triangle"))).toBe(true);
     const faceCount = payload.canonicalGeometry?.reduce((n, record) => (
       n + (record.brep?.shells ?? []).reduce((m, shell) => m + (shell.faces?.length ?? 0), 0)
+    ), 0) ?? 0;
+    const nurbsFaceCount = payload.canonicalGeometry?.reduce((n, record) => (
+      n + (record.brep?.shells ?? []).reduce((m, shell) => m + (shell.faces ?? []).filter((face) => face.surface?.kind === "nurbs").length, 0)
     ), 0) ?? 0;
     const triangleCount = payload.canonicalGeometry?.reduce((n, record) => n + (record.displayMesh?.triangleCount ?? 0), 0) ?? 0;
     const closedRecords = payload.canonicalGeometry?.filter((record) => record.brep?.shells?.some((shell) => shell.isClosed === true)).length ?? 0;
     expect(payload.meta?.totalTriangles).toBeDefined();
     expect(faceCount).toBe(payload.meta!.totalCanonicalFaces!);
-    expect(faceCount).toBeLessThan(payload.meta!.totalTriangles!);
+    expect(faceCount).toBe(payload.meta!.totalTriangles!);
+    expect(nurbsFaceCount).toBe(faceCount);
     expect(faceCount).toBeGreaterThan(10_000);
     expect(triangleCount).toBe(payload.meta!.totalTriangles!);
     expect(closedRecords).toBeGreaterThan(0);
@@ -75,7 +79,7 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     const sourceTriangles = record!.displayMesh?.triangleCount ?? 0;
     if (record?.kind !== "brep") throw new Error("expected BRep record");
     const canonicalFaces = record.brep.shells.reduce((n, shell) => n + shell.faces.length, 0);
-    expect(sourceTriangles).toBeGreaterThanOrEqual(canonicalFaces);
+    expect(sourceTriangles).toBe(canonicalFaces);
     expect(mesh.geometry.index?.count).toBeGreaterThanOrEqual(canonicalFaces * 3);
     expect(position.count).toBeGreaterThanOrEqual(canonicalFaces * 3);
   });

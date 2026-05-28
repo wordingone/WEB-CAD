@@ -8,7 +8,7 @@ import {
 } from "../nurbs/nurbs-brep";
 import type { Curve } from "../nurbs/nurbs-curves";
 import { Interval, Plane, type Point3 } from "../nurbs/nurbs-primitives";
-import type { PlaneSurface } from "../nurbs/nurbs-surfaces";
+import type { NurbsSurface, Surface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 import type { CanonicalGeometryStore } from "../geometry/canonical-geometry";
 
@@ -30,7 +30,37 @@ function vertexKey(v: THREE.Vector3): string {
   return `${q(v.x)},${q(v.y)},${q(v.z)}`;
 }
 
-function planeFaceFromLoop(points: THREE.Vector3[]): BrepFace | null {
+function planarNurbsSurface(
+  plane: Plane,
+  uMin: number,
+  uMax: number,
+  vMin: number,
+  vMax: number,
+): NurbsSurface {
+  const corner = (u: number, v: number): number[] => {
+    const x = plane.origin.x + plane.xAxis.x * u + plane.yAxis.x * v;
+    const y = plane.origin.y + plane.xAxis.y * u + plane.yAxis.y * v;
+    const z = plane.origin.z + plane.xAxis.z * u + plane.yAxis.z * v;
+    return [x, y, z];
+  };
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: [2, 2],
+    cvCount: [2, 2],
+    knots: [[uMin, uMax], [vMin, vMax]],
+    cvs: [
+      ...corner(uMin, vMin),
+      ...corner(uMin, vMax),
+      ...corner(uMax, vMin),
+      ...corner(uMax, vMax),
+    ],
+    cvStride: [6, 3],
+  };
+}
+
+function planeFaceFromLoop(points: THREE.Vector3[], surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
   if (points.length < 3) return null;
   const a = points[0];
   const b = points[1];
@@ -55,7 +85,7 @@ function planeFaceFromLoop(points: THREE.Vector3[]): BrepFace | null {
   const uMax = Math.max(...uv.map((p) => p.u));
   const vMin = Math.min(...uv.map((p) => p.v));
   const vMax = Math.max(...uv.map((p) => p.v));
-  const surface: PlaneSurface = {
+  const surface: Surface = surfaceKind === "nurbs" ? planarNurbsSurface(plane, uMin, uMax, vMin, vMax) : {
     kind: "plane",
     plane,
     uDomain: Interval.create(uMin, uMax),
@@ -85,8 +115,8 @@ function planeFaceFromLoop(points: THREE.Vector3[]): BrepFace | null {
   };
 }
 
-function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): BrepFace | null {
-  return planeFaceFromLoop([a, b, c]);
+function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
+  return planeFaceFromLoop([a, b, c], surfaceKind);
 }
 
 type TriangleDraft = {
@@ -141,7 +171,7 @@ function boundaryLoopForComponent(component: number[], triangles: TriangleDraft[
   return visited.size === next.size ? loop : null;
 }
 
-function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3[]): { faces: BrepFace[]; faceBoundaryVerts: THREE.Vector3[][]; mergedComponents: number; mergedTriangles: number } {
+function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3[], surfaceKind: "plane" | "nurbs"): { faces: BrepFace[]; faceBoundaryVerts: THREE.Vector3[][]; mergedComponents: number; mergedTriangles: number } {
   const edgeToTriangles = new Map<string, number[]>();
   for (let i = 0; i < triangles.length; i++) {
     const ids = triangles[i].vertexIds;
@@ -178,7 +208,7 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
     }
 
     const loop = component.length > 1 ? boundaryLoopForComponent(component, triangles) : null;
-    const face = loop ? planeFaceFromLoop(loop.map((id) => vertices[id])) : null;
+    const face = loop ? planeFaceFromLoop(loop.map((id) => vertices[id]), surfaceKind) : null;
     if (face && loop) {
       faces.push(face);
       faceBoundaryVerts.push(loop.map((id) => vertices[id]));
@@ -187,7 +217,7 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
     } else {
       for (const triIndex of component) {
         const tri = triangles[triIndex];
-        const triFace = planeFaceFromTriangle(...tri.verts);
+        const triFace = planeFaceFromTriangle(...tri.verts, surfaceKind);
         if (!triFace) continue;
         faces.push(triFace);
         faceBoundaryVerts.push(tri.verts);
@@ -199,6 +229,7 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
 
 export type MeshToPlanarBrepOptions = {
   mergeCoplanarFaces?: boolean;
+  surfaceKind?: "plane" | "nurbs";
 };
 
 export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOptions = {}): Brep | null {
@@ -237,10 +268,11 @@ export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOpti
   }
   if (triangles.length === 0) return null;
 
+  const surfaceKind = options.surfaceKind ?? "plane";
   const conversion = options.mergeCoplanarFaces
-    ? mergedCoplanarFaces(triangles, sourceVertices)
+    ? mergedCoplanarFaces(triangles, sourceVertices, surfaceKind)
     : {
-      faces: triangles.map((triangle) => planeFaceFromTriangle(...triangle.verts)).filter((face): face is BrepFace => Boolean(face)),
+      faces: triangles.map((triangle) => planeFaceFromTriangle(...triangle.verts, surfaceKind)).filter((face): face is BrepFace => Boolean(face)),
       faceBoundaryVerts: triangles.map((triangle) => triangle.verts),
       mergedComponents: 0,
       mergedTriangles: 0,
