@@ -13,8 +13,7 @@ import { getState } from "./app-state";
 import { getLayoutHost, activateMode } from "./shell/modes";
 import { exportLayoutAsSvg, exportLayoutAsPdf, exportLayoutAsDwgFallback, exportLayoutAsDxf, addPanel, getPanels } from "./shell/layout";
 import { buildIfc, buildIfcScene, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
-import { canonicalGeometryToIfcNurbsSurfaces, canonicalOrSidecarIfcNurbsSurfaces } from "./ifc/canonical-ifc";
-import type { Surface } from "./nurbs/nurbs-surfaces";
+import { canonicalGeometryToIfcNurbsSurfaces } from "./ifc/canonical-ifc";
 import { detectFormat, loadMainThreadFormat, buildIfcMesh, buildStepMesh, WORKER_FORMATS, MAIN_THREAD_FORMATS, isSupported, type LoadedScene } from "./io/loader";
 import { exportObj, exportGltfJson, exportGlb, exportUsdz, exportStl, export3dm, exportSvg, exportDxf, exportPdf } from "./io/exporters";
 import { undo, redo, clearHistory } from "./history";
@@ -543,10 +542,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         else { for (let j = 0; j < Math.floor(pos.length / 3); j++) idx.push(baseIndex + j); }
       });
       const rootCanonical = viewer.getCanonicalGeometryForObject(obj);
-      const sidecarSurface = obj.userData.nurbsSurface as Surface | undefined;
       const nurbsSurfaces = canonicalSurfaces.length > 0
         ? canonicalSurfaces
-        : canonicalOrSidecarIfcNurbsSurfaces(rootCanonical, sidecarSurface, obj.matrixWorld);
+        : canonicalGeometryToIfcNurbsSurfaces(rootCanonical, obj.matrixWorld);
       if (verts.length > 0) elements.push({
         mesh: { vertices: new Float32Array(verts), indices: new Uint32Array(idx) },
         nurbsSurfaces: nurbsSurfaces.length > 0 ? nurbsSurfaces : undefined,

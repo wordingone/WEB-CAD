@@ -4,7 +4,7 @@ import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry
 import {
   addKernelNurbsCurveToRhinoFile,
   addKernelNurbsSurfaceToRhinoFile,
-  canonicalOrSidecarNurbsFor3dm,
+  canonicalNurbsFor3dm,
   export3dm,
 } from "../src/io/exporters";
 import { surfaceToIfcNurbs } from "../src/ifc/canonical-ifc";
@@ -226,7 +226,7 @@ describe("canonical 3DM export", () => {
     expect(options.getCanonicalGeometryForObject?.(mesh)).toBe(record);
   });
 
-  test("3DM NURBS surface lookup does not fall back to stale sidecars when canonical geometry is linked", () => {
+  test("3DM NURBS surface lookup ignores stale sidecars when canonical geometry is linked", () => {
     const store = createCanonicalGeometryStore();
     const record = store.create({
       kind: "point",
@@ -238,19 +238,19 @@ describe("canonical 3DM export", () => {
     mesh.userData.nurbsSurface = surface;
     store.linkObject(mesh, record.id);
 
-    const surfaces = canonicalOrSidecarNurbsFor3dm(mesh, {
+    const surfaces = canonicalNurbsFor3dm(mesh, {
       getCanonicalGeometryForObject: (obj) => store.resolveObject(obj),
     });
 
     expect(surfaces).toEqual([]);
   });
 
-  test("3DM NURBS surface lookup keeps sidecar fallback for legacy unlinked objects", () => {
+  test("3DM NURBS surface lookup does not export unlinked sidecars as exact geometry", () => {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
     mesh.userData.nurbsSurface = surface;
 
-    const surfaces = canonicalOrSidecarNurbsFor3dm(mesh, {});
+    const surfaces = canonicalNurbsFor3dm(mesh, {});
 
-    expect(surfaces).toHaveLength(1);
+    expect(surfaces).toEqual([]);
   });
 });

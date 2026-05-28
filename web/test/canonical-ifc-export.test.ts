@@ -4,7 +4,6 @@ import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry
 import {
   canonicalGeometryToIfcNurbs,
   canonicalGeometryToIfcNurbsSurfaces,
-  canonicalOrSidecarIfcNurbsSurfaces,
   surfaceToIfcNurbs,
 } from "../src/ifc/canonical-ifc";
 import { buildIfcScene } from "../src/ifc/ifc-build";
@@ -74,7 +73,7 @@ describe("canonical IFC export", () => {
     expect(nurbs?.controlPoints[3]).toEqual([3, 5, 3]);
   });
 
-  test("IFC NURBS surface lookup does not fall back to stale sidecars when canonical geometry is linked", () => {
+  test("IFC NURBS surface lookup ignores stale sidecars when canonical geometry is linked", () => {
     const store = createCanonicalGeometryStore();
     const record = store.create({
       kind: "point",
@@ -83,16 +82,15 @@ describe("canonical IFC export", () => {
       createdBy: "SdDatum",
     });
 
-    const surfaces = canonicalOrSidecarIfcNurbsSurfaces(record, surface);
+    const surfaces = canonicalGeometryToIfcNurbsSurfaces(record);
 
     expect(surfaces).toEqual([]);
   });
 
-  test("IFC NURBS surface lookup keeps sidecar fallback for legacy unlinked objects", () => {
-    const surfaces = canonicalOrSidecarIfcNurbsSurfaces(undefined, surface);
+  test("IFC NURBS surface lookup does not export unlinked sidecars as exact geometry", () => {
+    const surfaces = canonicalGeometryToIfcNurbsSurfaces(undefined);
 
-    expect(surfaces).toHaveLength(1);
-    expect(surfaces[0].controlPoints[0]).toEqual([0, 0, 0]);
+    expect(surfaces).toEqual([]);
   });
 
   test("resolves canonical BRep face surfaces for NURBS-capable export", () => {

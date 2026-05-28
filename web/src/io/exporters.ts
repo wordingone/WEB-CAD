@@ -23,11 +23,11 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
-import { canonicalGeometryToIfcNurbsSurfaces, surfaceToIfcNurbs } from "../ifc/canonical-ifc.js";
+import { canonicalGeometryToIfcNurbsSurfaces } from "../ifc/canonical-ifc.js";
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
 import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
 import type { Curve, NurbsCurve as KernelNurbsCurve } from "../nurbs/nurbs-curves.js";
-import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces.js";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
 import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
 
 export type CanonicalExportOptions = {
@@ -322,17 +322,14 @@ function canonicalCurveToRhinoNurbs(curve: Curve, matrix?: THREE.Matrix4): Kerne
   return { ...nurbs, dim: 3, cvs, cvStride: nurbs.isRational ? 4 : 3 };
 }
 
-export function canonicalOrSidecarNurbsFor3dm(
+export function canonicalNurbsFor3dm(
   mesh: THREE.Mesh,
   options: Export3dmOptions,
 ): KernelNurbsSurface[] {
   const canonical = options.getCanonicalGeometryForObject?.(mesh);
   const fromCanonical = canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld);
   if (fromCanonical.length > 0) return fromCanonical;
-  if (canonical) return [];
-  const sidecarSurface = mesh.userData.nurbsSurface as Surface | undefined;
-  const fromSidecar = sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld) : null;
-  return fromSidecar ? [fromSidecar] : [];
+  return [];
 }
 
 // Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, writes
@@ -356,7 +353,7 @@ export async function export3dm(object: THREE.Object3D, options: Export3dmOption
 
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
-    const nurbsSurfaces = canonicalOrSidecarNurbsFor3dm(mesh, options);
+    const nurbsSurfaces = canonicalNurbsFor3dm(mesh, options);
     if (nurbsSurfaces.length > 0) {
       for (const surface of nurbsSurfaces) addKernelNurbsSurfaceToRhinoFile(rh, file, surface);
       return;

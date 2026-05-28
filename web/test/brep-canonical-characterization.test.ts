@@ -524,7 +524,8 @@ describe("BRep canonical migration characterization", () => {
 
     expect(exporters).toContain("export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array>");
     expect(exporters).toContain("canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld)");
-    expect(exporters).toContain("surfaceToIfcNurbs(sidecarSurface, mesh.matrixWorld)");
+    expect(exporters).not.toContain("mesh.userData.nurbsSurface");
+    expect(exporters).not.toContain("canonicalOrSidecar");
     expect(exporters).toContain("file.objects().addSurface(ns)");
     expect(exporters).toContain("object.traverse((child) =>");
     expect(exporters).toContain("const geom = mesh.geometry as THREE.BufferGeometry");
@@ -538,6 +539,8 @@ describe("BRep canonical migration characterization", () => {
     expect(domEvents).toContain("const buf = exportStl(stlSrc, {");
     expect(domEvents).toContain("const text = exportObj(obj, {");
     expect(domEvents).toContain("getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target)");
+    expect(domEvents).not.toContain("obj.userData.nurbsSurface");
+    expect(domEvents).not.toContain("canonicalOrSidecar");
   });
 
   test("imported mesh objects are linked into canonical BRep records at scene entry", () => {
