@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import { getState, setState, syncToolActiveClass } from "../src/app-state";
 import { buildPalette, PALETTE_SECTIONS } from "../src/shell/workbench-panels";
 import { dispatchSync } from "../src/commands/dispatch";
+import { resolveAlias } from "../src/commands/dictionary";
 import { getCreateToolCausalSpecs, type CreateToolCausalSpec } from "../src/tools/index";
 import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
 
@@ -66,6 +67,74 @@ const EXPECTED_CREATE_SPECS: Record<string, Pick<CreateToolCausalSpec, "clicks" 
   section: { clicks: 2, chain: false },
   clip: { clicks: 1, chain: false },
   "clip-section": { clicks: 2, chain: false },
+};
+
+const EXPECTED_PALETTE_COMMANDS: Record<string, string> = {
+  select: "SdSelect",
+  move: "SdMove",
+  rotate: "SdRotate",
+  scale: "SdScale",
+  copy: "SdCopy",
+  array: "SdArray",
+  "align-left": "SdAlignObjects",
+  "align-center-h": "SdAlignObjects",
+  "align-right": "SdAlignObjects",
+  "align-top": "SdAlignObjects",
+  "align-center-v": "SdAlignObjects",
+  "align-bottom": "SdAlignObjects",
+  "dist-h": "SdAlignObjects",
+  "dist-v": "SdAlignObjects",
+  line: "SdLine",
+  rect: "SdRectangle",
+  circle: "SdCircle",
+  polygon: "SdPolygon",
+  arc: "SdArc",
+  polyline: "SdPolyline",
+  curve: "SdCurve",
+  spline: "SdSpline",
+  point: "SdPoint",
+  extrude: "SdExtrude",
+  loft: "SdLoft",
+  sweep: "SdSweep",
+  revolve: "SdRevolve",
+  plane: "SdPlane",
+  surface: "SdSurface",
+  boolean: "SdBoolean",
+  "bool-union": "SdBooleanUnion",
+  "bool-diff": "SdBooleanDifference",
+  "bool-intersect": "SdBooleanIntersection",
+  fillet: "SdFillet",
+  "brep-explode": "SdExplode",
+  "brep-join": "SdJoin",
+  "brep-rebuild": "SdRebuild",
+  "brep-contour": "SdContour",
+  wall: "SdWall",
+  slab: "SdSlab",
+  column: "SdColumn",
+  beam: "SdBeam",
+  roof: "SdRoof",
+  space: "SdSpace",
+  foundation: "SdFoundation",
+  ceiling: "SdCeiling",
+  grid: "SdRefGrid",
+  level: "SdLevel",
+  datum: "SdDatum",
+  stair: "SdStair",
+  door: "SdDoor",
+  window: "SdWindow",
+  ramp: "SdRamp",
+  railing: "SdRailing",
+  curtainwall: "SdCurtainWall",
+  skylight: "SdSkylight",
+  opening: "SdOpening",
+  section: "SdSectionBox",
+  clip: "SdClippingPlane",
+  "aligned-dim": "SdAlignedDim",
+  "angular-dim": "SdAngularDim",
+  "area-dim": "SdAreaDim",
+  "volume-dim": "SdVolumeDim",
+  label: "SdLabel",
+  "transient-measure": "SdTransientMeasure",
 };
 
 function visibleToolIds(host: HTMLElement): string[] {
@@ -198,6 +267,15 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
       const result = dispatchSync("setActiveTool", { toolId });
       expect(result.ok, toolId).toBe(true);
       expect(getState("activeTool"), toolId).toBe(toolId);
+    }
+  });
+
+  test("every visible model palette button resolves to its agent-facing Sd command equivalent", () => {
+    const ids = PALETTE_SECTIONS.flatMap((section) => section.tools.map((tool) => tool.id));
+
+    expect(Object.keys(EXPECTED_PALETTE_COMMANDS).sort()).toEqual([...new Set(ids)].sort());
+    for (const [paletteId, command] of Object.entries(EXPECTED_PALETTE_COMMANDS)) {
+      expect(resolveAlias(paletteId), paletteId).toBe(command);
     }
   });
 });

@@ -488,7 +488,7 @@
     required: [a, b]
   topology_role: compound
   kg_predicates: []
-  synonyms: [union, fuse, booleanunion, "boolean union", merge, add]
+  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -504,7 +504,7 @@
     required: [outer, inner]
   topology_role: solid
   kg_predicates: [hosts]
-  synonyms: [difference, cut, subtract, "boolean cut", booleandiff]
+  synonyms: [difference, cut, subtract, "boolean cut", booleandiff, bool-diff]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -520,7 +520,7 @@
     required: [a, b]
   topology_role: solid
   kg_predicates: []
-  synonyms: [intersection, intersect, common]
+  synonyms: [intersection, intersect, common, bool-intersect]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -914,7 +914,7 @@
     required: [mode]
   topology_role: transform
   kg_predicates: []
-  synonyms: [align, distribute, align left, align right, align top, align bottom, align center, align center horizontal, align center vertical, distribute horizontal, distribute vertical]
+  synonyms: [align, distribute, align left, align-left, align right, align-right, align top, align-top, align bottom, align-bottom, align center, align center horizontal, align-center-h, align center vertical, align-center-v, distribute horizontal, dist-h, distribute vertical, dist-v]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -1768,7 +1768,7 @@
     required: [targets]
   topology_role: solid
   kg_predicates: []
-  synonyms: [join, joinbrep, merge-surfaces]
+  synonyms: [join, brep-join, joinbrep, merge-surfaces]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -1786,7 +1786,7 @@
     required: [target]
   topology_role: curve
   kg_predicates: []
-  synonyms: [rebuild, refit]
+  synonyms: [rebuild, brep-rebuild, refit]
   kernel: nurbs-webgpu
   alias_source: generic_cad_vocabulary
 
@@ -1807,7 +1807,7 @@
     required: [target]
   topology_role: curve
   kg_predicates: []
-  synonyms: [contour, sections, slice]
+  synonyms: [contour, brep-contour, sections, slice]
   kernel: nurbs-webgpu
   alias_source: generic_cad_vocabulary
 
@@ -2159,7 +2159,7 @@
     required: [a, b]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [aligned dim, linear dim, distance, measure length, SdDimAligned, aligned dimension, dim aligned, linear dimension]
+  synonyms: [aligned dim, aligned-dim, linear dim, distance, measure length, SdDimAligned, aligned dimension, dim aligned, linear dimension]
   returns: {measured: length, distance: number, unit: m}
   alias_source: generic_cad_vocabulary
 
@@ -2177,7 +2177,7 @@
     required: [vertex, ray1, ray2]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [angular dim, angle between, measure angle, SdDimAngular, angular dimension, dim angular, angle dimension]
+  synonyms: [angular dim, angular-dim, angle between, measure angle, SdDimAngular, angular dimension, dim angular, angle dimension]
   returns: {measured: angle, angleDeg: number, unit: deg}
   alias_source: generic_cad_vocabulary
 
@@ -2191,7 +2191,7 @@
     required: [points]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [area dim, measure area, polygon area, floor area]
+  synonyms: [area dim, area-dim, measure area, polygon area, floor area]
   returns: {measured: area, area: number, unit: m2}
   alias_source: generic_cad_vocabulary
 
@@ -2205,7 +2205,7 @@
     required: [id]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [volume dim, measure volume, object volume]
+  synonyms: [volume dim, volume-dim, measure volume, object volume]
   returns: {measured: volume, volume: number, unit: m3}
   alias_source: generic_cad_vocabulary
 
@@ -2238,7 +2238,7 @@
     required: []
   topology_role: annotation
   kg_predicates: []
-  synonyms: [transient measure, quick measure, measure distance, measure]
+  synonyms: [transient measure, transient-measure, quick measure, measure distance, measure]
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2435,7 +2435,7 @@
     required: [min, max]
   topology_role: view
   kg_predicates: []
-  synonyms: [sectionbox, "section box", "crop box", "clip box", "section volume"]
+  synonyms: [section, sectionbox, "section box", "crop box", "clip box", "section volume"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -2491,7 +2491,7 @@
     required: [origin, normal]
   topology_role: view
   kg_predicates: []
-  synonyms: [clippingplane, "clipping plane", "cut plane", "section plane", "clip plane"]
+  synonyms: [clip, clippingplane, "clipping plane", "cut plane", "section plane", "clip plane"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
