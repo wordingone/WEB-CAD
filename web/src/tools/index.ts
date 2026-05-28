@@ -17,7 +17,7 @@ import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActive
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";
@@ -30,6 +30,7 @@ import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
 import { linkCanonicalBrep } from "../handlers/canonical-surface";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import { transformBrep } from "../nurbs/nurbs-brep";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
 
@@ -619,8 +620,13 @@ function linkCreateModeExtrudedRectangleBrep(
   depth: number,
   height: number,
   createdBy: string,
+  zOffset = 0,
 ): void {
-  linkCanonicalBrep(viewer, obj, extrudeBrep(rectangleProfile(width, depth), { x: 0, y: 0, z: 1 }, height), createdBy);
+  const brep = extrudeBrep(rectangleProfile(width, depth), { x: 0, y: 0, z: 1 }, height);
+  const localBrep = zOffset === 0
+    ? brep
+    : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
+  linkCanonicalBrep(viewer, obj, localBrep, createdBy);
 }
 
 function linkCreateModeStructuralCanonical(
@@ -630,12 +636,59 @@ function linkCreateModeStructuralCanonical(
   pts: Array<{ x: number; y: number; z?: number }>,
 ): void {
   const a = pts[0];
+  if (!a) return;
+
+  if (tool === "column") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, 0.3, 0.3, DEFAULT_COLUMN_HEIGHT, "create-column");
+    return;
+  }
+
   const b = pts[1];
-  if (!a || !b) return;
+  if (!b) return;
   const run = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+
+  if (tool === "wall" || tool === "wall-polyline") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.2, DEFAULT_WALL_HEIGHT, `create-${tool}`);
+    return;
+  }
+
+  if (tool === "slab") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, DEFAULT_SLAB_THICKNESS, "create-slab");
+    return;
+  }
+
+  if (tool === "beam") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.2, 0.2, "create-beam", -0.1);
+    return;
+  }
+
+  if (tool === "space") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 2.8, "create-space");
+    return;
+  }
+
+  if (tool === "foundation") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 0.5, "create-foundation", -0.5);
+    return;
+  }
+
+  if (tool === "ceiling") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 0.05, "create-ceiling", -0.025);
+    return;
+  }
+
+  if (tool === "skylight") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 0.5, Math.abs(b.y - a.y) || 0.5, 0.04, "create-skylight", -0.02);
+    return;
+  }
 
   if (tool === "ramp") {
     linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 1.2, 0.15, "create-ramp");
+    return;
+  }
+
+  if (tool === "railing") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.05, 1, "create-railing");
     return;
   }
 

@@ -383,6 +383,57 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(groupRecord.brep.shells[0].isClosed).toBe(true);
   });
 
+  test("Box-like structural create tools link click-created display solids to canonical BReps", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    for (const [tool, first, second, createdBy] of [
+      ["wall", { x: 0, y: 0 }, { x: 4, y: 0 }, "create-wall"],
+      ["slab", { x: 0, y: 0 }, { x: 4, y: 3 }, "create-slab"],
+      ["beam", { x: 0, y: 0 }, { x: 4, y: 0 }, "create-beam"],
+      ["space", { x: 0, y: 0 }, { x: 4, y: 3 }, "create-space"],
+      ["foundation", { x: 0, y: 0 }, { x: 4, y: 3 }, "create-foundation"],
+      ["ceiling", { x: 0, y: 0 }, { x: 4, y: 3 }, "create-ceiling"],
+      ["skylight", { x: 0, y: 0 }, { x: 2, y: 1 }, "create-skylight"],
+      ["railing", { x: 0, y: 0 }, { x: 3, y: 0 }, "create-railing"],
+    ] as const) {
+      clearCreateSequence();
+      resetPending();
+      const v = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+      emitClickWorld(v as any, first, { tool });
+      const result = emitClickWorld(v as any, second, { tool });
+
+      expect(result).not.toBeNull();
+      const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+      expect(canonical?.kind).toBe("brep");
+      if (canonical?.kind !== "brep") throw new Error(`expected canonical BRep for ${tool}`);
+      expect(canonical.createdBy).toBe(createdBy);
+      expect(canonical.brep.shells[0].faces).toHaveLength(6);
+      expect(canonical.brep.shells[0].isClosed).toBe(true);
+    }
+  });
+
+  test("Column tool links single-click display solid to a canonical BRep", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const store = createCanonicalGeometryStore();
+    (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+    const result = emitClickWorld(v as any, { x: 2, y: 3 }, { tool: "column" });
+
+    expect(result).not.toBeNull();
+    const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep for column");
+    expect(canonical.createdBy).toBe("create-column");
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();
