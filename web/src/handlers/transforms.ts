@@ -368,6 +368,8 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!obj) return { error: `SdFillet — target not found: ${targetId}` };
     if (!(obj instanceof THREE.Mesh)) return { error: `SdFillet — target is not a Mesh` };
     const edgeId = args.edgeId as number | undefined;
+    const edgeFrom = args.edgeFrom as number[] | undefined;
+    const edgeTo = args.edgeTo as number[] | undefined;
     let filleted: THREE.Mesh;
     if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
@@ -384,6 +386,19 @@ export function registerTransformHandlers(viewer: Viewer): void {
       linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
         operation: "edge-chamfer",
         edgeId,
+        radius,
+      });
+    } else if (edgeFrom && edgeTo) {
+      const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
+      const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
+      filleted = chamferEdge(obj, worldA, worldB, radius);
+      if (filleted.userData._chamferError) {
+        return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
+      }
+      linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
+        operation: "edge-chamfer",
+        edgeFrom,
+        edgeTo,
         radius,
       });
     } else {

@@ -8,7 +8,7 @@
 //   op-tool-fillet-2d.ts     — opApply2DFillet
 
 import * as THREE from "three";
-import { filletMesh, chamferEdge, getUniqueEdges } from "./csg";
+import { getUniqueEdges } from "./csg";
 import type { Viewer } from "./viewer";
 import { getSnap, closestPtOnSegToRay } from "./snap-state";
 import { nearestSnapVertex } from "./snap-state";
@@ -18,7 +18,7 @@ import {
   ptShowCoordInput, ptHideCoordInput, _ptCoordInputEl,
 } from "./transforms";
 import { getChooserEl, opSetHover, setChooserHint } from "./picker-hint";
-import { pushAction, pushReplaceAction } from "../history";
+import { pushReplaceAction } from "../history";
 import { dispatchSync } from "../commands/dispatch";
 import { formatLength } from "../units";
 import {
@@ -28,7 +28,6 @@ import {
 import { applyBoolHighlight, restoreBoolHighlight } from "./op-tool-bool-highlight";
 import { opApply2DFillet } from "./op-tool-fillet-2d";
 import { linkOpToolExtrudeCanonical } from "./op-tool-canonical";
-import { linkPlanarizedMeshEditBrep } from "../handlers/mesh-planar-brep";
 
 // Re-export for callers that import these from op-tool (barrel pattern).
 export { EXTRUDABLE_CREATORS, opRaycastObject } from "./op-tool-extrude-mesh";
@@ -896,21 +895,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Explode — click a group or solid to decompose  [Escape = cancel]"); return true; }
     const obj = hit.obj;
     opSetHover(null);
-    if (obj instanceof THREE.Group) {
-      const children = [...obj.children];
-      if (children.length === 0) { ptPrompt("Explode — group is empty  [Escape = cancel]"); return true; }
-      const scene = viewer.getScene();
-      scene.remove(obj);
-      for (const child of children) {
-        child.applyMatrix4(obj.matrixWorld);
-        child.updateMatrixWorld(true);
-        scene.add(child);
-      }
-      pushReplaceAction(children[0], [obj], "explode");
-    } else {
-      ptPrompt("Explode — select a Group object to explode  [Escape = cancel]");
+    const result = dispatchSync("SdExplode", { target: obj.uuid }) as { error?: string } | null;
+    if (result?.error) {
+      ptPrompt(`Explode failed — ${result.error.replace(/^SdExplode - /, "")}  [Escape = cancel]`);
       return true;
     }
+    _hooks.appendToCreateSequence(`SdExplode({target:"${obj.uuid}"})`);
     opFinish(viewer);
     return true;
   }
@@ -930,17 +920,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit || hit.obj === phase.objA) { ptPrompt("Join — click a different second object  [Escape = cancel]"); return true; }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const grp = new THREE.Group();
-    grp.userData.kind = "group";
-    grp.userData.creator = "join";
-    const scene = viewer.getScene();
-    scene.remove(phase.objA);
-    scene.remove(hit.obj);
-    grp.add(phase.objA);
-    grp.add(hit.obj);
-    grp.updateMatrixWorld(true);
-    scene.add(grp);
-    pushAction(grp, "join(A, B)");
+    const result = dispatchSync("SdJoin", { targets: [phase.objA.uuid, hit.obj.uuid] }) as { error?: string } | null;
+    if (result?.error) {
+      ptPrompt(`Join failed — ${result.error.replace(/^SdJoin - /, "")}  [Escape = cancel]`);
+      return true;
+    }
+    _hooks.appendToCreateSequence(`SdJoin({targets:["${phase.objA.uuid}","${hit.obj.uuid}"]})`);
     opFinish(viewer);
     return true;
   }
@@ -950,39 +935,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Rebuild — click a curve to rebuild  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    if (!(obj instanceof THREE.Line)) {
-      ptPrompt("Rebuild — click a curve (line/spline) object  [Escape = cancel]");
+    const result = dispatchSync("SdRebuild", { target: obj.uuid }) as { error?: string } | null;
+    if (result?.error) {
+      ptPrompt(`Rebuild failed — ${result.error.replace(/^SdRebuild - /, "")}  [Escape = cancel]`);
       return true;
     }
-    const cps = obj.userData.controlPoints as Array<{ x: number; y: number; z?: number }> | undefined;
-    if (!cps || cps.length < 2) {
-      ptPrompt("Rebuild — curve has no stored control points  [Escape = cancel]");
-      return true;
-    }
-    // Re-tessellate with 4Ã— the current sample count.
-    const sampleCount = Math.max(cps.length * 32, 128);
-    const newPts: THREE.Vector3[] = [];
-    const cx = obj.position.x, cy = obj.position.y, cz = obj.position.z;
-    for (let i = 0; i <= sampleCount; i++) {
-      const t = i / sampleCount;
-      const idx = Math.min(Math.floor(t * (cps.length - 1)), cps.length - 2);
-      const s = (t * (cps.length - 1)) - idx;
-      const a = cps[idx], b = cps[idx + 1];
-      newPts.push(new THREE.Vector3(
-        cx + a.x + (b.x - a.x) * s,
-        cy + a.y + (b.y - a.y) * s,
-        cz + ((a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * s),
-      ));
-    }
-    const geom = new THREE.BufferGeometry().setFromPoints(newPts);
-    const mat = (obj.material as THREE.LineBasicMaterial).clone();
-    const rebuilt = new THREE.Line(geom, mat);
-    rebuilt.userData = { ...obj.userData };
-    rebuilt.updateMatrixWorld(true);
-    const scene = viewer.getScene();
-    scene.remove(obj);
-    scene.add(rebuilt);
-    pushReplaceAction(rebuilt, [obj], "rebuild");
+    _hooks.appendToCreateSequence(`SdRebuild({target:"${obj.uuid}"})`);
     opFinish(viewer);
     return true;
   }
@@ -992,30 +950,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Contour — click a solid or mesh  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    const bbox = new THREE.Box3().setFromObject(obj);
-    if (bbox.isEmpty()) { ptPrompt("Contour — selected object has no bounds  [Escape = cancel]"); return true; }
-    const zRange = bbox.max.z - bbox.min.z;
-    const planeCount = 5;
-    const step = zRange / (planeCount + 1);
-    const scene = viewer.getScene();
-    for (let i = 1; i <= planeCount; i++) {
-      const z = bbox.min.z + step * i;
-      const x0 = bbox.min.x, x1 = bbox.max.x;
-      const y0 = bbox.min.y, y1 = bbox.max.y;
-      const pts = [
-        new THREE.Vector3(x0, y0, z), new THREE.Vector3(x1, y0, z),
-        new THREE.Vector3(x1, y1, z), new THREE.Vector3(x0, y1, z),
-        new THREE.Vector3(x0, y0, z),
-      ];
-      const geom = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: 0x0066cc });
-      const contourLine = new THREE.Line(geom, mat);
-      contourLine.userData.kind = "contour";
-      contourLine.userData.creator = "contour";
-      contourLine.userData.sourceZ = z;
-      scene.add(contourLine);
-      pushAction(contourLine, `contour(z=${z.toFixed(2)})`);
+    const result = dispatchSync("SdContour", { target: obj.uuid, count: 5 }) as { error?: string } | null;
+    if (result?.error) {
+      ptPrompt(`Contour failed — ${result.error.replace(/^SdContour - /, "")}  [Escape = cancel]`);
+      return true;
     }
+    _hooks.appendToCreateSequence(`SdContour({target:"${obj.uuid}",count:5})`);
     opFinish(viewer);
     return true;
   }
@@ -1437,15 +1377,12 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       setTimeout(() => opFinish(viewer), 800);
       return;
     }
-    const filleted = filletMesh(target, r);
-    linkPlanarizedMeshEditBrep(viewer, target, filleted, "SdFillet", {
-      operation: "all-edge-fillet",
-      radius: r,
-      source: "op-tool-all-edges",
-    });
-    viewer.getScene().remove(target); // audit-undo-ok: tracked by pushReplaceAction below
-    viewer.addMesh(filleted, "brep", { noHistory: true });
-    pushReplaceAction(filleted, [target], "fillet");
+    const res = dispatchSync("SdFillet", { target: target.uuid, radius: r }) as { error?: string } | null;
+    if (res?.error) {
+      ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+      setTimeout(() => opFinish(viewer), 1400);
+      return;
+    }
     ptPrompt(`Fillet r=${formatLength(r)} applied`);
     setTimeout(() => opFinish(viewer), 400);
   }
@@ -1481,21 +1418,17 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
         return;
       }
     } else {
-      // Fallback: direct chamfer when edge not found in enumeration.
-      const filleted = chamferEdge(meshTarget, phase.edgeA, phase.edgeB, r);
-      if (filleted.userData._chamferError) {
-        ptPrompt("Fillet — edge cannot be chamfered (curved or non-manifold surface); select a straight edge on a flat face");
+      const res = dispatchSync("SdFillet", {
+        target: meshTarget.uuid,
+        edgeFrom: vecArgs(phase.edgeA),
+        edgeTo: vecArgs(phase.edgeB),
+        radius: r,
+      }) as { error?: string } | null;
+      if (res?.error) {
+        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1600);
         return;
       }
-      viewer.getScene().remove(meshTarget); // audit-undo-ok: tracked by pushReplaceAction below
-      linkPlanarizedMeshEditBrep(viewer, meshTarget, filleted, "SdFillet", {
-        operation: "edge-chamfer",
-        radius: r,
-        source: "op-tool-fallback",
-      });
-      viewer.addMesh(filleted, "brep", { noHistory: true });
-      pushReplaceAction(filleted, [meshTarget], "fillet");
     }
     ptPrompt(`Fillet r=${formatLength(r)} applied`);
     setTimeout(() => opFinish(viewer), 400);

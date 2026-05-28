@@ -8,6 +8,7 @@ import { Point3 as Pt3 } from "../nurbs/nurbs-primitives";
 import { domainU, domainV, getNurbsForm, pointAtUV, tessellateSurface, transformSurface, type NurbsSurface, type PlaneSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
+import { linkCanonicalCurve } from "./canonical-surface";
 
 function threeMatrixToXform(matrix: THREE.Matrix4): Xform {
   const e = matrix.elements;
@@ -464,6 +465,21 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     const scene = viewer.getScene();
     const obj = scene.getObjectByProperty("uuid", targetId);
     if (!obj) return { error: `SdExplode - object not found: ${targetId}` };
+    if (obj instanceof THREE.Group) {
+      const children = [...obj.children];
+      if (children.length === 0) return { error: "SdExplode - group is empty" };
+      scene.remove(obj);
+      const exploded: string[] = [];
+      for (const child of children) {
+        child.applyMatrix4(obj.matrixWorld);
+        child.updateMatrixWorld(true);
+        child.userData.dispatchArgs = args;
+        scene.add(child);
+        exploded.push(child.uuid);
+      }
+      pushReplaceAction(children[0], [obj], "SdExplode");
+      return { exploded, faceCount: exploded.length };
+    }
     if (!(obj instanceof THREE.Mesh)) return { error: "SdExplode - target must be a Mesh" };
     const canonicalResult = explodeCanonicalBrep(viewer, obj, args);
     if (canonicalResult) return canonicalResult;
@@ -570,6 +586,49 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     const scene = viewer.getScene();
     const obj = scene.getObjectByProperty("uuid", targetId);
     if (!obj) return { error: `SdRebuild - object not found: ${targetId}` };
+    if (obj instanceof THREE.Line) {
+      const cps = obj.userData.controlPoints as Array<{ x: number; y: number; z?: number }> | undefined;
+      const sourcePts = cps?.length
+        ? cps.map((p) => new THREE.Vector3(p.x, p.y, p.z ?? 0).applyMatrix4(obj.matrixWorld))
+        : (() => {
+          const pos = obj.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+          if (!pos) return [];
+          const pts: THREE.Vector3[] = [];
+          for (let i = 0; i < pos.count; i++) pts.push(new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(obj.matrixWorld));
+          return pts;
+        })();
+      if (sourcePts.length < 2) return { error: "SdRebuild - curve has insufficient points" };
+      const count = Math.max((args.count as number | undefined) ?? sourcePts.length * 32, sourcePts.length * 2);
+      const rebuiltPts: THREE.Vector3[] = [];
+      for (let i = 0; i <= count; i++) {
+        const t = i / count;
+        const idx = Math.min(Math.floor(t * (sourcePts.length - 1)), sourcePts.length - 2);
+        const localT = (t * (sourcePts.length - 1)) - idx;
+        rebuiltPts.push(sourcePts[idx].clone().lerp(sourcePts[idx + 1], localT));
+      }
+      const geom = new THREE.BufferGeometry().setFromPoints(rebuiltPts);
+      const mat = (obj.material as THREE.LineBasicMaterial).clone();
+      const rebuilt = new THREE.Line(geom, mat);
+      rebuilt.userData = { ...obj.userData, creator: "rebuild", dispatchArgs: args };
+      const curvePts = rebuiltPts.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+      const parameters = [0];
+      for (let i = 1; i < curvePts.length; i++) {
+        parameters.push(parameters[i - 1] + Math.hypot(
+          curvePts[i].x - curvePts[i - 1].x,
+          curvePts[i].y - curvePts[i - 1].y,
+          curvePts[i].z - curvePts[i - 1].z,
+        ));
+      }
+      linkCanonicalCurve(viewer, rebuilt, { kind: "polyline", points: curvePts, parameters }, "SdRebuild", {
+        operation: "curve-rebuild",
+        source: targetId,
+        count,
+      });
+      scene.remove(obj);
+      viewer.addMesh(rebuilt as unknown as THREE.Mesh, "mesh", { noHistory: true });
+      pushReplaceAction(rebuilt as unknown as THREE.Mesh, [obj], "SdRebuild");
+      return { rebuilt: rebuilt.uuid, originalVertices: sourcePts.length, targetCount: rebuiltPts.length };
+    }
     if (!(obj instanceof THREE.Mesh)) return { error: "SdRebuild - target must be a Mesh" };
     const canonicalResult = rebuildCanonicalBrep(viewer, obj, args);
     if (canonicalResult) return canonicalResult;

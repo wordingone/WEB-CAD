@@ -10,22 +10,46 @@ type ProjectPayload = {
   version?: number;
   meta?: { sourceIfc?: string; conversion?: string; totalTriangles?: number; totalCanonicalFaces?: number; convertedObjects?: number };
   canonicalGeometry?: Array<{
+    id?: string;
     kind?: string;
-    metadata?: { conversion?: string; sourceBasis?: string; facePolicy?: string; sourceTriangleCount?: number; canonicalFaceCount?: number; coplanarMergedTriangleCount?: number };
+    metadata?: { conversion?: string; sourceBasis?: string; facePolicy?: string; sourceTriangleCount?: number; canonicalFaceCount?: number; coplanarMergedTriangleCount?: number; sourceGlobalId?: string; sourceExpressId?: number; sourceName?: string };
     displayMesh?: { triangleCount?: number };
     brep?: {
       shells?: Array<{
         isClosed?: boolean;
         faces?: Array<{
-          surface?: { kind?: string; order?: [number, number]; cvCount?: [number, number] };
+          surface?: { kind?: string; order?: [number, number]; cvCount?: [number, number]; cvs?: number[] };
           outerLoop?: { curves?: Array<{ kind?: string; points?: Array<unknown> }> };
         }>;
-        edges?: Array<{ faceIndex2?: number | null }>;
+        edges?: Array<{ faceIndex1: number; faceIndex2?: number | null }>;
       }>;
     };
   }>;
   objects?: Array<{ displaySource?: string; userData?: Record<string, unknown> }>;
 };
+
+type FzkRecord = NonNullable<ProjectPayload["canonicalGeometry"]>[number];
+type FzkShell = NonNullable<NonNullable<FzkRecord["brep"]>["shells"]>[number];
+type FzkFace = NonNullable<FzkShell["faces"]>[number];
+
+function nurbsFacePlane(face: FzkFace) {
+  const surface = face.surface;
+  const cvs = surface?.cvs ?? [];
+  if (surface?.kind !== "nurbs" || cvs.length < 12) return null;
+  const p0 = new THREE.Vector3(cvs[0], cvs[1], cvs[2]);
+  const p1 = new THREE.Vector3(cvs[3], cvs[4], cvs[5]);
+  const p2 = new THREE.Vector3(cvs[6], cvs[7], cvs[8]);
+  const normal = p1.clone().sub(p0).cross(p2.clone().sub(p0)).normalize();
+  if (!Number.isFinite(normal.lengthSq()) || normal.lengthSq() < 0.5) return null;
+  return { normal, constant: normal.dot(p0) };
+}
+
+function samePlane(a: ReturnType<typeof nurbsFacePlane>, b: ReturnType<typeof nurbsFacePlane>, epsilon = 1e-5): boolean {
+  if (!a || !b) return false;
+  const alignment = a.normal.dot(b.normal);
+  if (Math.abs(alignment) <= 1 - epsilon) return false;
+  return (alignment >= 0 ? Math.abs(a.constant - b.constant) : Math.abs(a.constant + b.constant)) < epsilon;
+}
 
 describe("FZK Haus actual IFC-derived canonical project sample", () => {
   test("sample registry routes FZK Haus to a WEB-CAD canonical snapshot, not raw IFC", () => {
@@ -128,5 +152,30 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     )))).toBe(true);
     expect(mesh.geometry.index?.count).toBeGreaterThanOrEqual(canonicalFaces * 3);
     expect(position.count).toBeGreaterThanOrEqual(canonicalFaces * 3);
+  });
+
+  test("FZK BRep elements have no remaining same-plane adjacent faces", () => {
+    const raw = readFileSync(new URL("../public/samples/AC20-FZK-Haus.webcad", import.meta.url), "utf8");
+    const payload = JSON.parse(raw) as ProjectPayload;
+    let adjacentFacePairs = 0;
+    const unmergedPairs: string[] = [];
+
+    for (const record of payload.canonicalGeometry ?? []) {
+      if (record.kind !== "brep") continue;
+      for (const shell of record.brep?.shells ?? []) {
+        const planes = (shell.faces ?? []).map(nurbsFacePlane);
+        for (const edge of shell.edges ?? []) {
+          if (edge.faceIndex2 === null || edge.faceIndex2 === undefined) continue;
+          adjacentFacePairs++;
+          if (samePlane(planes[edge.faceIndex1], planes[edge.faceIndex2])) {
+            const id = record.metadata?.sourceGlobalId ?? record.metadata?.sourceExpressId ?? record.metadata?.sourceName ?? record.id ?? "unknown";
+            unmergedPairs.push(`${id}:${edge.faceIndex1}-${edge.faceIndex2}`);
+          }
+        }
+      }
+    }
+
+    expect(adjacentFacePairs).toBeGreaterThan(1_000);
+    expect(unmergedPairs).toEqual([]);
   });
 });
