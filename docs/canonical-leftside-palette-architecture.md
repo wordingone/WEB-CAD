@@ -81,11 +81,11 @@ Hidden long-press subtools highlight their visible parent button:
 | `revolve` | Revolve | pick profile, two axis points | `opStartTool(revolve)` | `SdRevolve` | canonical revolution surface |
 | `plane` | Plane | three points | `opStartTool(plane)` | `SdPlane` | canonical plane surface |
 | `surface` | Surface | pick closed curve | `opStartTool(surface)` | `SdSurface` | canonical trimmed planar BRep |
-| `boolean` | Boolean | pick A, B, choose op | `opStartTool(boolean)` | `SdBoolean` | mesh CSG result with planarized canonical BRep; not true BRep boolean |
-| `bool-union` | Union | pick A then B | `opStartTool(bool-union)` | `SdBooleanUnion` | mesh CSG result with planarized canonical BRep; not true BRep boolean |
-| `bool-diff` | Difference | pick A then B | `opStartTool(bool-diff)` | `SdBooleanDifference` | mesh CSG result with planarized canonical BRep; not true BRep boolean |
-| `bool-intersect` | Intersect | pick A then B | `opStartTool(bool-intersect)` | `SdBooleanIntersection` | mesh CSG result with planarized canonical BRep; not true BRep boolean |
-| `fillet` | Fillet | pick solid edge or curve corner, radius | `opStartTool(fillet)` | `SdFillet` | mesh/polyline operation with planarized BRep result; not NURBS-native fillet |
+| `boolean` | Boolean | pick A, B, choose op | `opStartTool(boolean)` | `SdBoolean` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
+| `bool-union` | Union | pick A then B | `opStartTool(bool-union)` | `SdBooleanUnion` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
+| `bool-diff` | Difference | pick A then B | `opStartTool(bool-diff)` | `SdBooleanDifference` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
+| `bool-intersect` | Intersect | pick A then B | `opStartTool(bool-intersect)` | `SdBooleanIntersection` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
+| `fillet` | Fillet | pick solid edge or curve corner, radius | `opStartTool(fillet)` | `SdFillet` | edge and all-edge paths now link planarized BRep results; not NURBS-native fillet |
 | `brep-explode` | Explode | click group/object | `opStartTool(brep-explode)` | `SdExplode` | decomposes display/group/canonical records; not full topology face extraction in UI |
 | `brep-join` | Join | click two objects | `opStartTool(brep-join)` | `SdJoin` | joins/group-links objects; not full BRep sewing |
 | `brep-rebuild` | Rebuild | pick curve | `opStartTool(brep-rebuild)` | `SdRebuild` | retessellation/sample rebuild; not NURBS surface rebuild |
@@ -121,8 +121,8 @@ These are known limitations, not acceptable final-state claims:
 
 | Area | Gap |
 |---|---|
-| BRep booleans | UI and command booleans still rely on mesh CSG, then planarize output to BRep. This is not a true BRep boolean kernel. |
-| Fillet | Current fillet is mesh/polyline based. It does not create exact NURBS fillet surfaces between BRep faces. |
+| BRep booleans | UI display generation still relies on mesh CSG. Canonical records now use the planar BRep boolean backend when possible, including exact planar NURBS boxes, but this is still not a full trimmed-surface BooleanBuilder. |
+| Fillet | Current fillet is mesh/polyline based and is now canonically linked for edge and all-edge paths. It does not create exact NURBS fillet surfaces between BRep faces. |
 | BRep explode/join/rebuild/contour | Visible CAD buttons are named as BRep tools, but their behavior is still mostly display/group/sample/bbox oriented. |
 | Curved architectural elements | Curve wall, stair, and roof paths are mostly planarized display meshes rather than coherent semantic BRep/NURBS objects. |
 | IFC semantic solids | FZK conversion is lossless relative to `web-ifc` placed triangle meshes. It is not yet semantic IFC solid reconstruction or coplanar face merging. |
@@ -135,4 +135,3 @@ Minimum gates for this document:
 bun test web/test/model-palette-canonical-coverage.test.ts
 bun test web/test/transforms.test.ts web/test/surface-nurbs-userdata.test.ts
 ```
-

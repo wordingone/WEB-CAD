@@ -391,6 +391,10 @@ export function registerTransformHandlers(viewer: Viewer): void {
       if (filleted.userData._chamferError) {
         return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
       }
+      linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
+        operation: "all-edge-fillet",
+        radius,
+      });
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });

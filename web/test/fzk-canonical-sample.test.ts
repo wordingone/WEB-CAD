@@ -43,6 +43,10 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.conversion === "actual-ifc-web-ifc-mesh-to-planar-brep")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.losslessFrom === "web-ifc placed triangle mesh")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.facePolicy?.includes("one exact degree-1 planar NURBS-trimmed BRep face per source triangle"))).toBe(true);
+    expect(payload.canonicalGeometry?.every((record) => (
+      record.metadata?.sourceTriangleCount === record.metadata?.canonicalFaceCount
+        && record.displayMesh?.triangleCount === record.metadata?.sourceTriangleCount
+    ))).toBe(true);
     const faceCount = payload.canonicalGeometry?.reduce((n, record) => (
       n + (record.brep?.shells ?? []).reduce((m, shell) => m + (shell.faces?.length ?? 0), 0)
     ), 0) ?? 0;

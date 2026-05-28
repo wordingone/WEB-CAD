@@ -944,4 +944,48 @@ describe("canonical geometry transform instances", () => {
       derivation: "planarized-display-mesh",
     });
   });
+
+  test("SdFillet all-edge path links planarized output to a canonical BRep record", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "box";
+    scene.add(mesh);
+    const record = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+    store.linkObject(mesh, record.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdFillet", { target: mesh.uuid, radius: 0.05 });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(1);
+    const canonical = store.resolveObject(added[0]);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("SdFillet");
+    expect(canonical.metadata).toMatchObject({
+      operation: "all-edge-fillet",
+      source: record.id,
+      derivation: "planarized-display-mesh",
+    });
+    expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBeGreaterThan(0);
+  });
 });

@@ -1494,6 +1494,11 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       return;
     }
     const filleted = filletMesh(target, r);
+    linkPlanarizedMeshEditBrep(viewer, target, filleted, "SdFillet", {
+      operation: "all-edge-fillet",
+      radius: r,
+      source: "op-tool-all-edges",
+    });
     viewer.getScene().remove(target); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [target], "fillet");
