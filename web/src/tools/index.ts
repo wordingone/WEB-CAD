@@ -17,7 +17,7 @@ import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActive
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";
@@ -27,6 +27,9 @@ import { drawingLayerStore, SKETCH_KINDS } from "../geometry/drawing-layers";
 import { clippingPlaneStore } from "../geometry/clipping-planes";
 import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
 import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
+import { linkCanonicalBrep } from "../handlers/canonical-surface";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import type { PolylineCurve } from "../nurbs/nurbs-curves";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
 
@@ -588,6 +591,64 @@ function buildCurveWall(pts: Array<{x: number; y: number; z?: number}>): SingleR
   return { mesh, chain };
 }
 
+function rectangleProfile(width: number, depth: number): PolylineCurve {
+  const x0 = -width / 2;
+  const x1 = width / 2;
+  const y0 = -depth / 2;
+  const y1 = depth / 2;
+  const points = [
+    { x: x0, y: y0, z: 0 },
+    { x: x1, y: y0, z: 0 },
+    { x: x1, y: y1, z: 0 },
+    { x: x0, y: y1, z: 0 },
+    { x: x0, y: y0, z: 0 },
+  ];
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function linkCreateModeExtrudedRectangleBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  width: number,
+  depth: number,
+  height: number,
+  createdBy: string,
+): void {
+  linkCanonicalBrep(viewer, obj, extrudeBrep(rectangleProfile(width, depth), { x: 0, y: 0, z: 1 }, height), createdBy);
+}
+
+function linkCreateModeStructuralCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): void {
+  const a = pts[0];
+  const b = pts[1];
+  if (!a || !b) return;
+  const run = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+
+  if (tool === "ramp") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 1.2, 0.15, "create-ramp");
+    return;
+  }
+
+  if (tool === "curtainwall") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.1, DEFAULT_WALL_HEIGHT, "create-curtainwall");
+    const shell = obj.userData.joinableShell as THREE.Mesh | undefined;
+    const canonical = viewer.getCanonicalGeometryStore().resolveObject(obj);
+    if (shell instanceof THREE.Mesh && canonical) {
+      viewer.getCanonicalGeometryStore().linkObject(shell, canonical.id);
+    }
+  }
+}
+
 function commitMultiWalls(viewer: Viewer, results: SingleResult[]): void {
   for (const r of results) {
     if (r.mesh instanceof THREE.Mesh && r.mesh.userData.creator === "wall" && r.mesh.userData.isCurveWall) {
@@ -764,7 +825,8 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
 
   clearTemporary(viewer);
   clearSmartTrack(viewer);
-  const out = handler.handler(_pending);
+  const commitPts = [..._pending];
+  const out = handler.handler(commitPts);
   if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   if (handler.chain) {
     const newStart = { ..._pending[_pending.length - 1] };
@@ -775,6 +837,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   }
   // noHistory: true — undo managed via explicit push / transaction below.
   applyDrawingLayer(out.mesh);
+  linkCreateModeStructuralCanonical(viewer, tool, out.mesh, commitPts);
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep", { noHistory: true });
   if (out.mesh instanceof THREE.Mesh && out.mesh.userData.creator === "wall") {
     attemptWallCornerJoins(out.mesh, viewer.getScene());
@@ -785,6 +848,8 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   const _cwJoinShell = out.mesh.userData.joinableShell as THREE.Mesh | undefined;
   if (_cwJoinShell instanceof THREE.Mesh) {
     _cwJoinShell.position.z = out.mesh.position.z;
+    _cwJoinShell.userData.levelId = out.mesh.userData.levelId;
+    _cwJoinShell.userData.layerId = out.mesh.userData.layerId;
     viewer.addMesh(_cwJoinShell, "brep", { noHistory: true });
     onElementCommitted(_cwJoinShell, viewer.getScene());
   }

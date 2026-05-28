@@ -337,6 +337,52 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(getCreateSequence()[0]).toContain("curveWall: spline");
   });
 
+  test("Ramp tool links click-created display solid to a canonical BRep", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const store = createCanonicalGeometryStore();
+    (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "ramp" });
+    const result = emitClickWorld(v as any, { x: 6, y: 0 }, { tool: "ramp" });
+
+    expect(result).not.toBeNull();
+    const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("create-ramp");
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
+  test("Curtainwall tool links visible group and join shell to one canonical BRep", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const store = createCanonicalGeometryStore();
+    (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "curtainwall" });
+    const result = emitClickWorld(v as any, { x: 6, y: 0 }, { tool: "curtainwall" });
+
+    expect(result).not.toBeNull();
+    const group = result?.mesh;
+    const shell = group?.userData.joinableShell as THREE.Mesh | undefined;
+    expect(group).toBeInstanceOf(THREE.Group);
+    expect(shell).toBeInstanceOf(THREE.Mesh);
+    const groupRecord = group ? store.resolveObject(group) : undefined;
+    const shellRecord = shell ? store.resolveObject(shell) : undefined;
+    expect(groupRecord?.kind).toBe("brep");
+    expect(shellRecord).toBe(groupRecord);
+    if (groupRecord?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(groupRecord.createdBy).toBe("create-curtainwall");
+    expect(groupRecord.brep.shells[0].faces).toHaveLength(6);
+    expect(groupRecord.brep.shells[0].isClosed).toBe(true);
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();
