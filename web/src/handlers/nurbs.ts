@@ -58,8 +58,6 @@ function sphereSurface(radius: number): Surface {
 }
 
 function linkAnalyticSurface(viewer: Viewer, mesh: THREE.Mesh, surface: Surface, createdBy: string): void {
-  mesh.userData.nurbsSurface = surface;
-  mesh.userData.nurbsKind = "surface";
   linkCanonicalSurface(viewer, mesh, createdBy, surface);
 }
 

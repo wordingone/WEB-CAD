@@ -84,16 +84,15 @@ describe("BRep canonical migration characterization", () => {
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
       expect(mesh.userData.kind).toBe("brep");
       expect(mesh.userData.creator).toBe(creator);
-      expect(mesh.userData.nurbsSurface).toBeDefined();
-      expect(mesh.userData.nurbsSurface.kind).toBe("rev");
-      expect(mesh.userData.nurbsKind).toBe("surface");
+      expect(mesh.userData.nurbsSurface).toBeUndefined();
+      expect(mesh.userData.nurbsKind).toBeUndefined();
       const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);
       expect(canonical.kind).toBe("surface");
       expect(canonical.createdBy).toBe(verb);
       if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-      expect(canonical.surface).toBe(mesh.userData.nurbsSurface);
+      expect(canonical.surface.kind).toBe("rev");
 
       const surface = canonical.surface;
       if (surface.kind !== "rev") throw new Error("expected revolution surface");
