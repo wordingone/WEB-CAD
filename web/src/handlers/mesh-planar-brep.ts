@@ -30,16 +30,21 @@ function vertexKey(v: THREE.Vector3): string {
   return `${q(v.x)},${q(v.y)},${q(v.z)}`;
 }
 
-function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): BrepFace | null {
+function planeFaceFromLoop(points: THREE.Vector3[]): BrepFace | null {
+  if (points.length < 3) return null;
+  const a = points[0];
+  const b = points[1];
+  const c = points.find((candidate, index) => index > 1 && new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(candidate, a)).lengthSq() > 1e-18);
+  if (!c) return null;
   const ab = new THREE.Vector3().subVectors(b, a);
   const ac = new THREE.Vector3().subVectors(c, a);
   const n = new THREE.Vector3().crossVectors(ab, ac);
   if (n.lengthSq() < 1e-18) return null;
   n.normalize();
 
-  const centroid = new THREE.Vector3().addVectors(a, b).add(c).multiplyScalar(1 / 3);
+  const centroid = points.reduce((sum, p) => sum.add(p), new THREE.Vector3()).multiplyScalar(1 / points.length);
   const plane = Plane.fromPointNormal(point(centroid), point(n));
-  const uv = [a, b, c].map((p) => {
+  const uv = points.map((p) => {
     const d = p.clone().sub(centroid);
     return {
       u: d.x * plane.xAxis.x + d.y * plane.xAxis.y + d.z * plane.xAxis.z,
@@ -80,26 +85,148 @@ function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vect
   };
 }
 
-export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
+function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): BrepFace | null {
+  return planeFaceFromLoop([a, b, c]);
+}
+
+type TriangleDraft = {
+  verts: [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+  vertexIds: [number, number, number];
+  normal: THREE.Vector3;
+  planeOffset: number;
+};
+
+function coplanar(a: TriangleDraft, b: TriangleDraft): boolean {
+  return a.normal.dot(b.normal) > 1 - 1e-8
+    && Math.abs(a.planeOffset - b.planeOffset) < 1e-6;
+}
+
+function boundaryLoopForComponent(component: number[], triangles: TriangleDraft[]): number[] | null {
+  const directed = new Map<string, [number, number]>();
+  const edgeUse = new Map<string, number>();
+  for (const triIndex of component) {
+    const ids = triangles[triIndex].vertexIds;
+    for (const [from, to] of [[ids[0], ids[1]], [ids[1], ids[2]], [ids[2], ids[0]]] as const) {
+      const key = from < to ? `${from}:${to}` : `${to}:${from}`;
+      edgeUse.set(key, (edgeUse.get(key) ?? 0) + 1);
+      directed.set(key, [from, to]);
+    }
+  }
+  const next = new Map<number, number[]>();
+  for (const [key, count] of edgeUse.entries()) {
+    if (count !== 1) continue;
+    const edge = directed.get(key);
+    if (!edge) continue;
+    const [from, to] = edge;
+    const candidates = next.get(from) ?? [];
+    candidates.push(to);
+    next.set(from, candidates);
+  }
+  if (next.size === 0) return null;
+  if ([...next.values()].some((candidates) => candidates.length !== 1)) return null;
+  const start = [...next.keys()][0];
+  const loop = [start];
+  const visited = new Set<number>([start]);
+  let current = start;
+  while (true) {
+    const candidates = next.get(current);
+    if (!candidates || candidates.length !== 1) return null;
+    const candidate = candidates[0];
+    if (candidate === start) break;
+    if (visited.has(candidate)) return null;
+    loop.push(candidate);
+    visited.add(candidate);
+    current = candidate;
+  }
+  return visited.size === next.size ? loop : null;
+}
+
+function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3[]): { faces: BrepFace[]; faceBoundaryVerts: THREE.Vector3[][]; mergedComponents: number; mergedTriangles: number } {
+  const edgeToTriangles = new Map<string, number[]>();
+  for (let i = 0; i < triangles.length; i++) {
+    const ids = triangles[i].vertexIds;
+    for (const [a, b] of [[ids[0], ids[1]], [ids[1], ids[2]], [ids[2], ids[0]]] as const) {
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      const list = edgeToTriangles.get(key) ?? [];
+      list.push(i);
+      edgeToTriangles.set(key, list);
+    }
+  }
+
+  const visited = new Set<number>();
+  const faces: BrepFace[] = [];
+  const faceBoundaryVerts: THREE.Vector3[][] = [];
+  let mergedComponents = 0;
+  let mergedTriangles = 0;
+  for (let seed = 0; seed < triangles.length; seed++) {
+    if (visited.has(seed)) continue;
+    const queue = [seed];
+    const component: number[] = [];
+    visited.add(seed);
+    while (queue.length) {
+      const triIndex = queue.pop()!;
+      component.push(triIndex);
+      const ids = triangles[triIndex].vertexIds;
+      for (const [a, b] of [[ids[0], ids[1]], [ids[1], ids[2]], [ids[2], ids[0]]] as const) {
+        const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+        for (const neighbor of edgeToTriangles.get(key) ?? []) {
+          if (visited.has(neighbor) || !coplanar(triangles[triIndex], triangles[neighbor])) continue;
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    const loop = component.length > 1 ? boundaryLoopForComponent(component, triangles) : null;
+    const face = loop ? planeFaceFromLoop(loop.map((id) => vertices[id])) : null;
+    if (face && loop) {
+      faces.push(face);
+      faceBoundaryVerts.push(loop.map((id) => vertices[id]));
+      mergedComponents++;
+      mergedTriangles += component.length;
+    } else {
+      for (const triIndex of component) {
+        const tri = triangles[triIndex];
+        const triFace = planeFaceFromTriangle(...tri.verts);
+        if (!triFace) continue;
+        faces.push(triFace);
+        faceBoundaryVerts.push(tri.verts);
+      }
+    }
+  }
+  return { faces, faceBoundaryVerts, mergedComponents, mergedTriangles };
+}
+
+export type MeshToPlanarBrepOptions = {
+  mergeCoplanarFaces?: boolean;
+};
+
+export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOptions = {}): Brep | null {
   const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
   const position = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
   if (!position || position.count < 3) return null;
 
-  const faces: BrepFace[] = [];
-  const triangleVerts: Array<[THREE.Vector3, THREE.Vector3, THREE.Vector3]> = [];
+  const sourceVertices: THREE.Vector3[] = [];
+  const sourceVertexByKey = new Map<string, number>();
+  const sourceVertex = (v: THREE.Vector3): number => {
+    const key = vertexKey(v);
+    const existing = sourceVertexByKey.get(key);
+    if (existing !== undefined) return existing;
+    const id = sourceVertices.length;
+    sourceVertexByKey.set(key, id);
+    sourceVertices.push(v);
+    return id;
+  };
+  const triangles: TriangleDraft[] = [];
   const tri = (ia: number, ib: number, ic: number) => {
     const a = new THREE.Vector3().fromBufferAttribute(position, ia);
     const b = new THREE.Vector3().fromBufferAttribute(position, ib);
     const c = new THREE.Vector3().fromBufferAttribute(position, ic);
-    const face = planeFaceFromTriangle(
-      a,
-      b,
-      c,
-    );
-    if (face) {
-      triangleVerts.push([a, b, c]);
-      faces.push(face);
-    }
+    const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    if (normal.lengthSq() < 1e-18) return;
+    normal.normalize();
+    const vertexIds = [sourceVertex(a), sourceVertex(b), sourceVertex(c)] as [number, number, number];
+    triangles.push({ verts: [a, b, c], vertexIds, normal, planeOffset: normal.dot(a) });
   };
 
   const index = geometry?.getIndex();
@@ -108,6 +235,17 @@ export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
   } else {
     for (let i = 0; i + 2 < position.count; i += 3) tri(i, i + 1, i + 2);
   }
+  if (triangles.length === 0) return null;
+
+  const conversion = options.mergeCoplanarFaces
+    ? mergedCoplanarFaces(triangles, sourceVertices)
+    : {
+      faces: triangles.map((triangle) => planeFaceFromTriangle(...triangle.verts)).filter((face): face is BrepFace => Boolean(face)),
+      faceBoundaryVerts: triangles.map((triangle) => triangle.verts),
+      mergedComponents: 0,
+      mergedTriangles: 0,
+    };
+  const { faces, faceBoundaryVerts } = conversion;
   if (faces.length === 0) return null;
 
   const vertices: BrepVertex[] = [];
@@ -129,9 +267,11 @@ export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
     faceIndices: number[];
   };
   const edgesByKey = new Map<string, EdgeDraft>();
-  for (let faceIndex = 0; faceIndex < triangleVerts.length; faceIndex++) {
-    const triVerts = triangleVerts[faceIndex];
-    for (const [from, to] of [[triVerts[0], triVerts[1]], [triVerts[1], triVerts[2]], [triVerts[2], triVerts[0]]] as const) {
+  for (let faceIndex = 0; faceIndex < faceBoundaryVerts.length; faceIndex++) {
+    const boundary = faceBoundaryVerts[faceIndex];
+    for (let i = 0; i < boundary.length; i++) {
+      const from = boundary[i];
+      const to = boundary[(i + 1) % boundary.length];
       const va = getVertex(from);
       const vb = getVertex(to);
       const key = va < vb ? `${va}:${vb}` : `${vb}:${va}`;
@@ -157,7 +297,14 @@ export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
     });
   }
   const isClosed = edges.length > 0 && edges.every((edge) => edge.faceIndex2 !== null);
-  return { shells: [{ faces, edges, vertices, isClosed }] };
+  return {
+    shells: [{
+      faces,
+      edges,
+      vertices,
+      isClosed,
+    }],
+  };
 }
 
 export function linkPlanarizedMeshEditBrep(

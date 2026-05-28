@@ -79,7 +79,7 @@ try {
       expressID: flatMesh.expressID,
       sourceIfc: IFC_PATH,
     };
-    const brep = meshToPlanarBrep(mesh);
+    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: true });
     if (!brep) {
       skipped++;
       continue;
@@ -87,6 +87,7 @@ try {
     const triangles = meshTriangleCount(mesh);
     totalTriangles += triangles;
     const closedShells = brep.shells.filter((shell) => shell.isClosed).length;
+    const faceCount = brep.shells.reduce((n, shell) => n + shell.faces.length, 0);
     const nakedEdges = brep.shells.reduce((n, shell) => n + shell.edges.filter((edge) => edge.faceIndex2 === null).length, 0);
     const record = store.create({
       kind: "brep",
@@ -106,7 +107,9 @@ try {
         expressID: flatMesh.expressID,
         schema,
         losslessFrom: "web-ifc placed triangle mesh",
-        facePolicy: "one planar trimmed BRep face per source triangle",
+        facePolicy: "merge adjacent coplanar source triangles into exact planar trimmed BRep faces when the boundary is a single loop; otherwise preserve one planar face per triangle",
+        sourceTriangleCount: triangles,
+        canonicalFaceCount: faceCount,
         closedShells,
         nakedEdges,
       },
@@ -136,6 +139,9 @@ try {
       convertedObjects: objects.length,
       skippedObjects: skipped,
       totalTriangles,
+      totalCanonicalFaces: records.reduce((n, record) => (
+        n + (record.kind === "brep" ? record.brep.shells.reduce((m, shell) => m + shell.faces.length, 0) : 0)
+      ), 0),
     },
     canonicalGeometry: records,
     objects,
