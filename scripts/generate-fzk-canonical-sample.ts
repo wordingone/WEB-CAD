@@ -79,7 +79,7 @@ try {
       expressID: flatMesh.expressID,
       sourceIfc: IFC_PATH,
     };
-    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: false, surfaceKind: "nurbs" });
+    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: true, surfaceKind: "nurbs" });
     if (!brep) {
       skipped++;
       continue;
@@ -102,14 +102,15 @@ try {
         derivation: "tessellated-brep",
       },
       metadata: {
-        conversion: "actual-ifc-web-ifc-mesh-to-planar-brep",
+        conversion: "actual-ifc-web-ifc-mesh-to-merged-coplanar-planar-brep",
         sourceIfc: IFC_PATH,
         expressID: flatMesh.expressID,
         schema,
-        losslessFrom: "web-ifc placed triangle mesh",
-        facePolicy: "preserve one exact degree-1 planar NURBS-trimmed BRep face per source triangle; no coplanar merging or geometric simplification",
+        sourceBasis: "web-ifc placed triangle mesh",
+        facePolicy: "merge adjacent coplanar source triangles per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces; preserve non-coplanar boundaries and element separation",
         sourceTriangleCount: triangles,
         canonicalFaceCount: faceCount,
+        coplanarMergedTriangleCount: Math.max(0, triangles - faceCount),
         closedShells,
         nakedEdges,
       },
@@ -133,8 +134,8 @@ try {
       units: "metric",
       name: "KIT FZK-Haus actual IFC mesh to planar BRep",
       sourceIfc: IFC_PATH.replace(/^web\/public\//, ""),
-      conversion: "actual-ifc-mesh-to-planar-brep",
-      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Each source triangle becomes one exact degree-1 planar NURBS-trimmed BRep face; no hand-authored parametric substitution or coplanar simplification.",
+      conversion: "actual-ifc-mesh-to-merged-coplanar-planar-brep",
+      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Adjacent coplanar triangles are merged per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces; no hand-authored parametric substitution.",
       sourceElements: flatMeshes.size(),
       convertedObjects: objects.length,
       skippedObjects: skipped,

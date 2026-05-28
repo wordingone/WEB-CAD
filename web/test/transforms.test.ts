@@ -9,7 +9,7 @@
 
 import { describe, test, expect, beforeEach } from "bun:test";
 import * as THREE from "three";
-import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
+import { dispatchSync, registerHandler, unregisterHandler } from "../src/commands/dispatch";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
 import { inspectCanonicalGeometry } from "../src/geometry/canonical-introspection";
 import { registerTransformHandlers } from "../src/handlers/transforms";
@@ -44,6 +44,8 @@ beforeEach(() => {
     "SdBooleanDifference",
     "SdBooleanIntersection",
     "SdFillet",
+    "SdSectionBox",
+    "SdClippingPlane",
   ]) {
     unregisterHandler(name);
   }
@@ -668,6 +670,62 @@ describe("Phase 3 — create-mode click-to-place", () => {
     const seq = getCreateSequence();
     expect(seq.length).toBe(1);
     expect(seq[0]).toContain("makeCylinder(1,"); // radius=1 from (1,1)→(2,1)
+  });
+
+  test("Section and clip palette tools commit the same Sd commands used by agents", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    const dispatched: Array<{ verb: string; args: Record<string, unknown> }> = [];
+
+    registerHandler("SdSectionBox", (args) => {
+      dispatched.push({ verb: "SdSectionBox", args });
+      return { ok: true };
+    });
+    registerHandler("SdClippingPlane", (args) => {
+      dispatched.push({ verb: "SdClippingPlane", args });
+      return { ok: true };
+    });
+
+    clearCreateSequence();
+    resetPending();
+    let viewer = makeTestViewer();
+    const sectionFirst = emitClickWorld(viewer as any, { x: -2, y: -1 }, { tool: "section" });
+    const sectionResult = emitClickWorld(viewer as any, { x: 3, y: 4 }, { tool: "section" }) as {
+      mesh: THREE.Object3D;
+      chain: string;
+      dispatchOnCommit?: { verb: string; args: Record<string, unknown> };
+    } | null;
+
+    expect(sectionFirst).toBeNull();
+    expect(sectionResult).not.toBeNull();
+    expect(sectionResult?.mesh.userData).toMatchObject({ kind: "section-box", creator: "SdSectionBox" });
+    expect(sectionResult?.chain).toBe("SdSectionBox({min:[-2,-1,-0.1],max:[3,4,6]})");
+    expect(sectionResult?.dispatchOnCommit).toEqual({
+      verb: "SdSectionBox",
+      args: { min: [-2, -1, -0.1], max: [3, 4, 6] },
+    });
+
+    clearCreateSequence();
+    resetPending();
+    viewer = makeTestViewer();
+    const clipResult = emitClickWorld(viewer as any, { x: 1, y: 2, z: 0.5 }, { tool: "clip" }) as {
+      mesh: THREE.Object3D;
+      chain: string;
+      dispatchOnCommit?: { verb: string; args: Record<string, unknown> };
+    } | null;
+
+    expect(clipResult).not.toBeNull();
+    expect(clipResult?.mesh.userData).toMatchObject({ kind: "clip-plane", creator: "SdClippingPlane" });
+    expect(clipResult?.dispatchOnCommit?.verb).toBe("SdClippingPlane");
+    expect(clipResult?.dispatchOnCommit?.args).toMatchObject({
+      origin: [1, 2, 1.7],
+      normal: [0, 0, -1],
+    });
+    expect(typeof clipResult?.dispatchOnCommit?.args.label).toBe("string");
+    expect(clipResult?.chain).toContain("SdClippingPlane({origin:[1,2,1.7],normal:[0,0,-1],label:");
+
+    expect(dispatched.map((entry) => entry.verb)).toEqual(["SdSectionBox", "SdClippingPlane"]);
+    expect(dispatched[0].args).toEqual({ min: [-2, -1, -0.1], max: [3, 4, 6] });
+    expect(dispatched[1].args).toMatchObject({ origin: [1, 2, 1.7], normal: [0, 0, -1] });
   });
 
   test("Unsupported tool (extrude) logs TODO, returns null, no chain emitted", async () => {

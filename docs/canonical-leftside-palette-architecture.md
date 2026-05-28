@@ -125,7 +125,7 @@ These are known limitations, not acceptable final-state claims:
 | Fillet | Current fillet is mesh/polyline based and is now canonically linked for edge and all-edge paths. It does not create exact NURBS fillet surfaces between BRep faces. |
 | BRep explode/join/rebuild/contour | Visible CAD buttons are named as BRep tools, but their behavior is still mostly display/group/sample/bbox oriented. |
 | Curved architectural elements | Curve wall, stair, and roof paths are mostly planarized display meshes rather than coherent semantic BRep/NURBS objects. |
-| IFC semantic solids | FZK conversion is lossless relative to `web-ifc` placed triangle meshes. It is not yet semantic IFC solid reconstruction or coplanar face merging. |
+| IFC semantic solids | FZK conversion now merges connected coplanar triangles per IFC element into planar NURBS-trimmed BRep faces. It is still not semantic IFC solid reconstruction or higher-order analytic surface recovery. |
 
 ## Regression Gates
 

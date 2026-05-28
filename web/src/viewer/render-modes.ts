@@ -3,7 +3,7 @@
 // Five modes: shaded (default) / wireframe / ghosted / realistic (stub) / technical.
 // Technical = applyDrafting overlay from drafting.ts with California-arch line types.
 // Ghosted = semi-transparent fill + edge highlight overlay.
-// Wireframe = flat wireframe material.
+// Wireframe = BRep/object edge overlay, not raw render-triangle wireframe.
 // Realistic = stub (PBR/WebGPU path — same visual as shaded until WebGPU research landed).
 //
 // All material swaps use a per-mesh userData tag for backup/restore so the
@@ -121,7 +121,19 @@ export function setRenderMode(mode: RenderMode): void {
       if (mesh.userData[RM_OVERLAY]) return;
       if (mesh.userData.creator === "IfcLevel") return;
       mesh.userData[RM_BACKUP] = mesh.material;
-      mesh.material = new THREE.MeshBasicMaterial({ color: 0x2a2a3a, wireframe: true });
+      mesh.material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.02,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const eGeom = new THREE.EdgesGeometry(mesh.geometry, 1);
+      const eMat = new THREE.LineBasicMaterial({ color: 0x2a2a3a, opacity: 0.95, transparent: true });
+      const lines = new THREE.LineSegments(eGeom, eMat);
+      lines.userData[RM_OVERLAY] = true;
+      lines.renderOrder = 1;
+      mesh.add(lines);
     });
   } else if (mode === "ghosted") {
     scene.traverse((obj) => {

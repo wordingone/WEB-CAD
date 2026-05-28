@@ -102,14 +102,14 @@ These are useful, but they are not yet a canonical document/runtime model.
 
 ## FZK Conversion Contract
 
-The bundled FZK sample is not a plausible visual replacement for the IFC. It is an algorithmic, lossless conversion from the `web-ifc` placed triangle mesh into canonical WEB-CAD BRep/NURBS records:
+The bundled FZK sample is not a plausible visual replacement for the IFC. It is an algorithmic conversion from the `web-ifc` placed triangle mesh into canonical WEB-CAD BRep/NURBS records with coplanar triangle seams removed per IFC element:
 
 - `scripts/generate-fzk-canonical-sample.ts` reads `web/public/samples/AC20-FZK-Haus.ifc` through `web-ifc`, applies each placed geometry transform, converts IFC Y-up coordinates to the app's Z-up coordinates, and emits `web/public/samples/AC20-FZK-Haus.webcad`.
-- The conversion uses `meshToPlanarBrep(mesh, { mergeCoplanarFaces: false, surfaceKind: "nurbs" })`.
-- The lossless unit is the placed tessellated IFC mesh triangle: every nondegenerate source triangle becomes one trimmed BRep face on an exact degree-1 planar NURBS surface.
-- The converter must not substitute hand-authored parametric components, merge coplanar triangles, simplify topology, or visually approximate missing source geometry.
-- This is equivalent in intent to a mesh-to-NURBS/BRep conversion such as `ToNURBS` over the available faceted source: it preserves the mesh geometry exactly as faceted NURBS/BRep topology. It is not a reverse-engineering pass that recovers higher-order analytic solids from faceted IFC tessellation.
-- `web/test/fzk-canonical-sample.test.ts` is the gate: source triangle count, display triangle count, canonical face count, and NURBS face count must match, and reconstructed display must come from the canonical trimmed triangle faces.
+- The conversion uses `meshToPlanarBrep(mesh, { mergeCoplanarFaces: true, surfaceKind: "nurbs" })`.
+- Adjacent coplanar source triangles in the same IFC element are merged into one polygonal trimmed BRep face on an exact degree-1 planar NURBS surface. Non-coplanar boundaries and element separation are preserved.
+- The converter must not substitute hand-authored parametric components or visually approximate missing source geometry. It may simplify only the redundant internal triangulation seams that lie inside a connected coplanar region.
+- This is equivalent in intent to a mesh-to-NURBS/BRep conversion followed by `MergeCoplanarFaces`: it preserves the available faceted source geometry while making the BRep topology CAD-usable instead of triangle-seam-dominated.
+- `web/test/fzk-canonical-sample.test.ts` is the gate: canonical face count must be lower than source triangle count, all canonical faces must be NURBS-backed trimmed polygonal faces, and reconstructed display must come from the canonical merged BRep faces.
 
 ## Required Target Architecture
 
