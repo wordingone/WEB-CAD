@@ -170,7 +170,7 @@ export function inspectCanonicalGeometry(
   store: CanonicalGeometryStore,
   roots: Object3D[],
 ): CanonicalGeometrySnapshot {
-  const records = store.exportRecords();
+  const allRecords = store.exportRecords();
   const objectLinks: CanonicalGeometryObjectLink[] = [];
   const linked = new Set<CanonicalGeometryId>();
 
@@ -194,10 +194,11 @@ export function inspectCanonicalGeometry(
   }
 
   const linkedRecordIds = [...linked].sort();
-  const unlinkedRecordIds = records
+  const unlinkedRecordIds = allRecords
     .map((record) => record.id)
     .filter((id) => !linked.has(id))
     .sort();
+  const records = allRecords.filter((record) => linked.has(record.id));
 
   return { records, objectLinks, linkedRecordIds, unlinkedRecordIds };
 }

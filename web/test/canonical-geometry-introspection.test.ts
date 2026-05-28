@@ -48,7 +48,7 @@ describe("canonical geometry introspection", () => {
 
     const snapshot = inspectCanonicalGeometry(store, [mesh]);
 
-    expect(snapshot.records.map((record) => record.id).sort()).toEqual([linkedRecord.id, unlinkedRecord.id].sort());
+    expect(snapshot.records.map((record) => record.id)).toEqual([linkedRecord.id]);
     expect(snapshot.objectLinks).toEqual([
       {
         objectUuid: mesh.uuid,
