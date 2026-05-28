@@ -11,6 +11,7 @@ import { registerBrepOpHandlers } from "../src/handlers/brep-ops";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
 import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
+import { linkOpToolExtrudeCanonical } from "../src/viewer/op-tool-canonical";
 import { domain as curveDomain } from "../src/nurbs/nurbs-curves";
 import { pointAtUV } from "../src/nurbs/nurbs-surfaces";
 import { WORLD_XY } from "../src/viewer/cplane";
@@ -296,6 +297,34 @@ describe("BRep canonical migration characterization", () => {
     expect(explodedCanonical.brep.shells[0].isClosed).toBe(false);
   });
 
+  test("op-tool extrude meshes can link to canonical BReps from retained footprints", () => {
+    const { viewer, store } = makeViewer();
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 1, 3).translate(1, 0.5, 1.5),
+      new THREE.MeshStandardMaterial(),
+    );
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "extrude";
+    mesh.userData.footprintPts = [
+      { x: 0, y: 0 },
+      { x: 2, y: 0 },
+      { x: 2, y: 1 },
+      { x: 0, y: 1 },
+    ];
+
+    expect(linkOpToolExtrudeCanonical(viewer, mesh, 3)).toBe(true);
+
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("brep");
+    expect(canonical.createdBy).toBe("SdExtrude");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.brep.shells).toHaveLength(1);
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
   test("project save/open is currently the deprecated gemarch scene snapshot path", () => {
     const shell = source("shell/shell.ts");
 
@@ -342,5 +371,16 @@ describe("BRep canonical migration characterization", () => {
     expect(exporters).toContain("const geom = mesh.geometry as THREE.BufferGeometry");
     expect(exporters).toContain("const rhinoMesh: any = new rh.Mesh()");
     expect(exporters).toContain("file.objects().add(rhinoMesh)");
+  });
+
+  test("op-tool UI boolean path routes through canonical command handlers", () => {
+    const opTool = source("viewer/op-tool.ts");
+
+    expect(opTool).toContain('op === "union" ? "SdBooleanUnion"');
+    expect(opTool).toContain(': op === "difference" ? "SdBooleanDifference"');
+    expect(opTool).toContain(': "SdBooleanIntersection"');
+    expect(opTool).toContain("const result = dispatchSync(verb, args)");
+    expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, mesh, h2)");
+    expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, extruded, 3.0)");
   });
 });

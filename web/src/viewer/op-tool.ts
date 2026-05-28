@@ -8,7 +8,7 @@
 //   op-tool-fillet-2d.ts     — opApply2DFillet
 
 import * as THREE from "three";
-import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "./csg";
+import { filletMesh, chamferEdge, getUniqueEdges } from "./csg";
 import type { Viewer } from "./viewer";
 import { getSnap, closestPtOnSegToRay } from "./snap-state";
 import { nearestSnapVertex } from "./snap-state";
@@ -27,6 +27,7 @@ import {
 } from "./op-tool-extrude-mesh";
 import { applyBoolHighlight, restoreBoolHighlight } from "./op-tool-bool-highlight";
 import { opApply2DFillet } from "./op-tool-fillet-2d";
+import { linkOpToolExtrudeCanonical } from "./op-tool-canonical";
 
 // Re-export for callers that import these from op-tool (barrel pattern).
 export { EXTRUDABLE_CREATORS, opRaycastObject } from "./op-tool-extrude-mesh";
@@ -610,33 +611,23 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
   mA.updateMatrixWorld(true);
   mB.updateMatrixWorld(true);
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
-  const tags: Record<string, string> = { union: "boolean-union", difference: "boolean-difference", split: "boolean-split" };
-
-  let result: THREE.Mesh;
-  try {
-    if      (op === "union")      result = csgUnion(mA, mB, mat);
-    else if (op === "difference") result = csgDifference(mA, mB, mat);
-    else                          result = csgIntersection(mA, mB, mat);
-  } catch {
-    ptPrompt("Boolean failed — geometry may be non-manifold. Try extruding simpler profiles.");
+  const verb = op === "union" ? "SdBooleanUnion"
+    : op === "difference" ? "SdBooleanDifference"
+      : "SdBooleanIntersection";
+  const args = op === "difference"
+    ? { outer: mA.uuid, inner: mB.uuid }
+    : { a: mA.uuid, b: mB.uuid };
+  const result = dispatchSync(verb, args);
+  if (!result.ok) {
+    ptPrompt(`Boolean failed — ${result.detail ?? result.error}`);
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
-
-  if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0) {
-    ptPrompt("Boolean produced no geometry — ensure the two solids overlap in 3D.");
-    setTimeout(() => ptClearPrompt(), 4000);
-    opFinish(viewer); return;
+  if (op === "split") {
+    const createdId = (result.result as { created?: string } | undefined)?.created;
+    const created = createdId ? viewer.getScene().getObjectByProperty("uuid", createdId) : null;
+    if (created) created.userData.creator = "boolean-split";
   }
-
-  const creator = tags[op];
-  result.userData.kind = "brep";
-  result.userData.creator = creator;
-  viewer.getScene().remove(objA);
-  viewer.getScene().remove(objB);
-  viewer.addMesh(result, "brep", { noHistory: true });
-  pushReplaceAction(result, [objA, objB], creator);
   opFinish(viewer);
 }
 
@@ -704,6 +695,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const mesh = opBuildExtrudeMesh(phase.profile, h2);
     mesh.userData.kind = "brep";
     mesh.userData.creator = "extrude";
+    linkOpToolExtrudeCanonical(viewer, mesh, h2);
     viewer.addMesh(mesh, "brep", { noHistory: true });
     _hooks.appendToCreateSequence(`// extrude h=${round(h2)} from profile creator=${phase.profile.userData.creator ?? "unknown"}`);
     pushAction(mesh, "extrude");
@@ -1056,6 +1048,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
         const extruded = opBuildExtrudeMesh(objA, 3.0);
         extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
         extruded.userData.autoExtrudedForBoolean = true;
+        linkOpToolExtrudeCanonical(viewer, extruded, 3.0);
         viewer.getScene().remove(objA);
         viewer.getScene().add(extruded);
         extruded.updateMatrixWorld(true);
@@ -1088,6 +1081,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
         const extruded = opBuildExtrudeMesh(objB, 3.0);
         extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
         extruded.userData.autoExtrudedForBoolean = true;
+        linkOpToolExtrudeCanonical(viewer, extruded, 3.0);
         viewer.getScene().remove(objB);
         viewer.getScene().add(extruded);
         extruded.updateMatrixWorld(true);
