@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { CanonicalGeometryStore } from "../geometry/canonical-geometry";
 import type { Brep } from "../nurbs/nurbs-brep";
+import type { Curve } from "../nurbs/nurbs-curves";
+import type { Point3 } from "../nurbs/nurbs-primitives";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 
@@ -65,6 +67,70 @@ export function linkCanonicalBrep(viewer: Viewer, obj: THREE.Object3D, brep: Bre
       cplaneKind: obj.userData.cplaneKind,
       levelId: obj.userData.levelId,
       layerId: obj.userData.layerId,
+    },
+  });
+  store.linkObject(obj, record.id);
+}
+
+export function linkCanonicalCurve(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  curve: Curve,
+  createdBy: string,
+  metadata?: Record<string, unknown>,
+): void {
+  const store = (viewer as CanonicalGeometryViewer).getCanonicalGeometryStore?.();
+  if (!store) return;
+  const geometry = (obj as THREE.Line | THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+  const position = geometry?.getAttribute("position");
+  const record = store.create({
+    kind: "curve",
+    curve,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: position?.count,
+      derivation: "tessellated-curve",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      levelId: obj.userData.levelId,
+      layerId: obj.userData.layerId,
+      ...metadata,
+    },
+  });
+  store.linkObject(obj, record.id);
+}
+
+export function linkCanonicalPoint(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  point: Point3,
+  createdBy: string,
+  metadata?: Record<string, unknown>,
+): void {
+  const store = (viewer as CanonicalGeometryViewer).getCanonicalGeometryStore?.();
+  if (!store) return;
+  const geometry = (obj as THREE.Points | THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+  const position = geometry?.getAttribute("position");
+  const record = store.create({
+    kind: "point",
+    point,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: position?.count,
+      derivation: "reference-marker",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      levelId: obj.userData.levelId,
+      layerId: obj.userData.layerId,
+      ...metadata,
     },
   });
   store.linkObject(obj, record.id);

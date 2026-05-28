@@ -579,6 +579,53 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(seq[0]).toContain("translate([2, 2, 0])");
   });
 
+  test("CAD draw palette create-mode tools link committed objects to canonical curves/points", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    const cases: Array<{
+      tool: string;
+      clicks: Array<{ x: number; y: number; z?: number }>;
+      commit?: boolean;
+      expectedKind: "curve" | "point";
+      expectedCurveKind?: "line" | "polyline" | "arc" | "nurbs";
+    }> = [
+      { tool: "line", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedKind: "curve", expectedCurveKind: "line" },
+      { tool: "rect", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedKind: "curve", expectedCurveKind: "polyline" },
+      { tool: "circle", clicks: [{ x: 2, y: 2 }, { x: 5, y: 2 }], expectedKind: "curve", expectedCurveKind: "arc" },
+      { tool: "polygon", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }], expectedKind: "curve", expectedCurveKind: "polyline" },
+      { tool: "arc", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 2 }], expectedKind: "curve", expectedCurveKind: "nurbs" },
+      { tool: "polyline", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }], commit: true, expectedKind: "curve", expectedCurveKind: "polyline" },
+      { tool: "curve", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs" },
+      { tool: "spline", clicks: [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: -1 }, { x: 3, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs" },
+      { tool: "point", clicks: [{ x: 7, y: 8 }], expectedKind: "point" },
+    ];
+
+    for (const spec of cases) {
+      clearCreateSequence();
+      resetPending();
+      const viewer = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (viewer as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+      let result: { mesh: THREE.Object3D } | null = null;
+      for (let i = 0; i < spec.clicks.length; i++) {
+        result = emitClickWorld(viewer as any, spec.clicks[i], {
+          tool: spec.tool,
+          commit: spec.commit === true && i === spec.clicks.length - 1,
+        }) as { mesh: THREE.Object3D } | null;
+      }
+      expect(result, spec.tool).not.toBeNull();
+      const canonical = result ? store.resolveObject(result.mesh) : undefined;
+      expect(canonical?.kind, spec.tool).toBe(spec.expectedKind);
+      if (canonical?.kind === "curve") {
+        expect(spec.expectedCurveKind, spec.tool).toBeDefined();
+        expect(canonical.curve.kind, spec.tool).toBe(spec.expectedCurveKind!);
+        expect(canonical.createdBy).toBe(`create-${spec.tool}`);
+      } else if (canonical?.kind === "point") {
+        expect(canonical.createdBy).toBe("create-point");
+      }
+    }
+  });
+
   test("Door tool: single click emits cut chain", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();

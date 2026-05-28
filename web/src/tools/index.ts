@@ -27,7 +27,7 @@ import { drawingLayerStore, SKETCH_KINDS } from "../geometry/drawing-layers";
 import { clippingPlaneStore } from "../geometry/clipping-planes";
 import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
 import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
-import { linkCanonicalBrep } from "../handlers/canonical-surface";
+import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint } from "../handlers/canonical-surface";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
 import type { Surface } from "../nurbs/nurbs-surfaces";
@@ -619,6 +619,89 @@ function lineCurve(from: { x: number; y: number; z: number }, to: { x: number; y
   return { kind: "line", from, to, domain: { min: 0, max: length } };
 }
 
+function polylineCurve(points: Array<{ x: number; y: number; z: number }>, closed = false): PolylineCurve {
+  const pts = closed && points.length > 0
+    ? [...points, { ...points[0] }]
+    : points;
+  const parameters = [0];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points: pts, parameters };
+}
+
+function localGeometryPoints(obj: THREE.Object3D): Array<{ x: number; y: number; z: number }> {
+  const geometry = (obj as THREE.Line | THREE.Mesh | THREE.Points).geometry as THREE.BufferGeometry | undefined;
+  const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!pos) return [];
+  const pts: Array<{ x: number; y: number; z: number }> = [];
+  for (let i = 0; i < pos.count; i++) pts.push({ x: pos.getX(i), y: pos.getY(i), z: pos.getZ(i) });
+  return pts;
+}
+
+function controlPoints(obj: THREE.Object3D): Array<{ x: number; y: number; z: number }> {
+  const raw = obj.userData.controlPoints;
+  if (!Array.isArray(raw)) return localGeometryPoints(obj);
+  return raw.map((p) => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+}
+
+function linkCreateModeSketchCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  if (!["line", "rect", "circle", "polygon", "arc", "polyline", "curve", "spline", "point"].includes(tool)) return false;
+
+  if (tool === "point") {
+    linkCanonicalPoint(viewer, obj, { x: 0, y: 0, z: 0 }, "create-point", {
+      worldPoint: pts[0] ? [pts[0].x, pts[0].y, pts[0].z ?? 0] : undefined,
+    });
+    return true;
+  }
+
+  let curve: Curve | null = null;
+  if (tool === "line") {
+    const cp = controlPoints(obj);
+    if (cp.length >= 2) curve = lineCurve(cp[0], cp[1]);
+  } else if (tool === "arc") {
+    const nc = obj.userData.nurbsCurve as Curve | undefined;
+    if (nc) curve = nc;
+  } else if (tool === "circle") {
+    const local = localGeometryPoints(obj);
+    const first = local[0] ?? { x: 1, y: 0, z: 0 };
+    const radius = Math.max(0.05, Math.hypot(first.x, first.y));
+    curve = {
+      kind: "arc",
+      center: { x: 0, y: 0, z: 0 },
+      radius,
+      startAngle: 0,
+      endAngle: 2 * Math.PI,
+      plane: {
+        origin: { x: 0, y: 0, z: 0 },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      domain: { min: 0, max: 2 * Math.PI * radius },
+    };
+  } else if (tool === "curve" || tool === "spline") {
+    const nc = obj.userData.nurbsCurve as Curve | undefined;
+    if (nc) curve = nc;
+  } else {
+    curve = polylineCurve(controlPoints(obj), true);
+  }
+
+  if (!curve) return false;
+  linkCanonicalCurve(viewer, obj, curve, `create-${tool}`, {
+    closed: obj.userData.isClosed === true || tool === "rect" || tool === "polygon" || tool === "circle",
+    worldPoints: pts.map((p) => [p.x, p.y, p.z ?? 0]),
+  });
+  return true;
+}
+
 function planeSurface(extent: number): Surface {
   const half = extent / 2;
   return {
@@ -966,6 +1049,7 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
   if (!out) { dispatchSync("setActiveTool", { toolId: "select" }); return null; }
   if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   applyDrawingLayer(out.mesh);
+  linkCreateModeSketchCanonical(viewer, tool, out.mesh, pts);
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh", { noHistory: true });
   if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
   _createSequence.push(out.chain);
@@ -1011,6 +1095,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
       const out = handler.handler(pts);
       if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
       applyDrawingLayer(out.mesh);
+      linkCreateModeSketchCanonical(viewer, tool, out.mesh, pts);
       viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh", { noHistory: true });
       if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
       _createSequence.push(out.chain);
@@ -1036,6 +1121,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   }
   // noHistory: true — undo managed via explicit push / transaction below.
   applyDrawingLayer(out.mesh);
+  linkCreateModeSketchCanonical(viewer, tool, out.mesh, commitPts);
   linkCreateModeStructuralCanonical(viewer, tool, out.mesh, commitPts);
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep", { noHistory: true });
   if (out.mesh instanceof THREE.Mesh && out.mesh.userData.creator === "wall") {

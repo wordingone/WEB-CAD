@@ -18,7 +18,7 @@ import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
 import { BREP_DEFAULT_TOLERANCE, type Brep } from "../nurbs/nurbs-brep";
-import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
+import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
 void curvePointAt; void curveDomain;
@@ -36,12 +36,6 @@ function polylineToGeom(pts: { x: number; y: number; z: number }[]): THREE.Buffe
 
 function curveMat(): THREE.LineBasicMaterial {
   return new THREE.LineBasicMaterial({ color: 0x000000 });
-}
-
-function vertexCount(obj: THREE.Object3D): number | undefined {
-  if (!("geometry" in obj)) return undefined;
-  const geom = (obj as { geometry?: THREE.BufferGeometry }).geometry;
-  return geom?.getAttribute("position")?.count;
 }
 
 function curveParameters(points: Point3[]): number[] {
@@ -171,58 +165,6 @@ function planarTrimmedBrepFromProfile(points: number[][]): Brep {
       isClosed: false,
     }],
   };
-}
-
-function linkCanonicalCurve(
-  viewer: Viewer,
-  obj: THREE.Object3D,
-  curve: Curve,
-  createdBy: string,
-  metadata?: Record<string, unknown>,
-): void {
-  const record = viewer.getCanonicalGeometryStore().create({
-    kind: "curve",
-    curve,
-    source: "command",
-    createdBy,
-    displayMesh: {
-      revision: 1,
-      generatedAt: Date.now(),
-      vertexCount: vertexCount(obj),
-      derivation: "tessellated-curve",
-    },
-    metadata: {
-      creator: obj.userData.creator,
-      ...metadata,
-    },
-  });
-  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
-}
-
-function linkCanonicalPoint(
-  viewer: Viewer,
-  obj: THREE.Object3D,
-  point: Point3,
-  createdBy: string,
-  metadata?: Record<string, unknown>,
-): void {
-  const record = viewer.getCanonicalGeometryStore().create({
-    kind: "point",
-    point,
-    source: "command",
-    createdBy,
-    displayMesh: {
-      revision: 1,
-      generatedAt: Date.now(),
-      vertexCount: vertexCount(obj),
-      derivation: "reference-marker",
-    },
-    metadata: {
-      creator: obj.userData.creator,
-      ...metadata,
-    },
-  });
-  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
 }
 
 function resolveCurve(arg: unknown): Curve {

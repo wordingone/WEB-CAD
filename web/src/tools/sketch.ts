@@ -265,6 +265,7 @@ export function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.
   mesh.userData.kind = "curve";
   mesh.userData.creator = "curve";
   mesh.userData.isClosed = isClosed;
+  mesh.userData.nurbsCurve = crNurbs;
   mesh.userData.nurbsKind = "catmull-rom";
   mesh.userData.controlPoints = localVecs;
   mesh.userData.nurbsCVs = crNurbs.cvs;
