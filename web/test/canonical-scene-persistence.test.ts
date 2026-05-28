@@ -10,7 +10,7 @@ import type { Curve } from "../src/nurbs/nurbs-curves";
 import { Interval, Plane } from "../src/nurbs/nurbs-primitives";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 import type { PlaneSurface } from "../src/nurbs/nurbs-surfaces";
-import { __sceneSerializationForTests } from "../src/viewer/viewer";
+import { __sceneSerializationForTests, Viewer } from "../src/viewer/viewer";
 
 const surface: Surface = {
   kind: "sum",
@@ -160,5 +160,36 @@ describe("canonical scene persistence", () => {
     expect(restored).toBeInstanceOf(THREE.Mesh);
     expect((restored as THREE.Mesh).geometry.getAttribute("position").count).toBeGreaterThan(0);
     expect(store.resolveObject(restored!)).toEqual(record);
+  });
+
+  test("project canonical export includes only records referenced by serialized scene objects", () => {
+    const store = createCanonicalGeometryStore();
+    const liveRecord = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdWall",
+    });
+    const staleRecord = store.create({
+      kind: "curve",
+      curve,
+      source: "command",
+      createdBy: "SdLine",
+    });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 3), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "wall";
+    store.linkObject(mesh, liveRecord.id);
+    const serialized = __sceneSerializationForTests.serializeSceneObj(mesh);
+    if (!serialized) throw new Error("expected serialized object");
+
+    const exported = Viewer.prototype.exportCanonicalGeometry.call({
+      canonicalGeometryStore: store,
+      exportScene: () => [serialized],
+    } as unknown as Viewer);
+
+    expect(exported.map((record) => record.id)).toEqual([liveRecord.id]);
+    expect(exported.find((record) => record.id === staleRecord.id)).toBeUndefined();
+    expect(__sceneSerializationForTests.collectCanonicalGeometryIds([serialized])).toEqual(new Set([liveRecord.id]));
   });
 });

@@ -637,7 +637,8 @@ export class Viewer {
   }
 
   exportCanonicalGeometry(): CanonicalGeometry[] {
-    return this.canonicalGeometryStore.exportRecords();
+    const linked = _collectCanonicalGeometryIds(this.exportScene());
+    return this.canonicalGeometryStore.exportRecords().filter((record) => linked.has(record.id));
   }
 
   importCanonicalGeometry(records: unknown[]): number {
@@ -852,6 +853,17 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
   return s;
 }
 
+function _collectCanonicalGeometryIds(objects: SerializedSceneObj[]): Set<string> {
+  const ids = new Set<string>();
+  const visit = (obj: SerializedSceneObj): void => {
+    const id = obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    if (typeof id === "string") ids.add(id);
+    for (const child of obj.children ?? []) visit(child);
+  };
+  for (const obj of objects) visit(obj);
+  return ids;
+}
+
 function geometryFromSurface(surface: CanonicalGeometry & { kind: "surface" }): THREE.Mesh {
   const tess = tessellateSurface(surface.surface, 16, 16);
   const geo = new THREE.BufferGeometry();
@@ -927,5 +939,6 @@ function _deserializeSceneObj(s: SerializedSceneObj, canonicalStore?: CanonicalG
 export const __sceneSerializationForTests = {
   serializeSceneObj: _serializeSceneObj,
   deserializeSceneObj: _deserializeSceneObj,
+  collectCanonicalGeometryIds: _collectCanonicalGeometryIds,
 };
 
