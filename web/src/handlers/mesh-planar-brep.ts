@@ -60,11 +60,57 @@ function planarNurbsSurface(
   };
 }
 
-function planeFaceFromLoop(points: THREE.Vector3[], surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
-  if (points.length < 3) return null;
+function curveFromUvLoop(uv: Array<{ u: number; v: number }>): Curve {
+  const trimPoints = uv.map((p) => ({ x: p.u, y: p.v, z: 0 }));
+  trimPoints.push({ ...trimPoints[0] });
+  const parameters = [0];
+  for (let i = 1; i < trimPoints.length; i++) {
+    const p = trimPoints[i - 1];
+    const q = trimPoints[i];
+    parameters.push(parameters[i - 1] + Math.hypot(q.x - p.x, q.y - p.y));
+  }
+  return {
+    kind: "polyline",
+    points: trimPoints,
+    parameters,
+  };
+}
+
+function signedAreaUv(uv: Array<{ u: number; v: number }>): number {
+  let area = 0;
+  for (let i = 0; i < uv.length; i++) {
+    const j = (i + 1) % uv.length;
+    area += uv[i].u * uv[j].v - uv[j].u * uv[i].v;
+  }
+  return area / 2;
+}
+
+function avoidTriangularLoop(points: THREE.Vector3[]): THREE.Vector3[] {
+  if (points.length !== 3) return points;
+  const edges = [
+    { index: 0, lengthSq: points[0].distanceToSquared(points[1]) },
+    { index: 1, lengthSq: points[1].distanceToSquared(points[2]) },
+    { index: 2, lengthSq: points[2].distanceToSquared(points[0]) },
+  ].sort((aEdge, bEdge) => bEdge.lengthSq - aEdge.lengthSq);
+  const splitIndex = edges[0].index;
+  const a = points[splitIndex];
+  const b = points[(splitIndex + 1) % points.length];
+  const mid = a.clone().add(b).multiplyScalar(0.5);
+  return [
+    ...points.slice(0, splitIndex + 1),
+    mid,
+    ...points.slice(splitIndex + 1),
+  ];
+}
+
+function planeFaceFromLoops(loops: THREE.Vector3[][], surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
+  const validLoops = loops.filter((loop) => loop.length >= 3);
+  if (validLoops.length === 0) return null;
+  const points = validLoops.flat();
   const a = points[0];
-  const b = points[1];
-  const c = points.find((candidate, index) => index > 1 && new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(candidate, a)).lengthSq() > 1e-18);
+  const b = points.find((candidate, index) => index > 0 && candidate.distanceToSquared(a) > 1e-18);
+  if (!b) return null;
+  const c = points.find((candidate) => new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(candidate, a)).lengthSq() > 1e-18);
   if (!c) return null;
   const ab = new THREE.Vector3().subVectors(b, a);
   const ac = new THREE.Vector3().subVectors(c, a);
@@ -74,17 +120,19 @@ function planeFaceFromLoop(points: THREE.Vector3[], surfaceKind: "plane" | "nurb
 
   const centroid = points.reduce((sum, p) => sum.add(p), new THREE.Vector3()).multiplyScalar(1 / points.length);
   const plane = Plane.fromPointNormal(point(centroid), point(n));
-  const uv = points.map((p) => {
+  const uvForPoint = (p: THREE.Vector3) => {
     const d = p.clone().sub(centroid);
     return {
       u: d.x * plane.xAxis.x + d.y * plane.xAxis.y + d.z * plane.xAxis.z,
       v: d.x * plane.yAxis.x + d.y * plane.yAxis.y + d.z * plane.yAxis.z,
     };
-  });
-  const uMin = Math.min(...uv.map((p) => p.u));
-  const uMax = Math.max(...uv.map((p) => p.u));
-  const vMin = Math.min(...uv.map((p) => p.v));
-  const vMax = Math.max(...uv.map((p) => p.v));
+  };
+  const uvLoops = validLoops.map((loop) => loop.map(uvForPoint));
+  const uvAll = uvLoops.flat();
+  const uMin = Math.min(...uvAll.map((p) => p.u));
+  const uMax = Math.max(...uvAll.map((p) => p.u));
+  const vMin = Math.min(...uvAll.map((p) => p.v));
+  const vMax = Math.max(...uvAll.map((p) => p.v));
   const surface: Surface = surfaceKind === "nurbs" ? planarNurbsSurface(plane, uMin, uMax, vMin, vMax) : {
     kind: "plane",
     plane,
@@ -93,26 +141,21 @@ function planeFaceFromLoop(points: THREE.Vector3[], surfaceKind: "plane" | "nurb
     uExtent: Interval.create(uMin, uMax),
     vExtent: Interval.create(vMin, vMax),
   };
-  const trimPoints = uv.map((p) => ({ x: p.u, y: p.v, z: 0 }));
-  trimPoints.push({ ...trimPoints[0] });
-  const parameters = [0];
-  for (let i = 1; i < trimPoints.length; i++) {
-    const p = trimPoints[i - 1];
-    const q = trimPoints[i];
-    parameters.push(parameters[i - 1] + Math.hypot(q.x - p.x, q.y - p.y));
-  }
-  const outerLoopCurve: Curve = {
-    kind: "polyline",
-    points: trimPoints,
-    parameters,
-  };
+  const orderedLoops = uvLoops
+    .map((uv, index) => ({ uv, points: validLoops[index], area: signedAreaUv(uv) }))
+    .sort((aLoop, bLoop) => Math.abs(bLoop.area) - Math.abs(aLoop.area));
+  const [outer, ...inners] = orderedLoops;
   return {
     surface,
-    outerLoop: { curves: [outerLoopCurve], orientation: true },
-    innerLoops: [],
+    outerLoop: { curves: [curveFromUvLoop(outer.uv)], orientation: outer.area >= 0 },
+    innerLoops: inners.map((loop) => ({ curves: [curveFromUvLoop(loop.uv)], orientation: loop.area < 0 })),
     orientation: true,
     tolerance: BREP_DEFAULT_TOLERANCE,
   };
+}
+
+function planeFaceFromLoop(points: THREE.Vector3[], surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
+  return planeFaceFromLoops([points], surfaceKind);
 }
 
 function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, surfaceKind: "plane" | "nurbs" = "plane"): BrepFace | null {
@@ -131,7 +174,7 @@ function coplanar(a: TriangleDraft, b: TriangleDraft): boolean {
     && Math.abs(a.planeOffset - b.planeOffset) < 1e-6;
 }
 
-function boundaryLoopForComponent(component: number[], triangles: TriangleDraft[]): number[] | null {
+function boundaryLoopsForComponent(component: number[], triangles: TriangleDraft[]): number[][] | null {
   const directed = new Map<string, [number, number]>();
   const edgeUse = new Map<string, number>();
   for (const triIndex of component) {
@@ -142,36 +185,50 @@ function boundaryLoopForComponent(component: number[], triangles: TriangleDraft[
       directed.set(key, [from, to]);
     }
   }
-  const next = new Map<number, number[]>();
+  const adjacency = new Map<number, number[]>();
   for (const [key, count] of edgeUse.entries()) {
     if (count !== 1) continue;
     const edge = directed.get(key);
     if (!edge) continue;
-    const [from, to] = edge;
-    const candidates = next.get(from) ?? [];
-    candidates.push(to);
-    next.set(from, candidates);
+    const [a, b] = edge;
+    const aList = adjacency.get(a) ?? [];
+    aList.push(b);
+    adjacency.set(a, aList);
+    const bList = adjacency.get(b) ?? [];
+    bList.push(a);
+    adjacency.set(b, bList);
   }
-  if (next.size === 0) return null;
-  if ([...next.values()].some((candidates) => candidates.length !== 1)) return null;
-  const start = [...next.keys()][0];
-  const loop = [start];
-  const visited = new Set<number>([start]);
-  let current = start;
-  while (true) {
-    const candidates = next.get(current);
-    if (!candidates || candidates.length !== 1) return null;
-    const candidate = candidates[0];
-    if (candidate === start) break;
-    if (visited.has(candidate)) return null;
-    loop.push(candidate);
-    visited.add(candidate);
-    current = candidate;
+  if (adjacency.size === 0) return null;
+  if ([...adjacency.values()].some((candidates) => candidates.length !== 2)) return null;
+
+  const edgeKey = (a: number, b: number) => a < b ? `${a}:${b}` : `${b}:${a}`;
+  const visitedEdges = new Set<string>();
+  const loops: number[][] = [];
+  for (const start of adjacency.keys()) {
+    const startEdges = adjacency.get(start) ?? [];
+    if (startEdges.every((candidate) => visitedEdges.has(edgeKey(start, candidate)))) continue;
+    const loop = [start];
+    let previous: number | null = null;
+    let current = start;
+    while (true) {
+      const candidates = adjacency.get(current) ?? [];
+      const next = candidates.find((candidate) => candidate !== previous && !visitedEdges.has(edgeKey(current, candidate)))
+        ?? candidates.find((candidate) => !visitedEdges.has(edgeKey(current, candidate)));
+      if (next === undefined) return null;
+      visitedEdges.add(edgeKey(current, next));
+      previous = current;
+      current = next;
+      if (current === start) break;
+      if (loop.includes(current)) return null;
+      loop.push(current);
+    }
+    if (loop.length < 3) return null;
+    loops.push(loop);
   }
-  return visited.size === next.size ? loop : null;
+  return loops.length > 0 ? loops : null;
 }
 
-function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3[], surfaceKind: "plane" | "nurbs"): { faces: BrepFace[]; faceBoundaryVerts: THREE.Vector3[][]; mergedComponents: number; mergedTriangles: number } {
+function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3[], surfaceKind: "plane" | "nurbs"): { faces: BrepFace[]; faceBoundaryLoops: THREE.Vector3[][][]; mergedComponents: number; mergedTriangles: number } {
   const edgeToTriangles = new Map<string, number[]>();
   for (let i = 0; i < triangles.length; i++) {
     const ids = triangles[i].vertexIds;
@@ -185,7 +242,7 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
 
   const visited = new Set<number>();
   const faces: BrepFace[] = [];
-  const faceBoundaryVerts: THREE.Vector3[][] = [];
+  const faceBoundaryLoops: THREE.Vector3[][][] = [];
   let mergedComponents = 0;
   let mergedTriangles = 0;
   for (let seed = 0; seed < triangles.length; seed++) {
@@ -207,11 +264,12 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
       }
     }
 
-    const loop = component.length > 1 ? boundaryLoopForComponent(component, triangles) : null;
-    const face = loop ? planeFaceFromLoop(loop.map((id) => vertices[id]), surfaceKind) : null;
-    if (face && loop) {
+    const loops = component.length > 1 ? boundaryLoopsForComponent(component, triangles) : null;
+    const boundaryLoops = loops?.map((loop) => loop.map((id) => vertices[id])) ?? null;
+    const face = boundaryLoops ? planeFaceFromLoops(boundaryLoops, surfaceKind) : null;
+    if (face && boundaryLoops) {
       faces.push(face);
-      faceBoundaryVerts.push(loop.map((id) => vertices[id]));
+      faceBoundaryLoops.push(boundaryLoops);
       mergedComponents++;
       mergedTriangles += component.length;
     } else {
@@ -220,16 +278,17 @@ function mergedCoplanarFaces(triangles: TriangleDraft[], vertices: THREE.Vector3
         const triFace = planeFaceFromTriangle(...tri.verts, surfaceKind);
         if (!triFace) continue;
         faces.push(triFace);
-        faceBoundaryVerts.push(tri.verts);
+        faceBoundaryLoops.push([tri.verts]);
       }
     }
   }
-  return { faces, faceBoundaryVerts, mergedComponents, mergedTriangles };
+  return { faces, faceBoundaryLoops, mergedComponents, mergedTriangles };
 }
 
 export type MeshToPlanarBrepOptions = {
   mergeCoplanarFaces?: boolean;
   surfaceKind?: "plane" | "nurbs";
+  avoidTriangularFaces?: boolean;
 };
 
 export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOptions = {}): Brep | null {
@@ -273,11 +332,17 @@ export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOpti
     ? mergedCoplanarFaces(triangles, sourceVertices, surfaceKind)
     : {
       faces: triangles.map((triangle) => planeFaceFromTriangle(...triangle.verts, surfaceKind)).filter((face): face is BrepFace => Boolean(face)),
-      faceBoundaryVerts: triangles.map((triangle) => triangle.verts),
+      faceBoundaryLoops: triangles.map((triangle) => [triangle.verts]),
       mergedComponents: 0,
       mergedTriangles: 0,
     };
-  const { faces, faceBoundaryVerts } = conversion;
+  let { faces, faceBoundaryLoops } = conversion;
+  if (options.avoidTriangularFaces) {
+    faceBoundaryLoops = faceBoundaryLoops.map((loops) => loops.map(avoidTriangularLoop));
+    faces = faceBoundaryLoops
+      .map((loops) => planeFaceFromLoops(loops, surfaceKind))
+      .filter((face): face is BrepFace => Boolean(face));
+  }
   if (faces.length === 0) return null;
 
   const vertices: BrepVertex[] = [];
@@ -299,20 +364,21 @@ export function meshToPlanarBrep(mesh: THREE.Mesh, options: MeshToPlanarBrepOpti
     faceIndices: number[];
   };
   const edgesByKey = new Map<string, EdgeDraft>();
-  for (let faceIndex = 0; faceIndex < faceBoundaryVerts.length; faceIndex++) {
-    const boundary = faceBoundaryVerts[faceIndex];
-    for (let i = 0; i < boundary.length; i++) {
-      const from = boundary[i];
-      const to = boundary[(i + 1) % boundary.length];
-      const va = getVertex(from);
-      const vb = getVertex(to);
-      const key = va < vb ? `${va}:${vb}` : `${vb}:${va}`;
-      let draft = edgesByKey.get(key);
-      if (!draft) {
-        draft = { a: va, b: vb, curve: lineCurve(from, to), faceIndices: [] };
-        edgesByKey.set(key, draft);
+  for (let faceIndex = 0; faceIndex < faceBoundaryLoops.length; faceIndex++) {
+    for (const boundary of faceBoundaryLoops[faceIndex]) {
+      for (let i = 0; i < boundary.length; i++) {
+        const from = boundary[i];
+        const to = boundary[(i + 1) % boundary.length];
+        const va = getVertex(from);
+        const vb = getVertex(to);
+        const key = va < vb ? `${va}:${vb}` : `${vb}:${va}`;
+        let draft = edgesByKey.get(key);
+        if (!draft) {
+          draft = { a: va, b: vb, curve: lineCurve(from, to), faceIndices: [] };
+          edgesByKey.set(key, draft);
+        }
+        draft.faceIndices.push(faceIndex);
       }
-      draft.faceIndices.push(faceIndex);
     }
   }
 

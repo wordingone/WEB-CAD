@@ -52,6 +52,7 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.conversion === "actual-ifc-web-ifc-mesh-to-merged-coplanar-planar-brep")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.sourceBasis === "web-ifc placed triangle mesh")).toBe(true);
     expect(payload.canonicalGeometry?.every((record) => record.metadata?.facePolicy?.includes("merge adjacent coplanar source triangles per IFC element"))).toBe(true);
+    expect(payload.canonicalGeometry?.every((record) => record.metadata?.facePolicy?.includes("canonical BRep faces are not triangular"))).toBe(true);
     expect(payload.canonicalGeometry?.some((record) => (
       (record.metadata?.sourceTriangleCount ?? 0) > (record.metadata?.canonicalFaceCount ?? Number.MAX_SAFE_INTEGER)
     ))).toBe(true);
@@ -81,6 +82,14 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     ), 0) ?? 0;
     const triangleCount = payload.canonicalGeometry?.reduce((n, record) => n + (record.displayMesh?.triangleCount ?? 0), 0) ?? 0;
     const mergedTriangleCount = payload.canonicalGeometry?.reduce((n, record) => n + (record.metadata?.coplanarMergedTriangleCount ?? 0), 0) ?? 0;
+    const triangularFaceCount = payload.canonicalGeometry?.reduce((n, record) => (
+      n + (record.brep?.shells ?? []).reduce((m, shell) => (
+        m + (shell.faces ?? []).filter((face) => {
+          const points = face.outerLoop?.curves?.flatMap((curve) => curve.points ?? []) ?? [];
+          return points.length === 4;
+        }).length
+      ), 0)
+    ), 0) ?? 0;
     const closedRecords = payload.canonicalGeometry?.filter((record) => record.brep?.shells?.some((shell) => shell.isClosed === true)).length ?? 0;
     expect(payload.meta?.totalTriangles).toBeDefined();
     expect(faceCount).toBe(payload.meta!.totalCanonicalFaces!);
@@ -89,6 +98,7 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     expect(faceCount).toBeGreaterThan(1_000);
     expect(mergedTriangleCount).toBe(payload.meta!.totalTriangles! - faceCount);
     expect(mergedTriangleCount).toBeGreaterThan(1_000);
+    expect(triangularFaceCount).toBe(0);
     expect(triangleCount).toBe(payload.meta!.totalTriangles!);
     expect(closedRecords).toBeGreaterThan(0);
     expect(payload.objects?.every((obj) => obj.displaySource === "canonical")).toBe(true);

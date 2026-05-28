@@ -79,7 +79,11 @@ try {
       expressID: flatMesh.expressID,
       sourceIfc: IFC_PATH,
     };
-    const brep = meshToPlanarBrep(mesh, { mergeCoplanarFaces: true, surfaceKind: "nurbs" });
+    const brep = meshToPlanarBrep(mesh, {
+      mergeCoplanarFaces: true,
+      surfaceKind: "nurbs",
+      avoidTriangularFaces: true,
+    });
     if (!brep) {
       skipped++;
       continue;
@@ -107,7 +111,7 @@ try {
         expressID: flatMesh.expressID,
         schema,
         sourceBasis: "web-ifc placed triangle mesh",
-        facePolicy: "merge adjacent coplanar source triangles per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces; preserve non-coplanar boundaries and element separation",
+        facePolicy: "merge adjacent coplanar source triangles per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces; promote leftover triangular loops with a collinear split point so canonical BRep faces are not triangular; preserve non-coplanar boundaries and element separation",
         sourceTriangleCount: triangles,
         canonicalFaceCount: faceCount,
         coplanarMergedTriangleCount: Math.max(0, triangles - faceCount),
@@ -135,7 +139,7 @@ try {
       name: "KIT FZK-Haus actual IFC mesh to planar BRep",
       sourceIfc: IFC_PATH.replace(/^web\/public\//, ""),
       conversion: "actual-ifc-mesh-to-merged-coplanar-planar-brep",
-      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Adjacent coplanar triangles are merged per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces; no hand-authored parametric substitution.",
+      note: "Generated deterministically from the bundled FZK IFC via web-ifc placed meshes. Adjacent coplanar triangles are merged per IFC element into polygonal degree-1 planar NURBS-trimmed BRep faces, with leftover triangular loops promoted by a collinear split point so canonical BRep faces are not triangular; no hand-authored parametric substitution.",
       sourceElements: flatMeshes.size(),
       convertedObjects: objects.length,
       skippedObjects: skipped,
