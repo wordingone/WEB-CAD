@@ -46,7 +46,11 @@ function makeViewer(): {
 }
 
 beforeEach(() => {
-  for (const name of ["SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude", "SdWall", "SdSlab", "SdColumn"]) {
+  for (const name of [
+    "SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude",
+    "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
+    "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
+  ]) {
     unregisterHandler(name);
   }
 });
@@ -172,6 +176,34 @@ describe("BRep canonical migration characterization", () => {
       const obj = lastObject();
       expect(obj).toBeInstanceOf(THREE.Mesh);
       expect(obj?.userData.nurbsSurface).toBeDefined();
+      const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+      expect(typeof canonicalId).toBe("string");
+      const canonical = store.require(canonicalId as string);
+      expect(canonical.kind).toBe("brep");
+      expect(canonical.createdBy).toBe(verb);
+      if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+      expect(canonical.brep.shells).toHaveLength(1);
+      expect(canonical.brep.shells[0].faces).toHaveLength(6);
+      expect(canonical.brep.shells[0].isClosed).toBe(true);
+    }
+  });
+
+  test("additional box-like structural commands link canonical extruded BReps", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    for (const [verb, args] of [
+      ["SdBeam", { start: [0, 0], end: [4, 0] }],
+      ["SdSpace", { width: 4, depth: 3 }],
+      ["SdFoundation", { width: 4, depth: 3 }],
+      ["SdCeiling", { width: 4, depth: 3 }],
+      ["SdSkylight", { width: 1.2, depth: 0.8 }],
+      ["SdRailing", { start: [0, 0], end: [3, 0] }],
+    ] as const) {
+      const result = dispatchSync(verb, args);
+      expect(result.ok).toBe(true);
+      const obj = lastObject();
+      expect(obj).toBeInstanceOf(THREE.Mesh);
       const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);

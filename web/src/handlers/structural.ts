@@ -21,6 +21,7 @@ import { getState } from "../app-state";
 import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
 import type { LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import { transformBrep } from "../nurbs/nurbs-brep";
 
 function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
   const points = [
@@ -48,8 +49,13 @@ function linkExtrudedRectangleBrep(
   maxY: number,
   height: number,
   createdBy: string,
+  zOffset = 0,
 ): void {
-  linkCanonicalBrep(viewer, obj, extrudeBrep(rectangleProfile(minX, maxX, minY, maxY), { x: 0, y: 0, z: 1 }, height), createdBy);
+  const brep = extrudeBrep(rectangleProfile(minX, maxX, minY, maxY), { x: 0, y: 0, z: 1 }, height);
+  const localBrep = zOffset === 0
+    ? brep
+    : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
+  linkCanonicalBrep(viewer, obj, localBrep, createdBy);
 }
 
 export function registerStructuralHandlers(viewer: Viewer): void {
@@ -166,16 +172,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = args.end as number[] | undefined;
     const a = { x: s?.[0] ?? 0, y: s?.[1] ?? 0 };
     const b = { x: e?.[0] ?? 4, y: e?.[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildBeam(a, b);
     mesh.position.z += getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdBeam", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const beamLen = Math.sqrt(dx * dx + dy * dy) || 4;
+    linkExtrudedRectangleBrep(viewer, mesh, -beamLen / 2, beamLen / 2, -0.1, 0.1, 0.2, "SdBeam", -0.1);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "beam", length: Math.sqrt(dx * dx + dy * dy) || 4 };
+    return { created: "beam", length: beamLen };
   });
 
   registerHandler("SdMember", (args) => {
@@ -515,6 +523,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 2.8, "SdSpace");
     if (args.name) mesh.userData.spaceName = args.name as string;
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
@@ -532,6 +541,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 0.5, "SdFoundation", -0.5);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "foundation", width: w, depth: d };
@@ -555,6 +565,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 0.05, "SdCeiling", -0.025);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "ceiling", width: w, depth: d };
@@ -632,6 +643,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -w / 2, w / 2, -d / 2, d / 2, 0.04, "SdSkylight", -0.02);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "skylight", width: w, depth: d };
@@ -659,16 +671,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = (args.end   as number[] | undefined) ?? [3, 0];
     const a = { x: s[0] ?? 0, y: s[1] ?? 0 };
     const b = { x: e[0] ?? 3, y: e[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildRailing(a, b);
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdRailing", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const railingLen = Math.sqrt(dx * dx + dy * dy) || 1;
+    linkExtrudedRectangleBrep(viewer, mesh, -railingLen / 2, railingLen / 2, -0.025, 0.025, 1, "SdRailing");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "railing", length: Math.sqrt(dx * dx + dy * dy) || 1 };
+    return { created: "railing", length: railingLen };
   });
 
   registerHandler("SdReferenceLine", (args) => {
