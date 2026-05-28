@@ -409,6 +409,47 @@ describe("BRep canonical migration characterization", () => {
     expect(explodedCanonical.brep.shells[0].isClosed).toBe(false);
   });
 
+  test("join resolves child mesh targets through canonical BRep ancestors", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const first = lastObject() as THREE.Mesh;
+    const firstRecord = store.resolveObject(first);
+    if (firstRecord?.kind !== "brep") throw new Error("expected first canonical brep");
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const second = lastObject() as THREE.Mesh;
+    const secondRecord = store.resolveObject(second);
+    if (secondRecord?.kind !== "brep") throw new Error("expected second canonical brep");
+    second.position.set(2, 0, 0);
+    second.updateMatrixWorld(true);
+
+    const firstGroup = new THREE.Group();
+    const secondGroup = new THREE.Group();
+    scene.remove(first);
+    scene.remove(second);
+    firstGroup.add(first);
+    secondGroup.add(second);
+    scene.add(firstGroup, secondGroup);
+    store.unlinkObject(first);
+    store.unlinkObject(second);
+    store.linkObject(firstGroup, firstRecord.id);
+    store.linkObject(secondGroup, secondRecord.id);
+
+    const joinResult = dispatchSync("SdJoin", { targets: [first.uuid, second.uuid] });
+    expect(joinResult.ok).toBe(true);
+    if (!joinResult.ok) throw new Error("expected join to succeed");
+    const joined = scene.getObjectByProperty("uuid", (joinResult.result as { created: string }).created);
+    const joinedCanonical = joined ? store.resolveObject(joined) : undefined;
+    expect(joinedCanonical?.kind).toBe("brep");
+    if (joinedCanonical?.kind !== "brep") throw new Error("expected joined canonical brep");
+    expect(joinedCanonical.brep.shells).toHaveLength(2);
+    expect(joinedCanonical.metadata).toMatchObject({
+      operands: [firstRecord.id, secondRecord.id],
+    });
+  });
+
   test("op-tool extrude meshes can link to canonical BReps from retained footprints", () => {
     const { viewer, store } = makeViewer();
     const mesh = new THREE.Mesh(

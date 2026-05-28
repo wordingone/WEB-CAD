@@ -19,13 +19,13 @@ function threeMatrixToXform(matrix: THREE.Matrix4): Xform {
 
 function canonicalBrepForObject(viewer: Viewer, obj: THREE.Object3D): Brep | null {
   obj.updateMatrixWorld(true);
-  const canonical = viewer.getCanonicalGeometryStore().resolveObject(obj);
+  const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj);
   if (canonical?.kind !== "brep") return null;
   return transformBrep(canonical.brep, threeMatrixToXform(obj.matrixWorld));
 }
 
 function linkExplodedCanonicalFace(viewer: Viewer, source: THREE.Object3D, faceMesh: THREE.Object3D, faceIndex: number): void {
-  const sourceCanonical = viewer.getCanonicalGeometryStore().resolveObject(source);
+  const sourceCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(source);
   if (sourceCanonical?.kind !== "brep") return;
   const faces = sourceCanonical.brep.shells.flatMap((shell) => shell.faces);
   const face = faces[faceIndex];
@@ -46,7 +46,7 @@ function linkExplodedCanonicalFace(viewer: Viewer, source: THREE.Object3D, faceM
 
 function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
   const store = viewer.getCanonicalGeometryStore();
-  const operands = meshes.map((mesh) => store.resolveObject(mesh));
+  const operands = meshes.map((mesh) => store.resolveObjectOrAncestor(mesh));
   const breps = meshes.map((mesh) => canonicalBrepForObject(viewer, mesh));
   if (breps.some((brep) => !brep) || operands.some((record) => record?.kind !== "brep")) return;
   const record = store.create({
