@@ -29,7 +29,8 @@ import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
 import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
 import { linkCanonicalBrep } from "../handlers/canonical-surface";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
-import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
+import type { Surface } from "../nurbs/nurbs-surfaces";
 import { transformBrep } from "../nurbs/nurbs-brep";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
@@ -613,6 +614,98 @@ function rectangleProfile(width: number, depth: number): PolylineCurve {
   return { kind: "polyline", points, parameters };
 }
 
+function lineCurve(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): Curve {
+  const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+  return { kind: "line", from, to, domain: { min: 0, max: length } };
+}
+
+function planeSurface(extent: number): Surface {
+  const half = extent / 2;
+  return {
+    kind: "plane",
+    plane: {
+      origin: { x: 0, y: 0, z: 0 },
+      xAxis: { x: 1, y: 0, z: 0 },
+      yAxis: { x: 0, y: 1, z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    uDomain: { min: -half, max: half },
+    vDomain: { min: -half, max: half },
+    uExtent: { min: -half, max: half },
+    vExtent: { min: -half, max: half },
+  };
+}
+
+function geometryStats(obj: THREE.Object3D): { vertexCount?: number; triangleCount?: number } {
+  const geometry = (obj as THREE.Mesh | THREE.Line).geometry as THREE.BufferGeometry | undefined;
+  return {
+    vertexCount: geometry?.getAttribute("position")?.count,
+    triangleCount: geometry?.index ? Math.floor(geometry.index.count / 3) : undefined,
+  };
+}
+
+function linkCreateModeReferenceCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  const a = pts[0];
+  if (!a) return false;
+
+  if (tool === "level") {
+    const extent = 20;
+    const record = viewer.getCanonicalGeometryStore().create({
+      kind: "surface",
+      surface: planeSurface(extent),
+      source: "command",
+      createdBy: "create-level",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        ...geometryStats(obj),
+        derivation: "tessellated-surface",
+      },
+      metadata: {
+        creator: obj.userData.creator,
+        levelId: obj.userData.levelId,
+        elevation: obj.position.z,
+        extent,
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+    return true;
+  }
+
+  if (tool !== "grid" && tool !== "datum") return false;
+  const b = pts[1];
+  if (!b) return true;
+
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const curve = lineCurve({ x: 0, y: -length / 2, z: 0 }, { x: 0, y: length / 2, z: 0 });
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "curve",
+    curve,
+    source: "command",
+    createdBy: tool === "grid" ? "create-grid-line" : "create-reference-line",
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      ...geometryStats(obj),
+      derivation: "tessellated-curve",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      label: obj.userData.label,
+      refLineId: obj.userData.refLineId,
+      worldStart: { x: a.x, y: a.y, z: a.z ?? 0 },
+      worldEnd: { x: b.x, y: b.y, z: b.z ?? 0 },
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+  return true;
+}
+
 function linkCreateModeExtrudedRectangleBrep(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -637,6 +730,7 @@ function linkCreateModeStructuralCanonical(
 ): void {
   const a = pts[0];
   if (!a) return;
+  if (linkCreateModeReferenceCanonical(viewer, tool, obj, pts)) return;
 
   if (tool === "column") {
     linkCreateModeExtrudedRectangleBrep(viewer, obj, 0.3, 0.3, DEFAULT_COLUMN_HEIGHT, "create-column");

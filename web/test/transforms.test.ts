@@ -434,6 +434,65 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
+  test("Grid and datum tools link click-created reference lines to canonical curves", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    for (const [tool, createdBy] of [
+      ["grid", "create-grid-line"],
+      ["datum", "create-reference-line"],
+    ] as const) {
+      clearCreateSequence();
+      resetPending();
+      const v = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+      emitClickWorld(v as any, { x: 1, y: 2 }, { tool });
+      const result = emitClickWorld(v as any, { x: 4, y: 6 }, { tool });
+
+      expect(result).not.toBeNull();
+      const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+      expect(canonical?.kind).toBe("curve");
+      if (canonical?.kind !== "curve") throw new Error(`expected canonical curve for ${tool}`);
+      expect(canonical.createdBy).toBe(createdBy);
+      expect(canonical.curve.kind).toBe("line");
+      if (canonical.curve.kind !== "line") throw new Error(`expected line curve for ${tool}`);
+      expect(canonical.curve.from).toEqual({ x: 0, y: -2.5, z: 0 });
+      expect(canonical.curve.to).toEqual({ x: 0, y: 2.5, z: 0 });
+      expect(canonical.curve.domain.max).toBeCloseTo(5);
+      expect(canonical.metadata).toMatchObject({
+        worldStart: { x: 1, y: 2, z: 0 },
+        worldEnd: { x: 4, y: 6, z: 0 },
+      });
+    }
+  });
+
+  test("Level tool links click-created level plane to a canonical surface", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const store = createCanonicalGeometryStore();
+    (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+    const result = emitClickWorld(v as any, { x: 2, y: 3, z: 4 }, { tool: "level" });
+
+    expect(result).not.toBeNull();
+    const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+    expect(canonical?.kind).toBe("surface");
+    if (canonical?.kind !== "surface") throw new Error("expected canonical surface for level");
+    expect(canonical.createdBy).toBe("create-level");
+    expect(canonical.surface.kind).toBe("plane");
+    if (canonical.surface.kind !== "plane") throw new Error("expected plane surface for level");
+    expect(canonical.surface.uDomain).toEqual({ min: -10, max: 10 });
+    expect(canonical.surface.vDomain).toEqual({ min: -10, max: 10 });
+    expect(canonical.metadata).toMatchObject({
+      creator: "IfcLevel",
+      elevation: 4,
+      extent: 20,
+    });
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();
