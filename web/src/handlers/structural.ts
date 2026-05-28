@@ -665,16 +665,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = (args.end   as number[] | undefined) ?? [4, 0];
     const a = { x: s[0] ?? 0, y: s[1] ?? 0 };
     const b = { x: e[0] ?? 4, y: e[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildRamp(a, b);
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdRamp", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const rampRun = Math.sqrt(dx * dx + dy * dy) || 1;
+    linkExtrudedRectangleBrep(viewer, mesh, -rampRun / 2, rampRun / 2, -0.6, 0.6, 0.15, "SdRamp", rampRun / 24 - 0.075);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "ramp", run: Math.sqrt(dx * dx + dy * dy) || 1 };
+    return { created: "ramp", run: rampRun };
   });
 
   registerHandler("SdRailing", (args) => {

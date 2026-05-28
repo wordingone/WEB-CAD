@@ -56,7 +56,7 @@ beforeEach(() => {
     "SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude",
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
-    "SdMember", "SdPlate",
+    "SdMember", "SdPlate", "SdRamp",
     "SdDoor", "SdWindow", "SdOpening",
     "SdJoin", "SdExplode",
   ]) {
@@ -225,6 +225,32 @@ describe("BRep canonical migration characterization", () => {
       expect(canonical.brep.shells[0].faces).toHaveLength(6);
       expect(canonical.brep.shells[0].isClosed).toBe(true);
     }
+  });
+
+  test("SdRamp links its existing display solid to a canonical extruded BRep", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    const result = dispatchSync("SdRamp", { start: [0, 0], end: [6, 0] });
+
+    expect(result.ok).toBe(true);
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    expect(obj?.userData.kind).toBe("brep");
+    expect(obj?.userData.creator).toBe("ramp");
+    const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("brep");
+    expect(canonical.createdBy).toBe("SdRamp");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.metadata).toMatchObject({ creator: "ramp", levelId: "level/0" });
+    expect(canonical.brep.shells).toHaveLength(1);
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+    const zValues = canonical.brep.shells[0].vertices.map((vertex) => vertex.point.z).sort((a, b) => a - b);
+    expect(zValues[0]).toBeCloseTo(0.175);
+    expect(zValues[zValues.length - 1]).toBeCloseTo(0.325);
   });
 
   test("opening commands link display objects to canonical BRep envelopes", () => {
