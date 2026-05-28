@@ -4,6 +4,11 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+    inputs:
+      dev_ref:
+        description: "Optional ref to publish at /dev alongside master"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -18,17 +23,46 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout production ref
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          path: prod
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
-      - run: bun run web:build
+      - name: Build production
+        working-directory: prod
+        run: |
+          bun install
+          bun run web:build
+        env:
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+      - name: Stage production
+        run: |
+          mkdir -p pages
+          cp -R prod/web/dist/. pages/
+      - name: Checkout dev ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.dev_ref }}
+          path: dev
+      - name: Build dev
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_ref != '' }}
+        working-directory: dev
+        run: |
+          bun install
+          bun run web:build
+          mkdir -p ../pages/dev
+          cp -R web/dist/. ../pages/dev/
+          git rev-parse HEAD > ../pages/dev/COMMIT.txt
+          printf '%s\n' '${{ inputs.dev_ref }}' > ../pages/dev/REF.txt
         env:
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: pages
 
   deploy:
     needs: build
