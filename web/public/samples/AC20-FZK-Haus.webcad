@@ -1,0 +1,5577 @@
+{
+  "format": "web-cad.canonical-project",
+  "version": 2,
+  "meta": {
+    "units": "metric",
+    "name": "KIT FZK-Haus canonical BRep",
+    "sourceIfc": "samples/AC20-FZK-Haus.ifc",
+    "conversion": "static-parametric-brep-snapshot",
+    "note": "Static WEB-CAD canonical BRep/NURBS-ready project fixture generated from FZK-Haus dimensions; selector loads this project instead of dynamic raw IFC triangulation."
+  },
+  "canonicalGeometry": [
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": -5,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": -5,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": -5,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": 5,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": 5,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": 5,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": 5,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": -5,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.38333333333333286,
+                      "y": -0.3500000000000003,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -7.683496021415713,
+                    "max": 7.683496021415713
+                  },
+                  "vExtent": {
+                    "min": -7.683496021415713,
+                    "max": 7.683496021415713
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.38333333333333286,
+                      "y": -0.3500000000000003,
+                      "z": 0.2
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -7.683496021415713,
+                    "max": 7.683496021415713
+                  },
+                  "vExtent": {
+                    "min": -7.683496021415713,
+                    "max": 7.683496021415713
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 0.2
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 0.2
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 0.2
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 0.2
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -6,
+                  "y": -5,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -5,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -5,
+                  "z": 0.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -5,
+                  "z": 0.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdSlab",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800386,
+        "vertexCount": 24,
+        "triangleCount": 12,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "slab",
+        "cplaneKind": "world",
+        "levelId": "level/0",
+        "layerId": "Slabs"
+      },
+      "id": "cg_0001",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.39416666666666667,
+                      "y": -0.012500000000000002,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  },
+                  "vExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.39416666666666667,
+                      "y": -0.012500000000000002,
+                      "z": 3
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  },
+                  "vExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWall",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800388,
+        "vertexCount": 24,
+        "triangleCount": 12,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "wall",
+        "cplaneKind": "world",
+        "levelId": "level/0",
+        "layerId": "Walls"
+      },
+      "id": "cg_0002",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.3275,
+                      "y": -0.012500000000000002,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  },
+                  "vExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.3275,
+                      "y": -0.012500000000000002,
+                      "z": 3
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  },
+                  "vExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWall",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800389,
+        "vertexCount": 24,
+        "triangleCount": 12,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "wall",
+        "cplaneKind": "world",
+        "levelId": "level/0",
+        "layerId": "Walls"
+      },
+      "id": "cg_0003",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 12
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -6,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -6,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.39416666666666667,
+                      "y": -0.012500000000000002,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  },
+                  "vExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.39416666666666667,
+                      "y": -0.012500000000000002,
+                      "z": 3
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  },
+                  "vExtent": {
+                    "min": -5.781495505297723,
+                    "max": 5.781495505297723
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -6,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWall",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800389,
+        "vertexCount": 24,
+        "triangleCount": 12,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "wall",
+        "cplaneKind": "world",
+        "levelId": "level/0",
+        "layerId": "Walls"
+      },
+      "id": "cg_0004",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 10
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -5,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -5,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 3
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 3
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.3275,
+                      "y": -0.012500000000000002,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  },
+                  "vExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.3275,
+                      "y": -0.012500000000000002,
+                      "z": 3
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  },
+                  "vExtent": {
+                    "min": -4.848289646875483,
+                    "max": 4.848289646875483
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 3
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 3
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -5,
+                  "y": -0.1,
+                  "z": 3
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWall",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800390,
+        "vertexCount": 24,
+        "triangleCount": 12,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "wall",
+        "cplaneKind": "world",
+        "levelId": "level/0",
+        "layerId": "Walls"
+      },
+      "id": "cg_0005",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "surface",
+      "surface": {
+        "kind": "plane",
+        "plane": {
+          "origin": {
+            "x": -6.5,
+            "y": -5.5,
+            "z": 3
+          },
+          "xAxis": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "yAxis": {
+            "x": 0,
+            "y": 0.8854475018981705,
+            "z": 0.46473941234017313
+          },
+          "normal": {
+            "x": 0,
+            "y": -0.464739412340173,
+            "z": 0.8854475018981703
+          }
+        },
+        "uDomain": {
+          "min": 0,
+          "max": 13
+        },
+        "vDomain": {
+          "min": 0,
+          "max": 6.211548384528075
+        },
+        "uExtent": {
+          "min": 0,
+          "max": 13
+        },
+        "vExtent": {
+          "min": 0,
+          "max": 6.211548384528075
+        }
+      },
+      "source": "command",
+      "createdBy": "SdPlane",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800390,
+        "vertexCount": 4,
+        "triangleCount": 2,
+        "derivation": "tessellated-surface"
+      },
+      "metadata": {
+        "creator": "plane"
+      },
+      "id": "cg_0006",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "surface",
+      "surface": {
+        "kind": "plane",
+        "plane": {
+          "origin": {
+            "x": -6.5,
+            "y": 0,
+            "z": 5.886751345948129
+          },
+          "xAxis": {
+            "x": 1,
+            "y": 0,
+            "z": 0
+          },
+          "yAxis": {
+            "x": 0,
+            "y": 0.8854475018981705,
+            "z": -0.46473941234017313
+          },
+          "normal": {
+            "x": 0,
+            "y": 0.464739412340173,
+            "z": 0.8854475018981703
+          }
+        },
+        "uDomain": {
+          "min": 0,
+          "max": 13
+        },
+        "vDomain": {
+          "min": 0,
+          "max": 6.211548384528075
+        },
+        "uExtent": {
+          "min": 0,
+          "max": 13
+        },
+        "vExtent": {
+          "min": 0,
+          "max": 6.211548384528075
+        }
+      },
+      "source": "command",
+      "createdBy": "SdPlane",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800390,
+        "vertexCount": 4,
+        "triangleCount": 2,
+        "derivation": "tessellated-surface"
+      },
+      "metadata": {
+        "creator": "plane"
+      },
+      "id": "cg_0007",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -0.505,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0.505,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.01
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 2.01
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2.01
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0.505,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0.505,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 2.01
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2.01
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0.505,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -0.505,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.01
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 2.01
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2.01
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -0.505,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -0.505,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 2.01
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2.01
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.03287499999999996,
+                      "y": -0.007458333333333324,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -0.5385418359122881,
+                    "max": 0.5385418359122881
+                  },
+                  "vExtent": {
+                    "min": -0.5385418359122881,
+                    "max": 0.5385418359122881
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.03287499999999996,
+                      "y": -0.007458333333333324,
+                      "z": 2.01
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -0.5385418359122881,
+                    "max": 0.5385418359122881
+                  },
+                  "vExtent": {
+                    "min": -0.5385418359122881,
+                    "max": 0.5385418359122881
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 2.01
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 2.01
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 2.01
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 2.01
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 2.01
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 2.01
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 2.01
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 2.01
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -0.505,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -0.505,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -0.505,
+                  "y": -0.1,
+                  "z": 2.01
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -0.505,
+                  "y": -0.1,
+                  "z": 2.01
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdDoor",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800392,
+        "vertexCount": 96,
+        "triangleCount": 48,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "door",
+        "cplaneKind": "host-derived",
+        "levelId": "level/0",
+        "layerId": "Elements"
+      },
+      "id": "cg_0008",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 1.2
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWindow",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800393,
+        "vertexCount": 120,
+        "triangleCount": 60,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "window",
+        "cplaneKind": "host-derived",
+        "levelId": "level/0",
+        "layerId": "Elements"
+      },
+      "id": "cg_0009",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 1.2
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWindow",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800394,
+        "vertexCount": 120,
+        "triangleCount": 60,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "window",
+        "cplaneKind": "host-derived",
+        "levelId": "level/0",
+        "layerId": "Elements"
+      },
+      "id": "cg_000a",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 1.2
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWindow",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800394,
+        "vertexCount": 120,
+        "triangleCount": 60,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "window",
+        "cplaneKind": "host-derived",
+        "levelId": "level/0",
+        "layerId": "Elements"
+      },
+      "id": "cg_000b",
+      "schemaVersion": 1,
+      "units": "m"
+    },
+    {
+      "kind": "brep",
+      "brep": {
+        "shells": [
+          {
+            "faces": [
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": 1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "sum",
+                  "curveU": {
+                    "kind": "line",
+                    "from": {
+                      "x": -1,
+                      "y": 0.1,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": -1,
+                      "y": -0.1,
+                      "z": 0
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 0.2
+                    }
+                  },
+                  "curveV": {
+                    "kind": "line",
+                    "from": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "to": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1.2
+                    },
+                    "domain": {
+                      "min": 0,
+                      "max": 1.2
+                    }
+                  },
+                  "basepoint": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 0
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": 1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": -1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": true,
+                "tolerance": 0.000001
+              },
+              {
+                "surface": {
+                  "kind": "plane",
+                  "plane": {
+                    "origin": {
+                      "x": -0.0641666666666667,
+                      "y": -0.009166666666666653,
+                      "z": 1.2
+                    },
+                    "xAxis": {
+                      "x": 0,
+                      "y": -1,
+                      "z": 0
+                    },
+                    "yAxis": {
+                      "x": 1,
+                      "y": 0,
+                      "z": 0
+                    },
+                    "normal": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 1
+                    }
+                  },
+                  "uDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "vDomain": {
+                    "min": 0,
+                    "max": 1
+                  },
+                  "uExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  },
+                  "vExtent": {
+                    "min": -1.0648271899441921,
+                    "max": 1.0648271899441921
+                  }
+                },
+                "outerLoop": {
+                  "curves": [],
+                  "orientation": true
+                },
+                "innerLoops": [],
+                "orientation": false,
+                "tolerance": 0.000001
+              }
+            ],
+            "edges": [
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 0,
+                "faceIndex2": 4,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 1,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 2,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              },
+              {
+                "curve": {
+                  "kind": "line",
+                  "from": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "to": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.2
+                  },
+                  "domain": {
+                    "min": 0,
+                    "max": 1.2
+                  }
+                },
+                "faceIndex1": 3,
+                "faceIndex2": null,
+                "tolerance": 0.000001
+              }
+            ],
+            "vertices": [
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 0
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              },
+              {
+                "point": {
+                  "x": -1,
+                  "y": -0.1,
+                  "z": 1.2
+                },
+                "edgeIndices": [
+                  0
+                ],
+                "tolerance": 0.000001
+              }
+            ],
+            "isClosed": true
+          }
+        ]
+      },
+      "source": "command",
+      "createdBy": "SdWindow",
+      "displayMesh": {
+        "revision": 1,
+        "generatedAt": 1779994800395,
+        "vertexCount": 120,
+        "triangleCount": 60,
+        "derivation": "tessellated-brep"
+      },
+      "metadata": {
+        "creator": "window",
+        "cplaneKind": "host-derived",
+        "levelId": "level/0",
+        "layerId": "Elements"
+      },
+      "id": "cg_000c",
+      "schemaVersion": 1,
+      "units": "m"
+    }
+  ],
+  "objects": [
+    {
+      "uuid": "db7b0966-abe7-4fcd-b092-9457dd011263",
+      "position": [
+        0,
+        0,
+        -0.2
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "slab",
+        "_snapCreationPos": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "endpoints": [
+          {
+            "x": -6,
+            "y": -5,
+            "z": 0,
+            "id": "v:-6000,-5000,0"
+          },
+          {
+            "x": 6,
+            "y": -5,
+            "z": 0,
+            "id": "v:6000,-5000,0"
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "z": 0,
+            "id": "v:6000,5000,0"
+          },
+          {
+            "x": -6,
+            "y": 5,
+            "z": 0,
+            "id": "v:-6000,5000,0"
+          }
+        ],
+        "cplaneKind": "world",
+        "layerId": "Slabs",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "profile": [
+            [
+              -6,
+              -5,
+              0
+            ],
+            [
+              6,
+              -5,
+              0
+            ],
+            [
+              6,
+              5,
+              0
+            ],
+            [
+              -6,
+              5,
+              0
+            ]
+          ],
+          "thickness": 0.2,
+          "elevation": 0
+        },
+        "chain": "const slab = drawRectangle(12, 10).sketchOnPlane(\"XY\").extrude(0.2).translate([0, 0, 0]);",
+        "canonicalGeometryId": "cg_0001"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "491c3d44-8f33-4f68-8a75-8e0f1743a85e",
+      "position": [
+        0,
+        5,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        1,
+        6.123233995736766e-17
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "wall",
+        "wallThickness": 0.2,
+        "wallHeight": 3,
+        "controlPoints": [
+          {
+            "x": -6,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "z": 0
+          }
+        ],
+        "endpoints": [
+          {
+            "x": 6,
+            "y": 5,
+            "z": 0,
+            "id": "v:6000,5000,0"
+          },
+          {
+            "x": -6,
+            "y": 5,
+            "z": 0,
+            "id": "v:-6000,5000,0"
+          }
+        ],
+        "corners": {
+          "aL": {
+            "x": 5.9,
+            "y": 4.9
+          },
+          "aR": {
+            "x": 6.1,
+            "y": 5.1
+          },
+          "bL": {
+            "x": -5.9,
+            "y": 4.9
+          },
+          "bR": {
+            "x": -6.1,
+            "y": 5.1
+          }
+        },
+        "cplaneKind": "world",
+        "layerId": "Walls",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "start": {
+            "x": 6,
+            "y": 5
+          },
+          "end": {
+            "x": -6,
+            "y": 5
+          },
+          "height": 3
+        },
+        "chain": "const wall = makeBox(12, 0.2, 3).rotate(180, [0, 0, 0], [0, 0, 1]).translate([0, 5, 0]);",
+        "canonicalGeometryId": "cg_0004"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "ae607bd2-c464-4512-a3dc-b604ddb2ae9c",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "mesh",
+        "creator": "plane",
+        "canonicalGeometryId": "cg_0006"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "b7b6dc14-f4b7-4128-b0d4-21a94cf05874",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "mesh",
+        "creator": "plane",
+        "canonicalGeometryId": "cg_0007"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "d186320a-61c9-4aad-8c2f-9ffc1f6c479e",
+      "position": [
+        0,
+        -5,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "door",
+        "variant": 0,
+        "voidW": 1.01,
+        "voidH": 2.01,
+        "cplaneKind": "host-derived",
+        "layerId": "Elements",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "position": [
+            0,
+            -5,
+            0
+          ],
+          "doorType": "front"
+        },
+        "chain": "door: makeBox(1.01, 0.2, 2.01) translate([0, -5, 1.005])",
+        "canonicalGeometryId": "cg_0008",
+        "hostExpressID": "90e6de4e-3adb-4bee-9819-1c29fc68eb20"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "b3cf6fb6-6c8e-4064-af13-eca76f31bf97",
+      "position": [
+        -3,
+        -5,
+        0.8
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "window",
+        "variant": 0,
+        "voidW": 2,
+        "voidH": 1.2,
+        "cplaneKind": "host-derived",
+        "layerId": "Elements",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "position": [
+            -3,
+            -5,
+            0
+          ],
+          "windowType": "eg"
+        },
+        "chain": "window: makeBox(2, 0.2, 1.2) translate([-3, -5, 1])",
+        "canonicalGeometryId": "cg_0009",
+        "hostExpressID": "90e6de4e-3adb-4bee-9819-1c29fc68eb20"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "2b5259d2-b74b-4811-aca5-b0693436463e",
+      "position": [
+        3,
+        -5,
+        0.8
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "window",
+        "variant": 0,
+        "voidW": 2,
+        "voidH": 1.2,
+        "cplaneKind": "host-derived",
+        "layerId": "Elements",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "position": [
+            3,
+            -5,
+            0
+          ],
+          "windowType": "eg"
+        },
+        "chain": "window: makeBox(2, 0.2, 1.2) translate([3, -5, 1])",
+        "canonicalGeometryId": "cg_000a",
+        "hostExpressID": "90e6de4e-3adb-4bee-9819-1c29fc68eb20"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "90e6de4e-3adb-4bee-9819-1c29fc68eb20",
+      "position": [
+        0,
+        -5,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "wall",
+        "wallThickness": 0.2,
+        "wallHeight": 3,
+        "controlPoints": [
+          {
+            "x": -6,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 6,
+            "y": 0,
+            "z": 0
+          }
+        ],
+        "endpoints": [
+          {
+            "x": -6,
+            "y": -5,
+            "z": 0,
+            "id": "v:-6000,-5000,0"
+          },
+          {
+            "x": 6,
+            "y": -5,
+            "z": 0,
+            "id": "v:6000,-5000,0"
+          }
+        ],
+        "corners": {
+          "aL": {
+            "x": -5.9,
+            "y": -4.9
+          },
+          "aR": {
+            "x": -6.1,
+            "y": -5.1
+          },
+          "bL": {
+            "x": 5.9,
+            "y": -4.9
+          },
+          "bR": {
+            "x": 6.1,
+            "y": -5.1
+          }
+        },
+        "cplaneKind": "world",
+        "layerId": "Walls",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "start": {
+            "x": -6,
+            "y": -5
+          },
+          "end": {
+            "x": 6,
+            "y": -5
+          },
+          "height": 3
+        },
+        "chain": "const wall = makeBox(12, 0.2, 3).rotate(0, [0, 0, 0], [0, 0, 1]).translate([0, -5, 0]);",
+        "canonicalGeometryId": "cg_0002",
+        "originalWallDims": {
+          "w": 12.199999809265137,
+          "d": 0.20000000298023224,
+          "h": 3,
+          "zMin": 0
+        },
+        "cutHistory": [
+          {
+            "cx": 0,
+            "cy": -5,
+            "cz": 1.005,
+            "w": 1.01,
+            "h": 2.01
+          },
+          {
+            "cx": -3,
+            "cy": -5,
+            "cz": 1.4,
+            "w": 2,
+            "h": 1.2
+          },
+          {
+            "cx": 3,
+            "cy": -5,
+            "cz": 1.4,
+            "w": 2,
+            "h": 1.2
+          }
+        ]
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "8c869cbe-a7c9-491d-9351-ccd96a470dce",
+      "position": [
+        -6,
+        0,
+        0.8
+      ],
+      "quaternion": [
+        0,
+        0,
+        -0.7071067811865476,
+        0.7071067811865475
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "window",
+        "variant": 0,
+        "voidW": 2,
+        "voidH": 1.2,
+        "cplaneKind": "host-derived",
+        "layerId": "Elements",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "position": [
+            -6,
+            0,
+            0
+          ],
+          "windowType": "eg"
+        },
+        "chain": "window: makeBox(2, 0.2, 1.2) translate([-6, 0, 1])",
+        "canonicalGeometryId": "cg_000b",
+        "hostExpressID": "335ac887-12c7-43cd-992a-8363059a7a13"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "335ac887-12c7-43cd-992a-8363059a7a13",
+      "position": [
+        -6,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        -0.7071067811865476,
+        0.7071067811865476
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "wall",
+        "wallThickness": 0.2,
+        "wallHeight": 3,
+        "controlPoints": [
+          {
+            "x": -5,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "z": 0
+          }
+        ],
+        "endpoints": [
+          {
+            "x": -6,
+            "y": 5,
+            "z": 0,
+            "id": "v:-6000,5000,0"
+          },
+          {
+            "x": -6,
+            "y": -5,
+            "z": 0,
+            "id": "v:-6000,-5000,0"
+          }
+        ],
+        "corners": {
+          "aL": {
+            "x": -5.9,
+            "y": 4.9
+          },
+          "aR": {
+            "x": -6.1,
+            "y": 5.1
+          },
+          "bL": {
+            "x": -5.9,
+            "y": -4.9
+          },
+          "bR": {
+            "x": -6.1,
+            "y": -5.1
+          }
+        },
+        "cplaneKind": "world",
+        "layerId": "Walls",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "start": {
+            "x": -6,
+            "y": 5
+          },
+          "end": {
+            "x": -6,
+            "y": -5
+          },
+          "height": 3
+        },
+        "chain": "const wall = makeBox(10, 0.2, 3).rotate(-90, [0, 0, 0], [0, 0, 1]).translate([-6, 0, 0]);",
+        "canonicalGeometryId": "cg_0005",
+        "originalWallDims": {
+          "w": 10.199999809265137,
+          "d": 0.20000000298023224,
+          "h": 3,
+          "zMin": 0
+        },
+        "cutHistory": [
+          {
+            "cx": -6,
+            "cy": 0,
+            "cz": 1.4,
+            "w": 2,
+            "h": 1.2
+          }
+        ]
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "44eec5d6-41d6-46c9-8ad6-45212a4b8a7a",
+      "position": [
+        6,
+        0,
+        0.8
+      ],
+      "quaternion": [
+        0,
+        0,
+        0.7071067811865476,
+        0.7071067811865475
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "window",
+        "variant": 0,
+        "voidW": 2,
+        "voidH": 1.2,
+        "cplaneKind": "host-derived",
+        "layerId": "Elements",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "position": [
+            6,
+            0,
+            0
+          ],
+          "windowType": "eg"
+        },
+        "chain": "window: makeBox(2, 0.2, 1.2) translate([6, 0, 1])",
+        "canonicalGeometryId": "cg_000c",
+        "hostExpressID": "9d322fcc-99ba-4099-bc55-f3a0a985adbc"
+      },
+      "displaySource": "canonical"
+    },
+    {
+      "uuid": "9d322fcc-99ba-4099-bc55-f3a0a985adbc",
+      "position": [
+        6,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0.7071067811865476,
+        0.7071067811865476
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "userData": {
+        "kind": "brep",
+        "creator": "wall",
+        "wallThickness": 0.2,
+        "wallHeight": 3,
+        "controlPoints": [
+          {
+            "x": -5,
+            "y": 0,
+            "z": 0
+          },
+          {
+            "x": 5,
+            "y": 0,
+            "z": 0
+          }
+        ],
+        "endpoints": [
+          {
+            "x": 6,
+            "y": -5,
+            "z": 0,
+            "id": "v:6000,-5000,0"
+          },
+          {
+            "x": 6,
+            "y": 5,
+            "z": 0,
+            "id": "v:6000,5000,0"
+          }
+        ],
+        "corners": {
+          "aL": {
+            "x": 5.9,
+            "y": -4.9
+          },
+          "aR": {
+            "x": 6.1,
+            "y": -5.1
+          },
+          "bL": {
+            "x": 5.9,
+            "y": 4.9
+          },
+          "bR": {
+            "x": 6.1,
+            "y": 5.1
+          }
+        },
+        "cplaneKind": "world",
+        "layerId": "Walls",
+        "levelId": "level/0",
+        "dispatchArgs": {
+          "start": {
+            "x": 6,
+            "y": -5
+          },
+          "end": {
+            "x": 6,
+            "y": 5
+          },
+          "height": 3
+        },
+        "chain": "const wall = makeBox(10, 0.2, 3).rotate(90, [0, 0, 0], [0, 0, 1]).translate([6, 0, 0]);",
+        "canonicalGeometryId": "cg_0003",
+        "originalWallDims": {
+          "w": 10.199999809265137,
+          "d": 0.20000000298023224,
+          "h": 3,
+          "zMin": 0
+        },
+        "cutHistory": [
+          {
+            "cx": 6,
+            "cy": 0,
+            "cz": 1.4,
+            "w": 2,
+            "h": 1.2
+          }
+        ]
+      },
+      "displaySource": "canonical"
+    }
+  ]
+}

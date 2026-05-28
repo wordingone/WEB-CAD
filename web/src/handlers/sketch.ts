@@ -2,7 +2,14 @@ import { registerHandler, registerRuntimeAlias } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 import { buildPoint, buildLine, buildRect, buildCircle, buildPolyline, buildCurve } from "../tools/sketch";
-import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc, type Point3 } from "../nurbs/nurbs-primitives";
+import {
+  Interval as PrimInterval,
+  Point3 as Prim3,
+  Plane as PrimPlane,
+  Vector3 as PrimVector3,
+  type Arc as PrimArc,
+  type Point3,
+} from "../nurbs/nurbs-primitives";
 import {
   tessellate, createCatmullRomAsNurbs, createClampedUniformNurbs, type Curve,
   pointAt as curvePointAt, domain as curveDomain,
@@ -10,7 +17,8 @@ import {
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
-import { linkCanonicalSurface } from "./canonical-surface";
+import { BREP_DEFAULT_TOLERANCE, type Brep } from "../nurbs/nurbs-brep";
+import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
 void curvePointAt; void curveDomain;
@@ -56,6 +64,112 @@ function lineNurbsCurveFromLocalEndpoints(a: Point3, b: Point3): Curve {
     knots: [0, 1],
     cvs: [a.x, a.y, a.z, b.x, b.y, b.z],
     cvStride: 3,
+  };
+}
+
+function planeSurfaceFromThreePoints(origin: THREE.Vector3, xPoint: THREE.Vector3, yPoint: THREE.Vector3): Surface {
+  const uVec = xPoint.clone().sub(origin);
+  const vVec = yPoint.clone().sub(origin);
+  const uLen = uVec.length();
+  const vLen = vVec.length();
+  if (uLen < 1e-9 || vLen < 1e-9) {
+    throw new Error("SdPlane requires two non-zero plane axes");
+  }
+  const normalLen = uVec.clone().cross(vVec).length();
+  if (normalLen < 1e-9) {
+    throw new Error("SdPlane requires non-collinear xAxis and yAxis points");
+  }
+  const plane = PrimPlane.create(
+    Prim3.create(origin.x, origin.y, origin.z),
+    PrimVector3.create(uVec.x, uVec.y, uVec.z),
+    PrimVector3.create(vVec.x, vVec.y, vVec.z),
+  );
+  return {
+    kind: "plane",
+    plane,
+    uDomain: PrimInterval.create(0, uLen),
+    vDomain: PrimInterval.create(0, vLen),
+    uExtent: PrimInterval.create(0, uLen),
+    vExtent: PrimInterval.create(0, vLen),
+  };
+}
+
+function planarTrimmedBrepFromProfile(points: number[][]): Brep {
+  const parsed = points.map((p) => ({
+    x: p[0] ?? 0,
+    y: p[1] ?? 0,
+    z: p[2] ?? 0,
+  }));
+  const z0 = parsed[0]?.z ?? 0;
+  if (parsed.some((p) => Math.abs(p.z - z0) > 1e-6)) {
+    throw new Error("SdSurface requires a planar profile with constant z");
+  }
+  const minX = Math.min(...parsed.map((p) => p.x));
+  const maxX = Math.max(...parsed.map((p) => p.x));
+  const minY = Math.min(...parsed.map((p) => p.y));
+  const maxY = Math.max(...parsed.map((p) => p.y));
+  const width = maxX - minX;
+  const depth = maxY - minY;
+  if (width < 1e-9 || depth < 1e-9) {
+    throw new Error("SdSurface requires a profile with non-zero area");
+  }
+
+  const surface: Surface = {
+    kind: "plane",
+    plane: PrimPlane.create(
+      Prim3.create(minX, minY, z0),
+      PrimVector3.xAxis(),
+      PrimVector3.yAxis(),
+    ),
+    uDomain: PrimInterval.create(0, width),
+    vDomain: PrimInterval.create(0, depth),
+    uExtent: PrimInterval.create(0, width),
+    vExtent: PrimInterval.create(0, depth),
+  };
+  const uvPoints = parsed.map((p) => Prim3.create(p.x - minX, p.y - minY, 0));
+  const closedUvPoints = [...uvPoints];
+  const first = closedUvPoints[0];
+  const last = closedUvPoints[closedUvPoints.length - 1];
+  if (first && last && (Math.abs(first.x - last.x) > 1e-9 || Math.abs(first.y - last.y) > 1e-9)) {
+    closedUvPoints.push({ ...first });
+  }
+  const parameters = curveParameters(closedUvPoints);
+  const outerCurve: Curve = {
+    kind: "polyline",
+    points: closedUvPoints,
+    parameters,
+  };
+  const edges = parsed.map((p, i) => {
+    const q = parsed[(i + 1) % parsed.length];
+    return {
+      curve: {
+        kind: "line" as const,
+        from: Prim3.create(p.x, p.y, p.z),
+        to: Prim3.create(q.x, q.y, q.z),
+        domain: PrimInterval.create(0, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z)),
+      },
+      faceIndex1: 0,
+      faceIndex2: null,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    };
+  });
+  return {
+    shells: [{
+      faces: [{
+        surface,
+        outerLoop: { curves: [outerCurve], orientation: true },
+        innerLoops: [],
+        orientation: true,
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      }],
+      edges,
+      vertices: parsed.map((p, i) => ({
+        point: Prim3.create(p.x, p.y, p.z),
+        edgeIndices: [i, (i + parsed.length - 1) % parsed.length],
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      })),
+      isClosed: false,
+    }],
   };
 }
 
@@ -450,6 +564,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData.kind = "plane";
       mesh.userData.creator = "plane";
+      linkCanonicalSurface(viewer, mesh, "SdPlane", planeSurfaceFromThreePoints(o, c1, c3));
       viewer.addMesh(mesh, "mesh");
       return { created: "plane" };
     } catch (e) {
@@ -480,6 +595,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData.kind = "surface";
       mesh.userData.creator = "surface";
+      linkCanonicalBrep(viewer, mesh, planarTrimmedBrepFromProfile(pts), "SdSurface");
       viewer.addMesh(mesh, "mesh");
       return { created: "surface" };
     } catch (e) {

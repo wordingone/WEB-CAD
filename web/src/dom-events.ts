@@ -75,6 +75,14 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     | { kind: "none" }
     | { kind: "prompt"; demoId: string }
     | { kind: "file"; format: string; filename: string };
+  type ProjectPayload = {
+    format?: string;
+    version?: number;
+    meta?: { units?: string; name?: string; sourceIfc?: string; conversion?: string };
+    canonicalGeometry?: unknown[];
+    objects?: unknown[];
+  };
+  const PROJECT_FORMATS = new Set(["webcad", "gemarch", "json"]);
 
   let worker: Worker;
   let nextId = 1;
@@ -245,6 +253,14 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     const fmt = detectFormat(file.name);
     fileNameLabel.textContent = file.name;
     fileNameLabel.classList.remove("muted");
+    if (PROJECT_FORMATS.has(fmt)) {
+      try {
+        loadProjectSnapshot(await file.text(), file.name, fmt);
+      } catch (e) {
+        setStatus(`Failed to load project ${file.name}: ${(e as Error).message}`, "err");
+      }
+      return;
+    }
     if (!isSupported(fmt)) {
       setStatus(`Unsupported format: .${fmt} — try .ifc / .glb / .gltf / .obj / .stl / .step`, "err");
       return;
@@ -296,6 +312,33 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         worker.postMessage({ type: "load-step", id, bytes: buffer, format: fmt as any }, [buffer]);
       }
     }
+  }
+
+  function loadProjectSnapshot(data: string, filename: string, format = "webcad"): void {
+    const parsed = JSON.parse(data) as ProjectPayload;
+    viewer.clearScene();
+    if (Array.isArray(parsed.canonicalGeometry)) {
+      viewer.importCanonicalGeometry(parsed.canonicalGeometry);
+    }
+    if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
+      viewer.importScene(parsed.objects as Parameters<typeof viewer.importScene>[0]);
+    }
+    clearHistory();
+    pendingStl = null; pendingStep = null;
+    currentSource = { kind: "file", format, filename };
+    const canonicalCount = Array.isArray(parsed.canonicalGeometry) ? parsed.canonicalGeometry.length : 0;
+    const objectCount = Array.isArray(parsed.objects) ? parsed.objects.length : 0;
+    setStatus(`Loaded ${parsed.meta?.name ?? filename} (${canonicalCount} canonical records).`, "ok");
+    const summary: SceneSummary = {
+      format: "webcad",
+      triangles: 0,
+      filename,
+      entityCount: objectCount,
+      schema: parsed.meta?.conversion ?? "canonical-project",
+    };
+    scenePanel.update(summary);
+    dispatchSync("SdZoomExtents", {});
+    refreshExportButtons();
   }
 
   function finalizeFileLoad(scene: LoadedScene, filename: string) {

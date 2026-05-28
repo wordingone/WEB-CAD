@@ -27,7 +27,7 @@ function makeViewer(): { viewer: Viewer; store: CanonicalGeometryStore; lastMesh
 }
 
 beforeEach(() => {
-  ["SdRevolve", "SdSweep", "SdLoft"].forEach(v => unregisterHandler(v));
+  ["SdRevolve", "SdSweep", "SdLoft", "SdPlane", "SdSurface"].forEach(v => unregisterHandler(v));
 });
 
 type OkResult = { ok: true; canonical: string; result: { created: string } };
@@ -144,5 +144,68 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
     expect(canonical.createdBy).toBe("SdLoft");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
     expect(canonical.surface.kind).toBe("nurbs");
+  });
+});
+
+describe("G6 - planar surface tools store exact canonical CAD geometry", () => {
+  test("plane command links the displayed quad to a canonical plane surface", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdPlane", {
+      origin: [1, 2, 3],
+      xAxis: [6, 2, 3],
+      yAxis: [1, 5, 3],
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("plane");
+    const mesh = lastMesh()!;
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdPlane");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toMatchObject({
+      kind: "plane",
+      plane: { origin: { x: 1, y: 2, z: 3 } },
+      uDomain: { min: 0, max: 5 },
+      vDomain: { min: 0, max: 3 },
+      uExtent: { min: 0, max: 5 },
+      vExtent: { min: 0, max: 3 },
+    });
+  });
+
+  test("surface command links a filled profile to a trimmed planar BRep", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const points = [[0, 0, 2], [4, 0, 2], [4, 3, 2], [0, 3, 2]];
+    const dr = dispatchSync("SdSurface", { profile: { points } });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("surface");
+    const mesh = lastMesh()!;
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdSurface");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    const shell = canonical.brep.shells[0];
+    expect(shell.isClosed).toBe(false);
+    expect(shell.faces).toHaveLength(1);
+    expect(shell.edges).toHaveLength(4);
+    expect(shell.vertices).toHaveLength(4);
+    expect(shell.faces[0].surface.kind).toBe("plane");
+    expect(shell.faces[0].outerLoop.curves).toHaveLength(1);
+    const trim = shell.faces[0].outerLoop.curves[0];
+    expect(trim.kind).toBe("polyline");
+    if (trim.kind !== "polyline") throw new Error("expected polyline trim");
+    expect(trim.points).toHaveLength(5);
+    expect(trim.points[0]).toEqual(trim.points[4]);
   });
 });
