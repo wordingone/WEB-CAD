@@ -78,6 +78,15 @@ export function createCanonicalGeometryId(prefix = "cg"): CanonicalGeometryId {
   return `${prefix}_${n.toString(36).padStart(4, "0")}`;
 }
 
+function reserveCanonicalGeometryId(id: CanonicalGeometryId): void {
+  const match = /^cg_([0-9a-z]+)$/i.exec(id);
+  if (!match) return;
+  const n = Number.parseInt(match[1], 36);
+  if (Number.isFinite(n) && n >= _nextCanonicalGeometryId) {
+    _nextCanonicalGeometryId = n + 1;
+  }
+}
+
 export function isCanonicalGeometry(value: unknown): value is CanonicalGeometry {
   if (!value || typeof value !== "object") return false;
   const rec = value as Partial<CanonicalGeometry>;
@@ -110,6 +119,7 @@ export function createCanonicalGeometryStore(initial: CanonicalGeometry[] = []) 
 
     upsert(record: CanonicalGeometry): CanonicalGeometry {
       if (!isCanonicalGeometry(record)) throw new Error("Invalid canonical geometry record");
+      reserveCanonicalGeometryId(record.id);
       records.set(record.id, record);
       return record;
     },
@@ -148,6 +158,7 @@ export function createCanonicalGeometryStore(initial: CanonicalGeometry[] = []) 
       let count = 0;
       for (const record of nextRecords) {
         if (!isCanonicalGeometry(record)) continue;
+        reserveCanonicalGeometryId(record.id);
         records.set(record.id, record);
         count++;
       }

@@ -104,4 +104,29 @@ describe("canonical geometry store", () => {
     expect(imported).toBe(1);
     expect(targetStore.require(record.id)).toEqual(record);
   });
+
+  test("imported project records reserve their ids so later creates do not overwrite them", () => {
+    const store = createCanonicalGeometryStore();
+    const importedRecord = {
+      kind: "surface" as const,
+      surface,
+      source: "command" as const,
+      createdBy: "SdWall",
+      id: "cg_zzzz",
+      schemaVersion: CANONICAL_GEOMETRY_SCHEMA_VERSION,
+      units: "m" as const,
+    };
+
+    expect(store.importRecords([importedRecord])).toBe(1);
+    const next = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdSlab",
+    });
+
+    expect(next.id).not.toBe(importedRecord.id);
+    expect(store.require(importedRecord.id)).toMatchObject(importedRecord);
+    expect(store.require(next.id)).toBe(next);
+  });
 });
