@@ -19,6 +19,7 @@ import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensi
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
 import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
+import { linkPlanarizedMeshCommandBrep } from "./mesh-planar-brep";
 import type { LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import { transformBrep } from "../nurbs/nurbs-brep";
@@ -65,6 +66,24 @@ function linkExtrudedRectangleBrep(
     ? brep
     : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
   linkCanonicalBrep(viewer, obj, localBrep, createdBy);
+}
+
+function linkCompoundMeshBreps(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  createdBy: string,
+  metadata: Record<string, unknown>,
+): void {
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (viewer.getCanonicalGeometryStore().resolveObject(child)) return;
+    linkPlanarizedMeshCommandBrep(viewer, child, createdBy, {
+      ...metadata,
+      ifcClass: child.userData.ifcClass,
+      name: child.userData.name,
+      parentId: child.userData.parentId,
+    });
+  });
 }
 
 export function registerStructuralHandlers(viewer: Viewer): void {
@@ -275,6 +294,12 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     group.userData.levelId = getActiveLevelId();
     group.userData.dispatchArgs = args;
     group.userData.chain = chain;
+    linkCompoundMeshBreps(viewer, group, "SdStairComponent", {
+      parentCreator: "stair",
+      stairId: group.userData.stairId,
+      stairParams: group.userData.stairParams,
+      levelId: group.userData.levelId,
+    });
     viewer.addMesh(group, "brep");
 
     const targetH = levelStore.get(getActiveLevelId())?.height ?? (isImperial ? 9.0 : 3.0);
@@ -384,6 +409,13 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCompoundMeshBreps(viewer, mesh, "SdRoofComponent", {
+      parentCreator: "roof",
+      roofType,
+      roofParams: mesh.userData.roofParams,
+      levelId: mesh.userData.levelId,
+      ifcPredefinedType: mesh.userData.ifcPredefinedType,
+    });
 
     beginTransaction("SdRoof+gable-trim");
     viewer.addMesh(mesh, "brep");

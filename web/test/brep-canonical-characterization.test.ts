@@ -57,6 +57,7 @@ beforeEach(() => {
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
     "SdMember", "SdPlate", "SdRamp", "SdCurtainWall",
+    "SdStair", "SdRoof",
     "SdDoor", "SdWindow", "SdOpening",
     "SdJoin", "SdExplode",
   ]) {
@@ -276,6 +277,34 @@ describe("BRep canonical migration characterization", () => {
     expect(groupRecord.brep.shells).toHaveLength(1);
     expect(groupRecord.brep.shells[0].faces).toHaveLength(6);
     expect(groupRecord.brep.shells[0].isClosed).toBe(true);
+  });
+
+  test("compound structural commands link displayed subcomponents to canonical BReps", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    for (const [verb, args, createdBy] of [
+      ["SdStair", { start: [0, 0], end: [4, 3] }, "SdStairComponent"],
+      ["SdRoof", { footprint: [[-2, -1.5], [2, 1.5]], roofType: "pitched" }, "SdRoofComponent"],
+    ] as const) {
+      const result = dispatchSync(verb, args);
+      expect(result.ok).toBe(true);
+      const obj = lastObject();
+      expect(obj).toBeInstanceOf(THREE.Group);
+
+      const linkedRecords = new Set<string>();
+      obj?.traverse((child) => {
+        const canonical = store.resolveObject(child);
+        if (!canonical) return;
+        expect(canonical.kind).toBe("brep");
+        if (canonical.kind !== "brep") throw new Error(`expected canonical brep for ${verb} subcomponent`);
+        expect(canonical.createdBy).toBe(createdBy);
+        expect(canonical.metadata).toMatchObject({ derivation: "planarized-display-mesh" });
+        expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
+        linkedRecords.add(canonical.id);
+      });
+      expect(linkedRecords.size).toBeGreaterThan(0);
+    }
   });
 
   test("opening commands link display objects to canonical BRep envelopes", () => {
