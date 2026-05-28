@@ -59,7 +59,7 @@ beforeEach(() => {
     "SdMember", "SdPlate", "SdRamp", "SdCurtainWall",
     "SdStair", "SdRoof",
     "SdDoor", "SdWindow", "SdOpening",
-    "SdJoin", "SdExplode",
+    "SdJoin", "SdExplode", "SdContour",
   ]) {
     unregisterHandler(name);
   }
@@ -467,6 +467,44 @@ describe("BRep canonical migration characterization", () => {
     expect(joinedCanonical.metadata).toMatchObject({
       operands: [firstRecord.id, secondRecord.id],
     });
+  });
+
+  test("SdContour creates linked canonical curve geometry from BRep faces", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 2, depth: 2, height: 2 }).ok).toBe(true);
+    const box = lastObject();
+    expect(box).toBeInstanceOf(THREE.Mesh);
+    const before = new Set(scene.children.map((child) => child.uuid));
+
+    const contourResult = dispatchSync("SdContour", { target: box?.uuid, interval: 0, count: 1 });
+
+    expect(contourResult.ok).toBe(true);
+    if (!contourResult.ok) throw new Error("expected contour to succeed");
+    const result = contourResult.result as { source: string; created: string[]; sliceCount: number; contourLevels: number[] };
+    expect(result.source).toBe("canonical-brep");
+    expect(result.sliceCount).toBe(1);
+    expect(result.contourLevels).toHaveLength(1);
+    expect(result.created).toHaveLength(4);
+
+    const created = scene.children.filter((child) => !before.has(child.uuid));
+    expect(created).toHaveLength(4);
+    for (const obj of created) {
+      expect(obj).toBeInstanceOf(THREE.Line);
+      expect(obj.userData.kind).toBe("curve");
+      expect(obj.userData.creator).toBe("contour");
+      const record = store.resolveObject(obj);
+      expect(record?.kind).toBe("curve");
+      if (record?.kind !== "curve") throw new Error("expected contour canonical curve");
+      expect(record.createdBy).toBe("SdContour");
+      expect(record.metadata?.operation).toBe("contour");
+      expect(record.curve.kind).toBe("polyline");
+      if (record.curve.kind !== "polyline") throw new Error("expected polyline contour");
+      expect(record.curve.points).toHaveLength(2);
+      expect(record.curve.points.every((point) => Math.abs(point.z - result.contourLevels[0]) < 1e-9)).toBe(true);
+    }
   });
 
   test("op-tool extrude meshes can link to canonical BReps from retained footprints", () => {

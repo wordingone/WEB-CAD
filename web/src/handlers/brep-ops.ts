@@ -5,7 +5,7 @@ import type { Curve } from "../nurbs/nurbs-curves";
 import { transform as transformCurve } from "../nurbs/nurbs-curves";
 import type { Point3, Xform } from "../nurbs/nurbs-primitives";
 import { Point3 as Pt3 } from "../nurbs/nurbs-primitives";
-import { pointAtUV, tessellateSurface, transformSurface } from "../nurbs/nurbs-surfaces";
+import { domainU, domainV, pointAtUV, tessellateSurface, transformSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 
@@ -105,6 +105,145 @@ function faceNormal(points: Point3[], orientation: boolean): THREE.Vector3 {
 
 function cloneMaterial(mat: THREE.Material | THREE.Material[]): THREE.Material {
   return (Array.isArray(mat) ? mat[0] : mat).clone();
+}
+
+function faceLoopWorldPoints(face: BrepFace): Point3[] {
+  const trim = face.outerLoop.curves[0];
+  if (trim?.kind !== "polyline" || trim.points.length < 2) return [];
+  const closed = trim.points.length > 1
+    && Math.abs(trim.points[0].x - trim.points[trim.points.length - 1].x) < 1e-9
+    && Math.abs(trim.points[0].y - trim.points[trim.points.length - 1].y) < 1e-9;
+  const loop = closed ? trim.points.slice(0, -1) : trim.points;
+  return loop.map((p) => pointAtUV(face.surface, p.x, p.y));
+}
+
+function brepZBounds(brep: Brep): { min: number; max: number } | null {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const shell of brep.shells) {
+    for (const vertex of shell.vertices) {
+      min = Math.min(min, vertex.point.z);
+      max = Math.max(max, vertex.point.z);
+    }
+  }
+  for (const shell of brep.shells) {
+    for (const face of shell.faces) {
+      for (const p of faceLoopWorldPoints(face)) {
+        min = Math.min(min, p.z);
+        max = Math.max(max, p.z);
+      }
+    }
+  }
+  return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+}
+
+function contourSegmentsForFace(face: BrepFace, z: number): Array<[Point3, Point3]> {
+  const loop = faceLoopWorldPoints(face);
+  if (loop.length === 0 && face.surface.kind === "sum") {
+    const du = domainU(face.surface);
+    const dv = domainV(face.surface);
+    const z0 = pointAtUV(face.surface, du.min, dv.min).z;
+    const z1 = pointAtUV(face.surface, du.min, dv.max).z;
+    if ((z < Math.min(z0, z1) && Math.abs(z - Math.min(z0, z1)) > 1e-9)
+      || (z > Math.max(z0, z1) && Math.abs(z - Math.max(z0, z1)) > 1e-9)
+      || Math.abs(z1 - z0) < 1e-9) return [];
+    const t = (z - z0) / (z1 - z0);
+    const v = dv.min + (dv.max - dv.min) * t;
+    return [[
+      pointAtUV(face.surface, du.min, v),
+      pointAtUV(face.surface, du.max, v),
+    ]];
+  }
+  if (loop.length < 2) return [];
+  const hits: Point3[] = [];
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    const da = a.z - z;
+    const db = b.z - z;
+    if (Math.abs(da) < 1e-9 && Math.abs(db) < 1e-9) continue;
+    if (Math.abs(da) < 1e-9) {
+      hits.push(a);
+      continue;
+    }
+    if (da * db < 0 || Math.abs(db) < 1e-9) {
+      const t = da / (da - db);
+      hits.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        z,
+      });
+    }
+  }
+  const unique: Point3[] = [];
+  for (const hit of hits) {
+    if (!unique.some((p) => Math.hypot(p.x - hit.x, p.y - hit.y, p.z - hit.z) < 1e-7)) unique.push(hit);
+  }
+  const segments: Array<[Point3, Point3]> = [];
+  for (let i = 0; i + 1 < unique.length; i += 2) segments.push([unique[i], unique[i + 1]]);
+  return segments;
+}
+
+function makeContourCurve(a: Point3, b: Point3): Curve {
+  return {
+    kind: "polyline",
+    points: [a, b],
+    parameters: [0, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)],
+  };
+}
+
+function addContourLine(viewer: Viewer, curve: Curve, metadata: Record<string, unknown>, args: Record<string, unknown>): string {
+  if (curve.kind !== "polyline") throw new Error("Contour curve must be a polyline");
+  const points = curve.points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x4f8cff }));
+  line.userData.kind = "curve";
+  line.userData.creator = "contour";
+  line.userData.dispatchArgs = args;
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "curve",
+    curve,
+    source: "edit",
+    createdBy: "SdContour",
+    metadata,
+  });
+  viewer.getCanonicalGeometryStore().linkObject(line, record.id);
+  viewer.addMesh(line, "curve");
+  return line.uuid;
+}
+
+function contourCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<string, unknown>): { target: string; contourLevels: number[]; sliceCount: number; interval: number; created: string[]; source: string } | null {
+  const sourceCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj);
+  if (sourceCanonical?.kind !== "brep") return null;
+  const brep = canonicalBrepForObject(viewer, obj);
+  if (!brep) return null;
+  const bounds = brepZBounds(brep);
+  if (!bounds) return null;
+  const interval = (args.interval as number | undefined) ?? 1;
+  const countArg = (args.count as number | undefined) ?? 5;
+  const zRange = bounds.max - bounds.min;
+  const sliceCount = interval > 0 ? Math.max(1, Math.floor(zRange / interval)) : Math.max(1, countArg);
+  const levels: number[] = [];
+  for (let i = 1; i <= sliceCount; i++) levels.push(bounds.min + (zRange * i) / (sliceCount + 1));
+  const created: string[] = [];
+  for (const level of levels) {
+    let faceIndex = 0;
+    for (const shell of brep.shells) {
+      for (const face of shell.faces) {
+        for (const [a, b] of contourSegmentsForFace(face, level)) {
+          const curve = makeContourCurve(a, b);
+          created.push(addContourLine(viewer, curve, {
+            operation: "contour",
+            source: sourceCanonical.id,
+            level,
+            faceIndex,
+          }, args));
+        }
+        faceIndex++;
+      }
+    }
+  }
+  return { target: obj.uuid, contourLevels: levels, sliceCount: levels.length, interval, created, source: "canonical-brep" };
 }
 
 function explodeCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<string, unknown>): { exploded: string[]; faceCount: number; source: string } | null {
@@ -296,6 +435,8 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     const obj = scene.getObjectByProperty("uuid", targetId);
     if (!obj) return { error: `SdContour - object not found: ${targetId}` };
     if (!(obj instanceof THREE.Mesh)) return { error: "SdContour - target must be a Mesh" };
+    const canonicalResult = contourCanonicalBrep(viewer, obj, args);
+    if (canonicalResult) return canonicalResult;
     const interval = (args.interval as number | undefined) ?? 1;
     const countArg = (args.count as number | undefined) ?? 5;
     obj.geometry.computeBoundingBox();
