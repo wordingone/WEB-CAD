@@ -9,6 +9,7 @@ import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getU
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
 import { transformBrep } from "../nurbs/nurbs-brep";
 import type { Xform } from "../nurbs/nurbs-primitives";
+import { linkPlanarizedMeshEditBrep } from "./mesh-planar-brep";
 
 type BooleanOp = "union" | "difference" | "intersection";
 
@@ -380,6 +381,11 @@ export function registerTransformHandlers(viewer: Viewer): void {
       if (filleted.userData._chamferError) {
         return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
       }
+      linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
+        operation: "edge-chamfer",
+        edgeId,
+        radius,
+      });
     } else {
       filleted = filletMesh(obj, radius);
       if (filleted.userData._chamferError) {

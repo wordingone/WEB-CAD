@@ -28,6 +28,7 @@ import {
 import { applyBoolHighlight, restoreBoolHighlight } from "./op-tool-bool-highlight";
 import { opApply2DFillet } from "./op-tool-fillet-2d";
 import { linkOpToolExtrudeCanonical } from "./op-tool-canonical";
+import { linkPlanarizedMeshEditBrep } from "../handlers/mesh-planar-brep";
 
 // Re-export for callers that import these from op-tool (barrel pattern).
 export { EXTRUDABLE_CREATORS, opRaycastObject } from "./op-tool-extrude-mesh";
@@ -1539,6 +1540,11 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
         return;
       }
       viewer.getScene().remove(meshTarget); // audit-undo-ok: tracked by pushReplaceAction below
+      linkPlanarizedMeshEditBrep(viewer, meshTarget, filleted, "SdFillet", {
+        operation: "edge-chamfer",
+        radius: r,
+        source: "op-tool-fallback",
+      });
       viewer.addMesh(filleted, "brep", { noHistory: true });
       pushReplaceAction(filleted, [meshTarget], "fillet");
     }
