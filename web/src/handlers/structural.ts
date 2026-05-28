@@ -18,7 +18,7 @@ import { DEFAULT_CEILING_OFFSET } from "../tools/index";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensions";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
-import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
+import { linkCanonicalBrep } from "./canonical-surface";
 import { linkPlanarizedMeshCommandBrep } from "./mesh-planar-brep";
 import type { LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
@@ -50,6 +50,24 @@ function profileFrom2dPoints(points2d: Array<[number, number]>): PolylineCurve {
   return { kind: "polyline", points, parameters };
 }
 
+function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
+  const points = [
+    ...points3d,
+    ...(points3d.length > 0 && (
+      points3d[0][0] !== points3d[points3d.length - 1][0]
+      || points3d[0][1] !== points3d[points3d.length - 1][1]
+      || points3d[0][2] !== points3d[points3d.length - 1][2]
+    ) ? [points3d[0]] : []),
+  ].map(([x, y, z]) => ({ x, y, z }));
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
 function linkExtrudedRectangleBrep(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -66,6 +84,26 @@ function linkExtrudedRectangleBrep(
     ? brep
     : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
   linkCanonicalBrep(viewer, obj, localBrep, createdBy);
+}
+
+function linkPitchedWallBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  length: number,
+  thickness: number,
+  eaveHeight: number,
+  ridgeHeight: number,
+): void {
+  const halfLen = length / 2;
+  const profile = profileFrom3dPoints([
+    [-halfLen, -thickness / 2, 0],
+    [halfLen, -thickness / 2, 0],
+    [halfLen, -thickness / 2, eaveHeight],
+    [0, -thickness / 2, eaveHeight + ridgeHeight],
+    [-halfLen, -thickness / 2, eaveHeight],
+    [-halfLen, -thickness / 2, 0],
+  ]);
+  linkCanonicalBrep(viewer, obj, extrudeBrep(profile, { x: 0, y: 1, z: 0 }, thickness), "SdWall");
 }
 
 function linkCompoundMeshBreps(
@@ -138,7 +176,8 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
     if (topProfile === "pitched") {
-      linkCanonicalSurface(viewer, mesh, "SdWall");
+      const t = (mesh.userData.wallThickness as number | undefined) ?? 0.2;
+      linkPitchedWallBrep(viewer, mesh, wallLenCheck, t, eaveH, ridgeH);
     } else {
       const t = (mesh.userData.wallThickness as number | undefined) ?? 0.2;
       linkExtrudedRectangleBrep(viewer, mesh, -wallLenCheck / 2, wallLenCheck / 2, -t / 2, t / 2, effectiveH, "SdWall");

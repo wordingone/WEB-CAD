@@ -198,6 +198,38 @@ describe("BRep canonical migration characterization", () => {
     }
   });
 
+  test("pitched walls keep their gable display mesh while linking a canonical extruded BRep", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    const result = dispatchSync("SdWall", {
+      length: 6,
+      topProfile: "pitched",
+      eaveHeight: 3,
+      ridgeHeight: 1.5,
+    });
+    expect(result.ok).toBe(true);
+
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    expect(obj?.userData.topProfile).toBe("pitched");
+    const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("brep");
+    expect(canonical.createdBy).toBe("SdWall");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.brep.shells).toHaveLength(1);
+    expect(canonical.brep.shells[0].faces).toHaveLength(7);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+    const apexFace = canonical.brep.shells[0].faces.find((face) => (
+      face.surface.kind === "sum"
+      && face.surface.curveU.kind === "line"
+      && face.surface.curveU.to.z === 4.5
+    ));
+    expect(apexFace).toBeDefined();
+  });
+
   test("additional box-like structural commands link canonical extruded BReps", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerStructuralHandlers(viewer);
