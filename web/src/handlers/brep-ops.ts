@@ -5,7 +5,7 @@ import type { Curve } from "../nurbs/nurbs-curves";
 import { transform as transformCurve } from "../nurbs/nurbs-curves";
 import type { Point3, Xform } from "../nurbs/nurbs-primitives";
 import { Point3 as Pt3 } from "../nurbs/nurbs-primitives";
-import { domainU, domainV, pointAtUV, tessellateSurface, transformSurface } from "../nurbs/nurbs-surfaces";
+import { domainU, domainV, getNurbsForm, pointAtUV, tessellateSurface, transformSurface, type NurbsSurface, type PlaneSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 
@@ -94,6 +94,35 @@ function makeFaceGeometry(face: BrepFace): THREE.BufferGeometry {
   return geo;
 }
 
+function makeBrepGeometry(brep: Brep): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const shell of brep.shells) {
+    for (const face of shell.faces) {
+      const faceGeo = makeFaceGeometry(face);
+      const pos = faceGeo.getAttribute("position") as THREE.BufferAttribute;
+      const nrm = faceGeo.getAttribute("normal") as THREE.BufferAttribute | undefined;
+      for (let i = 0; i < pos.count; i++) {
+        positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+        if (nrm) normals.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
+      }
+      if (faceGeo.index) {
+        for (let i = 0; i < faceGeo.index.count; i++) indices.push(faceGeo.index.getX(i) + offset);
+      }
+      offset += pos.count;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  if (normals.length === positions.length) geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  if (indices.length) geo.setIndex(indices);
+  if (!normals.length) geo.computeVertexNormals();
+  geo.computeBoundingBox();
+  return geo;
+}
+
 function faceNormal(points: Point3[], orientation: boolean): THREE.Vector3 {
   const a = new THREE.Vector3(points[0].x, points[0].y, points[0].z);
   const b = new THREE.Vector3(points[1].x, points[1].y, points[1].z);
@@ -105,6 +134,118 @@ function faceNormal(points: Point3[], orientation: boolean): THREE.Vector3 {
 
 function cloneMaterial(mat: THREE.Material | THREE.Material[]): THREE.Material {
   return (Array.isArray(mat) ? mat[0] : mat).clone();
+}
+
+function exactPlaneToLinearNurbs(surface: PlaneSurface): NurbsSurface {
+  const u0 = surface.uDomain.min;
+  const u1 = surface.uDomain.max;
+  const v0 = surface.vDomain.min;
+  const v1 = surface.vDomain.max;
+  const p00 = pointAtUV(surface, u0, v0);
+  const p01 = pointAtUV(surface, u0, v1);
+  const p10 = pointAtUV(surface, u1, v0);
+  const p11 = pointAtUV(surface, u1, v1);
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: [2, 2],
+    cvCount: [2, 2],
+    knots: [[u0, u1], [v0, v1]],
+    cvs: [
+      p00.x, p00.y, p00.z,
+      p01.x, p01.y, p01.z,
+      p10.x, p10.y, p10.z,
+      p11.x, p11.y, p11.z,
+    ],
+    cvStride: [6, 3],
+  };
+}
+
+function remapCurveUV(curve: Curve, oldU: { min: number; max: number }, oldV: { min: number; max: number }, newU: { min: number; max: number }, newV: { min: number; max: number }): Curve {
+  const remapU = (u: number) => newU.min + ((u - oldU.min) / (oldU.max - oldU.min || 1)) * (newU.max - newU.min);
+  const remapV = (v: number) => newV.min + ((v - oldV.min) / (oldV.max - oldV.min || 1)) * (newV.max - newV.min);
+  if (curve.kind !== "polyline") return transformParamSpaceCurve(curve);
+  return {
+    ...curve,
+    points: curve.points.map((p) => ({ x: remapU(p.x), y: remapV(p.y), z: p.z })),
+  };
+}
+
+function rebuildFaceToNurbs(face: BrepFace): BrepFace {
+  const oldU = domainU(face.surface);
+  const oldV = domainV(face.surface);
+  const rebuilt = face.surface.kind === "nurbs"
+    ? face.surface
+    : face.surface.kind === "plane"
+      ? exactPlaneToLinearNurbs(face.surface)
+      : getNurbsForm(face.surface).surface;
+  const newU = domainU(rebuilt);
+  const newV = domainV(rebuilt);
+  const loopsNeedRemap = oldU.min !== newU.min || oldU.max !== newU.max || oldV.min !== newV.min || oldV.max !== newV.max;
+  return {
+    ...face,
+    surface: rebuilt,
+    outerLoop: {
+      ...face.outerLoop,
+      curves: loopsNeedRemap
+        ? face.outerLoop.curves.map((curve) => remapCurveUV(curve, oldU, oldV, newU, newV))
+        : face.outerLoop.curves.map(transformParamSpaceCurve),
+    },
+    innerLoops: face.innerLoops.map((loop) => ({
+      ...loop,
+      curves: loopsNeedRemap
+        ? loop.curves.map((curve) => remapCurveUV(curve, oldU, oldV, newU, newV))
+        : loop.curves.map(transformParamSpaceCurve),
+    })),
+  };
+}
+
+function rebuildBrepToNurbs(brep: Brep): Brep {
+  return {
+    shells: brep.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map(rebuildFaceToNurbs),
+      edges: shell.edges.map((edge) => ({ ...edge, curve: transformParamSpaceCurve(edge.curve) })),
+      vertices: shell.vertices.map((vertex) => ({ ...vertex, point: { ...vertex.point }, edgeIndices: [...vertex.edgeIndices] })),
+    })),
+  };
+}
+
+function rebuildCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<string, unknown>): { rebuilt: string; original: string; originalFaces: number; rebuiltFaces: number; source: string; surfaceKind: string } | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const sourceCanonical = store.resolveObjectOrAncestor(obj);
+  if (sourceCanonical?.kind !== "brep") return null;
+  const brep = canonicalBrepForObject(viewer, obj);
+  if (!brep) return null;
+  const rebuiltBrep = rebuildBrepToNurbs(brep);
+  const originalFaces = brep.shells.reduce((n, shell) => n + shell.faces.length, 0);
+  const rebuiltFaces = rebuiltBrep.shells.reduce((n, shell) => n + shell.faces.length, 0);
+  const mesh = new THREE.Mesh(
+    makeBrepGeometry(rebuiltBrep),
+    cloneMaterial(obj.material as THREE.Material | THREE.Material[]),
+  );
+  mesh.userData.kind = "brep";
+  mesh.userData.creator = "rebuild";
+  mesh.userData.dispatchArgs = args;
+  const record = store.create({
+    kind: "brep",
+    brep: rebuiltBrep,
+    source: "edit",
+    createdBy: "SdRebuild",
+    metadata: {
+      operation: "rebuild-nurbs",
+      source: sourceCanonical.id,
+      exactPlaneSurfaces: brep.shells.reduce((n, shell) => n + shell.faces.filter((face) => face.surface.kind === "plane").length, 0),
+      originalFaces,
+      rebuiltFaces,
+    },
+  });
+  store.linkObject(mesh, record.id);
+  viewer.getScene().remove(obj);
+  viewer.addMesh(mesh, "brep", { noHistory: true });
+  pushReplaceAction(mesh, [obj], "rebuild");
+  return { rebuilt: mesh.uuid, original: obj.uuid, originalFaces, rebuiltFaces, source: "canonical-brep", surfaceKind: "nurbs" };
 }
 
 function faceLoopWorldPoints(face: BrepFace): Point3[] {
@@ -421,6 +562,8 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     const obj = scene.getObjectByProperty("uuid", targetId);
     if (!obj) return { error: `SdRebuild - object not found: ${targetId}` };
     if (!(obj instanceof THREE.Mesh)) return { error: "SdRebuild - target must be a Mesh" };
+    const canonicalResult = rebuildCanonicalBrep(viewer, obj, args);
+    if (canonicalResult) return canonicalResult;
     const count = (args.count as number | undefined) ?? 0;
     const geo = obj.geometry as THREE.BufferGeometry;
     const vertexCount = (geo.attributes.position as THREE.BufferAttribute).count;

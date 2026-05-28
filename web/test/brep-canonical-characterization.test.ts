@@ -507,6 +507,45 @@ describe("BRep canonical migration characterization", () => {
     }
   });
 
+  test("SdRebuild replaces a canonical BRep with NURBS-form face surfaces", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 2, depth: 2, height: 2 }).ok).toBe(true);
+    const box = lastObject();
+    expect(box).toBeInstanceOf(THREE.Mesh);
+    const sourceRecord = box ? store.resolveObject(box) : undefined;
+    expect(sourceRecord?.kind).toBe("brep");
+    if (sourceRecord?.kind !== "brep") throw new Error("expected source BRep");
+    expect(sourceRecord.brep.shells[0].faces.some((face) => face.surface.kind !== "nurbs")).toBe(true);
+
+    const rebuildResult = dispatchSync("SdRebuild", { target: box?.uuid });
+
+    expect(rebuildResult.ok).toBe(true);
+    if (!rebuildResult.ok) throw new Error("expected rebuild to succeed");
+    const result = rebuildResult.result as { rebuilt: string; original: string; source: string; surfaceKind: string; originalFaces: number; rebuiltFaces: number };
+    expect(result.source).toBe("canonical-brep");
+    expect(result.surfaceKind).toBe("nurbs");
+    expect(result.original).toBe(box!.uuid);
+    expect(result.originalFaces).toBe(6);
+    expect(result.rebuiltFaces).toBe(6);
+    expect(scene.getObjectByProperty("uuid", box!.uuid)).toBeUndefined();
+    const rebuilt = scene.getObjectByProperty("uuid", result.rebuilt);
+    expect(rebuilt).toBeInstanceOf(THREE.Mesh);
+    const rebuiltRecord = rebuilt ? store.resolveObject(rebuilt) : undefined;
+    expect(rebuiltRecord?.kind).toBe("brep");
+    if (rebuiltRecord?.kind !== "brep") throw new Error("expected rebuilt BRep");
+    expect(rebuiltRecord.createdBy).toBe("SdRebuild");
+    expect(rebuiltRecord.metadata?.operation).toBe("rebuild-nurbs");
+    expect(rebuiltRecord.metadata?.source).toBe(sourceRecord.id);
+    expect(rebuiltRecord.brep.shells).toHaveLength(1);
+    expect(rebuiltRecord.brep.shells[0].faces).toHaveLength(6);
+    expect(rebuiltRecord.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    const rebuiltPosition = (rebuilt as THREE.Mesh).geometry.getAttribute("position") as THREE.BufferAttribute;
+    expect(rebuiltPosition.count).toBeGreaterThan(0);
+  });
+
   test("op-tool extrude meshes can link to canonical BReps from retained footprints", () => {
     const { viewer, store } = makeViewer();
     const mesh = new THREE.Mesh(
