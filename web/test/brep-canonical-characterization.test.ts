@@ -405,16 +405,19 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
-  test("project save/open is currently the deprecated gemarch scene snapshot path", () => {
+  test("project save/open uses canonical WEB-CAD project snapshots with legacy import compatibility", () => {
     const shell = source("shell/shell.ts");
 
-    expect(shell).toContain("version: 1");
+    expect(shell).toContain('PROJECT_FILE_EXTENSION = ".webcad"');
+    expect(shell).toContain('PROJECT_FILE_FORMAT = "web-cad.canonical-project"');
+    expect(shell).toContain("version: PROJECT_FILE_VERSION");
     expect(shell).toContain("canonicalGeometry: w.__viewer?.exportCanonicalGeometry?.() ?? []");
     expect(shell).toContain("__viewer?.exportScene?.()");
     expect(shell).toContain("w.__viewer?.importCanonicalGeometry?.(parsed.canonicalGeometry)");
     expect(shell).toContain("__viewer?.importScene?.(parsed.objects)");
-    expect(shell).toContain('picker.accept = ".gemarch,.json"');
-    expect(shell).toContain('name.endsWith(".gemarch")');
+    expect(shell).toContain('PROJECT_FILE_ACCEPT = ".webcad,.json,.gemarch"');
+    expect(shell).toContain("picker.accept = PROJECT_FILE_ACCEPT");
+    expect(shell).toContain("saveProjectFile");
   });
 
   test("viewer scene persistence uses canonical display source with mesh fallback serialization", () => {

@@ -51,8 +51,8 @@ const MENUS: MenuItem[] = [
   { label: "File", entries: [
     { label: "Open Project…",   shortcut: "⌘O", onAction: () => openProjectFile() },
     { label: "Import IFC…",                     onAction: () => window.dispatchEvent(new Event("file:open-ifc")) },
-    { label: "Save project",    shortcut: "⌘S", onAction: () => saveProjectGemarch(_currentFileName) },
-    { label: "Save As…",       shortcut: "⇧⌘S", onAction: () => saveProjectGemarch(null) },
+    { label: "Save project",    shortcut: "⌘S", onAction: () => saveProjectFile(_currentFileName) },
+    { label: "Save As…",       shortcut: "⇧⌘S", onAction: () => saveProjectFile(null) },
     { separator: true },
     { label: "Export…",         shortcut: "⌘E", onAction: () => openExportDrawer() },
     { label: "Export ▶", submenu: [
@@ -381,6 +381,10 @@ export function setRibbonMode(mode: "model" | "layout" | "research") {
 
 const RECENT_FILES_KEY = "web-cad.recent-files";
 const MAX_RECENT = 5;
+const PROJECT_FILE_EXTENSION = ".webcad";
+const PROJECT_FILE_ACCEPT = ".webcad,.json,.gemarch";
+const PROJECT_FILE_FORMAT = "web-cad.canonical-project";
+const PROJECT_FILE_VERSION = 2;
 type RecentEntry = { name: string; ts: number; data: string };
 
 let _fileNameEl: HTMLElement | null = null;
@@ -408,7 +412,8 @@ function snapshotState(): object {
   const units = getState("unitSystem") ?? "metric";
   const w = window as Window & { __viewer?: { exportScene?: () => unknown[]; exportCanonicalGeometry?: () => unknown[] } };
   return {
-    version: 1,
+    format: PROJECT_FILE_FORMAT,
+    version: PROJECT_FILE_VERSION,
     meta: { units, name: _currentFileName },
     canonicalGeometry: w.__viewer?.exportCanonicalGeometry?.() ?? [],
     objects: w.__viewer?.exportScene?.() ?? [],
@@ -416,6 +421,7 @@ function snapshotState(): object {
 }
 
 type _ParsedProject = {
+  format?: string;
   version?: number;
   meta?: { units?: string; name?: string };
   canonicalGeometry?: unknown[];
@@ -431,7 +437,7 @@ function loadProjectData(data: string, fileName: string): void {
   try {
     const parsed = JSON.parse(data) as _ParsedProject;
     if (parsed.meta?.units) dispatchSync("SdSetUnits", { system: parsed.meta.units });
-    const baseName = fileName.replace(/\.(gemarch|json)$/i, "");
+    const baseName = fileName.replace(/\.(webcad|gemarch|json)$/i, "");
     setCurrentFileName(parsed.meta?.name ?? baseName);
     if (Array.isArray(parsed.canonicalGeometry)) {
       const w = window as Window & { __viewer?: { importCanonicalGeometry?: (records: unknown[]) => number } };
@@ -447,12 +453,12 @@ function loadProjectData(data: string, fileName: string): void {
 }
 
 function openProjectFile(): void {
-  let picker = document.getElementById("gemarch-file-picker") as HTMLInputElement | null;
+  let picker = document.getElementById("webcad-project-file-picker") as HTMLInputElement | null;
   if (!picker) {
     picker = document.createElement("input");
     picker.type = "file";
-    picker.id = "gemarch-file-picker";
-    picker.accept = ".gemarch,.json";
+    picker.id = "webcad-project-file-picker";
+    picker.accept = PROJECT_FILE_ACCEPT;
     picker.style.display = "none";
     document.body.appendChild(picker);
     picker.addEventListener("change", () => {
@@ -483,21 +489,26 @@ function injectRecentEntries(base: MenuEntry[]): MenuEntry[] {
   return [...base.slice(0, firstSepIdx), ...recentEntries, ...base.slice(firstSepIdx)];
 }
 
-export function saveProjectGemarch(fileNameOrNull: string | null): void {
+export function saveProjectFile(fileNameOrNull: string | null): void {
   const name = fileNameOrNull ?? _currentFileName;
   const data = JSON.stringify(snapshotState(), null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const dlName = name.endsWith(".gemarch") ? name : `${name}.gemarch`;
+  const dlName = /\.(webcad|gemarch|json)$/i.test(name) ? name.replace(/\.(gemarch|json)$/i, PROJECT_FILE_EXTENSION) : `${name}${PROJECT_FILE_EXTENSION}`;
   a.download = dlName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   addToRecentFiles(dlName, data);
-  setCurrentFileName(dlName.replace(/\.gemarch$/i, ""));
+  setCurrentFileName(dlName.replace(/\.(webcad|gemarch|json)$/i, ""));
+}
+
+/** @deprecated Use saveProjectFile. */
+export function saveProjectGemarch(fileNameOrNull: string | null): void {
+  saveProjectFile(fileNameOrNull);
 }
 
 const THEME_KEY = "web-cad.theme";
@@ -887,9 +898,9 @@ function wireFpsCounter() {
   requestAnimationFrame(tick);
 }
 
-/** @deprecated Use saveProjectGemarch */
+/** @deprecated Use saveProjectFile. */
 export function saveProjectJson(): void {
-  saveProjectGemarch(_currentFileName);
+  saveProjectFile(_currentFileName);
 }
 
 function wireUnitsCell(): void {
@@ -939,8 +950,8 @@ export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onS
       openProjectFile();
     } else if (e.key === "s" || e.key === "S") {
       e.preventDefault();
-      if (e.shiftKey) saveProjectGemarch(null);
-      else saveProjectGemarch(_currentFileName);
+      if (e.shiftKey) saveProjectFile(null);
+      else saveProjectFile(_currentFileName);
     }
   });
 }
