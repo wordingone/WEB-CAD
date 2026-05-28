@@ -184,6 +184,19 @@ export function createCanonicalGeometryStore(initial: CanonicalGeometry[] = []) 
       const id = store.getLinkedId(obj);
       return id ? records.get(id) : undefined;
     },
+
+    resolveObjectOrAncestor(obj: CanonicalGeometryLinkable & { parent?: unknown } | null | undefined): CanonicalGeometry | undefined {
+      let current = obj;
+      while (current) {
+        const record = store.resolveObject(current);
+        if (record) return record;
+        const parent = current.parent;
+        current = parent && typeof parent === "object" && "userData" in parent
+          ? parent as CanonicalGeometryLinkable & { parent?: unknown }
+          : undefined;
+      }
+      return undefined;
+    },
   };
 
   for (const record of initial) store.upsert(record);

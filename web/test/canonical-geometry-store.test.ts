@@ -81,6 +81,33 @@ describe("canonical geometry store", () => {
     expect(mesh.userData.kind).toBeUndefined();
   });
 
+  test("resolves child display objects through the nearest canonical ancestor", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({ kind: "surface", surface, source: "command", createdBy: "SdCurtainWall" });
+    const group = new THREE.Group();
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    group.add(child);
+
+    store.linkObject(group, record.id);
+
+    expect(store.resolveObject(child)).toBeUndefined();
+    expect(store.resolveObjectOrAncestor(child)).toBe(record);
+  });
+
+  test("prefers a child's direct canonical record over an ancestor link", () => {
+    const store = createCanonicalGeometryStore();
+    const parentRecord = store.create({ kind: "surface", surface, source: "command", createdBy: "parent" });
+    const childRecord = store.create({ kind: "surface", surface, source: "command", createdBy: "child" });
+    const group = new THREE.Group();
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    group.add(child);
+
+    store.linkObject(group, parentRecord.id);
+    store.linkObject(child, childRecord.id);
+
+    expect(store.resolveObjectOrAncestor(child)).toBe(childRecord);
+  });
+
   test("refuses to link objects to unknown canonical records", () => {
     const store = createCanonicalGeometryStore();
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));

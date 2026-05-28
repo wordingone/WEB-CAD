@@ -633,7 +633,7 @@ export class Viewer {
   }
 
   getCanonicalGeometryForObject(obj: THREE.Object3D): CanonicalGeometry | undefined {
-    return this.canonicalGeometryStore.resolveObject(obj);
+    return this.canonicalGeometryStore.resolveObjectOrAncestor(obj);
   }
 
   exportCanonicalGeometry(): CanonicalGeometry[] {
