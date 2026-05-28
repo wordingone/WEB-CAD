@@ -27,14 +27,82 @@ import { canonicalGeometryToIfcNurbsSurfaces, surfaceToIfcNurbs } from "../ifc/c
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
 import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
 import type { Curve, NurbsCurve as KernelNurbsCurve } from "../nurbs/nurbs-curves.js";
-import type { Surface } from "../nurbs/nurbs-surfaces.js";
+import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces.js";
 import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
+
+export type CanonicalExportOptions = {
+  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
+};
+
+function meshFromCanonicalSurface(record: Extract<CanonicalGeometry, { kind: "surface" }>): THREE.Mesh | null {
+  const tess = tessellateSurface(record.surface, 16, 16);
+  if (tess.positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(tess.positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(tess.normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(tess.indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
+}
+
+function meshFromCanonicalBrep(record: Extract<CanonicalGeometry, { kind: "brep" }>): THREE.Mesh | null {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const shell of record.brep.shells) {
+    for (const face of shell.faces) {
+      const tess = tessellateSurface(face.surface, 4, 4);
+      positions.push(...tess.positions);
+      normals.push(...tess.normals);
+      for (const index of tess.indices) indices.push(index + offset);
+      offset += tess.positions.length / 3;
+    }
+  }
+  if (positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
+}
+
+function objectFromCanonical(record: CanonicalGeometry): THREE.Object3D | null {
+  if (record.kind === "brep") return meshFromCanonicalBrep(record);
+  if (record.kind === "surface") return meshFromCanonicalSurface(record);
+  if (record.kind === "curve") {
+    const pts = tessellateCurve(record.curve, 64).map((p) => new THREE.Vector3(p.x, p.y, p.z));
+    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial());
+  }
+  if (record.kind === "point") {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([record.point.x, record.point.y, record.point.z]), 3));
+    return new THREE.Points(geo, new THREE.PointsMaterial());
+  }
+  return null;
+}
+
+function canonicalExportObject(object: THREE.Object3D, options: CanonicalExportOptions): THREE.Object3D {
+  const canonical = options.getCanonicalGeometryForObject?.(object);
+  const replacement = canonical ? objectFromCanonical(canonical) : null;
+  const clone = replacement ?? object.clone(false);
+  clone.name = object.name;
+  clone.position.copy(object.position);
+  clone.quaternion.copy(object.quaternion);
+  clone.scale.copy(object.scale);
+  clone.visible = object.visible;
+  clone.userData = { ...object.userData };
+  if (replacement) return clone;
+  for (const child of object.children) clone.add(canonicalExportObject(child, options));
+  return clone;
+}
 
 // --- OBJ ---
 
-export function exportObj(object: THREE.Object3D): string {
+export function exportObj(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
   const exporter = new OBJExporter();
-  return exporter.parse(object);
+  const target = options.getCanonicalGeometryForObject ? canonicalExportObject(object, options) : object;
+  target.updateMatrixWorld(true);
+  return exporter.parse(target);
 }
 
 // --- glTF (JSON) ---
@@ -90,9 +158,11 @@ export async function exportUsdz(object: THREE.Object3D): Promise<Uint8Array> {
 
 // --- STL (binary) ---
 
-export function exportStl(object: THREE.Object3D): ArrayBuffer {
+export function exportStl(object: THREE.Object3D, options: CanonicalExportOptions = {}): ArrayBuffer {
   const exporter = new STLExporter();
-  const result = exporter.parse(object, { binary: true });
+  const target = options.getCanonicalGeometryForObject ? canonicalExportObject(object, options) : object;
+  target.updateMatrixWorld(true);
+  const result = exporter.parse(target, { binary: true });
   if (result instanceof ArrayBuffer) return result;
   // STLExporter binary mode always returns DataView in some three versions.
   if (result && typeof (result as unknown as DataView).buffer !== "undefined") {
@@ -105,10 +175,6 @@ export function exportStl(object: THREE.Object3D): ArrayBuffer {
 // --- 3DM (Rhino) ---
 
 export type Export3dmOptions = {
-  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
-};
-
-export type CanonicalExportOptions = {
   getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
 };
 

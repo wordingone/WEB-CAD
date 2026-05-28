@@ -4,7 +4,8 @@ import {
   CANONICAL_GEOMETRY_USERDATA_KEY,
   createCanonicalGeometryStore,
 } from "../src/geometry/canonical-geometry";
-import { exportDxf, exportPdf, exportSvg } from "../src/io/exporters";
+import { exportDxf, exportObj, exportPdf, exportStl, exportSvg } from "../src/io/exporters";
+import { extrude as extrudeBrep } from "../src/nurbs/brep-extrude";
 
 function canonicalLineScene(): {
   line: THREE.Line;
@@ -69,5 +70,42 @@ describe("canonical vector exports", () => {
     expect(pdf).toContain(" m ");
     expect(pdf).toContain(" l S");
     expect(pdf).not.toContain("no geometry");
+  });
+
+  test("OBJ emits canonical curve geometry instead of stale display line geometry", () => {
+    const { line, resolve } = canonicalLineScene();
+
+    const obj = exportObj(line, { getCanonicalGeometryForObject: resolve });
+
+    expect(obj).toContain("v 10 20 0");
+    expect(obj).toContain("v 13 24 0");
+    expect(obj).toContain("l 1 2");
+  });
+
+  test("STL tessellates linked canonical BReps when display mesh geometry is empty", () => {
+    const store = createCanonicalGeometryStore();
+    const display = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    const profile = {
+      kind: "polyline" as const,
+      points: [
+        { x: -1, y: -0.5, z: 0 },
+        { x: 1, y: -0.5, z: 0 },
+        { x: 1, y: 0.5, z: 0 },
+        { x: -1, y: 0.5, z: 0 },
+        { x: -1, y: -0.5, z: 0 },
+      ],
+      parameters: [0, 2, 3, 5, 6],
+    };
+    const record = store.create({
+      kind: "brep",
+      brep: extrudeBrep(profile, { x: 0, y: 0, z: 1 }, 1),
+      source: "command",
+      createdBy: "SdBox",
+    });
+    store.linkObject(display, record.id);
+
+    const stl = exportStl(display, { getCanonicalGeometryForObject: (obj) => store.resolveObject(obj) });
+
+    expect(stl.byteLength).toBeGreaterThan(84);
   });
 });
