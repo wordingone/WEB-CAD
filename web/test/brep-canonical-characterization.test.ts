@@ -394,8 +394,11 @@ describe("BRep canonical migration characterization", () => {
     const explodeResult = dispatchSync("SdExplode", { target: joined?.uuid });
     expect(explodeResult.ok).toBe(true);
     if (!explodeResult.ok) throw new Error("expected explode to succeed");
-    const explodedIds = (explodeResult.result as { exploded: string[] }).exploded;
-    expect(explodedIds.length).toBeGreaterThan(0);
+    const explodedResult = explodeResult.result as { exploded: string[]; faceCount: number; source: string };
+    expect(explodedResult.source).toBe("canonical-brep");
+    expect(explodedResult.faceCount).toBe(12);
+    const explodedIds = explodedResult.exploded;
+    expect(explodedIds).toHaveLength(12);
     const exploded = scene.getObjectByProperty("uuid", explodedIds[0]);
     expect(exploded).toBeInstanceOf(THREE.Mesh);
     const explodedCanonicalId = exploded?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
@@ -407,6 +410,22 @@ describe("BRep canonical migration characterization", () => {
     expect(explodedCanonical.brep.shells).toHaveLength(1);
     expect(explodedCanonical.brep.shells[0].faces).toHaveLength(1);
     expect(explodedCanonical.brep.shells[0].isClosed).toBe(false);
+    let maxX = -Infinity;
+    for (const id of explodedIds) {
+      const faceObj = scene.getObjectByProperty("uuid", id) as THREE.Mesh | undefined;
+      expect(faceObj).toBeInstanceOf(THREE.Mesh);
+      const position = faceObj?.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+      expect(position?.count).toBeGreaterThanOrEqual(3);
+      for (let i = 0; position && i < position.count; i++) maxX = Math.max(maxX, position.getX(i));
+      const record = faceObj ? store.resolveObject(faceObj) : undefined;
+      expect(record?.kind).toBe("brep");
+      if (record?.kind !== "brep") throw new Error("expected exploded face canonical brep");
+      expect(record.createdBy).toBe("SdExplode");
+      expect(record.metadata?.operation).toBe("explode-face");
+      expect(record.brep.shells[0].faces).toHaveLength(1);
+      expect(record.brep.shells[0].isClosed).toBe(false);
+    }
+    expect(maxX).toBeGreaterThan(1.5);
   });
 
   test("join resolves child mesh targets through canonical BRep ancestors", () => {

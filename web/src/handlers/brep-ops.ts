@@ -1,7 +1,11 @@
 import { registerHandler } from "../commands/dispatch";
 import { pushReplaceAction } from "../history";
-import { brepConcat, transformBrep, type Brep } from "../nurbs/nurbs-brep";
-import type { Xform } from "../nurbs/nurbs-primitives";
+import { brepConcat, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import type { Curve } from "../nurbs/nurbs-curves";
+import { transform as transformCurve } from "../nurbs/nurbs-curves";
+import type { Point3, Xform } from "../nurbs/nurbs-primitives";
+import { Point3 as Pt3 } from "../nurbs/nurbs-primitives";
+import { pointAtUV, tessellateSurface, transformSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 
@@ -21,27 +25,129 @@ function canonicalBrepForObject(viewer: Viewer, obj: THREE.Object3D): Brep | nul
   obj.updateMatrixWorld(true);
   const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj);
   if (canonical?.kind !== "brep") return null;
-  return transformBrep(canonical.brep, threeMatrixToXform(obj.matrixWorld));
+  return transformBrepForObject(canonical.brep, threeMatrixToXform(obj.matrixWorld));
 }
 
-function linkExplodedCanonicalFace(viewer: Viewer, source: THREE.Object3D, faceMesh: THREE.Object3D, faceIndex: number): void {
-  const sourceCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(source);
-  if (sourceCanonical?.kind !== "brep") return;
-  const faces = sourceCanonical.brep.shells.flatMap((shell) => shell.faces);
-  const face = faces[faceIndex];
-  if (!face) return;
-  const record = viewer.getCanonicalGeometryStore().create({
-    kind: "brep",
-    brep: { shells: [{ faces: [face], edges: [], vertices: [], isClosed: false }] },
-    source: "edit",
-    createdBy: "SdExplode",
-    metadata: {
-      operation: "explode-face",
-      source: sourceCanonical.id,
-      faceIndex,
-    },
-  });
-  viewer.getCanonicalGeometryStore().linkObject(faceMesh, record.id);
+function transformParamSpaceCurve(curve: Curve): Curve {
+  return JSON.parse(JSON.stringify(curve)) as Curve;
+}
+
+function transformBrepForObject(brep: Brep, xform: Xform): Brep {
+  return {
+    shells: brep.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map((face) => ({
+        ...face,
+        surface: transformSurface(face.surface, xform),
+        outerLoop: {
+          ...face.outerLoop,
+          curves: face.outerLoop.curves.map(transformParamSpaceCurve),
+        },
+        innerLoops: face.innerLoops.map((loop) => ({
+          ...loop,
+          curves: loop.curves.map(transformParamSpaceCurve),
+        })),
+      })),
+      edges: shell.edges.map((edge) => ({
+        ...edge,
+        curve: transformCurve(edge.curve, xform),
+      })),
+      vertices: shell.vertices.map((vertex) => ({
+        ...vertex,
+        point: Pt3.transform(vertex.point, xform),
+      })),
+    })),
+  };
+}
+
+function makeFaceGeometry(face: BrepFace): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  const trim = face.outerLoop.curves[0];
+  if (trim?.kind === "polyline" && trim.points.length >= 4) {
+    const closed = trim.points.length > 1
+      && Math.abs(trim.points[0].x - trim.points[trim.points.length - 1].x) < 1e-9
+      && Math.abs(trim.points[0].y - trim.points[trim.points.length - 1].y) < 1e-9;
+    const loop = closed ? trim.points.slice(0, -1) : trim.points;
+    if (loop.length >= 3) {
+      const world = loop.map((p) => pointAtUV(face.surface, p.x, p.y));
+      const normal = faceNormal(world, face.orientation);
+      for (const p of world) {
+        positions.push(p.x, p.y, p.z);
+        normals.push(normal.x, normal.y, normal.z);
+      }
+      for (let i = 1; i + 1 < loop.length; i++) indices.push(0, i, i + 1);
+    }
+  }
+  if (positions.length === 0) {
+    const tess = tessellateSurface(face.surface, 4, 4);
+    positions.push(...tess.positions);
+    normals.push(...tess.normals);
+    indices.push(...tess.indices);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  geo.setIndex(indices);
+  geo.computeBoundingBox();
+  return geo;
+}
+
+function faceNormal(points: Point3[], orientation: boolean): THREE.Vector3 {
+  const a = new THREE.Vector3(points[0].x, points[0].y, points[0].z);
+  const b = new THREE.Vector3(points[1].x, points[1].y, points[1].z);
+  const c = new THREE.Vector3(points[2].x, points[2].y, points[2].z);
+  const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+  if (!orientation) normal.multiplyScalar(-1);
+  return normal;
+}
+
+function cloneMaterial(mat: THREE.Material | THREE.Material[]): THREE.Material {
+  return (Array.isArray(mat) ? mat[0] : mat).clone();
+}
+
+function explodeCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<string, unknown>): { exploded: string[]; faceCount: number; source: string } | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const sourceCanonical = store.resolveObjectOrAncestor(obj);
+  if (sourceCanonical?.kind !== "brep") return null;
+  const brep = canonicalBrepForObject(viewer, obj);
+  if (!brep) return null;
+
+  const scene = viewer.getScene();
+  const material = obj.material as THREE.Material | THREE.Material[];
+  const createdUuids: string[] = [];
+  let faceIndex = 0;
+  for (const shell of brep.shells) {
+    for (const face of shell.faces) {
+      const faceMesh = new THREE.Mesh(makeFaceGeometry(face), cloneMaterial(material));
+      faceMesh.userData.kind = "brep";
+      faceMesh.userData.creator = "explode-face";
+      faceMesh.userData.dispatchArgs = args;
+      const record = store.create({
+        kind: "brep",
+        brep: { shells: [{ faces: [face], edges: [], vertices: [], isClosed: false }] },
+        source: "edit",
+        createdBy: "SdExplode",
+        metadata: {
+          operation: "explode-face",
+          source: sourceCanonical.id,
+          faceIndex,
+        },
+      });
+      store.linkObject(faceMesh, record.id);
+      viewer.addMesh(faceMesh, "brep", { noHistory: true });
+      createdUuids.push(faceMesh.uuid);
+      faceIndex++;
+    }
+  }
+  if (createdUuids.length === 0) return null;
+  scene.remove(obj); // audit-undo-ok - tracked by pushReplaceAction below
+  pushReplaceAction(createdUuids.length === 1
+    ? scene.getObjectByProperty("uuid", createdUuids[0]) as THREE.Mesh
+    : (() => { const m = new THREE.Mesh(); m.uuid = createdUuids[0]; return m; })(),
+    [obj], "explode");
+  return { exploded: createdUuids, faceCount: createdUuids.length, source: "canonical-brep" };
 }
 
 function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
@@ -70,6 +176,8 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     const obj = scene.getObjectByProperty("uuid", targetId);
     if (!obj) return { error: `SdExplode - object not found: ${targetId}` };
     if (!(obj instanceof THREE.Mesh)) return { error: "SdExplode - target must be a Mesh" };
+    const canonicalResult = explodeCanonicalBrep(viewer, obj, args);
+    if (canonicalResult) return canonicalResult;
     const geo = obj.geometry as THREE.BufferGeometry;
     const mat = obj.material as THREE.Material;
     const groups = geo.groups.length > 0 ? geo.groups : [{ start: 0, count: geo.index ? geo.index.count : geo.attributes.position.count, materialIndex: 0 }];
@@ -108,7 +216,6 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
       faceMesh.position.copy(obj.position);
       faceMesh.quaternion.copy(obj.quaternion);
       faceMesh.scale.copy(obj.scale);
-      linkExplodedCanonicalFace(viewer, obj, faceMesh, faceIndex);
       viewer.addMesh(faceMesh, "brep", { noHistory: true });
       createdUuids.push(faceMesh.uuid);
     }
