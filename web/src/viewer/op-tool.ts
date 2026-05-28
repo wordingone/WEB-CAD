@@ -20,7 +20,7 @@ import {
 import { getChooserEl, opSetHover, setChooserHint } from "./picker-hint";
 import { pushAction, pushReplaceAction } from "../history";
 import { dispatchSync } from "../commands/dispatch";
-import { formatLength, formatArea, formatVolume } from "../units";
+import { formatLength } from "../units";
 import {
   EXTRUDABLE_CREATORS, SKETCH_PROFILE_CREATORS, CLOSED_SKETCH_CREATORS,
   opBuildExtrudeMesh, opRaycastObject,
@@ -152,6 +152,10 @@ function round(n: number, digits = 4): number {
   return Math.round(n * f) / f;
 }
 
+function vecArgs(v: THREE.Vector3): [number, number, number] {
+  return [round(v.x), round(v.y), round(v.z)];
+}
+
 function opClearPreview(viewer: Viewer): void {
   if (_opPreview) {
     viewer.getScene().remove(_opPreview);
@@ -221,27 +225,6 @@ export function opAddLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer)
   el.textContent = text;
   document.body.appendChild(el);
   _opLabels.push(el);
-  const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
-  if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
-  return el;
-}
-
-function opBuildDimLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer): HTMLElement {
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "position:fixed",
-    "background:rgba(0,0,0,0.72)",
-    "color:#fff",
-    "padding:2px 6px",
-    "border-radius:3px",
-    "font-size:11px",
-    "font-family:var(--mono,monospace)",
-    "pointer-events:none",
-    "z-index:9999",
-    "white-space:nowrap",
-  ].join(";");
-  el.textContent = text;
-  document.body.appendChild(el);
   const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
   if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
   return el;
@@ -1169,12 +1152,8 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   }
 
   if (phase.kind === "tmeasure_b" && snapped3) {
-    const dist = snapped3.distanceTo(phase.ptA);
-    const mid = phase.ptA.clone().add(snapped3).multiplyScalar(0.5);
     opClearPreview(viewer);
-    _opPreview = opBuildAnnotLine([phase.ptA, snapped3]);
-    viewer.getScene().add(_opPreview);
-    opAddLabel(`${formatLength(dist)}`, mid, viewer);
+    dispatchSync("SdTransientMeasure", { a: vecArgs(phase.ptA), b: vecArgs(snapped3) });
     opFinish(viewer);
     return true;
   }
@@ -1185,11 +1164,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       const hit = opRaycastObject(viewer, clientX, clientY);
       const target = hit?.obj ?? null;
       if (!target) { ptPrompt("Volume — click an object to measure"); return true; }
-      const box = new THREE.Box3().setFromObject(target);
-      const size = new THREE.Vector3(); box.getSize(size);
-      const vol = size.x * size.y * size.z;
-      const ctr = new THREE.Vector3(); box.getCenter(ctr);
-      opAddLabel(`Vol: ${formatVolume(vol)}`, ctr, viewer);
+      dispatchSync("SdVolumeDim", { id: target.uuid });
       opFinish(viewer);
       return true;
     }
@@ -1212,14 +1187,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   }
 
   if (phase.kind === "dim_b" && snapped3) {
-    const dist = snapped3.distanceTo(phase.ptA);
-    const mid = phase.ptA.clone().add(snapped3).multiplyScalar(0.5);
-    const grp = new THREE.Group();
-    grp.add(opBuildAnnotLine([phase.ptA, snapped3]));
-    grp.userData.creator = "IfcAnnotationDimension";
-    const labelEl = opBuildDimLabel(formatLength(dist), mid, viewer);
-    grp.userData.dimLabelEls = [labelEl];
-    viewer.addMesh(grp, "dim");
+    dispatchSync("SdAlignedDim", { a: vecArgs(phase.ptA), b: vecArgs(snapped3) });
     opFinish(viewer);
     return true;
   }
@@ -1229,16 +1197,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: phase.ptA, ptB: snapped3 };
       ptPrompt("Angular dimension — click second ray point");
     } else {
-      const v1 = phase.ptB.clone().sub(phase.ptA).normalize();
-      const v2 = snapped3.clone().sub(phase.ptA).normalize();
-      const angleDeg = Math.acos(Math.max(-1, Math.min(1, v1.dot(v2)))) * 180 / Math.PI;
-      const grp = new THREE.Group();
-      grp.add(opBuildAnnotLine([phase.ptA, phase.ptB]));
-      grp.add(opBuildAnnotLine([phase.ptA, snapped3]));
-      grp.userData.creator = "IfcAnnotationDimension";
-      const labelEl = opBuildDimLabel(`${angleDeg.toFixed(1)}Â°`, phase.ptA, viewer);
-      grp.userData.dimLabelEls = [labelEl];
-      viewer.addMesh(grp, "dim");
+      dispatchSync("SdAngularDim", { vertex: vecArgs(phase.ptA), ray1: vecArgs(phase.ptB), ray2: vecArgs(snapped3) });
       opFinish(viewer);
     }
     return true;
@@ -1449,21 +1408,7 @@ export function opHandleEnter(viewer: Viewer): void {
   }
 
   if (phase.kind === "dim_area" && phase.pts.length >= 3) {
-    let area = 0;
-    const pts = phase.pts;
-    for (let i = 0; i < pts.length; i++) {
-      const j = (i + 1) % pts.length;
-      area += pts[i].x * pts[j].y;
-      area -= pts[j].x * pts[i].y;
-    }
-    area = Math.abs(area) / 2;
-    const ctr = pts.reduce((a, b) => a.clone().add(b), new THREE.Vector3()).multiplyScalar(1 / pts.length);
-    const grp = new THREE.Group();
-    grp.add(opBuildAnnotLine([...pts, pts[0]]));
-    grp.userData.creator = "IfcAnnotationDimension";
-    const labelEl = opBuildDimLabel(`Area: ${formatArea(area)}`, ctr, viewer);
-    grp.userData.dimLabelEls = [labelEl];
-    viewer.addMesh(grp, "dim");
+    dispatchSync("SdAreaDim", { points: phase.pts.map(vecArgs) });
     opFinish(viewer);
     return;
   }
@@ -1560,7 +1505,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "label_text") {
     const text = raw.trim();
     if (!text) { ptPrompt("Label — type text for the label"); return; }
-    opAddLabel(text, phase.pt, viewer);
+    dispatchSync("SdLabel", { text, position: vecArgs(phase.pt) });
     opFinish(viewer);
   }
 
