@@ -20,9 +20,69 @@ import { registerDatumHandlers } from "./handlers/datum";
 import { registerCPlaneHandlers } from "./handlers/cplane";
 import { registerAnnotationHandlers } from "./handlers/annotations";
 import { registerSkillHandlers } from "./handlers/skills";
+import { registerBrepOpHandlers } from "./handlers/brep-ops";
+import { brepConcat, transformBrep, type Brep } from "./nurbs/nurbs-brep";
+import type { Xform } from "./nurbs/nurbs-primitives";
 
 const ORTHO_VIEWS = ["top", "bottom", "front", "back", "left", "right", "iso"] as const;
 type OrthoView = typeof ORTHO_VIEWS[number];
+
+function threeMatrixToXform(matrix: THREE.Matrix4): Xform {
+  const e = matrix.elements;
+  return {
+    m: [
+      e[0], e[4], e[8], e[12],
+      e[1], e[5], e[9], e[13],
+      e[2], e[6], e[10], e[14],
+      e[3], e[7], e[11], e[15],
+    ],
+  };
+}
+
+function canonicalBrepForObject(viewer: Viewer, obj: THREE.Object3D): Brep | null {
+  obj.updateMatrixWorld(true);
+  const canonical = viewer.getCanonicalGeometryStore().resolveObject(obj);
+  if (canonical?.kind !== "brep") return null;
+  return transformBrep(canonical.brep, threeMatrixToXform(obj.matrixWorld));
+}
+
+function linkExplodedCanonicalFace(viewer: Viewer, source: THREE.Object3D, faceMesh: THREE.Object3D, faceIndex: number): void {
+  const sourceCanonical = viewer.getCanonicalGeometryStore().resolveObject(source);
+  if (sourceCanonical?.kind !== "brep") return;
+  const faces = sourceCanonical.brep.shells.flatMap((shell) => shell.faces);
+  const face = faces[faceIndex];
+  if (!face) return;
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "brep",
+    brep: { shells: [{ faces: [face], edges: [], vertices: [], isClosed: false }] },
+    source: "edit",
+    createdBy: "SdExplode",
+    metadata: {
+      operation: "explode-face",
+      source: sourceCanonical.id,
+      faceIndex,
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(faceMesh, record.id);
+}
+
+function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
+  const store = viewer.getCanonicalGeometryStore();
+  const operands = meshes.map((mesh) => store.resolveObject(mesh));
+  const breps = meshes.map((mesh) => canonicalBrepForObject(viewer, mesh));
+  if (breps.some((brep) => !brep) || operands.some((record) => record?.kind !== "brep")) return;
+  const record = store.create({
+    kind: "brep",
+    brep: brepConcat(...breps as Brep[]),
+    source: "edit",
+    createdBy: "SdJoin",
+    metadata: {
+      operation: "join",
+      operands: operands.map((record) => record?.id),
+    },
+  });
+  store.linkObject(joined, record.id);
+}
 
 export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): void {
   registerGoalHandlers();
@@ -192,7 +252,7 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     const mat = obj.material as THREE.Material;
     const groups = geo.groups.length > 0 ? geo.groups : [{ start: 0, count: geo.index ? geo.index.count : geo.attributes.position.count, materialIndex: 0 }];
     const createdUuids: string[] = [];
-    for (const g of groups) {
+    for (const [faceIndex, g] of groups.entries()) {
       const faceGeo = new THREE.BufferGeometry();
       const srcPos = geo.attributes.position as THREE.BufferAttribute;
       const srcNrm = geo.attributes.normal as THREE.BufferAttribute | undefined;
@@ -226,6 +286,7 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
       faceMesh.position.copy(obj.position);
       faceMesh.quaternion.copy(obj.quaternion);
       faceMesh.scale.copy(obj.scale);
+      linkExplodedCanonicalFace(viewer, obj, faceMesh, faceIndex);
       viewer.addMesh(faceMesh, "brep", { noHistory: true });
       createdUuids.push(faceMesh.uuid);
     }
@@ -278,6 +339,7 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     joined.userData.kind = "brep";
     joined.userData.creator = "join";
     joined.userData.dispatchArgs = args;
+    linkJoinedCanonicalBreps(viewer, meshes, joined);
     for (const m of meshes) scene.remove(m); // audit-undo-ok — tracked by pushReplaceAction below
     viewer.addMesh(joined, "brep", { noHistory: true });
     pushReplaceAction(joined, meshes, "join");
@@ -317,6 +379,8 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     for (let i = 1; i <= sliceCount; i++) levels.push(zMin + (zRange * i) / (sliceCount + 1));
     return { target: targetId, contourLevels: levels, sliceCount: levels.length, interval };
   });
+
+  registerBrepOpHandlers(viewer);
 
   registerHandler("SdClearScene", () => {
     viewer.clearScene();

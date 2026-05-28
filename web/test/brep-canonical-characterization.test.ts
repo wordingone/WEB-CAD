@@ -7,6 +7,7 @@ import {
   createCanonicalGeometryStore,
   type CanonicalGeometryStore,
 } from "../src/geometry/canonical-geometry";
+import { registerBrepOpHandlers } from "../src/handlers/brep-ops";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
 import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
@@ -56,6 +57,7 @@ beforeEach(() => {
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
     "SdMember", "SdPlate",
     "SdDoor", "SdWindow", "SdOpening",
+    "SdJoin", "SdExplode",
   ]) {
     unregisterHandler(name);
   }
@@ -247,6 +249,51 @@ describe("BRep canonical migration characterization", () => {
       expect(canonical.brep.shells[0].faces).toHaveLength(6);
       expect(canonical.brep.shells[0].isClosed).toBe(true);
     }
+  });
+
+  test("join and explode preserve canonical BRep edit results", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const first = lastObject();
+    expect(first).toBeInstanceOf(THREE.Mesh);
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const second = lastObject();
+    expect(second).toBeInstanceOf(THREE.Mesh);
+    second?.position.set(2, 0, 0);
+    second?.updateMatrixWorld(true);
+
+    const joinResult = dispatchSync("SdJoin", { targets: [first?.uuid, second?.uuid] });
+    expect(joinResult.ok).toBe(true);
+    if (!joinResult.ok) throw new Error("expected join to succeed");
+    const joined = scene.getObjectByProperty("uuid", (joinResult.result as { created: string }).created);
+    expect(joined).toBeInstanceOf(THREE.Mesh);
+    const joinedCanonicalId = joined?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof joinedCanonicalId).toBe("string");
+    const joinedCanonical = store.require(joinedCanonicalId as string);
+    expect(joinedCanonical.kind).toBe("brep");
+    expect(joinedCanonical.createdBy).toBe("SdJoin");
+    if (joinedCanonical.kind !== "brep") throw new Error("expected joined canonical brep");
+    expect(joinedCanonical.brep.shells).toHaveLength(2);
+
+    const explodeResult = dispatchSync("SdExplode", { target: joined?.uuid });
+    expect(explodeResult.ok).toBe(true);
+    if (!explodeResult.ok) throw new Error("expected explode to succeed");
+    const explodedIds = (explodeResult.result as { exploded: string[] }).exploded;
+    expect(explodedIds.length).toBeGreaterThan(0);
+    const exploded = scene.getObjectByProperty("uuid", explodedIds[0]);
+    expect(exploded).toBeInstanceOf(THREE.Mesh);
+    const explodedCanonicalId = exploded?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof explodedCanonicalId).toBe("string");
+    const explodedCanonical = store.require(explodedCanonicalId as string);
+    expect(explodedCanonical.kind).toBe("brep");
+    expect(explodedCanonical.createdBy).toBe("SdExplode");
+    if (explodedCanonical.kind !== "brep") throw new Error("expected exploded canonical brep");
+    expect(explodedCanonical.brep.shells).toHaveLength(1);
+    expect(explodedCanonical.brep.shells[0].faces).toHaveLength(1);
+    expect(explodedCanonical.brep.shells[0].isClosed).toBe(false);
   });
 
   test("project save/open is currently the deprecated gemarch scene snapshot path", () => {
