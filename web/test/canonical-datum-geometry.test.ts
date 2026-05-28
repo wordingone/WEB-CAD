@@ -43,6 +43,7 @@ beforeEach(() => {
   unregisterHandler("SdDatum");
   unregisterHandler("SdLevel");
   unregisterHandler("SdRefGrid");
+  unregisterHandler("SdFurnishing");
   for (const level of levelStore.all().filter((l) => l.id !== "level/0")) {
     levelStore.remove(level.id);
   }
@@ -185,5 +186,42 @@ describe("canonical datum geometry", () => {
       origin: [10, 20],
       rotation: 30,
     });
+  });
+
+  test("SdFurnishing keeps box display behavior while linking a canonical BRep", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerDatumHandlers(viewer);
+
+    const result = dispatchSync("SdFurnishing", {
+      width: 1.2,
+      depth: 0.7,
+      height: 0.9,
+      position: [3, 4, 0.5],
+      orientation: 45,
+    });
+
+    if (!result.ok) throw new Error(result.detail ?? result.error);
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    expect(obj?.userData.kind).toBe("brep");
+    expect(obj?.userData.creator).toBe("furnishing");
+    expect(obj?.position.toArray()).toEqual([3, 4, 0.5]);
+    expect(obj?.rotation.z).toBeCloseTo(Math.PI / 4);
+
+    const canonical = obj ? store.resolveObject(obj) : undefined;
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("SdFurnishing");
+    expect(canonical.metadata).toMatchObject({
+      creator: "furnishing",
+      levelId: "level/0",
+    });
+    const shell = canonical.brep.shells[0];
+    expect(shell.faces).toHaveLength(6);
+    expect(shell.faces.filter((face) => face.surface.kind === "plane")).toHaveLength(2);
+    expect(shell.faces.filter((face) => face.surface.kind === "sum")).toHaveLength(4);
+    const zValues = shell.vertices.map((vertex) => vertex.point.z).sort((a, b) => a - b);
+    expect(zValues[0]).toBe(0);
+    expect(zValues[zValues.length - 1]).toBe(0.9);
   });
 });

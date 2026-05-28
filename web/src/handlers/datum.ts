@@ -7,7 +7,9 @@ import { makeLevelSprite } from "../tools/structural";
 import { resolveLayerId } from "./shared";
 import type { Point3 } from "../nurbs/nurbs-primitives";
 import type { Surface } from "../nurbs/nurbs-surfaces";
-import type { Curve } from "../nurbs/nurbs-curves";
+import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import { linkCanonicalBrep } from "./canonical-surface";
 
 function getActiveLevelElevation(): number {
   return levelStore.get(getActiveLevelId())?.elevation ?? 0;
@@ -38,6 +40,27 @@ function lineCurve(from: Point3, to: Point3): Curve {
   const dz = to.z - from.z;
   const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
   return { kind: "line", from, to, domain: { min: 0, max: length } };
+}
+
+function rectangleProfile(width: number, depth: number): PolylineCurve {
+  const x0 = -width / 2;
+  const x1 = width / 2;
+  const y0 = -depth / 2;
+  const y1 = depth / 2;
+  const points: Point3[] = [
+    { x: x0, y: y0, z: 0 },
+    { x: x1, y: y0, z: 0 },
+    { x: x1, y: y1, z: 0 },
+    { x: x0, y: y1, z: 0 },
+    { x: x0, y: y0, z: 0 },
+  ];
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
 }
 
 function linkGridLine(
@@ -291,6 +314,7 @@ export function registerDatumHandlers(viewer: Viewer): void {
     mesh.userData.layerId = resolveLayerId("SdFurnishing", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(rectangleProfile(w, d), { x: 0, y: 0, z: 1 }, h), "SdFurnishing");
     viewer.addMesh(mesh, "brep");
     return { created: "furnishing", width: w, depth: d, height: h };
   });
