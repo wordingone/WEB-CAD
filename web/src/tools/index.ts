@@ -1283,7 +1283,29 @@ function screenYtoDz(viewer: Viewer, screenY: number, base: { x: number; y: numb
 
 // ── Align / Distribute ────────────────────────────────────────────────────────
 
+const ALIGN_TOOL_COMMAND_MODES: Record<string, string> = {
+  "align-left": "left",
+  "align-right": "right",
+  "align-top": "top",
+  "align-bottom": "bottom",
+  "align-center-h": "center-h",
+  "align-center-v": "center-v",
+  "dist-h": "dist-h",
+  "dist-v": "dist-v",
+  left: "left",
+  right: "right",
+  top: "top",
+  bottom: "bottom",
+  "center-h": "center-h",
+  "center-v": "center-v",
+};
+
+export function alignToolCommandMode(mode: string): string {
+  return ALIGN_TOOL_COMMAND_MODES[mode] ?? mode;
+}
+
 export function execAlignTool(mode: string): void {
+  const normalizedMode = alignToolCommandMode(mode);
   const multi = getMultiSelected();
   const single = getSelected();
   const objs: THREE.Object3D[] = multi.length > 1
@@ -1294,25 +1316,25 @@ export function execAlignTool(mode: string): void {
   const boxes = objs.map((o) => new THREE.Box3().setFromObject(o));
   const centers = boxes.map((b) => b.getCenter(new THREE.Vector3()));
 
-  if (mode === "align-left") {
+  if (normalizedMode === "left") {
     const target = Math.min(...boxes.map((b) => b.min.x));
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - boxes[i].min.x;
-  } else if (mode === "align-right") {
+  } else if (normalizedMode === "right") {
     const target = Math.max(...boxes.map((b) => b.max.x));
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - boxes[i].max.x;
-  } else if (mode === "align-top") {
+  } else if (normalizedMode === "top") {
     const target = Math.max(...boxes.map((b) => b.max.y));
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - boxes[i].max.y;
-  } else if (mode === "align-bottom") {
+  } else if (normalizedMode === "bottom") {
     const target = Math.min(...boxes.map((b) => b.min.y));
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - boxes[i].min.y;
-  } else if (mode === "align-center-h") {
+  } else if (normalizedMode === "center-h") {
     const target = centers.reduce((s, c) => s + c.x, 0) / centers.length;
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - centers[i].x;
-  } else if (mode === "align-center-v") {
+  } else if (normalizedMode === "center-v") {
     const target = centers.reduce((s, c) => s + c.y, 0) / centers.length;
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - centers[i].y;
-  } else if (mode === "dist-h") {
+  } else if (normalizedMode === "dist-h") {
     if (objs.length < 3) return;
     const items = objs.map((o, i) => ({ o, minX: boxes[i].min.x, w: boxes[i].max.x - boxes[i].min.x }))
       .sort((a, b) => a.minX - b.minX);
@@ -1324,7 +1346,7 @@ export function execAlignTool(mode: string): void {
       items[i].o.position.x += cursor - items[i].minX;
       cursor += items[i].w + gap;
     }
-  } else if (mode === "dist-v") {
+  } else if (normalizedMode === "dist-v") {
     if (objs.length < 3) return;
     const items = objs.map((o, i) => ({ o, minY: boxes[i].min.y, h: boxes[i].max.y - boxes[i].min.y }))
       .sort((a, b) => a.minY - b.minY);
@@ -1442,7 +1464,7 @@ export function initCreateMode(viewer: Viewer): void {
     } else if (ALIGN_TOOLS.has(tool)) {
       if (_ptPhase) ptCancel(viewer, false);
       if (getOpPhase()) opCancel(viewer, false);
-      execAlignTool(tool);
+      dispatchSync("SdAlignObjects", { mode: alignToolCommandMode(tool) });
       dispatchSync("setActiveTool", { toolId: "select" });
     } else if (OP_TOOL_IDS.has(tool)) {
       if (_ptPhase) ptCancel(viewer, false);
