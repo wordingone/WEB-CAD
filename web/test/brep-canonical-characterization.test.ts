@@ -56,7 +56,7 @@ beforeEach(() => {
     "SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude",
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
-    "SdMember", "SdPlate", "SdRamp",
+    "SdMember", "SdPlate", "SdRamp", "SdCurtainWall",
     "SdDoor", "SdWindow", "SdOpening",
     "SdJoin", "SdExplode",
   ]) {
@@ -251,6 +251,31 @@ describe("BRep canonical migration characterization", () => {
     const zValues = canonical.brep.shells[0].vertices.map((vertex) => vertex.point.z).sort((a, b) => a - b);
     expect(zValues[0]).toBeCloseTo(0.175);
     expect(zValues[zValues.length - 1]).toBeCloseTo(0.325);
+  });
+
+  test("SdCurtainWall links visible group and join shell to one canonical envelope BRep", () => {
+    const { viewer, scene, store } = makeViewer();
+    registerStructuralHandlers(viewer);
+
+    const result = dispatchSync("SdCurtainWall", { start: [0, 0], end: [6, 0] });
+
+    expect(result.ok).toBe(true);
+    const group = scene.children.find((obj) => obj.userData.creator === "curtainwall" && obj instanceof THREE.Group);
+    expect(group).toBeInstanceOf(THREE.Group);
+    const shell = scene.children.find((obj) => obj.userData.creator === "curtainwall" && obj.userData.isJoinShell);
+    expect(shell).toBeInstanceOf(THREE.Mesh);
+    expect(shell?.visible).toBe(false);
+
+    const groupRecord = group ? store.resolveObject(group) : undefined;
+    const shellRecord = shell ? store.resolveObject(shell) : undefined;
+    expect(groupRecord?.kind).toBe("brep");
+    expect(shellRecord).toBe(groupRecord);
+    if (groupRecord?.kind !== "brep") throw new Error("expected canonical brep");
+    expect(groupRecord.createdBy).toBe("SdCurtainWall");
+    expect(groupRecord.metadata).toMatchObject({ creator: "curtainwall", levelId: "level/0" });
+    expect(groupRecord.brep.shells).toHaveLength(1);
+    expect(groupRecord.brep.shells[0].faces).toHaveLength(6);
+    expect(groupRecord.brep.shells[0].isClosed).toBe(true);
   });
 
   test("opening commands link display objects to canonical BRep envelopes", () => {

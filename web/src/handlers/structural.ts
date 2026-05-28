@@ -603,12 +603,20 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    viewer.addMesh(mesh, "brep");
+    const cwLen = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2) || wallLen;
     const _joinShell = mesh.userData.joinableShell as THREE.Mesh | undefined;
     if (_joinShell instanceof THREE.Mesh) {
       _joinShell.position.z = mesh.position.z;
       _joinShell.userData.levelId = getActiveLevelId();
       _joinShell.userData.layerId = resolveLayerId("SdCurtainWall", args);
+    }
+    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, DEFAULT_WALL_HEIGHT, "SdCurtainWall");
+    const canonical = viewer.getCanonicalGeometryStore().resolveObject(mesh);
+    if (canonical && _joinShell instanceof THREE.Mesh) {
+      viewer.getCanonicalGeometryStore().linkObject(_joinShell, canonical.id);
+    }
+    viewer.addMesh(mesh, "brep");
+    if (_joinShell instanceof THREE.Mesh) {
       viewer.addMesh(_joinShell, "brep");
       onElementCommitted(_joinShell, viewer.getScene());
     }
