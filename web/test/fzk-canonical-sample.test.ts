@@ -13,7 +13,16 @@ type ProjectPayload = {
     kind?: string;
     metadata?: { conversion?: string; losslessFrom?: string; facePolicy?: string; sourceTriangleCount?: number; canonicalFaceCount?: number };
     displayMesh?: { triangleCount?: number };
-    brep?: { shells?: Array<{ isClosed?: boolean; faces?: Array<{ surface?: { kind?: string } }>; edges?: Array<{ faceIndex2?: number | null }> }> };
+    brep?: {
+      shells?: Array<{
+        isClosed?: boolean;
+        faces?: Array<{
+          surface?: { kind?: string; order?: [number, number]; cvCount?: [number, number] };
+          outerLoop?: { curves?: Array<{ kind?: string; points?: Array<unknown> }> };
+        }>;
+        edges?: Array<{ faceIndex2?: number | null }>;
+      }>;
+    };
   }>;
   objects?: Array<{ displaySource?: string; userData?: Record<string, unknown> }>;
 };
@@ -46,6 +55,20 @@ describe("FZK Haus actual IFC-derived canonical project sample", () => {
     expect(payload.canonicalGeometry?.every((record) => (
       record.metadata?.sourceTriangleCount === record.metadata?.canonicalFaceCount
         && record.displayMesh?.triangleCount === record.metadata?.sourceTriangleCount
+    ))).toBe(true);
+    expect(payload.canonicalGeometry?.every((record) => (
+      record.brep?.shells?.every((shell) => (
+        shell.faces?.every((face) => (
+          face.surface?.kind === "nurbs"
+            && face.surface.order?.[0] === 2
+            && face.surface.order?.[1] === 2
+            && face.surface.cvCount?.[0] === 2
+            && face.surface.cvCount?.[1] === 2
+            && face.outerLoop?.curves?.length === 1
+            && face.outerLoop.curves[0]?.kind === "polyline"
+            && face.outerLoop.curves[0]?.points?.length === 4
+        )) === true
+      )) === true
     ))).toBe(true);
     const faceCount = payload.canonicalGeometry?.reduce((n, record) => (
       n + (record.brep?.shells ?? []).reduce((m, shell) => m + (shell.faces?.length ?? 0), 0)

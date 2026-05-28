@@ -100,6 +100,17 @@ These are useful, but they are not yet a canonical document/runtime model.
 - `web/src/ifc/ifc-build.ts`: `IfcSceneElement.nurbsSurface` and `emitNurbsAdvancedBrep()` can emit IFC AdvancedBRep for a kernel NURBS surface.
 - Some structural/sketch paths stash `userData.nurbsSurface`; this is metadata attached to display mesh objects, not a source-of-truth CAD object.
 
+## FZK Conversion Contract
+
+The bundled FZK sample is not a plausible visual replacement for the IFC. It is an algorithmic, lossless conversion from the `web-ifc` placed triangle mesh into canonical WEB-CAD BRep/NURBS records:
+
+- `scripts/generate-fzk-canonical-sample.ts` reads `web/public/samples/AC20-FZK-Haus.ifc` through `web-ifc`, applies each placed geometry transform, converts IFC Y-up coordinates to the app's Z-up coordinates, and emits `web/public/samples/AC20-FZK-Haus.webcad`.
+- The conversion uses `meshToPlanarBrep(mesh, { mergeCoplanarFaces: false, surfaceKind: "nurbs" })`.
+- The lossless unit is the placed tessellated IFC mesh triangle: every nondegenerate source triangle becomes one trimmed BRep face on an exact degree-1 planar NURBS surface.
+- The converter must not substitute hand-authored parametric components, merge coplanar triangles, simplify topology, or visually approximate missing source geometry.
+- This is equivalent in intent to a mesh-to-NURBS/BRep conversion such as `ToNURBS` over the available faceted source: it preserves the mesh geometry exactly as faceted NURBS/BRep topology. It is not a reverse-engineering pass that recovers higher-order analytic solids from faceted IFC tessellation.
+- `web/test/fzk-canonical-sample.test.ts` is the gate: source triangle count, display triangle count, canonical face count, and NURBS face count must match, and reconstructed display must come from the canonical trimmed triangle faces.
+
 ## Required Target Architecture
 
 Introduce a canonical CAD document layer before changing individual tools.
