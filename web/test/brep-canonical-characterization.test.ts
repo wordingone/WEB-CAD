@@ -570,4 +570,12 @@ describe("BRep canonical migration characterization", () => {
     expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, mesh, h2)");
     expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, extruded, 3.0)");
   });
+
+  test("structural and create-mode canonical checks resolve through ancestors", () => {
+    for (const path of ["handlers/structural.ts", "tools/index.ts"]) {
+      const src = source(path);
+      expect(src).not.toContain(".resolveObject(");
+      expect(src).toContain(".resolveObjectOrAncestor(");
+    }
+  });
 });

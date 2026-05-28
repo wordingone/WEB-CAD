@@ -717,7 +717,7 @@ function linkCreateModeCompoundMeshBreps(
   let linked = 0;
   obj.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    const alreadyCanonical = viewer.getCanonicalGeometryStore().resolveObject(child);
+    const alreadyCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
     if (alreadyCanonical) return;
     const ok = linkPlanarizedMeshCommandBrep(viewer, child, `create-${tool}-component`, {
       parentCreator: obj.userData.creator,
@@ -841,7 +841,7 @@ function linkCreateModeStructuralCanonical(
   if (tool === "curtainwall") {
     linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.1, DEFAULT_WALL_HEIGHT, "create-curtainwall");
     const shell = obj.userData.joinableShell as THREE.Mesh | undefined;
-    const canonical = viewer.getCanonicalGeometryStore().resolveObject(obj);
+    const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj);
     if (shell instanceof THREE.Mesh && canonical) {
       viewer.getCanonicalGeometryStore().linkObject(shell, canonical.id);
     }

@@ -114,7 +114,7 @@ function linkCompoundMeshBreps(
 ): void {
   obj.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    if (viewer.getCanonicalGeometryStore().resolveObject(child)) return;
+    if (viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child)) return;
     linkPlanarizedMeshCommandBrep(viewer, child, createdBy, {
       ...metadata,
       ifcClass: child.userData.ifcClass,
@@ -682,7 +682,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       _joinShell.userData.layerId = resolveLayerId("SdCurtainWall", args);
     }
     linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, DEFAULT_WALL_HEIGHT, "SdCurtainWall");
-    const canonical = viewer.getCanonicalGeometryStore().resolveObject(mesh);
+    const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(mesh);
     if (canonical && _joinShell instanceof THREE.Mesh) {
       viewer.getCanonicalGeometryStore().linkObject(_joinShell, canonical.id);
     }
