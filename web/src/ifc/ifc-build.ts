@@ -91,6 +91,7 @@ export type IfcSceneElement = {
   dispatchArgs?: Record<string, unknown>;  // #244: numeric/string args → IfcPropertySet
   // §WEB-CAD#30 G9: when present, emit IfcAdvancedBrep instead of IfcFacetedBrep.
   nurbsSurface?: KernelNurbsSurface;
+  nurbsSurfaces?: KernelNurbsSurface[];
 };
 
 // Caller passes one entry per level (from levelStore). buildIfcScene emits one
@@ -360,13 +361,16 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
     const spec = IFC4_ENTITY[el.creator] ?? { name: "IFCBUILDINGELEMENTPROXY", tail: ",$,.NOTDEFINED." };
     const label = el.label ?? el.creator;
 
-    // §WEB-CAD#30 G9: prefer NURBS path when userData carries a KernelNurbsSurface.
-    const brep = el.nurbsSurface
-      ? emitNurbsAdvancedBrep(el.nurbsSurface, lines, next, coordScale)
-      : emitMeshBrep(el.mesh, lines, next, coordScale);
-    const repType = el.nurbsSurface ? "SurfaceModel" : "Brep";
+    const nurbsSurfaces = el.nurbsSurfaces && el.nurbsSurfaces.length > 0
+      ? el.nurbsSurfaces
+      : el.nurbsSurface ? [el.nurbsSurface] : [];
+    // §WEB-CAD#30 G9: prefer NURBS path when canonical geometry carries convertible surfaces.
+    const bodyItems = nurbsSurfaces.length > 0
+      ? nurbsSurfaces.map((surface) => emitNurbsAdvancedBrep(surface, lines, next, coordScale))
+      : [emitMeshBrep(el.mesh, lines, next, coordScale)];
+    const repType = nurbsSurfaces.length > 0 ? "SurfaceModel" : "Brep";
     const shapeRep = next();
-    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${brep}));`);
+    lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${bodyItems.join(",")}));`);
     const productShape = next();
     lines.push(`${productShape}=IFCPRODUCTDEFINITIONSHAPE($,$,(${shapeRep}));`);
     const elPlacement = next();

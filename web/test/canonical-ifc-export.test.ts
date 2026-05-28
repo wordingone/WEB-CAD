@@ -164,4 +164,33 @@ describe("canonical IFC export", () => {
     expect(text).toContain("IFCSHELLBASEDSURFACEMODEL");
     expect(text).not.toContain("IFCFACETEDBREP");
   });
+
+  test("buildIfcScene emits every canonical BRep face surface as SurfaceModel body items", () => {
+    const profile: PolylineCurve = {
+      kind: "polyline",
+      points: [
+        { x: 0, y: 0, z: 0 },
+        { x: 2, y: 0, z: 0 },
+        { x: 2, y: 1, z: 0 },
+        { x: 0, y: 1, z: 0 },
+        { x: 0, y: 0, z: 0 },
+      ],
+      parameters: [0, 2, 3, 5, 6],
+    };
+    const record = createCanonicalGeometryStore().create({
+      kind: "brep",
+      brep: extrude(profile, { x: 0, y: 0, z: 1 }, 3),
+      source: "command",
+      createdBy: "SdExtrude",
+    });
+    const nurbsSurfaces = canonicalGeometryToIfcNurbsSurfaces(record);
+
+    const bytes = buildIfcScene([{ mesh: minimalMesh(), creator: "IfcWall", nurbsSurfaces }]);
+    const text = new TextDecoder().decode(bytes);
+
+    expect(nurbsSurfaces).toHaveLength(6);
+    expect(text.match(/IFCSHELLBASEDSURFACEMODEL/g)).toHaveLength(6);
+    expect(text).toContain("'SurfaceModel'");
+    expect(text).not.toContain("IFCFACETEDBREP");
+  });
 });
