@@ -46,6 +46,19 @@ function curveParameters(points: Point3[]): number[] {
   return params;
 }
 
+function lineNurbsCurveFromLocalEndpoints(a: Point3, b: Point3): Curve {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: 2,
+    knots: [0, 1],
+    cvs: [a.x, a.y, a.z, b.x, b.y, b.z],
+    cvStride: 3,
+  };
+}
+
 function linkCanonicalCurve(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -165,13 +178,12 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "line";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    const lineCurve = mesh.userData.nurbsCurve as Curve | undefined;
-    if (lineCurve) {
-      linkCanonicalCurve(viewer, mesh, lineCurve, "SdLine", {
-        worldStart: [a.x, a.y, 0],
-        worldEnd: [b.x, b.y, 0],
-      });
-    }
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[])
+      .map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, lineNurbsCurveFromLocalEndpoints(localPoints[0], localPoints[1]), "SdLine", {
+      worldStart: [a.x, a.y, 0],
+      worldEnd: [b.x, b.y, 0],
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "line", start, end };
   });

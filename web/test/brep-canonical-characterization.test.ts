@@ -577,4 +577,10 @@ describe("BRep canonical migration characterization", () => {
       expect(src).toContain(".resolveObjectOrAncestor(");
     }
   });
+
+  test("sketch command handlers do not read NURBS sidecars for canonical curve creation", () => {
+    const src = source("handlers/sketch.ts");
+    expect(src).not.toContain("mesh.userData.nurbsCurve");
+    expect(src).toContain("lineNurbsCurveFromLocalEndpoints");
+  });
 });
