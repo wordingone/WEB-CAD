@@ -7,9 +7,10 @@
 import * as THREE from "three";
 import type { Viewer } from "./viewer.js";
 import { createClampedUniformNurbs, createCatmullRomAsNurbs, tessellate, type NurbsCurve } from "../nurbs/nurbs-curves.js";
-import type { Curve, LineCurve } from "../nurbs/nurbs-curves.js";
+import type { Curve, LineCurve, PolylineCurve } from "../nurbs/nurbs-curves.js";
 import type { SumSurface } from "../nurbs/nurbs-surfaces.js";
 import { Interval as Iv } from "../nurbs/nurbs-primitives.js";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude.js";
 import { makeSnapId } from "./snap-state.js";
 import type { CanonicalGeometryStore } from "../geometry/canonical-geometry.js";
 
@@ -120,6 +121,47 @@ function syncCanonicalSurface(parent: THREE.Object3D, store: CanonicalGeometrySt
   });
 }
 
+function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
+  const points = [
+    { x: minX, y: minY, z: 0 },
+    { x: maxX, y: minY, z: 0 },
+    { x: maxX, y: maxY, z: 0 },
+    { x: minX, y: maxY, z: 0 },
+    { x: minX, y: minY, z: 0 },
+  ];
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function syncCanonicalWallBrep(
+  parent: THREE.Object3D,
+  store: CanonicalGeometryStore | undefined,
+  length: number,
+  thickness: number,
+  height: number,
+): void {
+  if (!store) return;
+  const record = store.resolveObject(parent);
+  if (!record || record.kind !== "brep") return;
+  store.upsert({
+    ...record,
+    brep: extrudeBrep(rectangleProfile(-length / 2, length / 2, -thickness / 2, thickness / 2), { x: 0, y: 0, z: 1 }, height),
+    source: "edit",
+    displayMesh: record.displayMesh
+      ? { ...record.displayMesh, revision: meshDisplayRevision(parent), generatedAt: Date.now() }
+      : undefined,
+    metadata: {
+      ...record.metadata,
+      editedBy: "refitParentGeometry",
+    },
+  });
+}
+
 // Rebuild the parent mesh's geometry in-place after a control point has moved.
 // Works for line (2 CPs), polyline (N CPs), curve/spline (N CPs via B-spline),
 // and wall Mesh/Group (Group = void-cut wall: only transform updates, no segment rebuild).
@@ -162,6 +204,7 @@ export function refitParentGeometry(parent: THREE.Object3D, canonicalStore?: Can
     parent.userData.nurbsSurface = ss;
     parent.userData.nurbsKind = "surface";
     syncCanonicalSurface(parent, canonicalStore, ss);
+    syncCanonicalWallBrep(parent, canonicalStore, len, t, h);
     return;
   }
 
