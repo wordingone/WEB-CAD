@@ -7,6 +7,7 @@ import { makeLevelSprite } from "../tools/structural";
 import { resolveLayerId } from "./shared";
 import type { Point3 } from "../nurbs/nurbs-primitives";
 import type { Surface } from "../nurbs/nurbs-surfaces";
+import type { Curve } from "../nurbs/nurbs-curves";
 
 function getActiveLevelElevation(): number {
   return levelStore.get(getActiveLevelId())?.elevation ?? 0;
@@ -31,6 +32,38 @@ export function syncLevelOpacities(viewer: Viewer): void {
   });
 }
 
+function lineCurve(from: Point3, to: Point3): Curve {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = to.z - from.z;
+  const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  return { kind: "line", from, to, domain: { min: 0, max: length } };
+}
+
+function linkGridLine(
+  viewer: Viewer,
+  mesh: THREE.Mesh,
+  curve: Curve,
+  metadata: Record<string, unknown>,
+): void {
+  const store = viewer.getCanonicalGeometryStore();
+  const record = store.create({
+    kind: "curve",
+    curve,
+    source: "command",
+    createdBy: "SdRefGrid",
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: mesh.geometry.getAttribute("position")?.count,
+      triangleCount: mesh.geometry.index ? Math.floor(mesh.geometry.index.count / 3) : undefined,
+      derivation: "tessellated-curve",
+    },
+    metadata,
+  });
+  store.linkObject(mesh, record.id);
+}
+
 export function registerDatumHandlers(viewer: Viewer): void {
   registerHandler("SdRefGrid", (args) => {
     const spacing  = (args.spacing  as number          | undefined) ?? 5;
@@ -53,13 +86,36 @@ export function registerDatumHandlers(viewer: Viewer): void {
 
     for (let i = 0; i < count; i++) {
       const offset = -half + i * spacing;
+      const lineHalf = (extent + spacing) / 2;
       const gv = new THREE.BoxGeometry(t, extent + spacing, t);
       const mv = new THREE.Mesh(gv, mat);
       mv.position.set(offset, 0, 0);
+      mv.userData.kind = "grid-line";
+      mv.userData.creator = "grid-line";
+      mv.userData.gridId = grid.id;
+      mv.userData.axis = "y";
+      mv.userData.gridIndex = i;
+      linkGridLine(
+        viewer,
+        mv,
+        lineCurve({ x: 0, y: -lineHalf, z: 0 }, { x: 0, y: lineHalf, z: 0 }),
+        { gridId: grid.id, axis: "y", index: i, offset, spacing, count, origin, rotation: rotDeg },
+      );
       group.add(mv);
       const gh = new THREE.BoxGeometry(extent + spacing, t, t);
       const mh = new THREE.Mesh(gh, mat);
       mh.position.set(0, offset, 0);
+      mh.userData.kind = "grid-line";
+      mh.userData.creator = "grid-line";
+      mh.userData.gridId = grid.id;
+      mh.userData.axis = "x";
+      mh.userData.gridIndex = i;
+      linkGridLine(
+        viewer,
+        mh,
+        lineCurve({ x: -lineHalf, y: 0, z: 0 }, { x: lineHalf, y: 0, z: 0 }),
+        { gridId: grid.id, axis: "x", index: i, offset, spacing, count, origin, rotation: rotDeg },
+      );
       group.add(mh);
     }
 

@@ -42,6 +42,7 @@ function makeViewer(): {
 beforeEach(() => {
   unregisterHandler("SdDatum");
   unregisterHandler("SdLevel");
+  unregisterHandler("SdRefGrid");
   for (const level of levelStore.all().filter((l) => l.id !== "level/0")) {
     levelStore.remove(level.id);
   }
@@ -144,6 +145,45 @@ describe("canonical datum geometry", () => {
       elevation: 3,
       height: 4,
       extent: 12,
+    });
+  });
+
+  test("SdRefGrid links every displayed grid line to a canonical reference curve", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerDatumHandlers(viewer);
+
+    const result = dispatchSync("SdRefGrid", { spacing: 2, count: 3, origin: [10, 20], rotation: 30 });
+
+    if (!result.ok) throw new Error(result.detail ?? result.error);
+    const group = lastObject();
+    expect(group).toBeInstanceOf(THREE.Group);
+    expect(group?.userData.kind).toBe("grid");
+    expect(group?.children).toHaveLength(6);
+    expect(store.list()).toHaveLength(6);
+
+    const snapshot = inspectCanonicalGeometry(store, scene.children);
+    expect(snapshot.objectLinks).toHaveLength(6);
+    expect(snapshot.unlinkedRecordIds).toEqual([]);
+    const first = group?.children[0];
+    if (!first) throw new Error("expected grid line child");
+    const canonical = store.resolveObject(first);
+    expect(canonical?.kind).toBe("curve");
+    if (canonical?.kind !== "curve") throw new Error("expected canonical curve");
+    expect(canonical.createdBy).toBe("SdRefGrid");
+    expect(canonical.curve).toMatchObject({
+      kind: "line",
+      from: { x: 0, y: -3, z: 0 },
+      to: { x: 0, y: 3, z: 0 },
+      domain: { min: 0, max: 6 },
+    });
+    expect(canonical.metadata).toMatchObject({
+      axis: "y",
+      index: 0,
+      offset: -2,
+      spacing: 2,
+      count: 3,
+      origin: [10, 20],
+      rotation: 30,
     });
   });
 });
