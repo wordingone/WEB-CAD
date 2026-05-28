@@ -459,6 +459,14 @@ describe("BRep canonical migration characterization", () => {
     expect(exporters).toContain("file.objects().add(rhinoMesh)");
   });
 
+  test("live OBJ and STL export dispatch passes the canonical geometry resolver", () => {
+    const domEvents = source("dom-events.ts");
+
+    expect(domEvents).toContain("const buf = exportStl(stlSrc, {");
+    expect(domEvents).toContain("const text = exportObj(obj, {");
+    expect(domEvents).toContain("getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target)");
+  });
+
   test("op-tool UI boolean path routes through canonical command handlers", () => {
     const opTool = source("viewer/op-tool.ts");
 

@@ -431,7 +431,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
             const g = new THREE.Group(); for (const c of nodes) g.add(c.clone()); return g;
           })();
           if (!stlSrc) { setStatus("No geometry loaded.", "warn"); return; }
-          const buf = exportStl(stlSrc);
+          const buf = exportStl(stlSrc, {
+            getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+          });
           downloadBlob(new Blob([buf], { type: "model/stl" }), `${stem}.stl`);
           setStatus(`STL \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
         }
@@ -448,7 +450,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
       }
       setStatus(`Exporting ${fmt.toUpperCase()}...`, "info");
       if (fmt === "obj") {
-        const text = exportObj(obj); downloadBlob(new Blob([text], { type: "model/obj" }), `${stem}.obj`);
+        const text = exportObj(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        }); downloadBlob(new Blob([text], { type: "model/obj" }), `${stem}.obj`);
         setStatus(`OBJ \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "3dm") {
         setStatus("Exporting 3DM (loading Rhino runtime)…", "info");
