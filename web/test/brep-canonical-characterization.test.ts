@@ -8,6 +8,7 @@ import {
   type CanonicalGeometryStore,
 } from "../src/geometry/canonical-geometry";
 import { registerNurbsHandlers } from "../src/handlers/nurbs";
+import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
 import { domain as curveDomain } from "../src/nurbs/nurbs-curves";
 import { pointAtUV } from "../src/nurbs/nurbs-surfaces";
@@ -41,6 +42,9 @@ function makeViewer(): {
     getScene() {
       return scene;
     },
+    forEachSceneChild(cb: (obj: THREE.Object3D) => void) {
+      for (const child of scene.children) cb(child);
+    },
   } as unknown as Viewer;
   return { viewer, scene, store, lastObject: () => last };
 }
@@ -51,6 +55,7 @@ beforeEach(() => {
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
     "SdMember", "SdPlate",
+    "SdDoor", "SdWindow", "SdOpening",
   ]) {
     unregisterHandler(name);
   }
@@ -207,6 +212,31 @@ describe("BRep canonical migration characterization", () => {
       expect(result.ok).toBe(true);
       const obj = lastObject();
       expect(obj).toBeInstanceOf(THREE.Mesh);
+      const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+      expect(typeof canonicalId).toBe("string");
+      const canonical = store.require(canonicalId as string);
+      expect(canonical.kind).toBe("brep");
+      expect(canonical.createdBy).toBe(verb);
+      if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+      expect(canonical.brep.shells).toHaveLength(1);
+      expect(canonical.brep.shells[0].faces).toHaveLength(6);
+      expect(canonical.brep.shells[0].isClosed).toBe(true);
+    }
+  });
+
+  test("opening commands link display objects to canonical BRep envelopes", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerOpeningHandlers(viewer);
+
+    for (const [verb, args] of [
+      ["SdDoor", { position: [0, 0], doorType: "interior" }],
+      ["SdWindow", { position: [2, 0], windowType: "eg" }],
+      ["SdOpening", { position: [4, 0] }],
+    ] as const) {
+      const result = dispatchSync(verb, args);
+      expect(result.ok).toBe(true);
+      const obj = lastObject();
+      expect(obj).toBeInstanceOf(THREE.Object3D);
       const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);
