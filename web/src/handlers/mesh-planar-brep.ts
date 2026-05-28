@@ -107,3 +107,34 @@ export function linkPlanarizedMeshEditBrep(
   store.linkObject(result, record.id);
   return true;
 }
+
+export function linkPlanarizedMeshCommandBrep(
+  viewer: Viewer,
+  mesh: THREE.Mesh,
+  createdBy: string,
+  metadata: Record<string, unknown>,
+): boolean {
+  const brep = meshToPlanarBrep(mesh);
+  if (!brep) return false;
+  const store = viewer.getCanonicalGeometryStore();
+  const position = mesh.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "command",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: position?.count,
+      triangleCount: position ? Math.floor((mesh.geometry.index?.count ?? position.count) / 3) : undefined,
+      derivation: "tessellated-brep",
+    },
+    metadata: {
+      ...metadata,
+      derivation: "planarized-display-mesh",
+    },
+  });
+  store.linkObject(mesh, record.id);
+  return true;
+}

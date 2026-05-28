@@ -310,6 +310,33 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(seq[0]).toContain("translate([3, 0, 0])");
   });
 
+  test("Wall-curve tool links the created faceted wall to a canonical planar BRep", async () => {
+    const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
+    clearCreateSequence();
+    resetPending();
+    const v = makeTestViewer();
+    const store = createCanonicalGeometryStore();
+    (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+    emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "wall-curve" });
+    emitClickWorld(v as any, { x: 2, y: 1 }, { tool: "wall-curve" });
+    const result = emitClickWorld(v as any, { x: 4, y: 0, z: 0 }, { tool: "wall-curve", commit: true });
+
+    expect(result).not.toBeNull();
+    const mesh = result?.mesh as THREE.Mesh;
+    const canonical = store.resolveObject(mesh);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("wall-curve");
+    expect(canonical.metadata).toMatchObject({
+      operation: "curve-wall",
+      derivation: "planarized-display-mesh",
+    });
+    expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "plane")).toBe(true);
+    expect(getCreateSequence()[0]).toContain("curveWall: spline");
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();

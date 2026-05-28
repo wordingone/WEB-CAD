@@ -26,6 +26,7 @@ import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "./dimensions";
 import { drawingLayerStore, SKETCH_KINDS } from "../geometry/drawing-layers";
 import { clippingPlaneStore } from "../geometry/clipping-planes";
 import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
+import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
 
@@ -589,6 +590,13 @@ function buildCurveWall(pts: Array<{x: number; y: number; z?: number}>): SingleR
 
 function commitMultiWalls(viewer: Viewer, results: SingleResult[]): void {
   for (const r of results) {
+    if (r.mesh instanceof THREE.Mesh && r.mesh.userData.creator === "wall" && r.mesh.userData.isCurveWall) {
+      linkPlanarizedMeshCommandBrep(viewer, r.mesh, "wall-curve", {
+        operation: "curve-wall",
+        wallThickness: r.mesh.userData.wallThickness,
+        wallHeight: r.mesh.userData.wallHeight,
+      });
+    }
     viewer.addMesh(r.mesh, r.mesh.userData.kind ?? "brep", { noHistory: true });
     if (r.mesh instanceof THREE.Mesh && r.mesh.userData.creator === "wall" && !r.mesh.userData.isCurveWall) {
       attemptWallCornerJoins(r.mesh, viewer.getScene());
