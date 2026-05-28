@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { initRenderModes, setRenderMode } from "../src/viewer/render-modes";
 
 describe("BRep-aware wireframe render mode", () => {
-  test("wireframe overlay suppresses internal coplanar render-triangle diagonals", () => {
+  function splitQuadScene(): { scene: THREE.Scene; mesh: THREE.Mesh } {
     const scene = new THREE.Scene();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([
@@ -16,6 +16,11 @@ describe("BRep-aware wireframe render mode", () => {
     geometry.computeVertexNormals();
     const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
     scene.add(mesh);
+    return { scene, mesh };
+  }
+
+  test("wireframe overlay suppresses internal coplanar render-triangle diagonals", () => {
+    const { scene, mesh } = splitQuadScene();
 
     initRenderModes({ getScene: () => scene } as never);
     setRenderMode("wireframe");
@@ -25,5 +30,19 @@ describe("BRep-aware wireframe render mode", () => {
     const pos = overlay!.geometry.getAttribute("position") as THREE.BufferAttribute;
     expect(pos.count / 2).toBe(4);
     expect((mesh.material as unknown as THREE.MeshBasicMaterial).wireframe).toBe(false);
+  });
+
+  test("technical overlay suppresses internal coplanar render-triangle diagonals", () => {
+    const { scene, mesh } = splitQuadScene();
+
+    initRenderModes({ getScene: () => scene } as never);
+    setRenderMode("technical");
+
+    const overlays = mesh.children.filter((child) => child.userData.__drafting_overlay__ === "overlay") as THREE.LineSegments[];
+    expect(overlays).toHaveLength(2);
+    for (const overlay of overlays) {
+      const pos = overlay.geometry.getAttribute("position") as THREE.BufferAttribute;
+      expect(pos.count / 2).toBe(4);
+    }
   });
 });

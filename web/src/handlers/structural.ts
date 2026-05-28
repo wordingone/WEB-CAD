@@ -590,15 +590,20 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdSpace", (args) => {
     const fp = args.footprint as number[][] | undefined;
     let w = 5, d = 4;
+    let centerX = 0, centerY = 0;
     if (fp && fp.length >= 2) {
       const xs = fp.map((p) => p[0]);
       const ys = fp.map((p) => p[1]);
       w = (Math.max(...xs) - Math.min(...xs)) || 5;
       d = (Math.max(...ys) - Math.min(...ys)) || 4;
+      centerX = (Math.max(...xs) + Math.min(...xs)) / 2;
+      centerY = (Math.max(...ys) + Math.min(...ys)) / 2;
     }
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildSpace(a, b);
+    mesh.position.x = centerX;
+    mesh.position.y = centerY;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdSpace", args);
     mesh.userData.levelId = getActiveLevelId();
@@ -614,9 +619,12 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdFoundation", (args) => {
     const w = (args.width as number | undefined) ?? 6;
     const d = (args.depth as number | undefined) ?? 6;
+    const pos = args.position as number[] | undefined;
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildFoundation(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdFoundation", args);
     mesh.userData.levelId = getActiveLevelId();
@@ -631,6 +639,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdCeiling", (args) => {
     const w = (args.width as number | undefined) ?? 5;
     const d = (args.depth as number | undefined) ?? 4;
+    const pos = args.position as number[] | undefined;
     let a = { x: -w / 2, y: -d / 2 };
     let b = { x: w / 2, y: d / 2 };
     const ceilProf = args.profile as number[][] | undefined;
@@ -641,6 +650,8 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       b = { x: Math.max(...xs), y: Math.max(...ys) };
     }
     const { mesh, chain } = buildCeiling(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation() + DEFAULT_CEILING_OFFSET;
     mesh.userData.layerId = resolveLayerId("SdCeiling", args);
     mesh.userData.levelId = getActiveLevelId();
@@ -725,9 +736,12 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdSkylight", (args) => {
     const w = (args.width as number | undefined) ?? 1.2;
     const d = (args.depth as number | undefined) ?? 1.2;
+    const pos = args.position as number[] | undefined;
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildSkylight(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation() + DEFAULT_CEILING_OFFSET;
     mesh.userData.layerId = resolveLayerId("SdSkylight", args);
     mesh.userData.levelId = getActiveLevelId();

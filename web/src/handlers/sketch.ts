@@ -1,7 +1,7 @@
 import { registerHandler, registerRuntimeAlias } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
-import { buildPoint, buildLine, buildRect, buildCircle, buildPolyline, buildCurve } from "../tools/sketch";
+import { buildPoint, buildLine, buildRect, buildCircle, buildPolygon, buildPolyline, buildCurve } from "../tools/sketch";
 import {
   Interval as PrimInterval,
   Point3 as Prim3,
@@ -359,6 +359,35 @@ export function registerSketchHandlers(viewer: Viewer): void {
     });
     viewer.addMesh(mesh, "mesh");
     return { created: "circle", center: [center.x, center.y, 0], radius };
+  });
+
+  registerHandler("SdPolygon", (args) => {
+    const c = (args.center as number[] | undefined) ?? [0, 0];
+    const radius = Math.max(0.05, (args.radius as number | undefined) ?? 1);
+    const sides = Math.max(3, Math.floor((args.sides as number | undefined) ?? 6));
+    const center = { x: c[0] ?? 0, y: c[1] ?? 0 };
+    const radial = { x: center.x + radius, y: center.y };
+    const { mesh, chain } = buildPolygon(center, radial, sides);
+    mesh.userData.creator = "polygon";
+    mesh.userData.dispatchArgs = args;
+    mesh.userData.chain = chain;
+    const localPoints = ((mesh.userData.controlPoints as THREE.Vector3[] | undefined) ?? [])
+      .map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const closedPoints = localPoints.length > 0
+      ? [...localPoints, { ...localPoints[0] }]
+      : localPoints;
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: closedPoints,
+      parameters: curveParameters(closedPoints),
+    }, "SdPolygon", {
+      worldCenter: [center.x, center.y, 0],
+      radius,
+      sides,
+      closed: true,
+    });
+    viewer.addMesh(mesh, "mesh");
+    return { created: "polygon", center: [center.x, center.y, 0], radius, sides };
   });
 
   registerHandler("SdEllipse", (args) => {

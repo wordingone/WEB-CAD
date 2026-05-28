@@ -3,7 +3,7 @@ import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
 import { gridStore } from "../geometry/grids";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
-import { makeLevelSprite } from "../tools/structural";
+import { buildReferenceLine, makeLevelSprite } from "../tools/structural";
 import { resolveLayerId } from "./shared";
 import type { Point3 } from "../nurbs/nurbs-primitives";
 import type { Surface } from "../nurbs/nurbs-surfaces";
@@ -266,6 +266,42 @@ export function registerDatumHandlers(viewer: Viewer): void {
   });
 
   registerHandler("SdDatum", (args) => {
+    const start = args.start as number[] | undefined;
+    const end = args.end as number[] | undefined;
+    if (start && end) {
+      const a = { x: start[0] ?? 0, y: start[1] ?? 0 };
+      const b = { x: end[0] ?? 0, y: end[1] ?? 0 };
+      const { mesh, chain } = buildReferenceLine(a, b);
+      mesh.userData.kind = "brep";
+      mesh.userData.creator = "datum";
+      mesh.userData.dispatchArgs = args;
+      mesh.userData.chain = chain;
+      const z = start[2] ?? end[2] ?? 0;
+      const curve = lineCurve({ x: a.x, y: a.y, z }, { x: b.x, y: b.y, z });
+      const geom = (mesh as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+      const canonical = viewer.getCanonicalGeometryStore().create({
+        kind: "curve",
+        curve,
+        source: "command",
+        createdBy: "SdDatum",
+        displayMesh: {
+          revision: 1,
+          generatedAt: Date.now(),
+          vertexCount: geom?.getAttribute("position")?.count,
+          triangleCount: geom?.index ? Math.floor(geom.index.count / 3) : undefined,
+          derivation: "tessellated-curve",
+        },
+        metadata: {
+          creator: mesh.userData.creator,
+          start: [a.x, a.y, z],
+          end: [b.x, b.y, z],
+        },
+      });
+      viewer.getCanonicalGeometryStore().linkObject(mesh, canonical.id);
+      viewer.addMesh(mesh as THREE.Mesh, "brep");
+      return { created: "datum", kind: "reference-line" };
+    }
+
     const pos  = (args.position as number[] | undefined);
     const elev = (args.elevation as number | undefined) ?? pos?.[2] ?? 0;
     const geom = new THREE.SphereGeometry(0.15, 8, 8);

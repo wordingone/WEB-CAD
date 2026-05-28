@@ -720,6 +720,199 @@ function linkCreateModeSketchCanonical(
   return true;
 }
 
+const SD_CREATE_SKETCH_TOOLS = new Set(["line", "rect", "circle", "polygon", "arc", "polyline", "curve", "spline", "point"]);
+
+function round(n: number): number {
+  return Math.round(n * 1e4) / 1e4;
+}
+
+function commandCreatedObject(viewer: Viewer, before: Set<string>): THREE.Object3D | null {
+  const added = [...viewer.getScene().children].filter((child) => !before.has(child.uuid));
+  const store = viewer.getCanonicalGeometryStore();
+  const hasCanonical = (obj: THREE.Object3D): boolean => {
+    if (store.resolveObjectOrAncestor(obj)) return true;
+    let found = false;
+    obj.traverse((child) => {
+      if (!found && store.resolveObjectOrAncestor(child)) found = true;
+    });
+    return found;
+  };
+  return added.find(hasCanonical)
+    ?? added.find((child) => child.userData.dispatchArgs || child.userData.chain)
+    ?? added[0]
+    ?? null;
+}
+
+function sdSketchCommandForTool(
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): { verb: string; args: Record<string, unknown>; chain: string } | null {
+  const p2 = (p: { x: number; y: number }) => [round(p.x), round(p.y)];
+  if (tool === "line" && pts.length >= 2) {
+    return { verb: "SdLine", args: { start: p2(pts[0]), end: p2(pts[1]) }, chain: `SdLine({start:${JSON.stringify(p2(pts[0]))},end:${JSON.stringify(p2(pts[1]))}})` };
+  }
+  if (tool === "rect" && pts.length >= 2) {
+    const a = pts[0], b = pts[1];
+    const width = Math.max(0.01, Math.abs(b.x - a.x));
+    const length = Math.max(0.01, Math.abs(b.y - a.y));
+    const center = [round((a.x + b.x) / 2), round((a.y + b.y) / 2)];
+    const args = { width: round(width), length: round(length), center };
+    return { verb: "SdRectangle", args, chain: `SdRectangle(${JSON.stringify(args)})` };
+  }
+  if (tool === "circle" && pts.length >= 2) {
+    const c = pts[0], r = Math.max(0.05, Math.hypot(pts[1].x - c.x, pts[1].y - c.y));
+    const args = { center: p2(c), radius: round(r) };
+    return { verb: "SdCircle", args, chain: `SdCircle(${JSON.stringify(args)})` };
+  }
+  if (tool === "polygon" && pts.length >= 2) {
+    const c = pts[0], r = Math.max(0.05, Math.hypot(pts[1].x - c.x, pts[1].y - c.y));
+    const args = { center: p2(c), radius: round(r), sides: _polygonSides };
+    return { verb: "SdPolygon", args, chain: `SdPolygon(${JSON.stringify(args)})` };
+  }
+  if (tool === "arc" && pts.length >= 3) {
+    const [c, s, e] = pts;
+    const radius = Math.max(0.05, Math.hypot(s.x - c.x, s.y - c.y));
+    const startAngle = Math.atan2(s.y - c.y, s.x - c.x);
+    let endAngle = Math.atan2(e.y - c.y, e.x - c.x);
+    if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+    const args = { center: [round(c.x), round(c.y), round(c.z ?? 0)], radius: round(radius), startAngle: round(startAngle), endAngle: round(endAngle) };
+    return { verb: "SdArc", args, chain: `SdArc(${JSON.stringify(args)})` };
+  }
+  if ((tool === "polyline" || tool === "curve" || tool === "spline") && pts.length >= 2) {
+    const points = pts.map((p) => [round(p.x), round(p.y), round(p.z ?? 0)]);
+    const verb = tool === "polyline" ? "SdPolyline" : tool === "curve" ? "SdCurve" : "SdSpline";
+    const args = { points };
+    return { verb, args, chain: `${verb}(${JSON.stringify(args)})` };
+  }
+  if (tool === "point" && pts.length >= 1) {
+    const args = { position: [round(pts[0].x), round(pts[0].y), round(pts[0].z ?? 0)] };
+    return { verb: "SdPoint", args, chain: `SdPoint(${JSON.stringify(args)})` };
+  }
+  return null;
+}
+
+function commitSketchToolViaSd(
+  viewer: Viewer,
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): SingleResult | null {
+  if (!SD_CREATE_SKETCH_TOOLS.has(tool)) return null;
+  const command = sdSketchCommandForTool(tool, pts);
+  if (!command) return null;
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync(command.verb, command.args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  if (!created.userData.levelId) created.userData.levelId = getActiveLevelId();
+  applyDrawingLayer(created);
+  if (created instanceof THREE.Mesh) onElementCommitted(created, viewer.getScene());
+  _createSequence.push(command.chain);
+  pushAction(created, command.chain);
+  return { mesh: created, chain: command.chain };
+}
+
+const SD_ARCH_CREATE_TOOLS = new Set([
+  "wall", "slab", "column", "beam", "roof", "space", "foundation", "ceiling", "grid", "level", "datum",
+  "stair", "door", "window", "ramp", "railing", "curtainwall", "skylight", "opening",
+]);
+
+function rectFootprint(a: { x: number; y: number }, b: { x: number; y: number }): number[][] {
+  return [[a.x, a.y], [b.x, a.y], [b.x, b.y], [a.x, b.y], [a.x, a.y]];
+}
+
+function p3(p: { x: number; y: number; z?: number }): number[] {
+  return [round(p.x), round(p.y), round(p.z ?? 0)];
+}
+
+function sdArchCommandForTool(
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): { verb: string; args: Record<string, unknown>; chain: string } | null {
+  const first = pts[0];
+  if (!first) return null;
+  const second = pts[1] ?? first;
+  const width = Math.max(0.01, Math.abs(second.x - first.x));
+  const depth = Math.max(0.01, Math.abs(second.y - first.y));
+  const center = [round((first.x + second.x) / 2), round((first.y + second.y) / 2), round(first.z ?? second.z ?? 0)];
+
+  const command = (verb: string, args: Record<string, unknown>) => ({ verb, args, chain: `${verb}(${JSON.stringify(args)})` });
+  switch (tool) {
+    case "wall":
+      if (pts.length < 2) return null;
+      return command("SdWall", { start: { x: round(first.x), y: round(first.y), z: round(first.z ?? 0) }, end: { x: round(second.x), y: round(second.y), z: round(second.z ?? 0) } });
+    case "slab":
+      if (pts.length < 2) return null;
+      return command("SdSlab", { profile: rectFootprint(first, second) });
+    case "column":
+      return command("SdColumn", { position: p3(first) });
+    case "beam":
+      if (pts.length < 2) return null;
+      return command("SdBeam", { start: p3(first), end: p3(second) });
+    case "roof":
+      if (pts.length < 2) return null;
+      return command("SdRoof", { footprint: rectFootprint(first, second), roofType: "pitched" });
+    case "space":
+      if (pts.length < 2) return null;
+      return command("SdSpace", { footprint: rectFootprint(first, second) });
+    case "foundation":
+      if (pts.length < 2) return null;
+      return command("SdFoundation", { position: center, width: round(width), depth: round(depth) });
+    case "ceiling":
+      if (pts.length < 2) return null;
+      return command("SdCeiling", { position: center, width: round(width), depth: round(depth) });
+    case "grid":
+      if (pts.length < 2) return null;
+      return command("SdRefGrid", { origin: [round(first.x), round(first.y)], spacing: Math.max(1, round(Math.hypot(second.x - first.x, second.y - first.y))), count: 2 });
+    case "level":
+      return command("SdLevel", { elevation: round(first.z ?? 0) });
+    case "datum":
+      if (pts.length >= 2) return command("SdDatum", { start: p3(first), end: p3(second) });
+      return command("SdDatum", { position: p3(first) });
+    case "stair":
+      if (pts.length < 2) return null;
+      return command("SdStair", { start: p3(first), end: p3(second) });
+    case "door":
+      return command("SdDoor", { position: p3(first) });
+    case "window":
+      return command("SdWindow", { position: p3(first) });
+    case "ramp":
+      if (pts.length < 2) return null;
+      return command("SdRamp", { start: p3(first), end: p3(second) });
+    case "railing":
+      if (pts.length < 2) return null;
+      return command("SdRailing", { start: p3(first), end: p3(second) });
+    case "curtainwall":
+      if (pts.length < 2) return null;
+      return command("SdCurtainWall", { start: p3(first), end: p3(second), length: round(Math.hypot(second.x - first.x, second.y - first.y)) });
+    case "skylight":
+      if (pts.length < 2) return null;
+      return command("SdSkylight", { position: center, width: round(width), depth: round(depth) });
+    case "opening":
+      return command("SdOpening", { position: p3(first) });
+    default:
+      return null;
+  }
+}
+
+function commitArchToolViaSd(
+  viewer: Viewer,
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): SingleResult | null {
+  if (!SD_ARCH_CREATE_TOOLS.has(tool)) return null;
+  const command = sdArchCommandForTool(tool, pts);
+  if (!command) return null;
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync(command.verb, command.args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  if (!created.userData.levelId) created.userData.levelId = getActiveLevelId();
+  _createSequence.push(command.chain);
+  return { mesh: created, chain: command.chain };
+}
+
 function planeSurface(extent: number): Surface {
   const half = extent / 2;
   return {
@@ -1063,6 +1256,12 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
     return results[0] ?? null;
   }
 
+  const sdOut = commitSketchToolViaSd(viewer, tool, pts);
+  if (sdOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return sdOut;
+  }
+
   const out = handler.handler(pts);
   if (!out) { dispatchSync("setActiveTool", { toolId: "select" }); return null; }
   if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
@@ -1110,6 +1309,11 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
         dispatchSync("setActiveTool", { toolId: "select" });
         return results[0] ?? null;
       }
+      const sdOut = commitSketchToolViaSd(viewer, tool, pts);
+      if (sdOut) {
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return sdOut;
+      }
       const out = handler.handler(pts);
       if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
       applyDrawingLayer(out.mesh);
@@ -1128,8 +1332,6 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   clearTemporary(viewer);
   clearSmartTrack(viewer);
   const commitPts = [..._pending];
-  const out = handler.handler(commitPts);
-  if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   if (handler.chain) {
     const newStart = { ..._pending[_pending.length - 1] };
     _pending = [newStart];
@@ -1137,6 +1339,18 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   } else {
     _pending = [];
   }
+  const sdOut = commitSketchToolViaSd(viewer, tool, commitPts);
+  if (sdOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return sdOut;
+  }
+  const archOut = commitArchToolViaSd(viewer, tool, commitPts);
+  if (archOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return archOut;
+  }
+  const out = handler.handler(commitPts);
+  if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   // noHistory: true — undo managed via explicit push / transaction below.
   applyDrawingLayer(out.mesh);
   linkCreateModeSketchCanonical(viewer, tool, out.mesh, commitPts);

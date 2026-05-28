@@ -12,7 +12,12 @@ import * as THREE from "three";
 import { dispatchSync, registerHandler, unregisterHandler } from "../src/commands/dispatch";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
 import { inspectCanonicalGeometry } from "../src/geometry/canonical-introspection";
+import { registerDatumHandlers } from "../src/handlers/datum";
+import { registerOpeningHandlers } from "../src/handlers/openings";
+import { registerSketchHandlers } from "../src/handlers/sketch";
+import { registerStructuralHandlers } from "../src/handlers/structural";
 import { registerTransformHandlers } from "../src/handlers/transforms";
+import { WORLD_XY } from "../src/viewer/cplane";
 import type { Brep, BrepFace, BrepShell } from "../src/nurbs/nurbs-brep";
 import { BREP_DEFAULT_TOLERANCE } from "../src/nurbs/nurbs-brep";
 import { Interval, Plane } from "../src/nurbs/nurbs-primitives";
@@ -46,6 +51,34 @@ beforeEach(() => {
     "SdFillet",
     "SdSectionBox",
     "SdClippingPlane",
+    "SdPoint",
+    "SdLine",
+    "SdRectangle",
+    "SdPolyline",
+    "SdArc",
+    "SdCircle",
+    "SdPolygon",
+    "SdCurve",
+    "SdSpline",
+    "SdWall",
+    "SdSlab",
+    "SdColumn",
+    "SdBeam",
+    "SdRoof",
+    "SdSpace",
+    "SdFoundation",
+    "SdCeiling",
+    "SdCurtainWall",
+    "SdSkylight",
+    "SdRamp",
+    "SdRailing",
+    "SdStair",
+    "SdDoor",
+    "SdWindow",
+    "SdOpening",
+    "SdRefGrid",
+    "SdLevel",
+    "SdDatum",
   ]) {
     unregisterHandler(name);
   }
@@ -521,6 +554,80 @@ describe("Phase 3 — create-mode click-to-place", () => {
     }
   });
 
+  test("ARCH palette create-mode tools commit through their Sd command handlers when registered", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    const cases: Array<{
+      tool: string;
+      clicks: Array<{ x: number; y: number; z?: number }>;
+      expectedCreatedBy: string | RegExp;
+    }> = [
+      { tool: "wall", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdWall" },
+      { tool: "slab", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: "SdSlab" },
+      { tool: "column", clicks: [{ x: 2, y: 2 }], expectedCreatedBy: "SdColumn" },
+      { tool: "beam", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdBeam" },
+      { tool: "roof", clicks: [{ x: 0, y: 0 }, { x: 6, y: 5 }], expectedCreatedBy: /^SdRoof/ },
+      { tool: "space", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: "SdSpace" },
+      { tool: "foundation", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: "SdFoundation" },
+      { tool: "ceiling", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: "SdCeiling" },
+      { tool: "grid", clicks: [{ x: 0, y: 0 }, { x: 5, y: 0 }], expectedCreatedBy: "SdRefGrid" },
+      { tool: "level", clicks: [{ x: 0, y: 0, z: 3 }], expectedCreatedBy: "SdLevel" },
+      { tool: "datum", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdDatum" },
+      { tool: "stair", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: /^SdStair/ },
+      { tool: "door", clicks: [{ x: 2, y: 1 }], expectedCreatedBy: "SdDoor" },
+      { tool: "window", clicks: [{ x: 2, y: 1 }], expectedCreatedBy: "SdWindow" },
+      { tool: "ramp", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdRamp" },
+      { tool: "railing", clicks: [{ x: 0, y: 0 }, { x: 3, y: 0 }], expectedCreatedBy: "SdRailing" },
+      { tool: "curtainwall", clicks: [{ x: 0, y: 0 }, { x: 6, y: 0 }], expectedCreatedBy: "SdCurtainWall" },
+      { tool: "skylight", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }], expectedCreatedBy: "SdSkylight" },
+      { tool: "opening", clicks: [{ x: 2, y: 1 }], expectedCreatedBy: "SdOpening" },
+    ];
+
+    for (const spec of cases) {
+      clearCreateSequence();
+      resetPending();
+      const viewer = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (viewer as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+      (viewer as unknown as { activeView: string; activeCPlane: typeof WORLD_XY }).activeView = "top";
+      (viewer as unknown as { activeView: string; activeCPlane: typeof WORLD_XY }).activeCPlane = WORLD_XY;
+      (viewer as unknown as { forEachSceneChild: (cb: (obj: THREE.Object3D) => void) => void }).forEachSceneChild = (cb) => {
+        viewer.scene.children.forEach(cb);
+      };
+      const baseAddMesh = viewer.addMesh.bind(viewer);
+      (viewer as unknown as { addMesh: (obj: THREE.Object3D, kind?: string) => THREE.Object3D }).addMesh = (obj, kind) => {
+        if (kind) obj.userData.kind = kind;
+        if (obj instanceof THREE.Mesh) return baseAddMesh(obj, (kind ?? "brep") as "brep" | "compound" | "mesh");
+        viewer.scene.add(obj);
+        return obj;
+      };
+      registerStructuralHandlers(viewer as never);
+      registerOpeningHandlers(viewer as never);
+      registerDatumHandlers(viewer as never);
+
+      let result: { mesh: THREE.Object3D } | null = null;
+      for (const click of spec.clicks) {
+        result = emitClickWorld(viewer as any, click, { tool: spec.tool }) as { mesh: THREE.Object3D } | null;
+      }
+
+      expect(result, spec.tool).not.toBeNull();
+      const createdBy = new Set<string>();
+      result?.mesh.traverse((obj) => {
+        const canonical = store.resolveObjectOrAncestor(obj);
+        if (canonical?.createdBy) createdBy.add(canonical.createdBy);
+      });
+      const direct = result ? store.resolveObjectOrAncestor(result.mesh) : undefined;
+      if (direct?.createdBy) createdBy.add(direct.createdBy);
+      expect([...createdBy].length, spec.tool).toBeGreaterThan(0);
+      const matched = [...createdBy].some((value) => (
+        typeof spec.expectedCreatedBy === "string"
+          ? value === spec.expectedCreatedBy
+          : spec.expectedCreatedBy.test(value)
+      ));
+      expect(matched, `${spec.tool}: ${[...createdBy].join(",")}`).toBe(true);
+    }
+  });
+
   test("Stair and roof tools link click-created compound subcomponents to canonical BReps", async () => {
     const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
 
@@ -590,16 +697,17 @@ describe("Phase 3 — create-mode click-to-place", () => {
       commit?: boolean;
       expectedKind: "curve" | "point";
       expectedCurveKind?: "line" | "polyline" | "arc" | "nurbs";
+      expectedCreatedBy: string;
     }> = [
-      { tool: "line", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedKind: "curve", expectedCurveKind: "line" },
-      { tool: "rect", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedKind: "curve", expectedCurveKind: "polyline" },
-      { tool: "circle", clicks: [{ x: 2, y: 2 }, { x: 5, y: 2 }], expectedKind: "curve", expectedCurveKind: "arc" },
-      { tool: "polygon", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }], expectedKind: "curve", expectedCurveKind: "polyline" },
-      { tool: "arc", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 2 }], expectedKind: "curve", expectedCurveKind: "nurbs" },
-      { tool: "polyline", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }], commit: true, expectedKind: "curve", expectedCurveKind: "polyline" },
-      { tool: "curve", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs" },
-      { tool: "spline", clicks: [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: -1 }, { x: 3, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs" },
-      { tool: "point", clicks: [{ x: 7, y: 8 }], expectedKind: "point" },
+      { tool: "line", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedKind: "curve", expectedCurveKind: "nurbs", expectedCreatedBy: "SdLine" },
+      { tool: "rect", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedKind: "curve", expectedCurveKind: "polyline", expectedCreatedBy: "SdRectangle" },
+      { tool: "circle", clicks: [{ x: 2, y: 2 }, { x: 5, y: 2 }], expectedKind: "curve", expectedCurveKind: "arc", expectedCreatedBy: "SdCircle" },
+      { tool: "polygon", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }], expectedKind: "curve", expectedCurveKind: "polyline", expectedCreatedBy: "SdPolygon" },
+      { tool: "arc", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 2 }], expectedKind: "curve", expectedCurveKind: "arc", expectedCreatedBy: "SdArc" },
+      { tool: "polyline", clicks: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }], commit: true, expectedKind: "curve", expectedCurveKind: "polyline", expectedCreatedBy: "SdPolyline" },
+      { tool: "curve", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs", expectedCreatedBy: "SdCurve" },
+      { tool: "spline", clicks: [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: -1 }, { x: 3, y: 0 }], commit: true, expectedKind: "curve", expectedCurveKind: "nurbs", expectedCreatedBy: "SdSpline" },
+      { tool: "point", clicks: [{ x: 7, y: 8 }], expectedKind: "point", expectedCreatedBy: "SdPoint" },
     ];
 
     for (const spec of cases) {
@@ -608,6 +716,7 @@ describe("Phase 3 — create-mode click-to-place", () => {
       const viewer = makeTestViewer();
       const store = createCanonicalGeometryStore();
       (viewer as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+      registerSketchHandlers(viewer as never);
       let result: { mesh: THREE.Object3D } | null = null;
       for (let i = 0; i < spec.clicks.length; i++) {
         result = emitClickWorld(viewer as any, spec.clicks[i], {
@@ -621,9 +730,9 @@ describe("Phase 3 — create-mode click-to-place", () => {
       if (canonical?.kind === "curve") {
         expect(spec.expectedCurveKind, spec.tool).toBeDefined();
         expect(canonical.curve.kind, spec.tool).toBe(spec.expectedCurveKind!);
-        expect(canonical.createdBy).toBe(`create-${spec.tool}`);
+        expect(canonical.createdBy).toBe(spec.expectedCreatedBy);
       } else if (canonical?.kind === "point") {
-        expect(canonical.createdBy).toBe("create-point");
+        expect(canonical.createdBy).toBe(spec.expectedCreatedBy);
       }
     }
   });
