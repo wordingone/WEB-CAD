@@ -413,6 +413,7 @@ describe("BRep canonical migration characterization", () => {
     expect(shell).toContain("version: PROJECT_FILE_VERSION");
     expect(shell).toContain("canonicalGeometry: w.__viewer?.exportCanonicalGeometry?.() ?? []");
     expect(shell).toContain("__viewer?.exportScene?.()");
+    expect(shell).toContain("w.__viewer?.clearScene?.()");
     expect(shell).toContain("w.__viewer?.importCanonicalGeometry?.(parsed.canonicalGeometry)");
     expect(shell).toContain("__viewer?.importScene?.(parsed.objects)");
     expect(shell).toContain('PROJECT_FILE_ACCEPT = ".webcad,.json,.gemarch"');

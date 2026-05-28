@@ -439,12 +439,18 @@ function loadProjectData(data: string, fileName: string): void {
     if (parsed.meta?.units) dispatchSync("SdSetUnits", { system: parsed.meta.units });
     const baseName = fileName.replace(/\.(webcad|gemarch|json)$/i, "");
     setCurrentFileName(parsed.meta?.name ?? baseName);
+    const w = window as Window & {
+      __viewer?: {
+        clearScene?: () => void;
+        importCanonicalGeometry?: (records: unknown[]) => number;
+        importScene?: (o: unknown[]) => void;
+      };
+    };
+    w.__viewer?.clearScene?.();
     if (Array.isArray(parsed.canonicalGeometry)) {
-      const w = window as Window & { __viewer?: { importCanonicalGeometry?: (records: unknown[]) => number } };
       w.__viewer?.importCanonicalGeometry?.(parsed.canonicalGeometry);
     }
     if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
-      const w = window as Window & { __viewer?: { importScene?: (o: unknown[]) => void } };
       w.__viewer?.importScene?.(parsed.objects);
     }
   } catch {
