@@ -129,4 +129,25 @@ describe("canonical geometry store", () => {
     expect(store.require(importedRecord.id)).toMatchObject(importedRecord);
     expect(store.require(next.id)).toBe(next);
   });
+
+  test("explicitly created records reserve their ids so later creates do not overwrite them", () => {
+    const store = createCanonicalGeometryStore();
+    const explicit = store.create({
+      kind: "surface",
+      surface,
+      source: "conversion",
+      createdBy: "MeshToBrep",
+    }, "cg_zzzy");
+
+    const next = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdWall",
+    });
+
+    expect(next.id).not.toBe(explicit.id);
+    expect(store.require(explicit.id)).toBe(explicit);
+    expect(store.require(next.id)).toBe(next);
+  });
 });

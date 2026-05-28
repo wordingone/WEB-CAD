@@ -113,6 +113,7 @@ export function createCanonicalGeometryStore(initial: CanonicalGeometry[] = []) 
         schemaVersion: CANONICAL_GEOMETRY_SCHEMA_VERSION,
         units: "m" as const,
       } as CanonicalGeometry;
+      reserveCanonicalGeometryId(id);
       records.set(id, record);
       return record;
     },
