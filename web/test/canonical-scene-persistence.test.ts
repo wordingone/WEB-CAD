@@ -6,6 +6,7 @@ import {
 } from "../src/geometry/canonical-geometry";
 import type { Brep, BrepFace } from "../src/nurbs/nurbs-brep";
 import { BREP_DEFAULT_TOLERANCE } from "../src/nurbs/nurbs-brep";
+import type { Curve } from "../src/nurbs/nurbs-curves";
 import { Interval, Plane } from "../src/nurbs/nurbs-primitives";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 import type { PlaneSurface } from "../src/nurbs/nurbs-surfaces";
@@ -50,6 +51,15 @@ const brep: Brep = {
   shells: [{ faces: [planeFace()], edges: [], vertices: [], isClosed: false }],
 };
 
+const curve: Curve = {
+  kind: "polyline",
+  points: [
+    { x: 0, y: 0, z: 0 },
+    { x: 2, y: 0, z: 0 },
+  ],
+  parameters: [0, 2],
+};
+
 describe("canonical scene persistence", () => {
   test("serializes canonical object links without duplicating NURBS sidecars into scene userData", () => {
     const store = createCanonicalGeometryStore();
@@ -72,6 +82,33 @@ describe("canonical scene persistence", () => {
     expect(serialized?.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBe(record.id);
     expect(serialized?.userData.nurbsKind).toBe("surface");
     expect(serialized?.userData.nurbsSurface).toBeUndefined();
+    expect(serialized?.geometry).toBeUndefined();
+    expect(serialized?.displaySource).toBe("canonical");
+  });
+
+  test("serializes canonical curve links without duplicating NURBS curve sidecars", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "curve",
+      curve,
+      source: "command",
+      createdBy: "SdLine",
+    });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(2, 0, 0),
+    ]));
+    line.userData.kind = "curve";
+    line.userData.creator = "line";
+    line.userData.nurbsCurve = curve;
+    line.userData.nurbsCVs = curve.points;
+    store.linkObject(line, record.id);
+
+    const serialized = __sceneSerializationForTests.serializeSceneObj(line);
+
+    expect(serialized?.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBe(record.id);
+    expect(serialized?.userData.nurbsCurve).toBeUndefined();
+    expect(serialized?.userData.nurbsCVs).toBeUndefined();
     expect(serialized?.geometry).toBeUndefined();
     expect(serialized?.displaySource).toBe("canonical");
   });

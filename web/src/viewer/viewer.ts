@@ -814,6 +814,8 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
   const userData = { ...obj.userData };
   if (typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string") {
     delete userData.nurbsSurface;
+    delete userData.nurbsCurve;
+    delete userData.nurbsCVs;
   }
   const s: SerializedSceneObj = {
     uuid: obj.uuid,
