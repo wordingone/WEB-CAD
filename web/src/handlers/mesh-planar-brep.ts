@@ -85,7 +85,7 @@ export function linkPlanarizedMeshEditBrep(
   const brep = meshToPlanarBrep(result);
   if (!brep) return false;
   const store = viewer.getCanonicalGeometryStore();
-  const sourceRecord = store.resolveObject(source);
+  const sourceRecord = store.resolveObjectOrAncestor(source);
   const position = result.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
   const record = store.create({
     kind: "brep",
@@ -146,7 +146,7 @@ export function linkPlanarizedMeshImportBrep(
   createdBy: string,
   metadata: Record<string, unknown>,
 ): boolean {
-  if (store.resolveObject(mesh)) return false;
+  if (store.resolveObjectOrAncestor(mesh)) return false;
   const brep = meshToPlanarBrep(mesh);
   if (!brep) return false;
   const position = mesh.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;

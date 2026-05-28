@@ -56,4 +56,23 @@ describe("canonical import geometry", () => {
     expect(mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBe(originalId);
     expect(store.list()).toHaveLength(1);
   });
+
+  test("does not add a duplicate import link under a canonical parent", () => {
+    const store = createCanonicalGeometryStore();
+    const parent = new THREE.Group();
+    const mesh = triangleMesh();
+    parent.add(mesh);
+    const record = store.create({
+      kind: "brep",
+      brep: { shells: [] },
+      source: "import",
+      createdBy: "ifc-import",
+    });
+    store.linkObject(parent, record.id);
+
+    expect(linkPlanarizedMeshImportBrep(store, mesh, "obj-import", {})).toBe(false);
+    expect(mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBeUndefined();
+    expect(store.resolveObjectOrAncestor(mesh)).toBe(record);
+    expect(store.list()).toHaveLength(1);
+  });
 });

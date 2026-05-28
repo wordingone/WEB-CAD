@@ -853,4 +853,48 @@ describe("canonical geometry transform instances", () => {
     expect(faceCount).toBeGreaterThan(0);
     expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "plane")).toBe(true);
   });
+
+  test("SdFillet edge chamfer resolves child display targets through canonical parent BReps", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const parent = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "box";
+    parent.add(mesh);
+    scene.add(parent);
+    const record = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+    store.linkObject(parent, record.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdFillet", { target: mesh.uuid, edgeId: 0, radius: 0.05 });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(1);
+    const canonical = store.resolveObject(added[0]);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.metadata).toMatchObject({
+      operation: "edge-chamfer",
+      source: record.id,
+      derivation: "planarized-display-mesh",
+    });
+  });
 });
