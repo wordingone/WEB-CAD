@@ -274,3 +274,15 @@ export function canonicalGeometryToIfcNurbsSurfaces(
   }
   return [];
 }
+
+export function canonicalOrSidecarIfcNurbsSurfaces(
+  canonical: CanonicalGeometry | undefined,
+  sidecarSurface: Surface | undefined,
+  matrix?: THREE.Matrix4,
+): KernelNurbsSurface[] {
+  const canonicalSurfaces = canonicalGeometryToIfcNurbsSurfaces(canonical, matrix);
+  if (canonicalSurfaces.length > 0) return canonicalSurfaces;
+  if (canonical) return [];
+  const sidecar = sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, matrix) : null;
+  return sidecar ? [sidecar] : [];
+}

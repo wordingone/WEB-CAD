@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
-import { canonicalGeometryToIfcNurbs, canonicalGeometryToIfcNurbsSurfaces, surfaceToIfcNurbs } from "../src/ifc/canonical-ifc";
+import {
+  canonicalGeometryToIfcNurbs,
+  canonicalGeometryToIfcNurbsSurfaces,
+  canonicalOrSidecarIfcNurbsSurfaces,
+  surfaceToIfcNurbs,
+} from "../src/ifc/canonical-ifc";
 import { buildIfcScene } from "../src/ifc/ifc-build";
 import { extrude } from "../src/nurbs/brep-extrude";
 import type { PolylineCurve } from "../src/nurbs/nurbs-curves";
@@ -67,6 +72,27 @@ describe("canonical IFC export", () => {
 
     expect(nurbs?.controlPoints[0]).toEqual([1, 2, 3]);
     expect(nurbs?.controlPoints[3]).toEqual([3, 5, 3]);
+  });
+
+  test("IFC NURBS surface lookup does not fall back to stale sidecars when canonical geometry is linked", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "point",
+      point: { x: 1, y: 2, z: 3 },
+      source: "command",
+      createdBy: "SdDatum",
+    });
+
+    const surfaces = canonicalOrSidecarIfcNurbsSurfaces(record, surface);
+
+    expect(surfaces).toEqual([]);
+  });
+
+  test("IFC NURBS surface lookup keeps sidecar fallback for legacy unlinked objects", () => {
+    const surfaces = canonicalOrSidecarIfcNurbsSurfaces(undefined, surface);
+
+    expect(surfaces).toHaveLength(1);
+    expect(surfaces[0].controlPoints[0]).toEqual([0, 0, 0]);
   });
 
   test("resolves canonical BRep face surfaces for NURBS-capable export", () => {
