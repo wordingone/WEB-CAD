@@ -114,6 +114,46 @@ describe("canonical geometry introspection", () => {
     expect(selection?.ownerWorldMatrix).toEqual(mesh.matrixWorld.elements.slice());
   });
 
+  test("resolves picked child selections to the nearest linked canonical ancestor", () => {
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "surface",
+      surface,
+      source: "command",
+      createdBy: "SdRoof",
+    });
+    const roof = new THREE.Group();
+    roof.name = "roof-canonical-group";
+    roof.position.set(1, 2, 3);
+    store.linkObject(roof, record.id);
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+    roof.add(child);
+    roof.updateMatrixWorld(true);
+
+    const selection = inspectCanonicalSelection(store, {
+      topology: "face",
+      uuid: child.uuid,
+      object: child,
+      parent: child,
+      parentUuid: child.uuid,
+      transformTarget: child,
+      faceIndex: 2,
+    });
+
+    expect(selection).toMatchObject({
+      topology: "face",
+      pickedObjectUuid: child.uuid,
+      ownerObjectUuid: roof.uuid,
+      canonicalGeometryId: record.id,
+      faceIndex: 2,
+      recordSummary: {
+        canonicalGeometryId: record.id,
+        kind: "surface",
+      },
+    });
+    expect(selection?.ownerWorldMatrix).toEqual(roof.matrixWorld.elements.slice());
+  });
+
   test("selection summaries expose exact canonical curve coordinates for agents", () => {
     const store = createCanonicalGeometryStore();
     const curve: Curve = {

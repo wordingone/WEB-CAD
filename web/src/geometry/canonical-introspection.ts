@@ -157,6 +157,15 @@ function summarizeCanonicalGeometry(record: CanonicalGeometry): CanonicalGeometr
   };
 }
 
+function nearestLinkedObject(store: CanonicalGeometryStore, start: Object3D | null | undefined): Object3D | null {
+  let obj: Object3D | null | undefined = start;
+  while (obj) {
+    if (store.getLinkedId(obj)) return obj;
+    obj = obj.parent;
+  }
+  return null;
+}
+
 export function inspectCanonicalGeometry(
   store: CanonicalGeometryStore,
   roots: Object3D[],
@@ -198,7 +207,11 @@ export function inspectCanonicalSelection(
   selection: Selection | null,
 ): CanonicalSelectionSnapshot | null {
   if (!selection) return null;
-  const owner = selection.parent ?? selection.transformTarget;
+  const owner = nearestLinkedObject(store, selection.parent)
+    ?? nearestLinkedObject(store, selection.transformTarget)
+    ?? nearestLinkedObject(store, selection.object)
+    ?? selection.parent
+    ?? selection.transformTarget;
   const record = store.resolveObject(owner);
   owner.updateMatrixWorld(true);
   return {
