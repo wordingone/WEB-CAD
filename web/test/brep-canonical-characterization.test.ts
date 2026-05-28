@@ -337,7 +337,7 @@ describe("BRep canonical migration characterization", () => {
     expect(shell).toContain('name.endsWith(".gemarch")');
   });
 
-  test("viewer scene persistence currently serializes BufferGeometry payloads", () => {
+  test("viewer scene persistence uses canonical display source with mesh fallback serialization", () => {
     const viewer = source("viewer/viewer.ts");
 
     expect(viewer).toContain("exportScene(): SerializedSceneObj[]");
@@ -345,6 +345,9 @@ describe("BRep canonical migration characterization", () => {
     expect(viewer).toContain("importCanonicalGeometry(records: unknown[]): number");
     expect(viewer).toContain("inspectCanonicalGeometry(): CanonicalGeometrySnapshot");
     expect(viewer).toContain("geometry?: { position: number[]; normal?: number[]; index?: number[] }");
+    expect(viewer).toContain('displaySource?: "canonical" | "serialized-geometry"');
+    expect(viewer).toContain('s.displaySource = "canonical"');
+    expect(viewer).toContain("geometryFromCanonical(canonical)");
     expect(viewer).toContain("const geo = mesh.geometry as THREE.BufferGeometry");
     expect(viewer).toContain("const geo = new THREE.BufferGeometry()");
     expect(viewer).toContain("_deserializeSceneObj");

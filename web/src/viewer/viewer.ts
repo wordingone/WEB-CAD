@@ -29,6 +29,8 @@ import {
   type CanonicalGeometry,
   type CanonicalGeometryStore,
 } from "../geometry/canonical-geometry.js";
+import { tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
 import {
   inspectCanonicalClipping,
   inspectCanonicalGeometry,
@@ -776,7 +778,7 @@ export class Viewer {
 
   importScene(objects: SerializedSceneObj[]): void {
     for (const s of objects) {
-      const obj = _deserializeSceneObj(s);
+      const obj = _deserializeSceneObj(s, this.canonicalGeometryStore);
       if (obj) this.scene.add(obj);
     }
   }
@@ -802,6 +804,7 @@ export type SerializedSceneObj = {
   scale: [number, number, number];
   color?: number;
   geometry?: { position: number[]; normal?: number[]; index?: number[] };
+  displaySource?: "canonical" | "serialized-geometry";
   userData: Record<string, unknown>;
   children?: SerializedSceneObj[];
 };
@@ -820,7 +823,10 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
     userData,
   };
   const mesh = obj as THREE.Mesh;
-  if (mesh.isMesh && mesh.geometry) {
+  const canonicalId = typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string"
+    ? userData[CANONICAL_GEOMETRY_USERDATA_KEY] as string
+    : null;
+  if (mesh.isMesh && mesh.geometry && canonicalId === null) {
     const geo = mesh.geometry as THREE.BufferGeometry;
     const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
     const normAttr = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
@@ -832,6 +838,9 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
     };
     const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     if (mat && "color" in mat) s.color = (mat as THREE.MeshStandardMaterial).color.getHex();
+    s.displaySource = "serialized-geometry";
+  } else if (canonicalId !== null) {
+    s.displaySource = "canonical";
   }
   if (obj.children.length > 0) {
     const kids: SerializedSceneObj[] = [];
@@ -841,7 +850,55 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
   return s;
 }
 
-function _deserializeSceneObj(s: SerializedSceneObj): THREE.Object3D | null {
+function geometryFromSurface(surface: CanonicalGeometry & { kind: "surface" }): THREE.Mesh {
+  const tess = tessellateSurface(surface.surface, 16, 16);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(tess.positions, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(tess.normals, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(tess.uvs, 2));
+  geo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xe8e0d8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
+}
+
+function geometryFromBrep(record: CanonicalGeometry & { kind: "brep" }): THREE.Mesh | null {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const shell of record.brep.shells) {
+    for (const face of shell.faces) {
+      const tess = tessellateSurface(face.surface, 4, 4);
+      positions.push(...tess.positions);
+      normals.push(...tess.normals);
+      for (const idx of tess.indices) indices.push(idx + offset);
+      offset += tess.positions.length / 3;
+    }
+  }
+  if (positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }));
+}
+
+function geometryFromCanonical(record: CanonicalGeometry): THREE.Object3D | null {
+  if (record.kind === "brep") return geometryFromBrep(record);
+  if (record.kind === "surface") return geometryFromSurface(record);
+  if (record.kind === "curve") {
+    const pts = tessellateCurve(record.curve, 64).map((p) => new THREE.Vector3(p.x, p.y, p.z));
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    return new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x88aacc }));
+  }
+  if (record.kind === "point") {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([record.point.x, record.point.y, record.point.z]), 3));
+    return new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 8, sizeAttenuation: false }));
+  }
+  return null;
+}
+
+function _deserializeSceneObj(s: SerializedSceneObj, canonicalStore?: CanonicalGeometryStore): THREE.Object3D | null {
   let obj: THREE.Object3D;
   if (s.geometry) {
     const geo = new THREE.BufferGeometry();
@@ -851,14 +908,16 @@ function _deserializeSceneObj(s: SerializedSceneObj): THREE.Object3D | null {
     const mat = new THREE.MeshStandardMaterial({ color: s.color ?? 0x888888, roughness: 0.6, metalness: 0.1 });
     obj = new THREE.Mesh(geo, mat);
   } else {
-    obj = new THREE.Group();
+    const canonicalId = s.userData?.[CANONICAL_GEOMETRY_USERDATA_KEY];
+    const canonical = typeof canonicalId === "string" ? canonicalStore?.get(canonicalId) : undefined;
+    obj = canonical ? (geometryFromCanonical(canonical) ?? new THREE.Group()) : new THREE.Group();
   }
   obj.position.fromArray(s.position);
   obj.quaternion.set(s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3]);
   obj.scale.fromArray(s.scale);
   obj.userData = { ...s.userData };
   if (s.children) {
-    for (const cs of s.children) { const child = _deserializeSceneObj(cs); if (child) obj.add(child); }
+    for (const cs of s.children) { const child = _deserializeSceneObj(cs, canonicalStore); if (child) obj.add(child); }
   }
   return obj;
 }
