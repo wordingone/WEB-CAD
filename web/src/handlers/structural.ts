@@ -18,8 +18,39 @@ import { DEFAULT_CEILING_OFFSET } from "../tools/index";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensions";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
-import { linkCanonicalSurface } from "./canonical-surface";
-import type { LineCurve } from "../nurbs/nurbs-curves";
+import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
+import type { LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+
+function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
+  const points = [
+    { x: minX, y: minY, z: 0 },
+    { x: maxX, y: minY, z: 0 },
+    { x: maxX, y: maxY, z: 0 },
+    { x: minX, y: maxY, z: 0 },
+    { x: minX, y: minY, z: 0 },
+  ];
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function linkExtrudedRectangleBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  height: number,
+  createdBy: string,
+): void {
+  linkCanonicalBrep(viewer, obj, extrudeBrep(rectangleProfile(minX, maxX, minY, maxY), { x: 0, y: 0, z: 1 }, height), createdBy);
+}
 
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
@@ -72,7 +103,12 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.creator = "wall";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkCanonicalSurface(viewer, mesh, "SdWall");
+    if (topProfile === "pitched") {
+      linkCanonicalSurface(viewer, mesh, "SdWall");
+    } else {
+      const t = (mesh.userData.wallThickness as number | undefined) ?? 0.2;
+      linkExtrudedRectangleBrep(viewer, mesh, -wallLenCheck / 2, wallLenCheck / 2, -t / 2, t / 2, effectiveH, "SdWall");
+    }
     viewer.addMesh(mesh, "brep");
     if (topProfile !== "pitched") attemptWallCornerJoins(mesh, viewer.getScene());
     onElementCommitted(mesh, viewer.getScene());
@@ -102,7 +138,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkCanonicalSurface(viewer, mesh, "SdSlab");
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, t, "SdSlab");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "slab", width: w, depth: d };
@@ -119,7 +155,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkCanonicalSurface(viewer, mesh, "SdColumn");
+    linkExtrudedRectangleBrep(viewer, mesh, -0.15, 0.15, -0.15, 0.15, 4, "SdColumn");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "column" };

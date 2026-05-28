@@ -158,7 +158,7 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
-  test("structural commands with NURBS sidecars link canonical surface records", () => {
+  test("simple structural commands keep sidecars while linking canonical extruded BReps", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerStructuralHandlers(viewer);
 
@@ -175,10 +175,12 @@ describe("BRep canonical migration characterization", () => {
       const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);
-      expect(canonical.kind).toBe("surface");
+      expect(canonical.kind).toBe("brep");
       expect(canonical.createdBy).toBe(verb);
-      if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-      expect(canonical.surface).toBe(obj?.userData.nurbsSurface);
+      if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+      expect(canonical.brep.shells).toHaveLength(1);
+      expect(canonical.brep.shells[0].faces).toHaveLength(6);
+      expect(canonical.brep.shells[0].isClosed).toBe(true);
     }
   });
 

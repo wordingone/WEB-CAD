@@ -6,12 +6,11 @@ import { resolveCPlane } from "../viewer/cplane";
 import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
-import { linkCanonicalSurface } from "./canonical-surface";
+import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
 import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
 import type { Line, Plane } from "../nurbs/nurbs-primitives";
-import type { Brep } from "../nurbs/nurbs-brep";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 
 const TWO_PI = Math.PI * 2;
@@ -73,30 +72,6 @@ function polylineProfile(points: Array<[number, number]>): PolylineCurve {
     parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
   }
   return { kind: "polyline", points: profilePoints, parameters };
-}
-
-function linkCanonicalBrep(viewer: Viewer, obj: THREE.Object3D, brep: Brep, createdBy: string): void {
-  const mesh = obj as THREE.Mesh;
-  const position = mesh.geometry?.getAttribute("position");
-  const record = viewer.getCanonicalGeometryStore().create({
-    kind: "brep",
-    brep,
-    source: "command",
-    createdBy,
-    displayMesh: {
-      revision: 1,
-      generatedAt: Date.now(),
-      vertexCount: position?.count,
-      derivation: "tessellated-brep",
-    },
-    metadata: {
-      creator: obj.userData.creator,
-      cplaneKind: obj.userData.cplaneKind,
-      levelId: obj.userData.levelId,
-      layerId: obj.userData.layerId,
-    },
-  });
-  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
 }
 
 export function registerNurbsHandlers(viewer: Viewer): void {
