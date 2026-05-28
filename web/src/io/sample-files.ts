@@ -31,11 +31,11 @@ export const SAMPLES: SampleFile[] = [
   // from raw IFC on every selection.
   {
     id: "kit-fzk-haus",
-    label: "KIT FZK-Haus - static canonical BRep/NURBS project",
+    label: "KIT FZK-Haus - actual IFC mesh to planar BRep/NURBS",
     path: "samples/AC20-FZK-Haus.webcad",
     format: "webcad",
-    size: "1.1 MB",
-    note: "Static WEB-CAD canonical project generated from FZK-Haus dimensions; loads BRep/NURBS-ready records instead of dynamic raw IFC triangulation.",
+    size: "29.4 MB",
+    note: "WEB-CAD canonical project generated algorithmically from the bundled FZK IFC via web-ifc placed meshes; each source triangle becomes an exact planar trimmed BRep face.",
   },
   {
     id: "kit-office",

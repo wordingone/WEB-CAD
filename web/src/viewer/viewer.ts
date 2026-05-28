@@ -30,7 +30,7 @@ import {
   type CanonicalGeometryStore,
 } from "../geometry/canonical-geometry.js";
 import { tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
-import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
+import { pointAtUV, tessellateSurface } from "../nurbs/nurbs-surfaces.js";
 import {
   inspectCanonicalClipping,
   inspectCanonicalGeometry,
@@ -881,6 +881,31 @@ function geometryFromBrep(record: CanonicalGeometry & { kind: "brep" }): THREE.M
   let offset = 0;
   for (const shell of record.brep.shells) {
     for (const face of shell.faces) {
+      const trim = face.outerLoop.curves[0];
+      if (trim?.kind === "polyline" && trim.points.length >= 4) {
+        const pts = trim.points;
+        const closed = pts.length > 1
+          && Math.abs(pts[0].x - pts[pts.length - 1].x) < 1e-9
+          && Math.abs(pts[0].y - pts[pts.length - 1].y) < 1e-9;
+        const loop = closed ? pts.slice(0, -1) : pts;
+        if (loop.length >= 3) {
+          const world = loop.map((p) => pointAtUV(face.surface, p.x, p.y));
+          const a = new THREE.Vector3(world[0].x, world[0].y, world[0].z);
+          const b = new THREE.Vector3(world[1].x, world[1].y, world[1].z);
+          const c = new THREE.Vector3(world[2].x, world[2].y, world[2].z);
+          const normal = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+          if (!face.orientation) normal.multiplyScalar(-1);
+          for (const p of world) {
+            positions.push(p.x, p.y, p.z);
+            normals.push(normal.x, normal.y, normal.z);
+          }
+          for (let i = 1; i + 1 < loop.length; i++) {
+            indices.push(offset, offset + i, offset + i + 1);
+          }
+          offset += loop.length;
+          continue;
+        }
+      }
       const tess = tessellateSurface(face.surface, 4, 4);
       positions.push(...tess.positions);
       normals.push(...tess.normals);

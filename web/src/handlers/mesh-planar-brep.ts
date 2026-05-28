@@ -2,8 +2,11 @@ import * as THREE from "three";
 import {
   BREP_DEFAULT_TOLERANCE,
   type Brep,
+  type BrepEdge,
   type BrepFace,
+  type BrepVertex,
 } from "../nurbs/nurbs-brep";
+import type { Curve } from "../nurbs/nurbs-curves";
 import { Interval, Plane, type Point3 } from "../nurbs/nurbs-primitives";
 import type { PlaneSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
@@ -11,6 +14,20 @@ import type { CanonicalGeometryStore } from "../geometry/canonical-geometry";
 
 function point(v: THREE.Vector3): Point3 {
   return { x: v.x, y: v.y, z: v.z };
+}
+
+function lineCurve(a: THREE.Vector3, b: THREE.Vector3): Curve {
+  return {
+    kind: "line",
+    from: point(a),
+    to: point(b),
+    domain: Interval.create(0, a.distanceTo(b)),
+  };
+}
+
+function vertexKey(v: THREE.Vector3): string {
+  const q = (n: number) => Math.round(n * 1e6);
+  return `${q(v.x)},${q(v.y)},${q(v.z)}`;
 }
 
 function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): BrepFace | null {
@@ -41,9 +58,22 @@ function planeFaceFromTriangle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vect
     uExtent: Interval.create(uMin, uMax),
     vExtent: Interval.create(vMin, vMax),
   };
+  const trimPoints = uv.map((p) => ({ x: p.u, y: p.v, z: 0 }));
+  trimPoints.push({ ...trimPoints[0] });
+  const parameters = [0];
+  for (let i = 1; i < trimPoints.length; i++) {
+    const p = trimPoints[i - 1];
+    const q = trimPoints[i];
+    parameters.push(parameters[i - 1] + Math.hypot(q.x - p.x, q.y - p.y));
+  }
+  const outerLoopCurve: Curve = {
+    kind: "polyline",
+    points: trimPoints,
+    parameters,
+  };
   return {
     surface,
-    outerLoop: { curves: [], orientation: true },
+    outerLoop: { curves: [outerLoopCurve], orientation: true },
     innerLoops: [],
     orientation: true,
     tolerance: BREP_DEFAULT_TOLERANCE,
@@ -56,13 +86,20 @@ export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
   if (!position || position.count < 3) return null;
 
   const faces: BrepFace[] = [];
+  const triangleVerts: Array<[THREE.Vector3, THREE.Vector3, THREE.Vector3]> = [];
   const tri = (ia: number, ib: number, ic: number) => {
+    const a = new THREE.Vector3().fromBufferAttribute(position, ia);
+    const b = new THREE.Vector3().fromBufferAttribute(position, ib);
+    const c = new THREE.Vector3().fromBufferAttribute(position, ic);
     const face = planeFaceFromTriangle(
-      new THREE.Vector3().fromBufferAttribute(position, ia),
-      new THREE.Vector3().fromBufferAttribute(position, ib),
-      new THREE.Vector3().fromBufferAttribute(position, ic),
+      a,
+      b,
+      c,
     );
-    if (face) faces.push(face);
+    if (face) {
+      triangleVerts.push([a, b, c]);
+      faces.push(face);
+    }
   };
 
   const index = geometry?.getIndex();
@@ -72,7 +109,55 @@ export function meshToPlanarBrep(mesh: THREE.Mesh): Brep | null {
     for (let i = 0; i + 2 < position.count; i += 3) tri(i, i + 1, i + 2);
   }
   if (faces.length === 0) return null;
-  return { shells: [{ faces, edges: [], vertices: [], isClosed: true }] };
+
+  const vertices: BrepVertex[] = [];
+  const vertexByKey = new Map<string, number>();
+  const getVertex = (v: THREE.Vector3): number => {
+    const key = vertexKey(v);
+    const existing = vertexByKey.get(key);
+    if (existing !== undefined) return existing;
+    const idx = vertices.length;
+    vertexByKey.set(key, idx);
+    vertices.push({ point: point(v), edgeIndices: [], tolerance: BREP_DEFAULT_TOLERANCE });
+    return idx;
+  };
+
+  type EdgeDraft = {
+    a: number;
+    b: number;
+    curve: Curve;
+    faceIndices: number[];
+  };
+  const edgesByKey = new Map<string, EdgeDraft>();
+  for (let faceIndex = 0; faceIndex < triangleVerts.length; faceIndex++) {
+    const triVerts = triangleVerts[faceIndex];
+    for (const [from, to] of [[triVerts[0], triVerts[1]], [triVerts[1], triVerts[2]], [triVerts[2], triVerts[0]]] as const) {
+      const va = getVertex(from);
+      const vb = getVertex(to);
+      const key = va < vb ? `${va}:${vb}` : `${vb}:${va}`;
+      let draft = edgesByKey.get(key);
+      if (!draft) {
+        draft = { a: va, b: vb, curve: lineCurve(from, to), faceIndices: [] };
+        edgesByKey.set(key, draft);
+      }
+      draft.faceIndices.push(faceIndex);
+    }
+  }
+
+  const edges: BrepEdge[] = [];
+  for (const draft of edgesByKey.values()) {
+    const edgeIndex = edges.length;
+    vertices[draft.a].edgeIndices.push(edgeIndex);
+    vertices[draft.b].edgeIndices.push(edgeIndex);
+    edges.push({
+      curve: draft.curve,
+      faceIndex1: draft.faceIndices[0],
+      faceIndex2: draft.faceIndices[1] ?? null,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+  const isClosed = edges.length > 0 && edges.every((edge) => edge.faceIndex2 !== null);
+  return { shells: [{ faces, edges, vertices, isClosed }] };
 }
 
 export function linkPlanarizedMeshEditBrep(
