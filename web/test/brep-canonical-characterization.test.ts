@@ -479,6 +479,13 @@ describe("BRep canonical migration characterization", () => {
     expect(viewerScene).toContain("filename: importFilename");
   });
 
+  test("active mesh fallback export data prefers canonical geometry over display buffers", () => {
+    const viewerScene = source("viewer/viewer-scene.ts");
+
+    expect(viewerScene).toContain("appendCanonical(v.getCanonicalGeometryForObject(v.currentMesh)");
+    expect(viewerScene).toContain("appendCanonical(v.getCanonicalGeometryForObject(child), child.matrixWorld");
+  });
+
   test("op-tool UI boolean path routes through canonical command handlers", () => {
     const opTool = source("viewer/op-tool.ts");
 

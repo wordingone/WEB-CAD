@@ -3,7 +3,9 @@ import type { Viewer, MeshIn, Bounds } from "./viewer.js";
 import { fitCamera } from "./viewer-camera.js";
 import { clearSelected } from "./selection-state.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
+import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
 import { linkPlanarizedMeshImportBrep } from "../handlers/mesh-planar-brep.js";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
 
 export function clearScene(v: Viewer): void {
   v.getCanonicalGeometryStore().clear();
@@ -136,7 +138,39 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
 }
 
 export function getActiveMeshData(v: Viewer): { vertices: Float32Array; indices: Uint32Array } | null {
+  const appendCanonical = (
+    canonical: CanonicalGeometry | undefined,
+    matrix: THREE.Matrix4,
+    verts: number[],
+    idx: number[],
+  ): boolean => {
+    if (!canonical || (canonical.kind !== "brep" && canonical.kind !== "surface")) return false;
+    const tmp = new THREE.Vector3();
+    const appendSurface = (surface: Extract<CanonicalGeometry, { kind: "surface" }>["surface"], resolution: number) => {
+      const tess = tessellateSurface(surface, resolution, resolution);
+      const baseIndex = verts.length / 3;
+      for (let i = 0; i < tess.positions.length; i += 3) {
+        tmp.set(tess.positions[i], tess.positions[i + 1], tess.positions[i + 2]);
+        tmp.applyMatrix4(matrix);
+        verts.push(tmp.x, tmp.y, tmp.z);
+      }
+      for (const index of tess.indices) idx.push(baseIndex + index);
+      return tess.positions.length > 0 && tess.indices.length > 0;
+    };
+    if (canonical.kind === "surface") return appendSurface(canonical.surface, 16);
+    let appended = false;
+    for (const shell of canonical.brep.shells) {
+      for (const face of shell.faces) appended = appendSurface(face.surface, 4) || appended;
+    }
+    return appended;
+  };
+
   if (v.currentMesh) {
+    const canonicalVerts: number[] = [];
+    const canonicalIdx: number[] = [];
+    if (appendCanonical(v.getCanonicalGeometryForObject(v.currentMesh), new THREE.Matrix4(), canonicalVerts, canonicalIdx)) {
+      return { vertices: new Float32Array(canonicalVerts), indices: new Uint32Array(canonicalIdx) };
+    }
     const g = v.currentMesh.geometry;
     const pos = g.attributes.position?.array as Float32Array | undefined;
     const idx = g.index?.array;
@@ -150,6 +184,7 @@ export function getActiveMeshData(v: Viewer): { vertices: Float32Array; indices:
     const matWorld = new THREE.Matrix4();
     v.currentObject.updateMatrixWorld(true);
     v.currentObject.traverse((child) => {
+      if (appendCanonical(v.getCanonicalGeometryForObject(child), child.matrixWorld, verts, idx)) return;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       const g = mesh.geometry as THREE.BufferGeometry;
