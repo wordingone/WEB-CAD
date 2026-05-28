@@ -7,6 +7,7 @@ import {
 import { Interval, Plane, type Point3 } from "../nurbs/nurbs-primitives";
 import type { PlaneSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
+import type { CanonicalGeometryStore } from "../geometry/canonical-geometry";
 
 function point(v: THREE.Vector3): Point3 {
   return { x: v.x, y: v.y, z: v.z };
@@ -133,6 +134,37 @@ export function linkPlanarizedMeshCommandBrep(
     metadata: {
       ...metadata,
       derivation: "planarized-display-mesh",
+    },
+  });
+  store.linkObject(mesh, record.id);
+  return true;
+}
+
+export function linkPlanarizedMeshImportBrep(
+  store: CanonicalGeometryStore,
+  mesh: THREE.Mesh,
+  createdBy: string,
+  metadata: Record<string, unknown>,
+): boolean {
+  if (store.resolveObject(mesh)) return false;
+  const brep = meshToPlanarBrep(mesh);
+  if (!brep) return false;
+  const position = mesh.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "import",
+    createdBy,
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      vertexCount: position?.count,
+      triangleCount: position ? Math.floor((mesh.geometry.index?.count ?? position.count) / 3) : undefined,
+      derivation: "tessellated-brep",
+    },
+    metadata: {
+      ...metadata,
+      derivation: "planarized-import-mesh",
     },
   });
   store.linkObject(mesh, record.id);

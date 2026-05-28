@@ -3,6 +3,7 @@ import type { Viewer, MeshIn, Bounds } from "./viewer.js";
 import { fitCamera } from "./viewer-camera.js";
 import { clearSelected } from "./selection-state.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
+import { linkPlanarizedMeshImportBrep } from "../handlers/mesh-planar-brep.js";
 
 export function clearScene(v: Viewer): void {
   v.getCanonicalGeometryStore().clear();
@@ -79,6 +80,11 @@ export function setMesh(v: Viewer, mesh: MeshIn, bounds: Bounds): void {
   });
   const m = new THREE.Mesh(geometry, material);
   m.position.set(cx, cy, cz);
+  m.userData.kind = "brep";
+  m.userData.creator = "mesh-import";
+  linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), m, "mesh-import", {
+    source: "setMesh",
+  });
   v.scene.add(m); // audit-undo-ok: setMesh is the file-load path (IFC/mesh import); currentMesh is the model view object, not a user spatial action
   v.currentMesh = m;
   const edges = new THREE.EdgesGeometry(geometry, 25);
@@ -103,6 +109,21 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
   wrapper.position.set(0, 0, 0);
   object.position.sub(new THREE.Vector3(cx, cy, cz));
   wrapper.add(object);
+  object.updateMatrixWorld(true);
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.userData.kind ??= "brep";
+    mesh.userData.creator ??= "mesh-import";
+    linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), mesh, String(mesh.userData.creator), {
+      source: "setObject",
+      objectName: mesh.name || undefined,
+      format: mesh.userData.ifcClass ? "ifc" : undefined,
+      expressID: mesh.userData.expressID,
+      ifcClass: mesh.userData.ifcClass,
+      guid: mesh.userData.guid,
+    });
+  });
   v.scene.add(wrapper); // audit-undo-ok: setObject is the IFC file-load path; wrapper is the IFC scene graph root, not a user spatial action
   v.currentObject = wrapper;
   const hw = (bounds.max[0] - bounds.min[0]) / 2;

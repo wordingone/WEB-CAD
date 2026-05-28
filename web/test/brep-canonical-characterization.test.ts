@@ -467,6 +467,13 @@ describe("BRep canonical migration characterization", () => {
     expect(domEvents).toContain("getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target)");
   });
 
+  test("imported mesh objects are linked into canonical BRep records at scene entry", () => {
+    const viewerScene = source("viewer/viewer-scene.ts");
+
+    expect(viewerScene).toContain("linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), m, \"mesh-import\"");
+    expect(viewerScene).toContain("linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), mesh, String(mesh.userData.creator)");
+  });
+
   test("op-tool UI boolean path routes through canonical command handlers", () => {
     const opTool = source("viewer/op-tool.ts");
 
