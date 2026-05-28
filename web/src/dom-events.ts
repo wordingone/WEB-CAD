@@ -522,8 +522,10 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
       if (!creator || IFC_SKIP_CREATORS.has(creator)) return;
       if (obj.parent && obj.parent.userData.creator) return;
       const verts: number[] = [], idx: number[] = [];
+      const canonicalSurfaces: ReturnType<typeof canonicalGeometryToIfcNurbsSurfaces> = [];
       obj.updateMatrixWorld(true);
       obj.traverse((child) => {
+        canonicalSurfaces.push(...canonicalGeometryToIfcNurbsSurfaces(viewer.getCanonicalGeometryForObject(child), child.matrixWorld));
         const mesh = child as THREE.Mesh;
         if (!mesh.isMesh) return;
         const g = mesh.geometry as THREE.BufferGeometry;
@@ -539,7 +541,6 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         else { for (let j = 0; j < Math.floor(pos.length / 3); j++) idx.push(baseIndex + j); }
       });
       const sidecarSurface = obj.userData.nurbsSurface as Surface | undefined;
-      const canonicalSurfaces = canonicalGeometryToIfcNurbsSurfaces(viewer.getCanonicalGeometryForObject(obj), obj.matrixWorld);
       const sidecarIfcSurface = sidecarSurface ? surfaceToIfcNurbs(sidecarSurface, obj.matrixWorld) : null;
       const nurbsSurfaces = canonicalSurfaces.length > 0
         ? canonicalSurfaces

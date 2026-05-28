@@ -436,11 +436,11 @@ describe("BRep canonical migration characterization", () => {
     expect(viewer).toContain("_deserializeSceneObj");
   });
 
-  test("IFC export currently gathers mesh vertices and indices from the scene", () => {
+  test("IFC export resolves canonical NURBS surfaces across scene hierarchies while retaining mesh fallback", () => {
     const domEvents = source("dom-events.ts");
 
     expect(domEvents).toContain("function sceneElementsForExport(): IfcSceneElement[]");
-    expect(domEvents).toContain("canonicalGeometryToIfcNurbsSurfaces(viewer.getCanonicalGeometryForObject(obj), obj.matrixWorld)");
+    expect(domEvents).toContain("canonicalSurfaces.push(...canonicalGeometryToIfcNurbsSurfaces(viewer.getCanonicalGeometryForObject(child), child.matrixWorld))");
     expect(domEvents).toContain("const g = mesh.geometry as THREE.BufferGeometry");
     expect(domEvents).toContain("const pos = g.attributes.position?.array as Float32Array | undefined");
     expect(domEvents).toContain("mesh: { vertices: new Float32Array(verts), indices: new Uint32Array(idx) }");
