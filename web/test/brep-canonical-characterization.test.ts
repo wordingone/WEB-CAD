@@ -710,7 +710,7 @@ describe("BRep canonical migration characterization", () => {
     expect(opTool).toContain(': op === "difference" ? "SdBooleanDifference"');
     expect(opTool).toContain(': "SdBooleanIntersection"');
     expect(opTool).toContain("const result = dispatchSync(verb, args)");
-    expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, mesh, h2)");
+    expect(opTool).toContain('dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 })');
     expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, extruded, 3.0)");
   });
 

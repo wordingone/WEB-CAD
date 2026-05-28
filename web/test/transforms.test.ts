@@ -728,7 +728,7 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(dispatched[1].args).toMatchObject({ origin: [1, 2, 1.7], normal: [0, 0, -1] });
   });
 
-  test("Unsupported tool (extrude) logs TODO, returns null, no chain emitted", async () => {
+  test("emitClickWorld does not directly own op-tool clicks such as extrude", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();
     resetPending();

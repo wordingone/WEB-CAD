@@ -676,13 +676,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const h = _opPreview ? (new THREE.Box3().setFromObject(_opPreview)).getSize(new THREE.Vector3()).z : 1;
     opClearPreview(viewer);
     const h2 = Math.max(0.05, h);
-    const mesh = opBuildExtrudeMesh(phase.profile, h2);
-    mesh.userData.kind = "brep";
-    mesh.userData.creator = "extrude";
-    linkOpToolExtrudeCanonical(viewer, mesh, h2);
-    viewer.addMesh(mesh, "brep", { noHistory: true });
-    _hooks.appendToCreateSequence(`// extrude h=${round(h2)} from profile creator=${phase.profile.userData.creator ?? "unknown"}`);
-    pushAction(mesh, "extrude");
+    const result = dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 }) as { error?: string } | null;
+    if (result?.error) {
+      ptPrompt(`Extrude failed: ${result.error}  [Escape = cancel]`);
+      return true;
+    }
+    _hooks.appendToCreateSequence(`SdExtrude({object_id:"${phase.profile.uuid}",distance:${round(h2)}})`);
     opFinish(viewer);
     return true;
   }
