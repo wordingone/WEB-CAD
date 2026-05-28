@@ -36,8 +36,8 @@ function linkCanonicalBooleanResult(
   objA.updateMatrixWorld(true);
   objB.updateMatrixWorld(true);
   const store = viewer.getCanonicalGeometryStore();
-  const canonicalA = store.resolveObject(objA);
-  const canonicalB = store.resolveObject(objB);
+  const canonicalA = store.resolveObjectOrAncestor(objA);
+  const canonicalB = store.resolveObjectOrAncestor(objB);
   if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return;
   const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
   const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));

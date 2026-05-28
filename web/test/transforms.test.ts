@@ -754,6 +754,59 @@ describe("canonical geometry transform instances", () => {
     expect(faceCount).toBeLessThan(12);
   });
 
+  test("SdBooleanUnion resolves child display operands through canonical parent BReps", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const parentA = new THREE.Group();
+    const parentB = new THREE.Group();
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial());
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial());
+    b.position.x = 1;
+    a.userData.kind = "brep";
+    b.userData.kind = "brep";
+    parentA.add(a);
+    parentB.add(b);
+    scene.add(parentA, parentB);
+    const recordA = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    store.linkObject(parentA, recordA.id);
+    store.linkObject(parentB, recordB.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdBooleanUnion", { a: a.uuid, b: b.uuid });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(1);
+    const output = added[0];
+    const canonical = store.resolveObject(output);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("boolean-union");
+    expect(canonical.metadata).toMatchObject({
+      operation: "boolean-union",
+      operands: [recordA.id, recordB.id],
+    });
+    const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
+    expect(faceCount).toBeLessThan(12);
+  });
+
   test("SdFillet edge chamfer links planarized output to a canonical BRep record", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
