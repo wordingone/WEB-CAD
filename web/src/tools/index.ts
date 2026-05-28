@@ -342,6 +342,13 @@ type ToolHandler = {
   minPoints?: number; // minimum point count required to commit unlimited-click tools
 };
 
+export type CreateToolCausalSpec = {
+  route: "create";
+  clicks: number;
+  chain: boolean;
+  minPoints?: number;
+};
+
 // 9 ft above the active level — canonical offset for ceiling and roof placement.
 export const DEFAULT_CEILING_OFFSET = 2.7432;
 
@@ -404,7 +411,6 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   curve:       { clicks: -1, handler: atZ((pts) => buildCurve(pts)) },
   spline:      { clicks: -1, minPoints: 4, handler: atZ((pts) => buildSpline(pts)!) },
   point:       { clicks: 1, handler: atZ(([p]) => buildPoint(p)) },
-  extrude:     { clicks: 3, handler: atZ(([c1, c2, c3]) => buildBox(c1, c2, c3)) },
   beam:        { clicks: 2, handler: atZ(([a, b]) => buildBeam(a, b)) },
   roof:        { clicks: 2, handler: atTopOfLevel(([a, b]) => buildRoof(a, b), DEFAULT_CEILING_OFFSET) },
   space:       { clicks: 2, handler: atZ(([a, b]) => buildSpace(a, b)) },
@@ -422,6 +428,18 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   clip:         { clicks: 1, handler: ([p]) => buildClipPlanePlan(p) },
   "clip-section": { clicks: 2, handler: ([a, b]) => buildClipPlaneSection(a, b) },
 };
+
+export function getCreateToolCausalSpecs(): Record<string, CreateToolCausalSpec> {
+  return Object.fromEntries(Object.entries(TOOL_HANDLERS).map(([id, handler]) => [
+    id,
+    {
+      route: "create" as const,
+      clicks: handler.clicks,
+      chain: handler.chain === true,
+      ...(handler.minPoints !== undefined ? { minPoints: handler.minPoints } : {}),
+    },
+  ]));
+}
 
 const TOOL_TODOS: Record<string, string> = {
   arc:     "draw(start).arcTo(end, [via]).sketchOnPlane('XY').extrude(thickness)",
