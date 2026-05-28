@@ -6,7 +6,7 @@ import {
 } from "../src/nurbs/brep-boolean";
 import type { Brep, BrepFace, BrepShell } from "../src/nurbs/nurbs-brep";
 import { BREP_DEFAULT_TOLERANCE } from "../src/nurbs/nurbs-brep";
-import type { PlaneSurface } from "../src/nurbs/nurbs-surfaces";
+import type { NurbsSurface, PlaneSurface } from "../src/nurbs/nurbs-surfaces";
 import { Plane, Interval } from "../src/nurbs/nurbs-primitives";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,6 +36,38 @@ function planeFace(
   };
 }
 
+function planeToLinearNurbs(surface: PlaneSurface): NurbsSurface {
+  const corner = (u: number, v: number): number[] => {
+    const p = surface.plane.origin;
+    const x = surface.plane.xAxis;
+    const y = surface.plane.yAxis;
+    return [
+      p.x + x.x * u + y.x * v,
+      p.y + x.y * u + y.y * v,
+      p.z + x.z * u + y.z * v,
+    ];
+  };
+  const uMin = surface.uExtent.min;
+  const uMax = surface.uExtent.max;
+  const vMin = surface.vExtent.min;
+  const vMax = surface.vExtent.max;
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: [2, 2],
+    cvCount: [2, 2],
+    knots: [[uMin, uMax], [vMin, vMax]],
+    cvs: [
+      ...corner(uMin, vMin),
+      ...corner(uMin, vMax),
+      ...corner(uMax, vMin),
+      ...corner(uMax, vMax),
+    ],
+    cvStride: [6, 3],
+  };
+}
+
 /**
  * Axis-aligned box [xMin,xMax] × [yMin,yMax] × [zMin,zMax].
  * All 6 PlaneSurface faces with outward normals, ±x/y/z extent = half-side.
@@ -59,6 +91,23 @@ function axisBox(
 
   const shell: BrepShell = { faces, edges: [], vertices: [], isClosed: true };
   return { shells: [shell] };
+}
+
+function nurbsAxisBox(
+  xMin: number, xMax: number,
+  yMin: number, yMax: number,
+  zMin: number, zMax: number,
+): Brep {
+  const box = axisBox(xMin, xMax, yMin, yMax, zMin, zMax);
+  return {
+    shells: box.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map((face) => ({
+        ...face,
+        surface: planeToLinearNurbs(face.surface as PlaneSurface),
+      })),
+    })),
+  };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -132,6 +181,31 @@ describe("nurbs backend — difference", () => {
     if (!result.ok) return;
     const faceCount = result.brep.shells.reduce((n, s) => n + s.faces.length, 0);
     expect(faceCount).toBe(6);
+  });
+});
+
+describe("nurbs backend - exact planar NURBS surfaces", () => {
+  test("union recognizes degree-1 planar NURBS faces as planar BRep faces", () => {
+    const boxA = nurbsAxisBox(0, 1, 0, 1, 0, 1);
+    const boxB = nurbsAxisBox(1, 2, 0, 1, 0, 1);
+
+    const result = brepUnion(boxA, boxB, { backend: "nurbs" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const faceCount = result.brep.shells.reduce((n, s) => n + s.faces.length, 0);
+    expect(faceCount).toBeLessThan(12);
+    expect(result.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+  });
+
+  test("difference and intersection do not reject exact planar NURBS boxes", () => {
+    const boxA = nurbsAxisBox(0, 2, 0, 2, 0, 2);
+    const boxB = nurbsAxisBox(1, 3, 0, 2, 0, 2);
+
+    const difference = brepDifference(boxA, boxB, { backend: "nurbs" });
+    const intersection = brepIntersection(boxA, boxB, { backend: "nurbs" });
+
+    expect(difference.ok).toBe(true);
+    expect(intersection.ok).toBe(true);
   });
 });
 
