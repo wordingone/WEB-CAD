@@ -493,6 +493,32 @@ describe("Phase 3 — create-mode click-to-place", () => {
     });
   });
 
+  test("Door, window, and opening tools link click-created display meshes to canonical BRep envelopes", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    for (const [tool, createdBy] of [
+      ["door", "create-door"],
+      ["window", "create-window"],
+      ["opening", "create-opening"],
+    ] as const) {
+      clearCreateSequence();
+      resetPending();
+      const v = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+      const result = emitClickWorld(v as any, { x: 2, y: 1 }, { tool });
+
+      expect(result).not.toBeNull();
+      const canonical = result?.mesh ? store.resolveObject(result.mesh) : undefined;
+      expect(canonical?.kind).toBe("brep");
+      if (canonical?.kind !== "brep") throw new Error(`expected canonical BRep for ${tool}`);
+      expect(canonical.createdBy).toBe(createdBy);
+      expect(canonical.brep.shells[0].faces).toHaveLength(6);
+      expect(canonical.brep.shells[0].isClosed).toBe(true);
+    }
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();

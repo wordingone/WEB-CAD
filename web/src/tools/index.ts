@@ -732,6 +732,25 @@ function linkCreateModeStructuralCanonical(
   if (!a) return;
   if (linkCreateModeReferenceCanonical(viewer, tool, obj, pts)) return;
 
+  if (tool === "door") {
+    const width = (obj.userData.voidW as number | undefined) ?? FZK_DOOR_W;
+    const height = (obj.userData.voidH as number | undefined) ?? FZK_DOOR_H;
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, width, 0.2, height, "create-door");
+    return;
+  }
+
+  if (tool === "window") {
+    const width = (obj.userData.voidW as number | undefined) ?? FZK_WINDOW_W;
+    const height = (obj.userData.voidH as number | undefined) ?? FZK_WINDOW_H;
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, width, 0.2, height, "create-window");
+    return;
+  }
+
+  if (tool === "opening") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, 1, 0.25, 2, "create-opening");
+    return;
+  }
+
   if (tool === "column") {
     linkCreateModeExtrudedRectangleBrep(viewer, obj, 0.3, 0.3, DEFAULT_COLUMN_HEIGHT, "create-column");
     return;
