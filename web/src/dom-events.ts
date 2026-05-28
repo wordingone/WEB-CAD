@@ -300,6 +300,8 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
   }
 
   function finalizeFileLoad(scene: LoadedScene, filename: string) {
+    scene.object.userData.importFormat = scene.format;
+    scene.object.userData.importFilename = filename;
     viewer.setObject(scene.object, scene.bounds);
     clearHistory();
     pendingStl = null; pendingStep = null;

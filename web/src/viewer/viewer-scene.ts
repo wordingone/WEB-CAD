@@ -102,6 +102,8 @@ export function setMesh(v: Viewer, mesh: MeshIn, bounds: Bounds): void {
 
 export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): void {
   clearScene(v);
+  const importFormat = typeof object.userData.importFormat === "string" ? object.userData.importFormat : undefined;
+  const importFilename = typeof object.userData.importFilename === "string" ? object.userData.importFilename : undefined;
   const cx = (bounds.min[0] + bounds.max[0]) / 2;
   const cy = (bounds.min[1] + bounds.max[1]) / 2;
   const cz = bounds.min[2];
@@ -118,7 +120,8 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
     linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), mesh, String(mesh.userData.creator), {
       source: "setObject",
       objectName: mesh.name || undefined,
-      format: mesh.userData.ifcClass ? "ifc" : undefined,
+      format: importFormat ?? (mesh.userData.ifcClass ? "ifc" : undefined),
+      filename: importFilename,
       expressID: mesh.userData.expressID,
       ifcClass: mesh.userData.ifcClass,
       guid: mesh.userData.guid,
