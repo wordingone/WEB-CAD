@@ -5,6 +5,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import * as THREE from "three";
 import type { Viewer } from "../src/viewer/viewer";
 import { registerSketchHandlers } from "../src/handlers/sketch";
+import { linkCanonicalSurface } from "../src/handlers/canonical-surface";
 import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
 import type { Surface } from "../src/nurbs/nurbs-surfaces";
 import {
@@ -30,6 +31,43 @@ beforeEach(() => {
 });
 
 type OkResult = { ok: true; canonical: string; result: { created: string } };
+
+function testPlaneSurface(offsetX: number): Surface {
+  return {
+    kind: "plane",
+    plane: {
+      origin: { x: offsetX, y: 0, z: 0 },
+      xAxis: { x: 1, y: 0, z: 0 },
+      yAxis: { x: 0, y: 1, z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    uDomain: { min: 0, max: 1 },
+    vDomain: { min: 0, max: 1 },
+    uExtent: { min: 0, max: 1 },
+    vExtent: { min: 0, max: 1 },
+  };
+}
+
+describe("canonical surface linking", () => {
+  test("direct surface input wins over stale userData sidecars", () => {
+    const { viewer, store } = makeViewer();
+    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    const stale = testPlaneSurface(1);
+    const exact = testPlaneSurface(2);
+    mesh.userData.creator = "surface-test";
+    mesh.userData.nurbsSurface = stale;
+
+    linkCanonicalSurface(viewer, mesh, "surface-test", exact);
+
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("surface");
+    if (canonical.kind !== "surface") throw new Error("expected canonical surface");
+    expect(canonical.surface).toBe(exact);
+    expect(canonical.surface).not.toBe(stale);
+  });
+});
 
 describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
   test("revolve mesh has userData.nurbsSurface after dispatch", () => {

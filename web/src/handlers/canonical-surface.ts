@@ -16,9 +16,9 @@ function meshTriangleCount(mesh: THREE.Mesh): number | undefined {
   return pos ? Math.floor(pos.count / 3) : undefined;
 }
 
-export function linkCanonicalSurface(viewer: Viewer, obj: THREE.Object3D, createdBy: string): void {
+export function linkCanonicalSurface(viewer: Viewer, obj: THREE.Object3D, createdBy: string, surfaceOverride?: Surface): void {
   const store = (viewer as CanonicalGeometryViewer).getCanonicalGeometryStore?.();
-  const surface = obj.userData.nurbsSurface as Surface | undefined;
+  const surface = surfaceOverride ?? (obj.userData.nurbsSurface as Surface | undefined);
   if (!store || !surface) return;
   const mesh = obj as THREE.Mesh;
   const position = mesh.geometry?.getAttribute("position");

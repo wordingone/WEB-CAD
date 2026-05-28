@@ -372,7 +372,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "revolution";
       obj.userData.creator = "revolve";
-      linkCanonicalSurface(viewer, obj, "SdRevolve");
+      linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
       viewer.addMesh(obj, "mesh");
       return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end };
     } catch (e) {
@@ -389,7 +389,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "sweep";
       obj.userData.creator = "sweep";
-      linkCanonicalSurface(viewer, obj, "SdSweep");
+      linkCanonicalSurface(viewer, obj, "SdSweep", surface);
       viewer.addMesh(obj, "mesh");
       return { created: "sweep" };
     } catch (e) {
@@ -410,7 +410,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess, surface);
       obj.userData.kind = "loft";
       obj.userData.creator = "loft";
-      linkCanonicalSurface(viewer, obj, "SdLoft");
+      linkCanonicalSurface(viewer, obj, "SdLoft", surface);
       viewer.addMesh(obj, "mesh");
       return { created: "loft", curveCount: curves.length };
     } catch (e) {
