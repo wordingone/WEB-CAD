@@ -546,6 +546,14 @@ describe("BRep canonical migration characterization", () => {
     expect(rebuiltPosition.count).toBeGreaterThan(0);
   });
 
+  test("top-level handler registration delegates BRep tools to the canonical BRep-op module only", () => {
+    const registerHandlers = source("register-handlers.ts");
+
+    expect(registerHandlers).toContain("registerBrepOpHandlers(viewer)");
+    expect(registerHandlers.match(/registerHandler\("Sd(?:Explode|Join|Rebuild|Contour)"/g) ?? []).toHaveLength(0);
+    expect(registerHandlers).not.toContain("full NURBS reparameterisation deferred");
+  });
+
   test("op-tool extrude meshes can link to canonical BReps from retained footprints", () => {
     const { viewer, store } = makeViewer();
     const mesh = new THREE.Mesh(

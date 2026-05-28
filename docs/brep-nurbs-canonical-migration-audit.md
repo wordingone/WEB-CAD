@@ -75,7 +75,7 @@ These are not necessarily bugs in current user behavior; they are migration haza
 - `web/src/dom-events.ts` `sceneElementsForExport()` gathers world-space mesh vertices/indices for IFC export; `IfcSceneElement.nurbsSurface` exists but is not generally populated from canonical source geometry.
 - `web/src/handlers/nurbs.ts` is named NURBS but creates `THREE.SphereGeometry`, `CylinderGeometry`, `ConeGeometry`, `ExtrudeGeometry`, or structural mesh boxes.
 - `web/src/handlers/structural.ts` and `web/src/tools/structural.ts` mostly generate `THREE.Mesh` or `THREE.Group` output and then tag it as `kind = "brep"`.
-- `web/src/register-handlers.ts` BRep ops (`SdExplode`, `SdJoin`, `SdRebuild`, `SdContour`) operate on `THREE.Mesh`/`BufferGeometry`, with `SdRebuild` returning a deferred note rather than rebuilding a NURBS surface.
+- `web/src/handlers/brep-ops.ts` now owns BRep ops (`SdExplode`, `SdJoin`, `SdRebuild`, `SdContour`) and links canonical edit results where source BRep records exist; remaining hazards are incomplete topology sewing, contour robustness, and fallback mesh paths when no canonical BRep source exists.
 - `web/src/viewer/op-tool.ts` BRep-labeled interactive tools are mostly mesh/group operations or display-line generation.
 - `web/src/viewer/op-tool-extrude-mesh.ts` explicitly extrudes selected profiles into mesh results.
 - Selection and snapping frequently depend on `Object3D`, `Mesh`, `BufferGeometry`, `userData.creator`, and `userData.kind`.
