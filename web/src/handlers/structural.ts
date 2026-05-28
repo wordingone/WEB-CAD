@@ -24,13 +24,22 @@ import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import { transformBrep } from "../nurbs/nurbs-brep";
 
 function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
+  return profileFrom2dPoints([
+    [minX, minY],
+    [maxX, minY],
+    [maxX, maxY],
+    [minX, maxY],
+    [minX, minY],
+  ]);
+}
+
+function profileFrom2dPoints(points2d: Array<[number, number]>): PolylineCurve {
   const points = [
-    { x: minX, y: minY, z: 0 },
-    { x: maxX, y: minY, z: 0 },
-    { x: maxX, y: maxY, z: 0 },
-    { x: minX, y: maxY, z: 0 },
-    { x: minX, y: minY, z: 0 },
-  ];
+    ...points2d,
+    ...(points2d.length > 0 && (points2d[0][0] !== points2d[points2d.length - 1][0] || points2d[0][1] !== points2d[points2d.length - 1][1])
+      ? [points2d[0]]
+      : []),
+  ].map(([x, y]) => ({ x, y, z: 0 }));
   const parameters = [0];
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1];
@@ -209,6 +218,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.layerId = resolveLayerId("SdMember", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(profileFrom2dPoints(pts), { x: 0, y: 0, z: 1 }, length), "SdMember");
     viewer.addMesh(mesh, "brep");
     return { created: "member", length, profile_points: pts.length };
   });
@@ -628,6 +638,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.layerId = resolveLayerId("SdPlate", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(profileFrom2dPoints(pts), { x: 0, y: 0, z: 1 }, thickness), "SdPlate");
     viewer.addMesh(mesh, "brep");
     return { created: "plate", thickness, profile_points: pts.length };
   });

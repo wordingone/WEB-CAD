@@ -50,6 +50,7 @@ beforeEach(() => {
     "SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude",
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
     "SdFoundation", "SdCeiling", "SdSkylight", "SdRailing",
+    "SdMember", "SdPlate",
   ]) {
     unregisterHandler(name);
   }
@@ -199,6 +200,8 @@ describe("BRep canonical migration characterization", () => {
       ["SdCeiling", { width: 4, depth: 3 }],
       ["SdSkylight", { width: 1.2, depth: 0.8 }],
       ["SdRailing", { start: [0, 0], end: [3, 0] }],
+      ["SdMember", { length: 2, profile: [[0, 0], [1, 0], [1, 0.5], [0, 0.5]] }],
+      ["SdPlate", { thickness: 0.1, profile: [[0, 0], [1, 0], [1, 1], [0, 1]] }],
     ] as const) {
       const result = dispatchSync(verb, args);
       expect(result.ok).toBe(true);
