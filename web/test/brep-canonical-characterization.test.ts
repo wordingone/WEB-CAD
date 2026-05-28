@@ -131,8 +131,8 @@ describe("BRep canonical migration characterization", () => {
     expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
     expect(mesh.userData.kind).toBe("brep");
     expect(mesh.userData.creator).toBe("box");
-    expect(mesh.userData.nurbsSurface).toBeDefined();
-    expect(mesh.userData.nurbsKind).toBe("surface");
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
     const canonical = store.require(canonicalId as string);
@@ -171,7 +171,7 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
-  test("simple structural commands keep sidecars while linking canonical extruded BReps", () => {
+  test("simple structural commands keep display meshes while linking canonical extruded BReps", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerStructuralHandlers(viewer);
 
@@ -184,7 +184,8 @@ describe("BRep canonical migration characterization", () => {
       expect(result.ok).toBe(true);
       const obj = lastObject();
       expect(obj).toBeInstanceOf(THREE.Mesh);
-      expect(obj?.userData.nurbsSurface).toBeDefined();
+      expect(obj?.userData.nurbsSurface).toBeUndefined();
+      expect(obj?.userData.nurbsKind).toBeUndefined();
       const canonicalId = obj?.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);
