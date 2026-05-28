@@ -87,7 +87,7 @@ function meshDisplayRevision(parent: THREE.Object3D): number {
 
 function syncCanonicalCurve(parent: THREE.Object3D, store: CanonicalGeometryStore | undefined, curve: Curve): void {
   if (!store) return;
-  const record = store.resolveObject(parent);
+  const record = store.resolveObjectOrAncestor(parent);
   if (!record || record.kind !== "curve") return;
   store.upsert({
     ...record,
@@ -105,7 +105,7 @@ function syncCanonicalCurve(parent: THREE.Object3D, store: CanonicalGeometryStor
 
 function syncCanonicalSurface(parent: THREE.Object3D, store: CanonicalGeometryStore | undefined, surface: SumSurface): void {
   if (!store) return;
-  const record = store.resolveObject(parent);
+  const record = store.resolveObjectOrAncestor(parent);
   if (!record || record.kind !== "surface") return;
   store.upsert({
     ...record,
@@ -146,7 +146,7 @@ function syncCanonicalWallBrep(
   height: number,
 ): void {
   if (!store) return;
-  const record = store.resolveObject(parent);
+  const record = store.resolveObjectOrAncestor(parent);
   if (!record || record.kind !== "brep") return;
   store.upsert({
     ...record,
