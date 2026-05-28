@@ -519,6 +519,38 @@ describe("Phase 3 — create-mode click-to-place", () => {
     }
   });
 
+  test("Stair and roof tools link click-created compound subcomponents to canonical BReps", async () => {
+    const { emitClickWorld, clearCreateSequence, resetPending } = await import("../src/tools/index");
+
+    for (const [tool, createdBy] of [
+      ["stair", "create-stair-component"],
+      ["roof", "create-roof-component"],
+    ] as const) {
+      clearCreateSequence();
+      resetPending();
+      const v = makeTestViewer();
+      const store = createCanonicalGeometryStore();
+      (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+
+      emitClickWorld(v as any, { x: 0, y: 0 }, { tool });
+      const result = emitClickWorld(v as any, { x: 4, y: 3 }, { tool });
+
+      expect(result).not.toBeNull();
+      const linkedRecords = new Set<string>();
+      result?.mesh.traverse((child) => {
+        const canonical = store.resolveObject(child);
+        if (!canonical) return;
+        expect(canonical.kind).toBe("brep");
+        if (canonical.kind !== "brep") throw new Error(`expected canonical BRep for ${tool} subcomponent`);
+        expect(canonical.createdBy).toBe(createdBy);
+        expect(canonical.metadata).toMatchObject({ derivation: "planarized-display-mesh" });
+        expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
+        linkedRecords.add(canonical.id);
+      });
+      expect(linkedRecords.size).toBeGreaterThan(0);
+    }
+  });
+
   test("Rect tool: click(0,0) + click(4,3) creates a 4x3 rect", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();

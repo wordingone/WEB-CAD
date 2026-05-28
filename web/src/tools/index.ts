@@ -706,6 +706,37 @@ function linkCreateModeReferenceCanonical(
   return true;
 }
 
+function linkCreateModeCompoundMeshBreps(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  if (tool !== "stair" && tool !== "roof") return false;
+
+  let linked = 0;
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const alreadyCanonical = viewer.getCanonicalGeometryStore().resolveObject(child);
+    if (alreadyCanonical) return;
+    const ok = linkPlanarizedMeshCommandBrep(viewer, child, `create-${tool}-component`, {
+      parentCreator: obj.userData.creator,
+      parentKind: obj.userData.kind,
+      ifcClass: child.userData.ifcClass,
+      name: child.userData.name,
+      stairId: obj.userData.stairId ?? child.userData.parentId,
+      roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+        ? (obj.userData.roofParams as { type?: unknown }).type
+        : undefined,
+      worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+      worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+    });
+    if (ok) linked++;
+  });
+
+  return linked > 0;
+}
+
 function linkCreateModeExtrudedRectangleBrep(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -759,6 +790,8 @@ function linkCreateModeStructuralCanonical(
   const b = pts[1];
   if (!b) return;
   const run = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+
+  if (linkCreateModeCompoundMeshBreps(viewer, tool, obj, pts)) return;
 
   if (tool === "wall" || tool === "wall-polyline") {
     linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.2, DEFAULT_WALL_HEIGHT, `create-${tool}`);
