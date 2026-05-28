@@ -250,7 +250,16 @@ function rebuildCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<stri
 
 function faceLoopWorldPoints(face: BrepFace): Point3[] {
   const trim = face.outerLoop.curves[0];
-  if (trim?.kind !== "polyline" || trim.points.length < 2) return [];
+  if (trim?.kind !== "polyline" || trim.points.length < 2) {
+    const du = domainU(face.surface);
+    const dv = domainV(face.surface);
+    return [
+      pointAtUV(face.surface, du.min, dv.min),
+      pointAtUV(face.surface, du.max, dv.min),
+      pointAtUV(face.surface, du.max, dv.max),
+      pointAtUV(face.surface, du.min, dv.max),
+    ];
+  }
   const closed = trim.points.length > 1
     && Math.abs(trim.points[0].x - trim.points[trim.points.length - 1].x) < 1e-9
     && Math.abs(trim.points[0].y - trim.points[trim.points.length - 1].y) < 1e-9;

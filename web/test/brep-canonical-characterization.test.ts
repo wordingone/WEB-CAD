@@ -507,6 +507,42 @@ describe("BRep canonical migration characterization", () => {
     }
   });
 
+  test("SdContour works after joining boxes and rebuilding the joined BRep to NURBS faces", () => {
+    const { viewer, scene, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const first = lastObject();
+    expect(first).toBeInstanceOf(THREE.Mesh);
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const second = lastObject();
+    expect(second).toBeInstanceOf(THREE.Mesh);
+    second?.position.set(2, 0, 0);
+    second?.updateMatrixWorld(true);
+
+    const joinResult = dispatchSync("SdJoin", { targets: [first?.uuid, second?.uuid] });
+    expect(joinResult.ok).toBe(true);
+    if (!joinResult.ok) throw new Error("expected join to succeed");
+    const joined = scene.getObjectByProperty("uuid", (joinResult.result as { created: string }).created);
+    expect(joined).toBeInstanceOf(THREE.Mesh);
+
+    const rebuildResult = dispatchSync("SdRebuild", { target: joined?.uuid });
+    expect(rebuildResult.ok).toBe(true);
+    if (!rebuildResult.ok) throw new Error("expected rebuild to succeed");
+    const rebuilt = scene.getObjectByProperty("uuid", (rebuildResult.result as { rebuilt: string }).rebuilt);
+    expect(rebuilt).toBeInstanceOf(THREE.Mesh);
+
+    const contourResult = dispatchSync("SdContour", { target: rebuilt?.uuid, interval: 0, count: 1 });
+
+    expect(contourResult.ok).toBe(true);
+    if (!contourResult.ok) throw new Error("expected contour to succeed");
+    const result = contourResult.result as { source: string; created: string[]; sliceCount: number };
+    expect(result.source).toBe("canonical-brep");
+    expect(result.sliceCount).toBe(1);
+    expect(result.created.length).toBeGreaterThan(0);
+  });
+
   test("SdRebuild replaces a canonical BRep with NURBS-form face surfaces", () => {
     const { viewer, scene, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
