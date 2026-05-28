@@ -1,6 +1,6 @@
-// Regression net for #30 G6: SdRevolve / SdSweep / SdLoft preserve NurbsSurface in userData.
+// Regression net for canonical surface command ownership.
 //
-// Tests the dispatch path: registerSketchHandlers → dispatch → mesh.userData.nurbsSurface.
+// Tests the dispatch path: registerSketchHandlers -> dispatch -> canonical surface store.
 import { describe, test, expect, beforeEach } from "bun:test";
 import * as THREE from "three";
 import type { Viewer } from "../src/viewer/viewer";
@@ -69,8 +69,8 @@ describe("canonical surface linking", () => {
   });
 });
 
-describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
-  test("revolve mesh has userData.nurbsSurface after dispatch", () => {
+describe("G6 - SdRevolve stores exact surface canonically", () => {
+  test("revolve mesh links to a canonical surface after dispatch", () => {
     const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
@@ -86,21 +86,19 @@ describe("G6 — SdRevolve preserves nurbsSurface in userData", () => {
     expect((dr as OkResult).result.created).toBe("revolution");
     const mesh = lastMesh()!;
     expect(mesh).not.toBeNull();
-    const s = mesh.userData.nurbsSurface as Surface;
-    expect(s).toBeDefined();
-    expect(typeof s.kind).toBe("string");
-    expect(mesh.userData.nurbsKind).toBe("surface");
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
     const canonical = store.require(canonicalId as string);
     expect(canonical.createdBy).toBe("SdRevolve");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-    expect(canonical.surface).toBe(s);
+    expect(canonical.surface.kind).toBe("rev");
   });
 });
 
-describe("G6 — SdSweep preserves nurbsSurface in userData", () => {
-  test("sweep mesh has userData.nurbsSurface after dispatch", () => {
+describe("G6 - SdSweep stores exact surface canonically", () => {
+  test("sweep mesh links to a canonical surface after dispatch", () => {
     const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
@@ -112,20 +110,19 @@ describe("G6 — SdSweep preserves nurbsSurface in userData", () => {
     expect(dr.ok).toBe(true);
     expect((dr as OkResult).result.created).toBe("sweep");
     const mesh = lastMesh()!;
-    const s = mesh.userData.nurbsSurface as Surface;
-    expect(s).toBeDefined();
-    expect(mesh.userData.nurbsKind).toBe("surface");
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
     const canonical = store.require(canonicalId as string);
     expect(canonical.createdBy).toBe("SdSweep");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-    expect(canonical.surface).toBe(s);
+    expect(canonical.surface.kind).toBe("nurbs");
   });
 });
 
-describe("G6 — SdLoft preserves nurbsSurface in userData", () => {
-  test("loft mesh has userData.nurbsSurface after dispatch", () => {
+describe("G6 - SdLoft stores exact surface canonically", () => {
+  test("loft mesh links to a canonical surface after dispatch", () => {
     const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);
 
@@ -139,14 +136,13 @@ describe("G6 — SdLoft preserves nurbsSurface in userData", () => {
     expect(dr.ok).toBe(true);
     expect((dr as OkResult).result.created).toBe("loft");
     const mesh = lastMesh()!;
-    const s = mesh.userData.nurbsSurface as Surface;
-    expect(s).toBeDefined();
-    expect(mesh.userData.nurbsKind).toBe("surface");
+    expect(mesh.userData.nurbsSurface).toBeUndefined();
+    expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
     const canonical = store.require(canonicalId as string);
     expect(canonical.createdBy).toBe("SdLoft");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-    expect(canonical.surface).toBe(s);
+    expect(canonical.surface.kind).toBe("nurbs");
   });
 });

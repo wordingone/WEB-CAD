@@ -132,19 +132,13 @@ function resolveCurve(arg: unknown): Curve {
   throw new Error(`resolveCurve: unrecognised curve description: ${JSON.stringify(arg)}`);
 }
 
-// §WEB-CAD#30 G6: preserve surface in userData so downstream boolean / IFC / refit can read it.
-function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>, surface?: Surface): THREE.Mesh {
+function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(tess.positions, 3));
   geo.setAttribute("normal",   new THREE.BufferAttribute(tess.normals, 3));
   geo.setAttribute("uv",       new THREE.BufferAttribute(tess.uvs, 2));
   geo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
-  if (surface !== undefined) {
-    mesh.userData.nurbsSurface = surface;
-    mesh.userData.nurbsKind = "surface";
-  }
-  return mesh;
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
 }
 
 export function registerSketchHandlers(viewer: Viewer): void {
@@ -369,7 +363,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const axis = { from: {x:ax,y:ay,z:az}, to: {x:bx,y:by,z:bz} };
       const surface = surfaceOfRevolution(profile, axis, start, end);
       const tess = tessellateSurface(surface, 32, 64);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "revolution";
       obj.userData.creator = "revolve";
       linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
@@ -386,7 +380,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const rail    = resolveCurve((args.rail ?? args.path) as unknown);
       const surface = sweepSurface(profile, rail, { keepFrame: (args.keepFrame as boolean) ?? false });
       const tess = tessellateSurface(surface, 32, 32);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "sweep";
       obj.userData.creator = "sweep";
       linkCanonicalSurface(viewer, obj, "SdSweep", surface);
@@ -407,7 +401,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
         degreeV: (args.degreeV as number)  ?? Math.min(3, curves.length - 1),
       });
       const tess = tessellateSurface(surface, 32, 32);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "loft";
       obj.userData.creator = "loft";
       linkCanonicalSurface(viewer, obj, "SdLoft", surface);
