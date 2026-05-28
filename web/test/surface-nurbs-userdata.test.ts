@@ -148,6 +148,31 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
 });
 
 describe("G6 - planar surface tools store exact canonical CAD geometry", () => {
+  test("rectangle command links the displayed loop to a canonical closed polyline curve", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdRectangle", { center: [2, 3], width: 4, height: 6 });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("rectangle");
+    const mesh = lastMesh()!;
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdRectangle");
+    if (canonical.kind !== "curve") throw new Error("expected canonical curve");
+    expect(canonical.curve.kind).toBe("polyline");
+    if (canonical.curve.kind !== "polyline") throw new Error("expected polyline rectangle");
+    expect(canonical.curve.points).toHaveLength(5);
+    expect(canonical.curve.points[0]).toEqual(canonical.curve.points[4]);
+    expect(canonical.metadata).toMatchObject({
+      creator: "rect",
+      closed: true,
+      worldCenter: [2, 3, 0],
+    });
+  });
+
   test("plane command links the displayed quad to a canonical plane surface", () => {
     const { viewer, store, lastMesh } = makeViewer();
     registerSketchHandlers(viewer);

@@ -265,6 +265,22 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "rect";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const localPoints = [
+      { x: -w / 2, y: -d / 2, z: 0 },
+      { x:  w / 2, y: -d / 2, z: 0 },
+      { x:  w / 2, y:  d / 2, z: 0 },
+      { x: -w / 2, y:  d / 2, z: 0 },
+      { x: -w / 2, y: -d / 2, z: 0 },
+    ];
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: localPoints,
+      parameters: curveParameters(localPoints),
+    }, "SdRectangle", {
+      worldCenter: [cx, cy, 0],
+      worldPoints: [[a.x, a.y, 0], [b.x, a.y, 0], [b.x, b.y, 0], [a.x, b.y, 0], [a.x, a.y, 0]],
+      closed: true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "rectangle", width: w, depth: d };
   });
