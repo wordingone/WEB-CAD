@@ -67,6 +67,7 @@ beforeEach(() => {
     "SdCurve",
     "SdSpline",
     "SdWall",
+    "SdCurveWall",
     "SdSlab",
     "SdColumn",
     "SdBeam",
@@ -351,13 +352,14 @@ describe("Phase 3 — create-mode click-to-place", () => {
     expect(seq[0]).toContain("translate([3, 0, 0])");
   });
 
-  test("Wall-curve tool links the created faceted wall to a canonical planar BRep", async () => {
+  test("Wall-curve tool commits through SdCurveWall and links to canonical NURBS BRep faces", async () => {
     const { emitClickWorld, getCreateSequence, clearCreateSequence, resetPending } = await import("../src/tools/index");
     clearCreateSequence();
     resetPending();
     const v = makeTestViewer();
     const store = createCanonicalGeometryStore();
     (v as unknown as { getCanonicalGeometryStore: () => typeof store }).getCanonicalGeometryStore = () => store;
+    registerStructuralHandlers(v as never);
 
     emitClickWorld(v as any, { x: 0, y: 0 }, { tool: "wall-curve" });
     emitClickWorld(v as any, { x: 2, y: 1 }, { tool: "wall-curve" });
@@ -368,14 +370,10 @@ describe("Phase 3 — create-mode click-to-place", () => {
     const canonical = store.resolveObject(mesh);
     expect(canonical?.kind).toBe("brep");
     if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
-    expect(canonical.createdBy).toBe("wall-curve");
-    expect(canonical.metadata).toMatchObject({
-      operation: "curve-wall",
-      derivation: "planarized-display-mesh",
-    });
+    expect(canonical.createdBy).toBe("SdCurveWall");
     expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "plane")).toBe(true);
-    expect(getCreateSequence()[0]).toContain("curveWall: spline");
+    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    expect(getCreateSequence()[0]).toContain("SdCurveWall");
   });
 
   test("Ramp tool links click-created display solid to a canonical BRep", async () => {

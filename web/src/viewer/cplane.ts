@@ -92,6 +92,7 @@ const CANONICAL_KIND: Record<string, CPlaneKind> = {
   IfcOpening:  "host-derived",
   // SD canonical names — handlers call resolveCPlane("Sd*") not "Ifc*"
   SdWall:      "world",
+  SdCurveWall: "world",
   SdSlab:      "world",
   SdColumn:    "world",
   SdDoor:      "host-derived",

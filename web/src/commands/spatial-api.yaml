@@ -983,6 +983,38 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- name: SdCurveWall
+  kernel_op: makeCurveWall
+  parameters:
+    type: object
+    properties:
+      points:
+        type: polyline
+        description: "Spline control points as [x,y,z] arrays or {x,y,z} objects."
+      thickness:
+        type: number
+        unit: m
+        default: 0.2
+      height:
+        type: number
+        unit: m
+        default: 3
+      closed:
+        type: boolean
+        default: false
+      level:
+        type: string
+        description: "Level ID or name. Overrides active level."
+      layer:
+        type: string
+        description: "Layer ID to override automatic creator-to-layer routing."
+    required: [points]
+  topology_role: host
+  kg_predicates: [hosts, containedIn, bounds]
+  synonyms: [curvewall, curve-wall, wall-curve, splinewall, spline-wall]
+  kernel: nurbs
+  alias_source: WEB-CAD
+
 - name: SdSlab
   ifc4_class: IfcSlab
   kernel_op: makeSlab

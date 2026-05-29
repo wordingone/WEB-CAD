@@ -20,9 +20,12 @@ import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
 import { linkCanonicalBrep } from "./canonical-surface";
 import { linkPlanarizedMeshCommandBrep } from "./mesh-planar-brep";
-import type { LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
+import { createCatmullRomAsNurbs } from "../nurbs/nurbs-curves";
+import type { Curve, LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
-import { transformBrep } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
+import type { Point3 } from "../nurbs/nurbs-primitives";
 
 function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
   return profileFrom2dPoints([
@@ -106,6 +109,156 @@ function linkPitchedWallBrep(
   linkCanonicalBrep(viewer, obj, extrudeBrep(profile, { x: 0, y: 1, z: 0 }, thickness), "SdWall");
 }
 
+function point3FromArg(value: unknown): Point3 | null {
+  if (Array.isArray(value) && value.length >= 2) {
+    const x = Number(value[0]);
+    const y = Number(value[1]);
+    const z = Number(value[2] ?? 0);
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? { x, y, z } : null;
+  }
+  if (value && typeof value === "object") {
+    const rec = value as { x?: unknown; y?: unknown; z?: unknown };
+    const x = Number(rec.x);
+    const y = Number(rec.y);
+    const z = Number(rec.z ?? 0);
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? { x, y, z } : null;
+  }
+  return null;
+}
+
+function lineCurve(from: Point3, to: Point3): LineCurve {
+  return { kind: "line", from, to, domain: { min: 0, max: Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) } };
+}
+
+function makeFace(surface: BrepFace["surface"]): BrepFace {
+  return {
+    surface,
+    outerLoop: { curves: [], orientation: true },
+    innerLoops: [],
+    orientation: true,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function buildCurveWallMesh(points: Point3[], thickness: number, height: number): THREE.Mesh {
+  const z0 = points[0]?.z ?? 0;
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, 0)));
+  const sampleCount = Math.max((points.length - 1) * 16, 32);
+  const centerline = curve.getPoints(sampleCount);
+  const half = thickness / 2;
+  const positions: number[] = [];
+  const tangents = centerline.map((_, i) => {
+    const prev = centerline[Math.max(0, i - 1)];
+    const next = centerline[Math.min(centerline.length - 1, i + 1)];
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  });
+
+  for (let i = 0; i < centerline.length; i++) {
+    const p = centerline[i];
+    const tangent = tangents[i];
+    const nx = -tangent.y;
+    const ny = tangent.x;
+    positions.push(p.x + half * nx, p.y + half * ny, z0);
+    positions.push(p.x + half * nx, p.y + half * ny, z0 + height);
+    positions.push(p.x - half * nx, p.y - half * ny, z0);
+    positions.push(p.x - half * nx, p.y - half * ny, z0 + height);
+  }
+
+  const indices: number[] = [];
+  for (let i = 0; i < centerline.length - 1; i++) {
+    const ob0 = 4 * i, ot0 = 4 * i + 1, ib0 = 4 * i + 2, it0 = 4 * i + 3;
+    const ob1 = 4 * (i + 1), ot1 = 4 * (i + 1) + 1, ib1 = 4 * (i + 1) + 2, it1 = 4 * (i + 1) + 3;
+    indices.push(ob0, ot0, ob1, ob1, ot0, ot1);
+    indices.push(ib0, ib1, it0, ib1, it1, it0);
+    indices.push(ot0, it0, ot1, ot1, it0, it1);
+    indices.push(ob0, ob1, ib0, ob1, ib1, ib0);
+  }
+  indices.push(0, 2, 1, 1, 2, 3);
+  const e = centerline.length - 1;
+  indices.push(4 * e, 4 * e + 1, 4 * e + 2, 4 * e + 1, 4 * e + 3, 4 * e + 2);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.55, metalness: 0.05 });
+  return new THREE.Mesh(geometry, material);
+}
+
+function buildCurveWallBrep(points: Point3[], thickness: number, height: number): Brep {
+  const z0 = points[0]?.z ?? 0;
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, 0)));
+  const sampleCount = Math.max((points.length - 1) * 16, 32);
+  const centerline = curve.getPoints(sampleCount);
+  const half = thickness / 2;
+
+  const outerBottom: Point3[] = [];
+  const innerBottom: Point3[] = [];
+  for (let i = 0; i < centerline.length; i++) {
+    const prev = centerline[Math.max(0, i - 1)];
+    const next = centerline[Math.min(centerline.length - 1, i + 1)];
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const p = centerline[i];
+    outerBottom.push({ x: p.x + half * nx, y: p.y + half * ny, z: z0 });
+    innerBottom.push({ x: p.x - half * nx, y: p.y - half * ny, z: z0 });
+  }
+  const outerTop = outerBottom.map((p) => ({ ...p, z: z0 + height }));
+  const innerTop = innerBottom.map((p) => ({ ...p, z: z0 + height }));
+
+  const outerBottomCurve = createCatmullRomAsNurbs(outerBottom);
+  const outerTopCurve = createCatmullRomAsNurbs(outerTop);
+  const innerBottomCurve = createCatmullRomAsNurbs(innerBottom);
+  const innerTopCurve = createCatmullRomAsNurbs(innerTop);
+  const first = 0;
+  const last = outerBottom.length - 1;
+  const startBottom = lineCurve(outerBottom[first], innerBottom[first]);
+  const startTop = lineCurve(outerTop[first], innerTop[first]);
+  const endBottom = lineCurve(outerBottom[last], innerBottom[last]);
+  const endTop = lineCurve(outerTop[last], innerTop[last]);
+  const startOuterVertical = lineCurve(outerBottom[first], outerTop[first]);
+  const startInnerVertical = lineCurve(innerBottom[first], innerTop[first]);
+  const endOuterVertical = lineCurve(outerBottom[last], outerTop[last]);
+  const endInnerVertical = lineCurve(innerBottom[last], innerTop[last]);
+
+  const faces = [
+    makeFace(loftSurfaces([outerBottomCurve, outerTopCurve])),
+    makeFace(loftSurfaces([innerBottomCurve, innerTopCurve])),
+    makeFace(loftSurfaces([outerTopCurve, innerTopCurve])),
+    makeFace(loftSurfaces([outerBottomCurve, innerBottomCurve])),
+    makeFace(loftSurfaces([startOuterVertical, startInnerVertical])),
+    makeFace(loftSurfaces([endOuterVertical, endInnerVertical])),
+  ];
+  const edges: Curve[] = [
+    outerBottomCurve, outerTopCurve, innerBottomCurve, innerTopCurve,
+    startBottom, startTop, endBottom, endTop,
+    startOuterVertical, startInnerVertical, endOuterVertical, endInnerVertical,
+  ];
+  return {
+    shells: [{
+      faces,
+      edges: edges.map((edge, i) => ({
+        curve: edge,
+        faceIndex1: Math.min(i % faces.length, faces.length - 1),
+        faceIndex2: Math.min((i + 1) % faces.length, faces.length - 1),
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      })),
+      vertices: [
+        outerBottom[first], outerTop[first], innerBottom[first], innerTop[first],
+        outerBottom[last], outerTop[last], innerBottom[last], innerTop[last],
+      ].map((point, edgeIndex) => ({ point, edgeIndices: [edgeIndex], tolerance: BREP_DEFAULT_TOLERANCE })),
+      isClosed: true,
+    }],
+  };
+}
+
 function linkCompoundMeshBreps(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -187,6 +340,36 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     onElementCommitted(mesh, viewer.getScene());
     const dx = b.x - a.x, dy = b.y - a.y;
     return { created: "wall", length: Math.sqrt(dx * dx + dy * dy) || wallLen };
+  });
+
+  registerHandler("SdCurveWall", (args) => {
+    const cplaneKind = (viewer as Viewer & { activeCPlane?: { kind?: string } }).activeCPlane?.kind ?? "world";
+    const rawPoints = args.points as unknown[] | undefined;
+    const points = rawPoints?.map(point3FromArg).filter((p): p is Point3 => !!p) ?? [];
+    if (points.length < 2) return { error: "SdCurveWall requires at least 2 points", created: null };
+    const thickness = Math.max(0.01, Number(args.thickness ?? 0.2));
+    const height = Math.max(0.01, Number(args.height ?? DEFAULT_WALL_HEIGHT));
+    if (!Number.isFinite(thickness) || !Number.isFinite(height)) {
+      return { error: "SdCurveWall requires finite thickness and height", created: null };
+    }
+
+    const mesh = buildCurveWallMesh(points, thickness, height);
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "wall";
+    mesh.userData.createdBy = "SdCurveWall";
+    mesh.userData.isCurveWall = true;
+    mesh.userData.wallThickness = thickness;
+    mesh.userData.wallHeight = height;
+    mesh.userData.controlPoints = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    mesh.userData.cplaneKind = cplaneKind;
+    mesh.userData.layerId = resolveLayerId("SdCurveWall", args);
+    mesh.userData.levelId = getActiveLevelId();
+    mesh.userData.dispatchArgs = args;
+    mesh.userData.chain = `SdCurveWall(${JSON.stringify({ points, thickness, height })})`;
+    linkCanonicalBrep(viewer, mesh, buildCurveWallBrep(points, thickness, height), "SdCurveWall");
+    viewer.addMesh(mesh, "brep");
+    onElementCommitted(mesh, viewer.getScene());
+    return { created: mesh.uuid, points: points.length, surfaceKind: "nurbs", kind: "brep" };
   });
 
   registerHandler("SdSlab", (args) => {

@@ -1190,6 +1190,29 @@ function commitWallSegmentsViaSd(
   return results;
 }
 
+function commitCurveWallViaSd(
+  viewer: Viewer,
+  pts: Array<{ x: number; y: number; z?: number }>,
+  closed = false,
+): SingleResult | null {
+  if (pts.length < 2) return null;
+  const args = {
+    points: pts.map((p) => [round(p.x), round(p.y), round(p.z ?? 0)]),
+    thickness: 0.2,
+    height: 3,
+    closed,
+  };
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync("SdCurveWall", args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  const chain = `SdCurveWall(${JSON.stringify(args)})`;
+  _createSequence.push(chain);
+  pushAction(created, chain);
+  return { mesh: created, chain };
+}
+
 function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
   const creator = obj.userData.creator as string | undefined;
   const z0 = obj instanceof THREE.Mesh ? (obj as THREE.Mesh).position.z : 0;
@@ -1207,8 +1230,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
       const ang = (i / N) * Math.PI * 2;
       arcPts.push({ x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang), z: z0 });
     }
-    const result = buildCurveWall(arcPts);
-    commitMultiWalls(viewer, [result]);
+    if (!commitCurveWallViaSd(viewer, arcPts, true)) {
+      setPickerHint("wall-pick â€” failed to create curve wall from circle");
+      return;
+    }
     hideCursorDot();
     setPickerHint(null);
     dispatchSync("setActiveTool", { toolId: "select" });
@@ -1222,8 +1247,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
       const isClosed = obj.userData.isClosed as boolean ?? false;
       const worldPts = cps.map(p => ({ x: p.x + pos.x, y: p.y + pos.y, z: z0 }));
       if (isClosed) worldPts.push({ x: worldPts[0].x, y: worldPts[0].y, z: z0 });
-      const result = buildCurveWall(worldPts);
-      commitMultiWalls(viewer, [result]);
+      if (!commitCurveWallViaSd(viewer, worldPts, isClosed)) {
+        setPickerHint("wall-pick â€” failed to create curve wall from curve");
+        return;
+      }
       hideCursorDot();
       setPickerHint(null);
       dispatchSync("setActiveTool", { toolId: "select" });
@@ -1280,6 +1307,12 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
     return results?.[0] ?? null;
   }
 
+  if (tool === "wall-curve") {
+    const result = commitCurveWallViaSd(viewer, pts);
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return result;
+  }
+
   if (handler.commitMulti) {
     const results = handler.commitMulti(pts);
     commitMultiWalls(viewer, results);
@@ -1334,6 +1367,16 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
       _pending = [];
       hideCursorDot();
       setPickerHint(null);
+      if (tool === "wall-polyline") {
+        const results = commitWallSegmentsViaSd(viewer, pts);
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return results?.[0] ?? null;
+      }
+      if (tool === "wall-curve") {
+        const result = commitCurveWallViaSd(viewer, pts);
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return result;
+      }
       if (handler.commitMulti) {
         const results = handler.commitMulti(pts);
         commitMultiWalls(viewer, results);

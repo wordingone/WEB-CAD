@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import { getState, setState, syncToolActiveClass } from "../src/app-state";
 import { buildPalette, PALETTE_SECTIONS } from "../src/shell/workbench-panels";
-import { dispatchSync } from "../src/commands/dispatch";
+import { dispatchSync, registerHandler } from "../src/commands/dispatch";
 import { resolveAlias } from "../src/commands/dictionary";
 import { getCreateToolCausalSpecs, type CreateToolCausalSpec } from "../src/tools/index";
 import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
@@ -153,6 +153,7 @@ function buildHost(): HTMLElement {
 }
 
 beforeEach(() => {
+  registerHandler("setActiveTool", (args) => { setState("activeTool", args["toolId"] as string); });
   setState("activeTool", "select");
 });
 
@@ -281,12 +282,13 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
   });
 
   test("hidden selection submodes resolve to their agent-facing Sd command equivalents", () => {
+    expect(resolveAlias("wall-curve")).toBe("SdCurveWall");
     expect(resolveAlias("sel-window")).toBe("SdSelectWindow");
     expect(resolveAlias("sel-lasso")).toBe("SdSelectLasso");
     expect(resolveAlias("sel-boundary")).toBe("SdSelectBoundary");
   });
 
-  test("straight wall submodes commit through SdWall instead of local buildWall meshes", () => {
+  test("wall submodes commit through Sd handlers instead of local wall meshes", () => {
     const source = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
     const helperStart = source.indexOf("function commitWallSegmentsViaSd");
     const helperEnd = source.indexOf("function commitWallPick", helperStart + 1);
@@ -308,5 +310,16 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     const commitUnlimited = source.slice(wallPickEnd, source.indexOf("export function emitClickWorld", wallPickEnd + 1));
     expect(commitUnlimited).toContain('tool === "wall-polyline"');
     expect(commitUnlimited).toContain("commitWallSegmentsViaSd(viewer, pts)");
+    expect(commitUnlimited).toContain('tool === "wall-curve"');
+    expect(commitUnlimited).toContain("commitCurveWallViaSd(viewer, pts)");
+
+    const curveHelperStart = source.indexOf("function commitCurveWallViaSd");
+    const curveHelperEnd = source.indexOf("function commitWallPick", curveHelperStart + 1);
+    expect(curveHelperStart).toBeGreaterThanOrEqual(0);
+    expect(curveHelperEnd).toBeGreaterThan(curveHelperStart);
+    const curveHelper = source.slice(curveHelperStart, curveHelperEnd);
+    expect(curveHelper).toContain('dispatchSync("SdCurveWall"');
+    expect(curveHelper).not.toContain("buildCurveWall(");
+    expect(curveHelper).not.toContain("linkPlanarizedMeshCommandBrep");
   });
 });
