@@ -5,6 +5,7 @@ import { getState, subscribe } from "../app-state.js";
 import { openExportDrawer } from "../io/export-drawer.js";
 import { subscribeSnap, getSnap } from "../viewer/snap-state.js";
 import { formatLength } from "../units.js";
+import { initCommandAtCursor } from "./command-at-cursor.js";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -914,6 +915,7 @@ export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onS
   wireFpsCounter();
   wireUnitsCell();
   wireSnapCell();
+  initCommandAtCursor();
 
   // File keyboard shortcuts: Ctrl/Cmd+O (open), Ctrl/Cmd+S (save), Ctrl/Cmd+Shift+S (save as).
   window.addEventListener("keydown", (e) => {
