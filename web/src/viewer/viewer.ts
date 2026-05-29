@@ -9,7 +9,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { axesGizmoSVG } from "../ui/icons.js";
 import { getState, subscribe } from "../app-state.js";
-import { setSelected, clearSelected, topologyForObject } from "./selection-state.js";
+import { setSelected, clearSelected, topologyForObject, topologyAllowed, type Selection } from "./selection-state.js";
 import { emitChainFragment } from "./transforms.js";
 import { getSnap, subscribeSnap } from "./snap-state.js";
 import { showHandlesFor, clearHandles, isSubObjectHandle, getHandles, getHandleParent, refitParentGeometry } from "./sub-object-handles.js";
@@ -431,6 +431,144 @@ export class Viewer {
 
   private handleResize(): void { Camera.handleResize(this); }
 
+  private visibleHit(hit: THREE.Intersection): boolean {
+    let o: THREE.Object3D | null = hit.object;
+    while (o) {
+      if (!o.visible) return false;
+      o = o.parent;
+    }
+    const dlId = hit.object.userData.drawingLayerId as string | undefined;
+    if (dlId) {
+      const dl = drawingLayerStore.get(dlId);
+      if (dl && (!dl.visible || dl.locked)) return false;
+    }
+    return true;
+  }
+
+  private getCanonicalBrepOwner(obj: THREE.Object3D | null | undefined): { owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } } | null {
+    let current: THREE.Object3D | null | undefined = obj;
+    while (current) {
+      const record = this.canonicalGeometryStore.resolveObject(current);
+      if (record?.kind === "brep") return { owner: current, record };
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private pointToWorld(owner: THREE.Object3D, point: { x: number; y: number; z: number }): THREE.Vector3 {
+    return new THREE.Vector3(point.x, point.y, point.z).applyMatrix4(owner.matrixWorld);
+  }
+
+  private subObjectPickTolerance(ray: THREE.Ray): number {
+    const cameraPos = this.getActiveCamera().getWorldPosition(new THREE.Vector3());
+    const atRay = ray.at(1, new THREE.Vector3());
+    return Math.max(0.05, Math.min(0.3, cameraPos.distanceTo(atRay) * 0.01));
+  }
+
+  private pickBrepVertex(ray: THREE.Ray, owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }>): Selection | null {
+    if (!topologyAllowed("vertex")) return null;
+    const threshold = this.subObjectPickTolerance(ray);
+    let best: { distance: number; owner: THREE.Object3D; vertexIndex: number } | null = null;
+    for (const { owner, record } of owners) {
+      let vertexOffset = 0;
+      for (const shell of record.brep.shells) {
+        for (let i = 0; i < shell.vertices.length; i++) {
+          const worldPoint = this.pointToWorld(owner, shell.vertices[i].point);
+          const distance = ray.distanceToPoint(worldPoint);
+          if (distance <= threshold && (!best || distance < best.distance)) {
+            best = { distance, owner, vertexIndex: vertexOffset + i };
+          }
+        }
+        vertexOffset += shell.vertices.length;
+      }
+    }
+    if (!best) return null;
+    return {
+      topology: "vertex",
+      uuid: best.owner.uuid,
+      object: best.owner,
+      parent: best.owner,
+      parentUuid: best.owner.uuid,
+      vertexIndex: best.vertexIndex,
+      transformTarget: best.owner,
+    };
+  }
+
+  private pickBrepEdge(ray: THREE.Ray, owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }>): Selection | null {
+    if (!topologyAllowed("edge")) return null;
+    const thresholdSq = this.subObjectPickTolerance(ray) ** 2;
+    let best: { distanceSq: number; owner: THREE.Object3D; edgeIndex: number } | null = null;
+    for (const { owner, record } of owners) {
+      let edgeOffset = 0;
+      for (const shell of record.brep.shells) {
+        for (let edgeIndex = 0; edgeIndex < shell.edges.length; edgeIndex++) {
+          const pts = tessellateCurve(shell.edges[edgeIndex].curve, 12);
+          for (let i = 1; i < pts.length; i++) {
+            const a = this.pointToWorld(owner, pts[i - 1]);
+            const b = this.pointToWorld(owner, pts[i]);
+            const distanceSq = ray.distanceSqToSegment(a, b);
+            if (distanceSq <= thresholdSq && (!best || distanceSq < best.distanceSq)) {
+              best = { distanceSq, owner, edgeIndex: edgeOffset + edgeIndex };
+            }
+          }
+        }
+        edgeOffset += shell.edges.length;
+      }
+    }
+    if (!best) return null;
+    return {
+      topology: "edge",
+      uuid: best.owner.uuid,
+      object: best.owner,
+      parent: best.owner,
+      parentUuid: best.owner.uuid,
+      edgeIndex: best.edgeIndex,
+      transformTarget: best.owner,
+    };
+  }
+
+  private pickBrepFace(hits: THREE.Intersection[]): Selection | null {
+    if (!topologyAllowed("face")) return null;
+    const hit = hits.find((h) => this.visibleHit(h) && this.getCanonicalBrepOwner(h.object));
+    if (!hit) return null;
+    const owner = this.getCanonicalBrepOwner(hit.object)?.owner;
+    if (!owner) return null;
+    const geometry = (hit.object as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+    let faceIndex = hit.faceIndex ?? 0;
+    if (geometry?.groups?.length) {
+      const triStart = faceIndex * 3;
+      const groupIndex = geometry.groups.findIndex((group) => triStart >= group.start && triStart < group.start + group.count);
+      if (groupIndex >= 0) faceIndex = groupIndex;
+    }
+    return {
+      topology: "face",
+      uuid: hit.object.uuid,
+      object: hit.object,
+      parent: owner,
+      parentUuid: owner.uuid,
+      faceIndex,
+      transformTarget: owner,
+    };
+  }
+
+  private pickBrepSubObject(hits: THREE.Intersection[]): Selection | null {
+    const owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }> = [];
+    const seen = new Set<string>();
+    for (const hit of hits) {
+      if (!this.visibleHit(hit)) continue;
+      const owner = this.getCanonicalBrepOwner(hit.object);
+      if (!owner || seen.has(owner.owner.uuid)) continue;
+      seen.add(owner.owner.uuid);
+      owners.push(owner);
+    }
+    if (owners.length === 0) return null;
+    return (
+      this.pickBrepVertex(this.raycaster.ray, owners)
+      ?? this.pickBrepEdge(this.raycaster.ray, owners)
+      ?? this.pickBrepFace(hits)
+    );
+  }
+
   private onCanvasMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
     // W-6 host-pick: intercept before all other logic.
@@ -524,15 +662,18 @@ export class Viewer {
     const handleHit = hits.find(h => handleSet.has(h.object) || (h.object.parent !== null && handleSet.has(h.object.parent)));
     // #950: Three.js intersectObjects does not check visibility — filter out objects
     // whose effective visibility is false (hidden level, hidden layer, etc.).
-    const visibleHit = hits.find(h => {
-      let o: THREE.Object3D | null = h.object;
-      while (o) { if (!o.visible) return false; o = o.parent; }
-      // #964: skip objects on locked or hidden drawing layers.
-      const dlId = h.object.userData.drawingLayerId as string | undefined;
-      if (dlId) { const dl = drawingLayerStore.get(dlId); if (dl && (!dl.visible || dl.locked)) return false; }
-      return true;
-    });
+    const visibleHit = hits.find(h => this.visibleHit(h));
     let hit = (handleHit ?? visibleHit)?.object ?? null;
+    const drilldown = e.ctrlKey && e.shiftKey;
+    if (drilldown && !handleHit) {
+      const subSelection = this.pickBrepSubObject(hits);
+      if (subSelection) {
+        this.selectObject(subSelection.transformTarget);
+        setSelected(subSelection);
+        window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: subSelection.uuid } }));
+        return;
+      }
+    }
     // CSG display mesh hit: redirect selection to the nearest logical member
     // WITHOUT dissolving the group — the join stays intact until the user drags.
     if (hit?.userData?.isJoinDisplay) {

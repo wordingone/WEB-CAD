@@ -7,6 +7,7 @@
 // behavior end-to-end without needing real cursor events.
 
 import { describe, test, expect, beforeEach } from "bun:test";
+import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import {
   resetSelectionState,
@@ -22,6 +23,23 @@ test("canonical BRep render meshes resolve as brep topology for Inspect", () => 
   const carrier = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
   carrier.userData.kind = "mesh";
   expect(topologyForObject(carrier, "brep")).toBe("brep");
+});
+
+test("live viewer Ctrl+Shift path routes BRep picks to sub-object selection", () => {
+  const source = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(source).toContain("const drilldown = e.ctrlKey && e.shiftKey");
+  expect(source).toContain("this.pickBrepSubObject(hits)");
+  expect(source).toContain('topology: "vertex"');
+  expect(source).toContain('topology: "edge"');
+  expect(source).toContain('topology: "face"');
+  expect(source).toContain("geometry.groups");
+});
+
+test("BRep display meshes retain one BufferGeometry group per canonical face", () => {
+  const source = readFileSync(new URL("../src/handlers/brep-ops.ts", import.meta.url), "utf8");
+  expect(source).toContain("const groups:");
+  expect(source).toContain("groups.push({ start, count, materialIndex: faceIndex })");
+  expect(source).toContain("geo.addGroup(group.start, group.count, group.materialIndex)");
 });
 
 beforeEach(() => {

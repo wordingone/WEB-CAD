@@ -99,7 +99,9 @@ function makeBrepGeometry(brep: Brep): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const indices: number[] = [];
+  const groups: Array<{ start: number; count: number; materialIndex: number }> = [];
   let offset = 0;
+  let faceIndex = 0;
   for (const shell of brep.shells) {
     for (const face of shell.faces) {
       const faceGeo = makeFaceGeometry(face);
@@ -109,16 +111,21 @@ function makeBrepGeometry(brep: Brep): THREE.BufferGeometry {
         positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
         if (nrm) normals.push(nrm.getX(i), nrm.getY(i), nrm.getZ(i));
       }
+      const start = indices.length;
       if (faceGeo.index) {
         for (let i = 0; i < faceGeo.index.count; i++) indices.push(faceGeo.index.getX(i) + offset);
       }
+      const count = indices.length - start;
+      if (count > 0) groups.push({ start, count, materialIndex: faceIndex });
       offset += pos.count;
+      faceIndex++;
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   if (normals.length === positions.length) geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   if (indices.length) geo.setIndex(indices);
+  for (const group of groups) geo.addGroup(group.start, group.count, group.materialIndex);
   if (!normals.length) geo.computeVertexNormals();
   geo.computeBoundingBox();
   return geo;
