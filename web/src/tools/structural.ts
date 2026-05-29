@@ -11,9 +11,11 @@ import { levelStore } from "../geometry/levels";
 import { refLineStore } from "../geometry/ref-lines";
 import { STAIR_STEP_RISE as DEFAULT_STAIR_RISE, STAIR_STEP_DEPTH as DEFAULT_STAIR_TREAD, STAIR_WIDTH as DEFAULT_STAIR_WIDTH } from "./dimensions";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
-import type { Brep } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepVertex } from "../nurbs/nurbs-brep";
 import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import type { PlaneSurface } from "../nurbs/nurbs-surfaces";
 import { getNurbsForm } from "../nurbs/nurbs-surfaces";
+import { Interval as Iv, Plane as Pl, Point3 as Pt3, Vector3 as V3, type Point3, type Vector3 } from "../nurbs/nurbs-primitives";
 
 // Module-level viewer reference (set during initCreateMode).
 let _viewer: Viewer | null = null;
@@ -308,6 +310,10 @@ export type BoxPrimitiveCanonicalParams = {
   height: number;
 };
 
+export type PlanarPanelCanonicalParams = {
+  points: Point3[];
+};
+
 function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
   const points = [
     ...points3d,
@@ -357,6 +363,96 @@ export function boxPrimitiveDimensions(mesh: THREE.Mesh): BoxPrimitiveCanonicalP
   const height = Number(params?.depth);
   if (![width, depth, height].every((value) => Number.isFinite(value) && value > 0)) return null;
   return { width, depth, height };
+}
+
+export function planarPanelPoints(mesh: THREE.Mesh): Point3[] | null {
+  if (mesh.userData.name !== "GableCap") return null;
+  const position = mesh.geometry?.getAttribute("position");
+  if (!position || position.count < 3) return null;
+  const points: Point3[] = [];
+  const addPoint = (x: number, y: number, z: number) => {
+    if (!points.some((point) => Math.hypot(point.x - x, point.y - y, point.z - z) < 1e-9)) {
+      points.push({ x, y, z });
+    }
+  };
+  const index = mesh.geometry.index;
+  if (index) {
+    for (let i = 0; i < index.count; i++) {
+      const vi = index.getX(i);
+      addPoint(position.getX(vi), position.getY(vi), position.getZ(vi));
+    }
+  } else {
+    for (let i = 0; i < position.count; i++) {
+      addPoint(position.getX(i), position.getY(i), position.getZ(i));
+    }
+  }
+  return points.length >= 3 ? points : null;
+}
+
+export function buildPlanarPanelBrep(params: PlanarPanelCanonicalParams): Brep {
+  if (params.points.length < 3) throw new Error("buildPlanarPanelBrep: at least 3 points required");
+  const origin = params.points[0];
+  const normal = V3.normalize(V3.cross(
+    Pt3.sub(params.points[1], params.points[0]) as Vector3,
+    Pt3.sub(params.points[2], params.points[0]) as Vector3,
+  ));
+  const plane = Pl.fromPointNormal(origin, normal);
+  const uv = params.points.map((point) => {
+    const d = Pt3.sub(point, origin) as Vector3;
+    return {
+      u: V3.dot(d, plane.xAxis),
+      v: V3.dot(d, plane.yAxis),
+    };
+  });
+  let uMin = Math.min(...uv.map((point) => point.u));
+  let uMax = Math.max(...uv.map((point) => point.u));
+  let vMin = Math.min(...uv.map((point) => point.v));
+  let vMax = Math.max(...uv.map((point) => point.v));
+  if (Math.abs(uMax - uMin) < 1e-9) { uMin -= 0.005; uMax += 0.005; }
+  if (Math.abs(vMax - vMin) < 1e-9) { vMin -= 0.005; vMax += 0.005; }
+  const surface = getNurbsForm({
+    kind: "plane",
+    plane,
+    uDomain: Iv.create(uMin, uMax),
+    vDomain: Iv.create(vMin, vMax),
+    uExtent: Iv.create(uMin, uMax),
+    vExtent: Iv.create(vMin, vMax),
+  } satisfies PlaneSurface).surface;
+  const trimPoints = [...uv, uv[0]].map((point) => ({ x: point.u, y: point.v, z: 0 }));
+  const parameters = [0];
+  for (let i = 1; i < trimPoints.length; i++) {
+    parameters.push(parameters[i - 1] + Math.hypot(trimPoints[i].x - trimPoints[i - 1].x, trimPoints[i].y - trimPoints[i - 1].y));
+  }
+  const edges: BrepEdge[] = params.points.map((point, i) => ({
+    curve: {
+      kind: "line",
+      from: point,
+      to: params.points[(i + 1) % params.points.length],
+      domain: Iv.create(0, Pt3.distance(point, params.points[(i + 1) % params.points.length])),
+    },
+    faceIndex1: 0,
+    faceIndex2: null,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  }));
+  const vertices: BrepVertex[] = params.points.map((point, i) => ({
+    point,
+    edgeIndices: [(i - 1 + edges.length) % edges.length, i],
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  }));
+  return {
+    shells: [{
+      faces: [{
+        surface,
+        outerLoop: { curves: [{ kind: "polyline", points: trimPoints, parameters }], orientation: true },
+        innerLoops: [],
+        orientation: true,
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      }],
+      edges,
+      vertices,
+      isClosed: false,
+    }],
+  };
 }
 
 export function stairFlightProfilePoints(params: StairFlightCanonicalParams): Array<[number, number, number]> {

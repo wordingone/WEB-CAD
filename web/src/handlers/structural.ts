@@ -5,7 +5,7 @@ import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
-  buildBoxPrimitiveBrep, buildStairFlightBrep, boxPrimitiveDimensions,
+  buildBoxPrimitiveBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -312,6 +312,24 @@ function linkCompoundMeshBreps(
           derivation: "parametric-box-primitive",
           conversion: "extruded-rectangular-solid-brep",
           boxPrimitive,
+        };
+      }
+      return;
+    }
+    const panelPoints = planarPanelPoints(child);
+    if (panelPoints) {
+      linkCanonicalBrep(viewer, child, buildPlanarPanelBrep({ points: panelPoints }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-planar-panel",
+          conversion: "trimmed-planar-nurbs-brep",
+          panelVertexCount: panelPoints.length,
         };
       }
       return;
