@@ -90,10 +90,10 @@ const trustedChar = async (char, opts = {}) => {
   const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (meta ? 4 : 0) | (shift ? 8 : 0);
   const wvk = char.toUpperCase().charCodeAt(0);
   const code = `Key${char.toUpperCase()}`;
+  // keyDown WITHOUT text: fires keydown event only (open() pre-fills from e.key).
+  // Sending text: would cause double-insertion (open() value + keyDown text insertion).
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: char, code, modifiers,
-    windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk, text: char });
-  await send("Input.dispatchKeyEvent", { type: "char",    key: char, code, modifiers,
-    windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk, text: char });
+    windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk });
   await send("Input.dispatchKeyEvent", { type: "keyUp",   key: char, code, modifiers,
     windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk });
 };
@@ -206,13 +206,13 @@ console.log(`  overlay=${results.s1_overlay_opened}  input='${results.s1_input_v
 
 console.log("[S2] trusted per-character typing filters list");
 if (results.s1_overlay_opened) {
-  // Input already has 'w'. Type 'a', 'l', 'l' via CDP Input.dispatchKeyEvent.
+  // Input already has 'w'. Insert 'a', 'l', 'l' via Input.insertText to avoid
+  // keyDown-text double-insertion and trigger the `input` event for list filtering.
+  await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+  await delay(30);
   for (const c of ["a", "l", "l"]) {
-    // Focus the overlay input first to ensure keystrokes land there.
-    await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
-    await delay(30);
-    await trustedChar(c);
-    await delay(80);
+    await send("Input.insertText", { text: c });
+    await delay(60);
   }
   await delay(200);
   results.s2_input_value = await overlayInputVal();

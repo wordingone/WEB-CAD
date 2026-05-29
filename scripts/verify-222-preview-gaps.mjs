@@ -67,7 +67,45 @@ const poll = async (fn, { timeout = 15_000, interval = 300, label = "?" } = {}) 
   throw new Error(`Timeout: ${label}`);
 };
 
+const MASTER_URL = "https://wordingone.github.io/WEB-CAD/";
+
 await send("Runtime.enable");
+await send("Page.enable");
+
+console.log(`[#222] navigating to ${MASTER_URL}`);
+await send("Page.navigate", { url: MASTER_URL });
+await delay(2_000);
+await send("Runtime.enable");
+
+const trustedClick = async (x, y) => {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
+  await delay(30);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await delay(30);
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+};
+
+// Boot gate: click CAD ONLY if present
+try {
+  await poll(async () => {
+    const center = await evaluate(`
+      (() => {
+        const btn = document.querySelector('[data-path="cad-only"]');
+        if (!btn) return null;
+        const r = btn.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+      })()`);
+    if (!center) return false;
+    await trustedClick(center.x, center.y);
+    return true;
+  }, { timeout: 20_000, label: "cad-only boot gate" });
+  console.log("[#222] boot: cad-only");
+} catch { console.log("[#222] boot: no gate"); }
+
+// Wait for palette to be ready
+await poll(async () => evaluate(`!!document.querySelector('[data-tool="wall"]')`),
+  { timeout: 30_000, label: "[data-tool=wall]" });
+await delay(400);
 
 await poll(async () => evaluate(`typeof window.__dispatchSync === "function"`),
   { timeout: 15_000, label: "__dispatchSync" });

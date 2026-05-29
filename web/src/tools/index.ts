@@ -493,7 +493,7 @@ function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: 
       preview.traverse((child) => { if (child instanceof THREE.Mesh) applyPreviewMat(child); });
       _previewMesh = preview as unknown as THREE.Mesh;
     }
-    preview.traverse((c) => { c.userData.noSnap = true; });
+    preview.traverse((c) => { c.userData.noSnap = true; c.userData.isPreview = true; });
     viewer.getScene().add(preview);
   } catch {
     // Degenerate geometry — skip preview

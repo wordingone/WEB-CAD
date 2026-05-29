@@ -86,17 +86,50 @@ const trustedKey = async (key, opts = {}) => {
   await delay(30);
 };
 
-// Type a full string character by character into the focused element
+// Insert text into focused input via Input.insertText (avoids keyDown-text double-insertion)
 const typeString = async (s) => {
-  for (const ch of s) {
-    await send("Input.dispatchKeyEvent", { type: "char", text: ch, key: ch,
-      windowsVirtualKeyCode: ch.charCodeAt(0), nativeVirtualKeyCode: ch.charCodeAt(0) });
-    await delay(20);
-  }
+  await send("Input.insertText", { text: s });
+  await delay(30);
 };
 
+const trustedClick = async (x, y) => {
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
+  await delay(30);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await delay(30);
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+};
+
+const MASTER_URL = "https://wordingone.github.io/WEB-CAD/";
 await send("Runtime.enable");
-console.log(`[#224] target: ${target.url}`);
+await send("Page.enable");
+
+console.log(`[#224] navigating to ${MASTER_URL}`);
+await send("Page.navigate", { url: MASTER_URL });
+await delay(2_000);
+await send("Runtime.enable");
+
+// Boot gate: click CAD ONLY if present
+try {
+  await poll(async () => {
+    const center = await evaluate(`
+      (() => {
+        const btn = document.querySelector('[data-path="cad-only"]');
+        if (!btn) return null;
+        const r = btn.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+      })()`);
+    if (!center) return false;
+    await trustedClick(center.x, center.y);
+    return true;
+  }, { timeout: 20_000, label: "cad-only boot gate" });
+  console.log("[#224] boot: cad-only");
+} catch { console.log("[#224] boot: no gate"); }
+
+// Wait for palette to be ready
+await poll(async () => evaluate(`!!document.querySelector('[data-tool="wall"]')`),
+  { timeout: 30_000, label: "[data-tool=wall]" });
+await delay(400);
 
 // Confirm dispatch ready
 await poll(async () => evaluate(`typeof window.__dispatchSync === "function"`),
@@ -163,8 +196,11 @@ console.log("[#224] AC1: circle 5'");
 
 const circlesBefore = await countKind("circle") ?? 0;
 
-// Type "c" to open overlay (first printable char triggers cmd-at-cursor)
-await send("Input.dispatchKeyEvent", { type: "char", text: "c", key: "c",
+// keyDown "c" triggers cmd-at-cursor keydown listener; open() pre-fills input with "c"
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "c", code: "KeyC",
+  windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
+await delay(50);
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "c", code: "KeyC",
   windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
 await delay(300);
 
@@ -175,7 +211,9 @@ const overlayOpen = await poll(async () =>
 results.ac1_overlay_open = !!overlayOpen;
 console.log(`  overlay open: ${results.ac1_overlay_open}`);
 
-// Select circle: arrow down to circle item, or type more to filter
+// Select circle: type more to filter
+await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+await delay(30);
 await typeString("ircle");
 await delay(200);
 
@@ -192,7 +230,9 @@ const argLabelVisible = await evaluate(`
 results.ac1_args_label = argLabelVisible;
 console.log(`  args label: "${argLabelVisible}"`);
 
-// Type "5'" for radius
+// Type "5'" for radius (argInput is focused by openArgsMode → showNextArg)
+await evaluate(`document.querySelector('.cmd-cursor-arg-input')?.focus()`);
+await delay(30);
 await typeString("5'");
 await delay(100);
 await trustedKey("Enter");
@@ -231,10 +271,15 @@ await delay(200);
 const rectsBefore = await countKind("rectangle") ?? 0;
 
 // "r" to open overlay
-await send("Input.dispatchKeyEvent", { type: "char", text: "r", key: "r",
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "r", code: "KeyR",
+  windowsVirtualKeyCode: 82, nativeVirtualKeyCode: 82 });
+await delay(50);
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "r", code: "KeyR",
   windowsVirtualKeyCode: 82, nativeVirtualKeyCode: 82 });
 await delay(300);
 
+await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+await delay(30);
 await typeString("ect");
 await delay(200);
 await trustedKey("Enter");
@@ -246,6 +291,8 @@ results.ac2_width_label = widthLabel;
 console.log(`  width label: "${widthLabel}"`);
 
 // Width: 10'
+await evaluate(`document.querySelector('.cmd-cursor-arg-input')?.focus()`);
+await delay(30);
 await typeString("10'");
 await trustedKey("Enter");
 await delay(200);
@@ -256,6 +303,8 @@ results.ac2_length_label = lengthLabel;
 console.log(`  length label: "${lengthLabel}"`);
 
 // Length: 16'
+await evaluate(`document.querySelector('.cmd-cursor-arg-input')?.focus()`);
+await delay(30);
 await typeString("16'");
 await trustedKey("Enter");
 await delay(400);
@@ -286,9 +335,14 @@ await delay(200);
 
 const wallsBefore = await countKind("wall") ?? 0;
 
-await send("Input.dispatchKeyEvent", { type: "char", text: "w", key: "w",
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "w", code: "KeyW",
+  windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 });
+await delay(50);
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "w", code: "KeyW",
   windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 });
 await delay(300);
+await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+await delay(30);
 await typeString("all");
 await delay(200);
 await trustedKey("Enter");
@@ -299,6 +353,8 @@ const wallLenLabel = await evaluate(`
 results.ac3_length_label = wallLenLabel;
 console.log(`  length label: "${wallLenLabel}"`);
 
+await evaluate(`document.querySelector('.cmd-cursor-arg-input')?.focus()`);
+await delay(30);
 await typeString("20'");
 await trustedKey("Enter");
 await delay(400);
@@ -327,9 +383,14 @@ await delay(200);
 
 const circlesBeforeEsc = await countKind("circle") ?? 0;
 
-await send("Input.dispatchKeyEvent", { type: "char", text: "c", key: "c",
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "c", code: "KeyC",
+  windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
+await delay(50);
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "c", code: "KeyC",
   windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
 await delay(300);
+await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+await delay(30);
 await typeString("ircle");
 await delay(200);
 await trustedKey("Enter"); // → args mode
@@ -356,9 +417,14 @@ await delay(30);
 await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: VX, y: VY, button: "left", clickCount: 1 });
 await delay(200);
 
-await send("Input.dispatchKeyEvent", { type: "char", text: "s", key: "s",
+await send("Input.dispatchKeyEvent", { type: "keyDown", key: "s", code: "KeyS",
+  windowsVirtualKeyCode: 83, nativeVirtualKeyCode: 83 });
+await delay(50);
+await send("Input.dispatchKeyEvent", { type: "keyUp", key: "s", code: "KeyS",
   windowsVirtualKeyCode: 83, nativeVirtualKeyCode: 83 });
 await delay(300);
+await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+await delay(30);
 await typeString("elect");
 await delay(200);
 await trustedKey("Enter");
