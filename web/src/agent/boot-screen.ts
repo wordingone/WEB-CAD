@@ -485,42 +485,80 @@ function _onDone(): void {
 
 function _onError(ev: Event): void {
   if (_done) return;
-  _done = true;
   if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
   cancelAnimationFrame(_rafId);
-  if (!_overlay) return;
   const detail = (ev as CustomEvent).detail;
   const msg = typeof detail === 'string' ? detail
     : (typeof detail?.message === 'string' ? detail.message : 'Model failed to load');
   const url: string = detail && typeof detail === 'object' && typeof detail.url === 'string'
     ? detail.url : '';
-  if (_statusEl) {
-    Object.assign(_statusEl.style, {
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '6px',
-      color: '#ff4040',
-    });
-    const errorLine = document.createElement('div');
-    errorLine.textContent = `ERROR: ${msg}`;
-    _statusEl.appendChild(errorLine);
-    if (url) {
-      const urlLine = document.createElement('div');
-      urlLine.style.cssText = 'font-size:8px;opacity:.55;word-break:break-all;max-width:min(78vw,580px);text-align:center;';
-      urlLine.textContent = url;
-      _statusEl.appendChild(urlLine);
-    }
-    const retryBtn = document.createElement('button');
-    retryBtn.textContent = 'Retry';
-    retryBtn.style.cssText = 'margin-top:2px;padding:4px 14px;border:1px solid rgba(255,64,64,.4);border-radius:4px;background:transparent;color:#ff4040;font:10px monospace;cursor:pointer;letter-spacing:.06em;';
-    retryBtn.addEventListener('click', () => { window.location.reload(); });
-    _statusEl.appendChild(retryBtn);
+  _showRuntimeErrorBanner(msg, url);
+  _onDone();
+}
+
+function _showRuntimeErrorBanner(msg: string, url: string): void {
+  (window as unknown as Record<string, unknown>).__agentRuntimeError = {
+    message: msg,
+    url,
+    timestamp: new Date().toISOString(),
+  };
+  document.getElementById('agent-runtime-error-banner')?.remove();
+  const banner = document.createElement('div');
+  banner.id = 'agent-runtime-error-banner';
+  banner.setAttribute('role', 'alert');
+  banner.style.cssText = [
+    'position:fixed',
+    'left:12px',
+    'right:12px',
+    'bottom:12px',
+    'z-index:10000',
+    'display:flex',
+    'align-items:flex-start',
+    'gap:10px',
+    'padding:10px 12px',
+    'border:1px solid rgba(255,64,64,.45)',
+    'border-radius:6px',
+    'background:rgba(12,12,12,.96)',
+    'box-shadow:0 10px 30px rgba(0,0,0,.35)',
+    'color:#ff7070',
+    'font:11px/1.4 "JetBrains Mono", "Fira Mono", monospace',
+    'pointer-events:auto',
+  ].join(';');
+
+  const copy = document.createElement('div');
+  copy.style.cssText = 'min-width:0;flex:1;';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;';
+  title.textContent = 'AI runtime error';
+  const body = document.createElement('div');
+  body.style.cssText = 'word-break:break-word;color:#ff8a8a;';
+  body.textContent = msg;
+  copy.appendChild(title);
+  copy.appendChild(body);
+  if (url) {
+    const urlLine = document.createElement('div');
+    urlLine.style.cssText = 'margin-top:4px;font-size:9px;opacity:.62;word-break:break-all;';
+    urlLine.textContent = url;
+    copy.appendChild(urlLine);
   }
-  if (_pctEl) _pctEl.textContent = '';
-  if (_fileEl) _fileEl.textContent = '';
-  if (_etaEl) _etaEl.textContent = '';
-  if (_hintEl) _hintEl.style.display = 'none';
+
+  const retryBtn = document.createElement('button');
+  retryBtn.type = 'button';
+  retryBtn.textContent = 'Reload';
+  retryBtn.style.cssText = [
+    'padding:4px 10px',
+    'border:1px solid rgba(255,64,64,.45)',
+    'border-radius:4px',
+    'background:transparent',
+    'color:#ff7070',
+    'font:10px "JetBrains Mono", "Fira Mono", monospace',
+    'cursor:pointer',
+  ].join(';');
+  retryBtn.addEventListener('click', () => { window.location.reload(); });
+
+  banner.appendChild(copy);
+  banner.appendChild(retryBtn);
+  document.body.appendChild(banner);
 }
 
 // ---------------------------------------------------------------------------
