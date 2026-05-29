@@ -7,6 +7,7 @@ import { resolveAlias } from "../src/commands/dictionary";
 import { getCreateToolCausalSpecs, type CreateToolCausalSpec } from "../src/tools/index";
 import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
 import { MODEL_PALETTE_CAUSAL_SPECS } from "../src/shell/model-palette-causal-map";
+import { buildPhoneSlider } from "../src/ui/phone-slider";
 
 const SHARED_TOOLS = [
   "select", "move", "rotate", "scale", "copy", "array",
@@ -190,6 +191,46 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
 
     expect(visible).toEqual([...SHARED_TOOLS.slice(0, 14), ...CAD_TOOLS, ...SHARED_TOOLS.slice(14)]);
     for (const id of ARCH_TOOLS) expect(visible).not.toContain(id);
+  });
+
+  test("ARCH/CAD toggle halves select the labeled mode instead of blindly toggling", () => {
+    const host = buildHost();
+    const changes: string[] = [];
+    const { root, setTab } = buildPhoneSlider({
+      initial: "ARCH",
+      onChange: (tab) => {
+        changes.push(tab);
+        window.dispatchEvent(new CustomEvent("ribbon:section-tab", { detail: { tab } }));
+      },
+    });
+    document.body.appendChild(root);
+
+    const archHalf = root.querySelector<HTMLElement>('[data-tab="ARCH"]');
+    const cadHalf = root.querySelector<HTMLElement>('[data-tab="CAD"]');
+    expect(archHalf).toBeDefined();
+    expect(cadHalf).toBeDefined();
+
+    cadHalf!.click();
+    expect(root.dataset.activeTab).toBe("CAD");
+    expect(cadHalf!.getAttribute("aria-pressed")).toBe("true");
+    expect(visibleToolIds(host)).toEqual([...SHARED_TOOLS.slice(0, 14), ...CAD_TOOLS, ...SHARED_TOOLS.slice(14)]);
+
+    cadHalf!.click();
+    expect(root.dataset.activeTab).toBe("CAD");
+    expect(changes).toEqual(["CAD"]);
+
+    archHalf!.click();
+    expect(root.dataset.activeTab).toBe("ARCH");
+    expect(archHalf!.getAttribute("aria-pressed")).toBe("true");
+    expect(visibleToolIds(host)).toEqual([...SHARED_TOOLS.slice(0, 14), ...ARCH_TOOLS, ...SHARED_TOOLS.slice(14)]);
+
+    setTab("CAD");
+    expect(root.dataset.activeTab).toBe("CAD");
+    expect(changes).toEqual(["CAD", "ARCH", "CAD"]);
+
+    root.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(root.dataset.activeTab).toBe("ARCH");
+    expect(changes).toEqual(["CAD", "ARCH", "CAD", "ARCH"]);
   });
 
   test("hidden sub-tools highlight their visible parent palette button", () => {
