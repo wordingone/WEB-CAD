@@ -14,8 +14,15 @@ import {
   getSelected,
   setFilter,
   getFilters,
+  topologyForObject,
 } from "../src/viewer/selection-state";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
+
+test("canonical BRep render meshes resolve as brep topology for Inspect", () => {
+  const carrier = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  carrier.userData.kind = "mesh";
+  expect(topologyForObject(carrier, "brep")).toBe("brep");
+});
 
 beforeEach(() => {
   resetSelectionState();

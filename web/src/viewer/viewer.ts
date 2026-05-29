@@ -9,7 +9,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { axesGizmoSVG } from "../ui/icons.js";
 import { getState, subscribe } from "../app-state.js";
-import { setSelected, clearSelected } from "./selection-state.js";
+import { setSelected, clearSelected, topologyForObject } from "./selection-state.js";
 import { emitChainFragment } from "./transforms.js";
 import { getSnap, subscribeSnap } from "./snap-state.js";
 import { showHandlesFor, clearHandles, isSubObjectHandle, getHandles, getHandleParent, refitParentGeometry } from "./sub-object-handles.js";
@@ -282,7 +282,12 @@ export class Viewer {
       const obj = this.scene.getObjectByProperty("uuid", uuid) ?? null;
       this.selectObject(obj);
       if (obj) {
-        setSelected({ topology: "mesh", uuid: obj.uuid, object: obj, transformTarget: obj });
+        setSelected({
+          topology: topologyForObject(obj, this.getCanonicalGeometryForObject(obj)?.kind),
+          uuid: obj.uuid,
+          object: obj,
+          transformTarget: obj,
+        });
         window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: obj.uuid } }));
       } else {
         clearSelected();
@@ -553,7 +558,7 @@ export class Viewer {
     if (transformTarget) {
       this.selectObject(transformTarget);
       setSelected({
-        topology: "mesh",
+        topology: topologyForObject(transformTarget, this.getCanonicalGeometryForObject(transformTarget)?.kind),
         uuid: transformTarget.uuid,
         object: transformTarget,
         transformTarget,

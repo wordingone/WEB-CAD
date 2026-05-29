@@ -6,7 +6,7 @@ import * as THREE from "three";
 import type { Viewer } from "./viewer";
 import { projectToScreen } from "./projection";
 import { ptPrompt, ptClearPrompt } from "./transforms";
-import { addToMultiSelected, clearMultiSelected } from "./selection-state";
+import { addToMultiSelected, clearMultiSelected, topologyForObject } from "./selection-state";
 
 // ── Late-binding: marker/overlay exclusions ───────────────────────────────────
 // tools/index.ts registers these during initCreateMode.
@@ -176,7 +176,12 @@ export function applySelResult(viewer: Viewer, matches: THREE.Object3D[]): strin
   window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: matches[0].uuid } }));
   _selHLOwned = false;
   for (const o of matches) {
-    addToMultiSelected({ topology: "mesh", uuid: o.uuid, object: o, transformTarget: o });
+    addToMultiSelected({
+      topology: topologyForObject(o, viewer.getCanonicalGeometryForObject(o)?.kind),
+      uuid: o.uuid,
+      object: o,
+      transformTarget: o,
+    });
     applyMultiSelHL(o);
   }
   ptPrompt(`Selected ${matches.length} object${matches.length > 1 ? "s" : ""}`);

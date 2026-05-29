@@ -11,7 +11,7 @@ import { getSnapTarget, setSnapTarget, getLastSurfaceHit, HOST_TOOL_CREATORS, se
 import { pushAction, pushReplaceAction, beginTransaction, endTransaction, pushCustomAction, setOnActionPushed } from "../history";
 import { getActiveCommandSession, provideSessionPick, clearCommandSession, commitCommandSession } from "../commands/command-session";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
-import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected } from "../viewer/selection-state";
+import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected, topologyForObject } from "../viewer/selection-state";
 import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView, getGeometryZ, showLevelChip } from "../viewer/projection";
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
@@ -1819,7 +1819,12 @@ export function initCreateMode(viewer: Viewer): void {
           if (hit) {
             ev.stopImmediatePropagation();
             viewer.selectObject(hit.obj);
-            setSelected({ topology: "mesh", uuid: hit.obj.uuid, object: hit.obj, transformTarget: hit.obj });
+            setSelected({
+              topology: topologyForObject(hit.obj, viewer.getCanonicalGeometryForObject(hit.obj)?.kind),
+              uuid: hit.obj.uuid,
+              object: hit.obj,
+              transformTarget: hit.obj,
+            });
             window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: hit.obj.uuid } }));
             opSetHover(null);
             const ptTool = (_ptPhase as { kind: "start"; tool: string }).tool;
