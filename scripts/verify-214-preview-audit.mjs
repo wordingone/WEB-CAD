@@ -175,21 +175,21 @@ const results = {};
 
 console.log("\n=== Section A: command-at-cursor (trusted Input.dispatchKeyEvent) ===");
 
-// A1: printable 'w' opens overlay
+// A1: printable 's' opens overlay (using 's' → 'slab': no-args ARCH-section tool)
 await blurAll();
 await delay(100);
-await trustedChar("w");
+await trustedChar("s");
 await delay(300);
 results.A1_overlay_opened = await overlayPresent();
 results.A1_input_value = await overlayInputValue();
 console.log(`  A1 overlay opened: ${results.A1_overlay_opened}  input='${results.A1_input_value}'`);
 
-// A2: type 'all' → input becomes 'wall', list has Wall
+// A2: type 'lab' → input becomes 'slab', list has Slab
 if (results.A1_overlay_opened) {
   // Use Input.insertText to append chars without keyDown-text double-insertion.
   await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
   await delay(30);
-  for (const c of ["a", "l", "l"]) {
+  for (const c of ["l", "a", "b"]) {
     await send("Input.insertText", { text: c });
     await delay(60);
   }
@@ -199,7 +199,7 @@ if (results.A1_overlay_opened) {
   console.log(`  A2 input='${results.A2_input_value}' list_count=${results.A2_list_count}`);
 }
 
-// A3: Enter activates wall tool
+// A3: Enter activates slab tool (no-args: dispatchSync fires immediately, overlay closes)
 if (results.A1_overlay_opened) {
   const prevTool = await activeToolId();
   await trustedKey("Enter");
@@ -239,14 +239,10 @@ console.log(`  A5 Ctrl+w no_overlay=${results.A5_ctrl_no_overlay}`);
 
 console.log("\n=== Section B: spline tool preview (#214) ===");
 
-// Switch to CAD tab first (spline is in CAD mode)
-const cadTabCenter = await getCenter('[data-sub="cad"], [data-mode="cad"], .ribbon-sub-btn[data-id="cad"]')
-  ?? await getCenter('.mode-tab[data-mode="cad"]');
-if (cadTabCenter) {
-  await trustedClick(cadTabCenter.x, cadTabCenter.y);
-  await delay(400);
-  console.log("  switched to CAD tab");
-}
+// Switch to CAD tab: dispatch ribbon:section-tab (exposes section 1 draw tools including spline)
+await evaluate(`window.dispatchEvent(new CustomEvent("ribbon:section-tab", { detail: { tab: "CAD" } }))`);
+await delay(300);
+console.log("  switched to CAD tab via ribbon:section-tab");
 
 // Click the Spline palette button
 const splineBtn = await getCenter('[data-tool="spline"]');
@@ -341,9 +337,9 @@ results.C_audit_table = [
 
 const pass =
   results.A1_overlay_opened === true &&
-  results.A1_input_value === "w" &&
+  results.A1_input_value === "s" &&
   results.A3_overlay_closed === true &&
-  results.A3_active_tool === "wall" &&
+  results.A3_active_tool === "slab" &&
   results.A4_overlay_closed === true &&
   results.A4_tool_unchanged === true &&
   results.A5_ctrl_no_overlay === true &&
@@ -367,9 +363,9 @@ writeFileSync(OUT, JSON.stringify(receipt, null, 2));
 
 console.log("\n── #214 preview audit AC ─────────────────────────────────────────");
 console.log(`  A1 overlay opens:              ${results.A1_overlay_opened}  ${results.A1_overlay_opened ? "✓" : "✗ FAIL"}`);
-console.log(`  A1 input prefilled 'w':        ${results.A1_input_value === "w"}  ${results.A1_input_value === "w" ? "✓" : "✗ FAIL"}`);
+console.log(`  A1 input prefilled 's':        ${results.A1_input_value === "s"}  ${results.A1_input_value === "s" ? "✓" : "✗ FAIL"}`);
 console.log(`  A3 Enter activates+closes:     ${results.A3_overlay_closed}  ${results.A3_overlay_closed ? "✓" : "✗ FAIL"}`);
-console.log(`  A3 active tool = wall:         ${results.A3_active_tool === "wall"}  ${results.A3_active_tool === "wall" ? "✓" : "✗ FAIL"}`);
+console.log(`  A3 active tool = slab:         ${results.A3_active_tool === "slab"}  ${results.A3_active_tool === "slab" ? "✓" : "✗ FAIL"}`);
 console.log(`  A4 Esc closes:                 ${results.A4_overlay_closed}  ${results.A4_overlay_closed ? "✓" : "✗ FAIL"}`);
 console.log(`  A4 tool unchanged after Esc:   ${results.A4_tool_unchanged}  ${results.A4_tool_unchanged ? "✓" : "✗ FAIL"}`);
 console.log(`  A5 Ctrl+key: no overlay:       ${results.A5_ctrl_no_overlay}  ${results.A5_ctrl_no_overlay ? "✓" : "✗ FAIL"}`);

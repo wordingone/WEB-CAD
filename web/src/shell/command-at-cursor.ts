@@ -260,7 +260,13 @@ function open(initial: string) {
     }
   });
 
-  input.addEventListener("blur", () => setTimeout(close, 150));
+  input.addEventListener("blur", () => {
+    setTimeout(() => {
+      // Stay open if focus moved inside the overlay (e.g. args-mode arg input).
+      if (_overlay?.contains(document.activeElement)) return;
+      close();
+    }, 150);
+  });
 
   render(initial);
   input.focus();
