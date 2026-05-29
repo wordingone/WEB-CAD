@@ -14,6 +14,7 @@ import { registerStructuralHandlers } from "../src/handlers/structural";
 import { linkOpToolExtrudeCanonical } from "../src/viewer/op-tool-canonical";
 import { WORLD_XY } from "../src/viewer/cplane";
 import { __sceneSerializationForTests } from "../src/viewer/viewer";
+import { brepNakedEdgeCount } from "../src/nurbs/nurbs-brep";
 import type { Viewer } from "../src/viewer/viewer";
 
 function source(path: string): string {
@@ -202,6 +203,9 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells).toHaveLength(1);
     expect(canonical.brep.shells[0].faces).toHaveLength(6);
     expect(canonical.brep.shells[0].isClosed).toBe(true);
+    expect(canonical.brep.shells[0].edges).toHaveLength(12);
+    expect(canonical.brep.shells[0].vertices).toHaveLength(8);
+    expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
   });
 
   test("SdExtrude resolves selected profiles from canonical curves before display BufferGeometry", () => {
@@ -269,6 +273,9 @@ describe("BRep canonical migration characterization", () => {
       expect(canonical.brep.shells).toHaveLength(1);
       expect(canonical.brep.shells[0].faces).toHaveLength(6);
       expect(canonical.brep.shells[0].isClosed).toBe(true);
+      expect(canonical.brep.shells[0].edges).toHaveLength(12);
+      expect(canonical.brep.shells[0].vertices).toHaveLength(8);
+      expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
     }
   });
 
@@ -331,6 +338,9 @@ describe("BRep canonical migration characterization", () => {
       expect(canonical.brep.shells).toHaveLength(1);
       expect(canonical.brep.shells[0].faces).toHaveLength(6);
       expect(canonical.brep.shells[0].isClosed).toBe(true);
+      expect(canonical.brep.shells[0].edges).toHaveLength(12);
+      expect(canonical.brep.shells[0].vertices).toHaveLength(8);
+      expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
     }
   });
 

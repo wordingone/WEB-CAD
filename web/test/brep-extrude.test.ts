@@ -3,7 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { extrude } from "../src/nurbs/brep-extrude";
 import type { PolylineCurve, ArcCurve, LineCurve } from "../src/nurbs/nurbs-curves";
 import { Point3, Vector3, Plane, Interval } from "../src/nurbs/nurbs-primitives";
-import { brepFaceCount, brepIsSolid } from "../src/nurbs/nurbs-brep";
+import { brepFaceCount, brepIsSolid, brepNakedEdgeCount } from "../src/nurbs/nurbs-brep";
 import { pointAtUV } from "../src/nurbs/nurbs-surfaces";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -62,6 +62,18 @@ describe("extrude — rectangle profile", () => {
   test("shell is marked closed", () => {
     const brep = extrude(rectangleProfile(4, 3), UP, 3.0);
     expect(brepIsSolid(brep)).toBe(true);
+  });
+
+  test("closed rectangle extrusion has manifold shared edge and vertex topology", () => {
+    const brep = extrude(rectangleProfile(4, 3), UP, 3.0);
+    const shell = brep.shells[0];
+
+    expect(shell.isClosed).toBe(true);
+    expect(shell.edges).toHaveLength(12);
+    expect(shell.vertices).toHaveLength(8);
+    expect(brepNakedEdgeCount(brep)).toBe(0);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(shell.vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
   });
 
   test("lateral faces are SumSurface kind", () => {
