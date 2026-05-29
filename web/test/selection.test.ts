@@ -50,7 +50,8 @@ test("BRep sub-object selections are visible and Inspect prioritizes canonical g
   expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
   expect(viewerSource).toContain("previewBrepSubObjectAt");
   expect(viewerSource).toContain("clearSubSelectionHighlight()");
-  expect(viewerSource).toContain("this.selectObject(null)");
+  expect(viewerSource).toContain("this.selectSubObject(highlights[0])");
+  expect(viewerSource).toContain("this.setMultiTargets(highlights)");
   expect(viewerSource).toContain("subObject: true");
   expect(viewerSource).toContain("parentUuid: subSelection.parentUuid");
   expect(viewerSource).toContain('sel.topology === "face"');
