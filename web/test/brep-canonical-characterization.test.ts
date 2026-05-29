@@ -110,7 +110,7 @@ describe("BRep canonical migration characterization", () => {
     }
   });
 
-  test("SdBox keeps its display mesh while linking a canonical extruded BRep", () => {
+  test("SdBox keeps its display mesh while linking a closed canonical NURBS box BRep", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
 
@@ -132,8 +132,13 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.createdBy).toBe("SdBox");
     if (canonical.kind !== "brep") throw new Error("expected canonical brep");
     expect(canonical.brep.shells).toHaveLength(1);
-    expect(canonical.brep.shells[0].faces).toHaveLength(6);
-    expect(canonical.brep.shells[0].isClosed).toBe(true);
+    const shell = canonical.brep.shells[0];
+    expect(shell.faces).toHaveLength(6);
+    expect(shell.faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    expect(shell.edges).toHaveLength(12);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(shell.vertices).toHaveLength(8);
+    expect(shell.isClosed).toBe(true);
   });
 
   test("SdBox accepts vector size and center without NaN display geometry", () => {
@@ -163,7 +168,12 @@ describe("BRep canonical migration characterization", () => {
     const canonical = store.require(canonicalId as string);
     expect(canonical.kind).toBe("brep");
     if (canonical.kind !== "brep") throw new Error("expected canonical brep");
-    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    const shell = canonical.brep.shells[0];
+    expect(shell.faces).toHaveLength(6);
+    expect(shell.faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    expect(shell.edges).toHaveLength(12);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(shell.vertices).toHaveLength(8);
     expect(canonical.displayMesh?.vertexCount).toBe(position.count);
   });
 
@@ -696,25 +706,25 @@ describe("BRep canonical migration characterization", () => {
     registerNurbsHandlers(viewer);
     registerBrepOpHandlers(viewer);
 
-    expect(dispatchSync("SdBox", { width: 2, depth: 2, height: 2 }).ok).toBe(true);
-    const box = lastObject();
-    expect(box).toBeInstanceOf(THREE.Mesh);
-    const sourceRecord = box ? store.resolveObject(box) : undefined;
+    expect(dispatchSync("SdExtrude", { profile: [[-1, -1], [1, -1], [1, 1], [-1, 1]], distance: 2 }).ok).toBe(true);
+    const source = lastObject();
+    expect(source).toBeInstanceOf(THREE.Mesh);
+    const sourceRecord = source ? store.resolveObject(source) : undefined;
     expect(sourceRecord?.kind).toBe("brep");
     if (sourceRecord?.kind !== "brep") throw new Error("expected source BRep");
     expect(sourceRecord.brep.shells[0].faces.some((face) => face.surface.kind !== "nurbs")).toBe(true);
 
-    const rebuildResult = dispatchSync("SdRebuild", { target: box?.uuid });
+    const rebuildResult = dispatchSync("SdRebuild", { target: source?.uuid });
 
     expect(rebuildResult.ok).toBe(true);
     if (!rebuildResult.ok) throw new Error("expected rebuild to succeed");
     const result = rebuildResult.result as { rebuilt: string; original: string; source: string; surfaceKind: string; originalFaces: number; rebuiltFaces: number };
     expect(result.source).toBe("canonical-brep");
     expect(result.surfaceKind).toBe("nurbs");
-    expect(result.original).toBe(box!.uuid);
+    expect(result.original).toBe(source!.uuid);
     expect(result.originalFaces).toBe(6);
     expect(result.rebuiltFaces).toBe(6);
-    expect(scene.getObjectByProperty("uuid", box!.uuid)).toBeUndefined();
+    expect(scene.getObjectByProperty("uuid", source!.uuid)).toBeUndefined();
     const rebuilt = scene.getObjectByProperty("uuid", result.rebuilt);
     expect(rebuilt).toBeInstanceOf(THREE.Mesh);
     const rebuiltRecord = rebuilt ? store.resolveObject(rebuilt) : undefined;
