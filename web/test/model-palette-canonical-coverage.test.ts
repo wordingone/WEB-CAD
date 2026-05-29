@@ -217,7 +217,7 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
 
     cadHalf!.click();
     expect(root.dataset.activeTab).toBe("CAD");
-    expect(changes).toEqual(["CAD"]);
+    expect(changes).toEqual(["CAD", "CAD"]);
 
     archHalf!.click();
     expect(root.dataset.activeTab).toBe("ARCH");
@@ -226,11 +226,11 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
 
     setTab("CAD");
     expect(root.dataset.activeTab).toBe("CAD");
-    expect(changes).toEqual(["CAD", "ARCH", "CAD"]);
+    expect(changes).toEqual(["CAD", "CAD", "ARCH", "CAD"]);
 
     root.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(root.dataset.activeTab).toBe("ARCH");
-    expect(changes).toEqual(["CAD", "ARCH", "CAD", "ARCH"]);
+    expect(changes).toEqual(["CAD", "CAD", "ARCH", "CAD", "ARCH"]);
   });
 
   test("hidden sub-tools highlight their visible parent palette button", () => {

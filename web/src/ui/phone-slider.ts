@@ -72,8 +72,12 @@ export function buildPhoneSlider(opts: PhoneSliderOpts): { root: HTMLElement; se
     }
   }
 
-  function setActive(tab: SliderTab, skipTransition = false) {
-    if (active === tab) return;
+  function setActive(tab: SliderTab, skipTransition = false, forceNotify = false) {
+    if (active === tab) {
+      syncSemanticState();
+      if (forceNotify) opts.onChange(active);
+      return;
+    }
     active = tab;
     totalRot = tab === "CAD" ? 180 : 0;
     syncSemanticState();
@@ -87,11 +91,11 @@ export function buildPhoneSlider(opts: PhoneSliderOpts): { root: HTMLElement; se
 
   archHalf.addEventListener("click", (e) => {
     e.stopPropagation();
-    setActive("ARCH");
+    setActive("ARCH", false, true);
   });
   compHalf.addEventListener("click", (e) => {
     e.stopPropagation();
-    setActive("CAD");
+    setActive("CAD", false, true);
   });
 
   root.addEventListener("click", (e) => {
