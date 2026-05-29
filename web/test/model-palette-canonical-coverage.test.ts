@@ -320,7 +320,8 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
   test("mesh-derived gaps are explicit in the model palette causal map", () => {
     const fillet = MODEL_PALETTE_CAUSAL_SPECS.fillet;
     expect(fillet.implementationStatus).toBe("mesh-derived-gap");
-    expect(fillet.weaknesses?.join("\n")).toContain("not from a BRep-native fillet/chamfer kernel");
+    expect(fillet.evidence?.join("\n")).toContain("canonicalEdgeChamferDisplayResult");
+    expect(fillet.weaknesses?.join("\n")).toContain("All-edge and unsupported-shape outputs are still derived");
 
     const source = readFileSync(new URL("../src/handlers/transforms.ts", import.meta.url), "utf8");
     const filletStart = source.indexOf('registerHandler("SdFillet"');
@@ -328,6 +329,7 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(filletStart).toBeGreaterThanOrEqual(0);
     expect(filletEnd).toBeGreaterThan(filletStart);
     const filletHandler = source.slice(filletStart, filletEnd);
+    expect(filletHandler).toContain("canonicalEdgeChamferDisplayResult");
     expect(filletHandler).toContain("linkPlanarizedMeshEditBrep");
   });
 

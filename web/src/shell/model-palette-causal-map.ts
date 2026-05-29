@@ -278,11 +278,12 @@ export const MODEL_PALETTE_CAUSAL_SPECS: Record<string, ModelPaletteCausalSpec> 
     implementationStatus: "mesh-derived-gap",
     evidence: [
       "viewer/op-tool.ts routes palette completion through dispatchSync(\"SdFillet\")",
-      "handlers/transforms.ts calls chamferEdge/filletMesh, then linkPlanarizedMeshEditBrep",
+      "handlers/transforms.ts attempts canonicalEdgeChamferDisplayResult for selected supported BRep box edges before mesh fallback",
+      "handlers/transforms.ts still calls chamferEdge/filletMesh, then linkPlanarizedMeshEditBrep for all-edge and unsupported-shape paths",
     ],
     weaknesses: [
-      "Canonical record is derived from the post-edit display mesh with derivation=planarized-edit-mesh, not from a BRep-native fillet/chamfer kernel.",
-      "This preserves old mesh-era perceived behavior but is not proof of true BRep/NURBS edit capability.",
+      "Selected-edge chamfer is BRep-native only for supported canonical box-like BReps; broader curved/complex BRep fillets are not implemented.",
+      "All-edge and unsupported-shape outputs are still derived from the post-edit display mesh with derivation=planarized-edit-mesh, not from a general BRep-native fillet/chamfer kernel.",
     ],
   },
   "brep-explode": {

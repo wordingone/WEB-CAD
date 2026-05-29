@@ -185,7 +185,51 @@ function axisBoxBrep(xMin: number, xMax: number, yMin: number, yMax: number, zMi
     planeFace([cx, cy, zMin], [0, 0, -1], Math.max(hx, hy)),
     planeFace([cx, cy, zMax], [0, 0, 1], Math.max(hx, hy)),
   ];
-  const shell: BrepShell = { faces, edges: [], vertices: [], isClosed: true };
+  const p000 = { x: xMin, y: yMin, z: zMin };
+  const p100 = { x: xMax, y: yMin, z: zMin };
+  const p110 = { x: xMax, y: yMax, z: zMin };
+  const p010 = { x: xMin, y: yMax, z: zMin };
+  const p001 = { x: xMin, y: yMin, z: zMax };
+  const p101 = { x: xMax, y: yMin, z: zMax };
+  const p111 = { x: xMax, y: yMax, z: zMax };
+  const p011 = { x: xMin, y: yMax, z: zMax };
+  const edge = (from: typeof p000, to: typeof p000, faceIndex1: number, faceIndex2: number) => ({
+    curve: {
+      kind: "line" as const,
+      from,
+      to,
+      domain: { min: 0, max: Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  });
+  const edges = [
+    edge(p000, p100, 2, 4),
+    edge(p100, p110, 1, 4),
+    edge(p010, p110, 3, 4),
+    edge(p000, p010, 0, 4),
+    edge(p001, p101, 2, 5),
+    edge(p101, p111, 1, 5),
+    edge(p011, p111, 3, 5),
+    edge(p001, p011, 0, 5),
+    edge(p000, p001, 0, 2),
+    edge(p100, p101, 1, 2),
+    edge(p110, p111, 1, 3),
+    edge(p010, p011, 0, 3),
+  ];
+  const vertex = (point: typeof p000, edgeIndices: number[]) => ({ point, edgeIndices, tolerance: BREP_DEFAULT_TOLERANCE });
+  const vertices = [
+    vertex(p000, [0, 3, 8]),
+    vertex(p100, [0, 1, 9]),
+    vertex(p110, [1, 2, 10]),
+    vertex(p010, [2, 3, 11]),
+    vertex(p001, [4, 7, 8]),
+    vertex(p101, [4, 5, 9]),
+    vertex(p111, [5, 6, 10]),
+    vertex(p011, [6, 7, 11]),
+  ];
+  const shell: BrepShell = { faces, edges, vertices, isClosed: true };
   return { shells: [shell] };
 }
 
@@ -1278,7 +1322,7 @@ describe("canonical geometry transform instances", () => {
     expect(store.exportRecords().filter((record) => record.createdBy === "boolean-difference")).toHaveLength(0);
   });
 
-  test("SdFillet edge chamfer links planarized output to a canonical BRep record", () => {
+  test("SdFillet edge chamfer creates native canonical BRep output before mesh fallback", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1318,16 +1362,18 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "edge-chamfer",
       source: record.id,
-      derivation: "planarized-edit-mesh",
-      conversion: "merged-coplanar-planar-nurbs-brep",
+      derivation: "canonical-brep-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
     });
     const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
-    expect(faceCount).toBeGreaterThan(0);
+    expect(faceCount).toBe(7);
     expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
-    expect(canonical.brep.shells[0].faces.every((face) => {
-      const curve = face.outerLoop.curves[0] as { points?: unknown[] };
-      return !Array.isArray(curve.points) || curve.points.length !== 4;
-    })).toBe(true);
+    expect(canonical.brep.shells[0].edges.length).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+    expect(canonical.displayMesh?.derivation).toBe("tessellated-brep");
   });
 
   test("SdFillet edge chamfer resolves child display targets through canonical parent BReps", () => {
@@ -1370,8 +1416,9 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "edge-chamfer",
       source: record.id,
-      derivation: "planarized-edit-mesh",
-      conversion: "merged-coplanar-planar-nurbs-brep",
+      derivation: "canonical-brep-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
     });
   });
 

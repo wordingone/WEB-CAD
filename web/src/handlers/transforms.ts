@@ -8,8 +8,9 @@ import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
 import { runPolySel, runRectSel } from "../viewer/selection-ops";
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
-import { transformBrep } from "../nurbs/nurbs-brep";
-import type { Xform } from "../nurbs/nurbs-primitives";
+import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
+import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
 import { linkPlanarizedMeshEditBrep } from "./mesh-planar-brep";
 import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
 
@@ -117,6 +118,275 @@ function canonicalBooleanDisplayResult(
   display.userData.kind = "brep";
   display.userData.creator = createdBy;
   display.userData.dispatchArgs = args;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+function linkedCanonicalCarrier(obj: THREE.Object3D): THREE.Object3D {
+  let current: THREE.Object3D | null = obj;
+  while (current) {
+    if (typeof current.userData.canonicalGeometryId === "string") return current;
+    current = current.parent;
+  }
+  return obj;
+}
+
+function pointFromVector(v: THREE.Vector3): Point3 {
+  return { x: v.x, y: v.y, z: v.z };
+}
+
+function linearNurbsSurface(
+  p00: Point3,
+  p01: Point3,
+  p10: Point3,
+  p11: Point3,
+  uDomain: [number, number] = [0, 1],
+  vDomain: [number, number] = [0, 1],
+): NurbsSurface {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: [2, 2],
+    cvCount: [2, 2],
+    knots: [uDomain, vDomain],
+    cvs: [
+      p00.x, p00.y, p00.z,
+      p01.x, p01.y, p01.z,
+      p10.x, p10.y, p10.z,
+      p11.x, p11.y, p11.z,
+    ],
+    cvStride: [6, 3],
+  };
+}
+
+function trimmedNurbsFace(points: THREE.Vector3[]): BrepFace | null {
+  if (points.length < 3) return null;
+  const origin = points[0];
+  let normal = new THREE.Vector3();
+  for (let i = 1; i + 1 < points.length; i++) {
+    normal = new THREE.Vector3()
+      .subVectors(points[i], origin)
+      .cross(new THREE.Vector3().subVectors(points[i + 1], origin));
+    if (normal.lengthSq() > 1e-12) break;
+  }
+  if (normal.lengthSq() <= 1e-12) return null;
+  normal.normalize();
+  const xAxis = new THREE.Vector3().subVectors(points[1], origin).normalize();
+  const yAxis = new THREE.Vector3().crossVectors(normal, xAxis).normalize();
+  const uv = points.map((p) => {
+    const d = new THREE.Vector3().subVectors(p, origin);
+    return { x: d.dot(xAxis), y: d.dot(yAxis), z: 0 };
+  });
+  const uMin = Math.min(...uv.map((p) => p.x));
+  const uMax = Math.max(...uv.map((p) => p.x));
+  const vMin = Math.min(...uv.map((p) => p.y));
+  const vMax = Math.max(...uv.map((p) => p.y));
+  const plane = Plane.create(pointFromVector(origin), pointFromVector(xAxis), pointFromVector(yAxis));
+  const surface = linearNurbsSurface(
+    Plane.pointAt(plane, uMin, vMin),
+    Plane.pointAt(plane, uMin, vMax),
+    Plane.pointAt(plane, uMax, vMin),
+    Plane.pointAt(plane, uMax, vMax),
+    [uMin, uMax],
+    [vMin, vMax],
+  );
+  const closed = [...uv, uv[0]];
+  return {
+    surface,
+    outerLoop: {
+      curves: [{
+        kind: "polyline",
+        points: closed,
+        parameters: closed.map((_, i) => i),
+      }],
+      orientation: true,
+    },
+    innerLoops: [],
+    orientation: true,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function uniqueBrepPoints(brep: Brep): THREE.Vector3[] {
+  const byKey = new Map<string, THREE.Vector3>();
+  const add = (p: Point3): void => {
+    const key = `${p.x.toFixed(9)},${p.y.toFixed(9)},${p.z.toFixed(9)}`;
+    if (!byKey.has(key)) byKey.set(key, new THREE.Vector3(p.x, p.y, p.z));
+  };
+  for (const shell of brep.shells) {
+    for (const vertex of shell.vertices) add(vertex.point);
+    for (const edge of shell.edges) {
+      if (edge.curve.kind === "line") {
+        add(edge.curve.from);
+        add(edge.curve.to);
+      } else if (edge.curve.kind === "polyline") {
+        for (const point of edge.curve.points) add(point);
+      }
+    }
+    for (const face of shell.faces) {
+      if (face.surface.kind === "nurbs") {
+        for (let i = 0; i < face.surface.cvs.length; i += face.surface.cvStride[1]) {
+          add({ x: face.surface.cvs[i] ?? 0, y: face.surface.cvs[i + 1] ?? 0, z: face.surface.cvs[i + 2] ?? 0 });
+        }
+      } else if (face.surface.kind === "plane") {
+        add(face.surface.plane.origin);
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
+function axisBoxBoundsFromBrep(brep: Brep): { min: THREE.Vector3; max: THREE.Vector3 } | null {
+  const points = uniqueBrepPoints(brep);
+  if (points.length < 8) return null;
+  const box = new THREE.Box3().setFromPoints(points);
+  if (!Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) return null;
+  if (box.max.x - box.min.x <= 1e-9 || box.max.y - box.min.y <= 1e-9 || box.max.z - box.min.z <= 1e-9) return null;
+  return { min: box.min, max: box.max };
+}
+
+function nativeBoxEdgeChamferBrep(source: Brep, edgeFrom: THREE.Vector3, edgeTo: THREE.Vector3, radius: number): Brep | null {
+  const bounds = axisBoxBoundsFromBrep(source);
+  if (!bounds) return null;
+  const mins = [bounds.min.x, bounds.min.y, bounds.min.z];
+  const maxs = [bounds.max.x, bounds.max.y, bounds.max.z];
+  const a = [edgeFrom.x, edgeFrom.y, edgeFrom.z];
+  const b = [edgeTo.x, edgeTo.y, edgeTo.z];
+  const axis = [0, 1, 2].find((i) => Math.abs(a[i] - b[i]) > 1e-6);
+  if (axis === undefined) return null;
+  const constAxes = [0, 1, 2].filter((i) => i !== axis);
+  const signs = new Map<number, number>();
+  for (const i of constAxes) {
+    const value = (a[i] + b[i]) / 2;
+    if (Math.abs(value - mins[i]) < 1e-5) signs.set(i, -1);
+    else if (Math.abs(value - maxs[i]) < 1e-5) signs.set(i, 1);
+    else return null;
+  }
+  const maxRadius = Math.min(...constAxes.map((i) => (maxs[i] - mins[i]) / 2));
+  if (radius >= maxRadius) return null;
+  const [u, v] = constAxes;
+  const su = signs.get(u)!;
+  const sv = signs.get(v)!;
+  const uEdge = su < 0 ? mins[u] : maxs[u];
+  const vEdge = sv < 0 ? mins[v] : maxs[v];
+  const uCut = uEdge - su * radius;
+  const vCut = vEdge - sv * radius;
+  const p = (axisValue: number, uValue: number, vValue: number): THREE.Vector3 => {
+    const coords = [0, 0, 0];
+    coords[axis] = axisValue;
+    coords[u] = uValue;
+    coords[v] = vValue;
+    return new THREE.Vector3(coords[0], coords[1], coords[2]);
+  };
+  const lo = mins[axis];
+  const hi = maxs[axis];
+  const uOpp = su < 0 ? maxs[u] : mins[u];
+  const vOpp = sv < 0 ? maxs[v] : mins[v];
+  const polygons = [
+    [p(lo, uCut, vEdge), p(lo, uOpp, vEdge), p(lo, uOpp, vOpp), p(lo, uEdge, vOpp), p(lo, uEdge, vCut)],
+    [p(hi, uCut, vEdge), p(hi, uEdge, vCut), p(hi, uEdge, vOpp), p(hi, uOpp, vOpp), p(hi, uOpp, vEdge)],
+    [p(lo, uOpp, vEdge), p(hi, uOpp, vEdge), p(hi, uOpp, vOpp), p(lo, uOpp, vOpp)],
+    [p(lo, uEdge, vOpp), p(hi, uEdge, vOpp), p(hi, uOpp, vOpp), p(lo, uOpp, vOpp)],
+    [p(lo, uCut, vEdge), p(hi, uCut, vEdge), p(hi, uOpp, vEdge), p(lo, uOpp, vEdge)],
+    [p(lo, uEdge, vCut), p(lo, uEdge, vOpp), p(hi, uEdge, vOpp), p(hi, uEdge, vCut)],
+    [p(lo, uCut, vEdge), p(lo, uEdge, vCut), p(hi, uEdge, vCut), p(hi, uCut, vEdge)],
+  ];
+  const facePairs = polygons
+    .map((polygon) => ({ polygon, face: trimmedNurbsFace(polygon) }))
+    .filter((entry): entry is { polygon: THREE.Vector3[]; face: BrepFace } => Boolean(entry.face));
+  const faces = facePairs.map((entry) => entry.face);
+  const edgeMap = new Map<string, { from: Point3; to: Point3; faceIndex1: number; faceIndex2: number | null }>();
+  const vertexEdges = new Map<string, { point: Point3; edgeIndices: number[] }>();
+  const pointKey = (pt: Point3): string => `${pt.x.toFixed(9)},${pt.y.toFixed(9)},${pt.z.toFixed(9)}`;
+  const edgeKey = (aPt: Point3, bPt: Point3): string => {
+    const ka = pointKey(aPt);
+    const kb = pointKey(bPt);
+    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+  };
+  facePairs.forEach(({ polygon }, faceIndex) => {
+    for (let i = 0; i < polygon.length; i++) {
+      const from = pointFromVector(polygon[i]);
+      const to = pointFromVector(polygon[(i + 1) % polygon.length]);
+      const key = edgeKey(from, to);
+      const existing = edgeMap.get(key);
+      if (existing) existing.faceIndex2 = faceIndex;
+      else edgeMap.set(key, { from, to, faceIndex1: faceIndex, faceIndex2: null });
+    }
+  });
+  const edges = [...edgeMap.values()].map((edge, edgeIndex) => {
+    for (const point of [edge.from, edge.to]) {
+      const key = pointKey(point);
+      const vertex = vertexEdges.get(key) ?? { point, edgeIndices: [] };
+      vertex.edgeIndices.push(edgeIndex);
+      vertexEdges.set(key, vertex);
+    }
+    return {
+      curve: {
+        kind: "line" as const,
+        from: edge.from,
+        to: edge.to,
+        domain: { min: 0, max: Math.hypot(edge.to.x - edge.from.x, edge.to.y - edge.from.y, edge.to.z - edge.from.z) },
+      },
+      faceIndex1: edge.faceIndex1,
+      faceIndex2: edge.faceIndex2,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    };
+  });
+  const vertices = [...vertexEdges.values()].map((vertex) => ({
+    point: vertex.point,
+    edgeIndices: vertex.edgeIndices,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  }));
+  return { shells: [{ faces, edges, vertices, isClosed: edges.every((edge) => edge.faceIndex2 !== null) }] };
+}
+
+function canonicalEdgeChamferDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  worldA: THREE.Vector3,
+  worldB: THREE.Vector3,
+  radius: number,
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = nativeBoxEdgeChamferBrep(source, worldA, worldB, radius);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdFillet",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "canonical-brep-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
   display.userData.booleanDisplaySource = "canonical-brep";
   store.linkObject(display, record.id);
   return display;
@@ -630,28 +900,40 @@ export function registerTransformHandlers(viewer: Viewer): void {
       const [localA, localB] = edges[edgeId];
       const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
       const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
-      filleted = chamferEdge(obj, worldA, worldB, radius);
-      if (filleted.userData._chamferError) {
-        return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-      }
-      linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
+      const operation = {
         operation: "edge-chamfer",
         edgeId,
         radius,
-      });
+      };
+      const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
+      if (canonicalFillet) {
+        filleted = canonicalFillet;
+      } else {
+        filleted = chamferEdge(obj, worldA, worldB, radius);
+        if (filleted.userData._chamferError) {
+          return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
+        }
+        linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", operation);
+      }
     } else if (edgeFrom && edgeTo) {
       const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
       const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
-      filleted = chamferEdge(obj, worldA, worldB, radius);
-      if (filleted.userData._chamferError) {
-        return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-      }
-      linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", {
+      const operation = {
         operation: "edge-chamfer",
         edgeFrom,
         edgeTo,
         radius,
-      });
+      };
+      const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
+      if (canonicalFillet) {
+        filleted = canonicalFillet;
+      } else {
+        filleted = chamferEdge(obj, worldA, worldB, radius);
+        if (filleted.userData._chamferError) {
+          return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
+        }
+        linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", operation);
+      }
     } else {
       filleted = filletMesh(obj, radius);
       if (filleted.userData._chamferError) {
