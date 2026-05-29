@@ -332,6 +332,21 @@
 }
 .cmd-cursor-item:hover { background: var(--surface-raised, #252525); color: var(--ink, #eee); }
 .cmd-cursor-item--active { background: var(--surface-raised, #252525); color: var(--ink, #eee); }
+.cmd-cursor-arg-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #888);
+}
+.cmd-cursor-arg-input { border-bottom: none; border-top: none; }
+.cmd-cursor-arg-input.cmd-cursor-arg-error { border-bottom: 1px solid #c0392b; }
+.cmd-cursor-arg-hint {
+  padding: 4px 10px 8px;
+  font-size: 9.5px;
+  color: var(--ink-faint, #888);
+  opacity: 0.65;
+}
 
 .ai-prompt {
   width: 100%;
