@@ -1422,7 +1422,7 @@ describe("canonical geometry transform instances", () => {
     });
   });
 
-  test("SdFillet all-edge path links planarized output to a canonical BRep record", () => {
+  test("SdFillet all-edge box chamfer creates native canonical BRep output before mesh fallback", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1461,14 +1461,20 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "all-edge-fillet",
       source: record.id,
-      derivation: "planarized-edit-mesh",
-      conversion: "merged-coplanar-planar-nurbs-brep",
+      derivation: "canonical-brep-all-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
     });
-    expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBeGreaterThan(0);
+    expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBe(26);
     expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
-    expect(canonical.brep.shells[0].faces.every((face) => {
+    const triangularOuterCount = canonical.brep.shells[0].faces.filter((face) => {
       const curve = face.outerLoop.curves[0] as { points?: unknown[] };
-      return !Array.isArray(curve.points) || curve.points.length !== 4;
-    })).toBe(true);
+      return Array.isArray(curve.points) && curve.points.length === 4;
+    }).length;
+    expect(triangularOuterCount).toBe(8);
+    expect(canonical.brep.shells[0].edges.length).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 });

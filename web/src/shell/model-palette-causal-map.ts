@@ -279,11 +279,12 @@ export const MODEL_PALETTE_CAUSAL_SPECS: Record<string, ModelPaletteCausalSpec> 
     evidence: [
       "viewer/op-tool.ts routes palette completion through dispatchSync(\"SdFillet\")",
       "handlers/transforms.ts attempts canonicalEdgeChamferDisplayResult for selected supported BRep box edges before mesh fallback",
-      "handlers/transforms.ts still calls chamferEdge/filletMesh, then linkPlanarizedMeshEditBrep for all-edge and unsupported-shape paths",
+      "handlers/transforms.ts attempts canonicalAllEdgeChamferDisplayResult for supported box-like BRep all-edge chamfers before mesh fallback",
+      "handlers/transforms.ts still calls chamferEdge/filletMesh, then linkPlanarizedMeshEditBrep for unsupported-shape paths",
     ],
     weaknesses: [
-      "Selected-edge chamfer is BRep-native only for supported canonical box-like BReps; broader curved/complex BRep fillets are not implemented.",
-      "All-edge and unsupported-shape outputs are still derived from the post-edit display mesh with derivation=planarized-edit-mesh, not from a general BRep-native fillet/chamfer kernel.",
+      "Selected-edge and all-edge chamfer are BRep-native only for supported canonical box-like BReps; broader curved/complex BRep fillets are not implemented.",
+      "Unsupported-shape outputs are still derived from the post-edit display mesh with derivation=planarized-edit-mesh, not from a general BRep-native fillet/chamfer kernel.",
     ],
   },
   "brep-explode": {
