@@ -706,8 +706,14 @@ export function linkPlanarizedMeshEditBrep(
   result: THREE.Mesh,
   createdBy: string,
   metadata: Record<string, unknown>,
+  options: MeshToPlanarBrepOptions = {},
 ): boolean {
-  const brep = meshToPlanarBrep(result);
+  const brep = meshToPlanarBrep(result, {
+    mergeCoplanarFaces: true,
+    surfaceKind: "nurbs",
+    avoidTriangularFaces: true,
+    ...options,
+  });
   if (!brep) return false;
   const store = viewer.getCanonicalGeometryStore();
   const sourceRecord = store.resolveObjectOrAncestor(source);
@@ -727,7 +733,9 @@ export function linkPlanarizedMeshEditBrep(
     metadata: {
       ...metadata,
       source: sourceRecord?.id,
-      derivation: "planarized-display-mesh",
+      derivation: "planarized-edit-mesh",
+      conversion: "merged-coplanar-planar-nurbs-brep",
+      facePolicy: "merge adjacent coplanar edit triangles and split residual triangular loops so canonical BRep faces are not triangular",
     },
   });
   store.linkObject(result, record.id);

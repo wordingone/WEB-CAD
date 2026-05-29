@@ -1233,11 +1233,16 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "edge-chamfer",
       source: record.id,
-      derivation: "planarized-display-mesh",
+      derivation: "planarized-edit-mesh",
+      conversion: "merged-coplanar-planar-nurbs-brep",
     });
     const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
     expect(faceCount).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "plane")).toBe(true);
+    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    expect(canonical.brep.shells[0].faces.every((face) => {
+      const curve = face.outerLoop.curves[0] as { points?: unknown[] };
+      return !Array.isArray(curve.points) || curve.points.length !== 4;
+    })).toBe(true);
   });
 
   test("SdFillet edge chamfer resolves child display targets through canonical parent BReps", () => {
@@ -1280,7 +1285,8 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "edge-chamfer",
       source: record.id,
-      derivation: "planarized-display-mesh",
+      derivation: "planarized-edit-mesh",
+      conversion: "merged-coplanar-planar-nurbs-brep",
     });
   });
 
@@ -1323,8 +1329,14 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.metadata).toMatchObject({
       operation: "all-edge-fillet",
       source: record.id,
-      derivation: "planarized-display-mesh",
+      derivation: "planarized-edit-mesh",
+      conversion: "merged-coplanar-planar-nurbs-brep",
     });
     expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBeGreaterThan(0);
+    expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+    expect(canonical.brep.shells[0].faces.every((face) => {
+      const curve = face.outerLoop.curves[0] as { points?: unknown[] };
+      return !Array.isArray(curve.points) || curve.points.length !== 4;
+    })).toBe(true);
   });
 });
