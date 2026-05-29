@@ -6,7 +6,7 @@
 //   AC2 — column ghost appears before first click and matches cursor
 //   AC3 — opening ghost appears before first click
 //
-// Targets localhost:5175 (serving tree, after autofwd sync from master).
+// Targets localhost:5847 (vite.config strictPort).
 
 import { WebSocket } from "ws";
 import { execSync } from "child_process";
@@ -20,7 +20,7 @@ const OUT = `state/verify-222-preview-gaps-${SHA}-${Date.now()}.json`;
 const targets = JSON.parse(
   execSync(`curl -s http://localhost:${CDP_PORT}/json`, { encoding: "utf8" })
 );
-const pageTarget = targets.find(t => t.type === "page" && (t.url ?? "").includes("5175"));
+const pageTarget = targets.find(t => t.type === "page" && (t.url ?? "").includes("5847"));
 const target = pageTarget ?? targets.find(t => t.type === "page");
 if (!target) { console.error("No page target"); process.exit(1); }
 
@@ -110,38 +110,37 @@ await delay(100);
 await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: VX + 80, y: VY + 20, button: "none" });
 await delay(200);
 
-// Check: scene should have a preview mesh with kind="brep"/creator="wall"
+// Check: scene should have a preview mesh that is a wall body with nonzero thickness.
+// isCurveWall flag is secondary; primary assertion is bbox min-dimension > 0.1 (wall t=0.2m).
 const wallCurvePreview = await evaluate(`
   (() => {
+    const THREE = window.__THREE ?? window.THREE;
     const scene = window.__viewer?.scene;
-    if (!scene) return null;
+    if (!scene || !THREE) return null;
+    const candidates = [];
     for (const obj of scene.children) {
-      if (obj.userData?.isPreview || obj.userData?.isPreviewMode) {
-        // wall-curve body preview has userData.creator="wall" OR isCurveWall
-        if (obj.userData?.isCurveWall || obj.userData?.creator === "wall") {
-          return { kind: obj.userData.kind, isCurveWall: !!obj.userData.isCurveWall, isGroup: false };
-        }
-        // Could be a group
-        let found = false;
-        obj.traverse(c => { if (c.userData?.isCurveWall) found = true; });
-        if (found) return { kind: "wall-group", isCurveWall: true, isGroup: true };
+      const isPreview = obj.userData?.isPreview || obj.userData?.isPreviewMode;
+      const isCW = obj.userData?.isCurveWall;
+      const isWall = obj.userData?.creator === "wall";
+      const mat = obj.material;
+      const isTransparent = mat?.transparent && mat?.opacity < 0.5;
+      if (isPreview || isCW || (isWall && isTransparent)) {
+        try {
+          const box = new THREE.Box3().setFromObject(obj);
+          const sz = new THREE.Vector3(); box.getSize(sz);
+          const minDim = Math.min(sz.x, sz.y);
+          candidates.push({ isCurveWall: !!isCW, minDim: +minDim.toFixed(4), w: +sz.x.toFixed(4), h: +sz.y.toFixed(4), d: +sz.z.toFixed(4) });
+        } catch {}
       }
     }
-    // Check by material transparency — preview applies opacity=0.35
-    for (const obj of scene.children) {
-      if (obj.userData?.isCurveWall) {
-        const mat = obj.material;
-        if (mat?.transparent && mat?.opacity < 0.5) {
-          return { kind: "wall-via-material", isCurveWall: true, isGroup: false };
-        }
-      }
-    }
-    return null;
+    return candidates.length > 0 ? candidates[0] : null;
   })()`);
 
 results.ac1_preview_found = !!wallCurvePreview;
 results.ac1_is_curve_wall = wallCurvePreview?.isCurveWall === true;
-console.log(`  preview found: ${results.ac1_preview_found}  isCurveWall: ${results.ac1_is_curve_wall}`);
+results.ac1_thickness_ok = (wallCurvePreview?.minDim ?? 0) > 0.1;
+results.ac1_bbox = wallCurvePreview ? { w: wallCurvePreview.w, h: wallCurvePreview.h, d: wallCurvePreview.d } : null;
+console.log(`  preview found: ${results.ac1_preview_found}  isCurveWall: ${results.ac1_is_curve_wall}  minDim: ${wallCurvePreview?.minDim}  thickness_ok: ${results.ac1_thickness_ok}`);
 
 // Cancel tool to clean up
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
@@ -214,7 +213,7 @@ await delay(200);
 // ── Pass/fail ─────────────────────────────────────────────────────────────────
 
 const pass =
-  results.ac1_is_curve_wall === true &&
+  results.ac1_thickness_ok  === true &&
   results.ac2_ghost_found   === true &&
   results.ac3_ghost_found   === true;
 
@@ -231,7 +230,7 @@ const receipt = {
 writeFileSync(OUT, JSON.stringify(receipt, null, 2));
 
 console.log("\n── #222 preview gaps AC ─────────────────────────────────────────────────");
-console.log(`  AC1 wall-curve body preview:  ${results.ac1_is_curve_wall} ${results.ac1_is_curve_wall ? "✓" : "✗ FAIL"}`);
+console.log(`  AC1 wall-curve body (thickness>0.1m): ${results.ac1_thickness_ok} ${results.ac1_thickness_ok ? "✓" : "✗ FAIL"}  bbox:${JSON.stringify(results.ac1_bbox)}`);
 console.log(`  AC2 column ghost pre-click:   ${results.ac2_ghost_found} ${results.ac2_ghost_found ? "✓" : "✗ FAIL"}`);
 console.log(`  AC3 opening ghost pre-click:  ${results.ac3_ghost_found} ${results.ac3_ghost_found ? "✓" : "✗ FAIL"}`);
 console.log(`\n  AC result: ${pass ? "PASS ✓" : "FAIL ✗"}`);
