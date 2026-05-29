@@ -75,7 +75,7 @@ Hidden long-press subtools highlight their visible parent button:
 | `curve` | Curve | unlimited control points, Enter commit | `TOOL_HANDLERS.curve` | `SdCurve` | canonical Catmull-Rom/NURBS curve |
 | `spline` | Spline | >=4 control points, Enter commit | `TOOL_HANDLERS.spline` | `SdSpline` | canonical clamped NURBS curve |
 | `point` | Point | one click | `TOOL_HANDLERS.point` | `SdPoint` | canonical point |
-| `extrude` | Extrude | pick profile/solid/surface, height interaction | `opStartTool(extrude)` | `SdExtrude` | command path creates canonical BRep; UI path still uses mesh display generation plus canonical link |
+| `extrude` | Extrude | pick profile/solid/surface, height interaction | `opStartTool(extrude)` | `SdExtrude` | selected profiles resolve from canonical curve records before display geometry fallback; output links a canonical BRep |
 | `loft` | Loft | pick two profile curves | `opStartTool(loft)` | `SdLoft` | open profiles create canonical NURBS surfaces; closed profiles can create closed BReps with face/edge/vertex topology |
 | `sweep` | Sweep | pick rail, then profile | `opStartTool(sweep)` | `SdSweep` | open profiles create canonical sweep surfaces; closed profiles can create closed capped BReps |
 | `revolve` | Revolve | pick profile, two axis points | `opStartTool(revolve)` | `SdRevolve` | open profiles create canonical revolution surfaces; solid line/profile paths create capped BReps |

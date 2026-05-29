@@ -7,7 +7,7 @@ import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { linkCanonicalBrep } from "./canonical-surface";
-import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
+import { tessellate as tessellateCurve, type Curve, type PolylineCurve } from "../nurbs/nurbs-curves";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
 import type { Line, Plane, Point3 } from "../nurbs/nurbs-primitives";
@@ -191,6 +191,41 @@ function polylineProfile(points: Array<[number, number]>): PolylineCurve {
   return { kind: "polyline", points: profilePoints, parameters };
 }
 
+function canonicalCurveProfile2d(viewer: Viewer, srcObj: THREE.Object3D): [number, number][] | undefined {
+  const record = viewer.getCanonicalGeometryStore?.().resolveObjectOrAncestor(srcObj);
+  if (record?.kind !== "curve") return undefined;
+  const sourcePoints = record.curve.kind === "polyline"
+    ? record.curve.points
+    : tessellateCurve(record.curve, record.curve.kind === "line" ? 2 : 64);
+  if (sourcePoints.length < 3) return undefined;
+  srcObj.updateMatrixWorld(true);
+  const tmp = new THREE.Vector3();
+  const extracted: [number, number][] = [];
+  for (const point of sourcePoints) {
+    tmp.set(point.x, point.y, point.z).applyMatrix4(srcObj.matrixWorld);
+    extracted.push([tmp.x, tmp.y]);
+  }
+  const first = extracted[0];
+  const last = extracted[extracted.length - 1];
+  if (first && last && Math.hypot(first[0] - last[0], first[1] - last[1]) < 1e-8) {
+    extracted.pop();
+  }
+  return extracted.length >= 3 ? extracted : undefined;
+}
+
+function displayGeometryProfile2d(srcObj: THREE.Object3D): [number, number][] | undefined {
+  srcObj.updateMatrixWorld(true);
+  const posAttr = (srcObj as THREE.Line | THREE.Mesh).geometry?.attributes?.position;
+  if (!posAttr) return undefined;
+  const tmp = new THREE.Vector3();
+  const extracted: [number, number][] = [];
+  for (let i = 0; i < posAttr.count; i++) {
+    tmp.fromBufferAttribute(posAttr, i).applyMatrix4(srcObj.matrixWorld);
+    extracted.push([tmp.x, tmp.y]);
+  }
+  return extracted.length >= 3 ? extracted : undefined;
+}
+
 export function registerNurbsHandlers(viewer: Viewer): void {
   registerHandler("SdBox", (args) => {
     const w = (args.width as number | undefined) ?? (args.size as number | undefined) ?? 1;
@@ -284,18 +319,8 @@ export function registerNurbsHandlers(viewer: Viewer): void {
       const srcObj = viewer.getScene().getObjectByProperty("uuid", objectId)
         ?? viewer.getScene().getObjectByProperty("name", objectId);
       if (srcObj) {
-        srcObj.updateMatrixWorld(true);
-        const posAttr = (srcObj as THREE.Line | THREE.Mesh).geometry?.attributes?.position;
-        if (posAttr) {
-          const tmp = new THREE.Vector3();
-          const extracted: [number, number][] = [];
-          for (let i = 0; i < posAttr.count; i++) {
-            tmp.fromBufferAttribute(posAttr, i);
-            tmp.applyMatrix4(srcObj.matrixWorld);
-            extracted.push([tmp.x, tmp.y]);
-          }
-          if (extracted.length >= 3) resolvedProfile = extracted;
-        }
+        resolvedProfile = canonicalCurveProfile2d(viewer, srcObj)
+          ?? displayGeometryProfile2d(srcObj);
       }
     }
 

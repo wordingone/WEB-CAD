@@ -162,6 +162,47 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
+  test("SdExtrude resolves selected profiles from canonical curves before display BufferGeometry", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    const profile = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial());
+    profile.name = "canonical-rect-profile";
+    scene.add(profile);
+    const record = store.create({
+      kind: "curve",
+      curve: {
+        kind: "polyline",
+        points: [
+          { x: 0, y: 0, z: 0 },
+          { x: 2, y: 0, z: 0 },
+          { x: 2, y: 1, z: 0 },
+          { x: 0, y: 1, z: 0 },
+          { x: 0, y: 0, z: 0 },
+        ],
+        parameters: [0, 2, 3, 5, 6],
+      },
+      source: "command",
+      createdBy: "test-profile",
+      displayMesh: { revision: 1, generatedAt: 0, vertexCount: 0, derivation: "tessellated-curve" },
+    });
+    store.linkObject(profile, record.id);
+
+    const result = dispatchSync("SdExtrude", {
+      object_id: "canonical-rect-profile",
+      distance: 3,
+    });
+    expect(result.ok).toBe(true);
+
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    const canonical = obj ? store.resolveObject(obj) : undefined;
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.createdBy).toBe("SdExtrude");
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
   test("simple structural commands keep display meshes while linking canonical extruded BReps", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerStructuralHandlers(viewer);
