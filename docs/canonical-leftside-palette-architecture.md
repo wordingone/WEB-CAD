@@ -87,7 +87,7 @@ Hidden long-press subtools highlight their visible parent button:
 | `bool-intersect` | Intersect | pick A then B | `opStartTool(bool-intersect)` | `SdBooleanIntersection` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
 | `fillet` | Fillet | pick solid edge or curve corner, radius | `opStartTool(fillet)` | `SdFillet` | edge and all-edge paths now link planarized BRep results; not NURBS-native fillet |
 | `brep-explode` | Explode | click group/object | `opStartTool(brep-explode)` | `SdExplode` | canonical BRep targets extract one open BRep shell per face, preserving face surface plus explicit naked boundary edges/vertices |
-| `brep-join` | Join | click two objects | `opStartTool(brep-join)` | `SdJoin` | joins/group-links objects; not full BRep sewing |
+| `brep-join` | Join | click two objects | `opStartTool(brep-join)` | `SdJoin` | canonical open BRep faces/surfaces with coincident boundary edges are welded into one shell; separated closed solids still concatenate as separate shells |
 | `brep-rebuild` | Rebuild | pick curve | `opStartTool(brep-rebuild)` | `SdRebuild` | retessellation/sample rebuild; not NURBS surface rebuild |
 | `brep-contour` | Contour | pick solid | `opStartTool(brep-contour)` | `SdContour` | display contour generation; not robust BRep/surface intersection |
 
@@ -123,7 +123,7 @@ These are known limitations, not acceptable final-state claims:
 |---|---|
 | BRep booleans | UI display generation still relies on mesh CSG. Canonical records now use the planar BRep boolean backend when possible, including exact planar NURBS boxes, but this is still not a full trimmed-surface BooleanBuilder. |
 | Fillet | Current fillet is mesh/polyline based and is now canonically linked for edge and all-edge paths. It does not create exact NURBS fillet surfaces between BRep faces. |
-| BRep join/rebuild/contour | Join concatenates canonical BRep shells but does not sew shared edges; rebuild converts face surfaces to NURBS form but does not reparameterize to a new fit count; contour samples canonical BRep faces but is not a full surface/solid intersection kernel. |
+| BRep join/rebuild/contour | Join now welds coincident boundary edges for open canonical BRep face shells, but does not do tolerance-heavy sewing for arbitrary nonmatching trims; rebuild converts face surfaces to NURBS form but does not reparameterize to a new fit count; contour samples canonical BRep faces but is not a full surface/solid intersection kernel. |
 | BRep explode | Canonical BRep explode now extracts one open BRep shell per face with explicit naked boundary topology; remaining gap is multi-face subobject selection/extraction rather than whole-object explode only. |
 | Curved architectural elements | Curve wall, stair, and roof paths are mostly planarized display meshes rather than coherent semantic BRep/NURBS objects. |
 | IFC semantic solids | FZK conversion now merges connected coplanar triangles per IFC element into planar NURBS-trimmed BRep faces. It is still not semantic IFC solid reconstruction or higher-order analytic surface recovery. |

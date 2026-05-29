@@ -476,19 +476,189 @@ function singleFaceBrep(face: BrepFace): Brep {
   };
 }
 
+function pointKey(point: Point3): string {
+  const q = (n: number) => Math.round(n * 1e7);
+  return `${q(point.x)},${q(point.y)},${q(point.z)}`;
+}
+
+function edgeEndpoints(edge: BrepEdge): [Point3, Point3] | null {
+  if (edge.curve.kind === "line") return [edge.curve.from, edge.curve.to];
+  if (edge.curve.kind === "polyline" && edge.curve.points.length >= 2) {
+    return [edge.curve.points[0], edge.curve.points[edge.curve.points.length - 1]];
+  }
+  return null;
+}
+
+type JoinEdgeDraft = {
+  a: Point3;
+  b: Point3;
+  curve: Curve;
+  faces: number[];
+};
+
+function sameFaceSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  const aa = [...a].sort((left, right) => left - right);
+  const bb = [...b].sort((left, right) => left - right);
+  return aa.every((face, index) => face === bb[index]);
+}
+
+function collinear(a: Point3, b: Point3, c: Point3): boolean {
+  const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
+  const ac = { x: c.x - a.x, y: c.y - a.y, z: c.z - a.z };
+  const cross = {
+    x: ab.y * ac.z - ab.z * ac.y,
+    y: ab.z * ac.x - ab.x * ac.z,
+    z: ab.x * ac.y - ab.y * ac.x,
+  };
+  return Math.hypot(cross.x, cross.y, cross.z) < 1e-7;
+}
+
+function lineCurve(a: Point3, b: Point3): Curve {
+  return {
+    kind: "line",
+    from: { ...a },
+    to: { ...b },
+    domain: Interval.create(0, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)),
+  };
+}
+
+function simplifyCollinearJoinEdges(input: JoinEdgeDraft[]): JoinEdgeDraft[] {
+  const edges = input.map((edge) => ({ ...edge, a: { ...edge.a }, b: { ...edge.b }, faces: [...edge.faces] }));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    mergeSearch:
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        if (!sameFaceSet(edges[i].faces, edges[j].faces)) continue;
+        const candidates: Array<[Point3, Point3, Point3]> = [];
+        if (pointKey(edges[i].a) === pointKey(edges[j].a)) candidates.push([edges[i].b, edges[i].a, edges[j].b]);
+        if (pointKey(edges[i].a) === pointKey(edges[j].b)) candidates.push([edges[i].b, edges[i].a, edges[j].a]);
+        if (pointKey(edges[i].b) === pointKey(edges[j].a)) candidates.push([edges[i].a, edges[i].b, edges[j].b]);
+        if (pointKey(edges[i].b) === pointKey(edges[j].b)) candidates.push([edges[i].a, edges[i].b, edges[j].a]);
+        const merge = candidates.find(([left, shared, right]) => (
+          pointKey(left) !== pointKey(right) && collinear(left, shared, right)
+        ));
+        if (!merge) continue;
+        const [a, , b] = merge;
+        edges.splice(j, 1);
+        edges[i] = {
+          a,
+          b,
+          curve: lineCurve(a, b),
+          faces: [...edges[i].faces],
+        };
+        changed = true;
+        break mergeSearch;
+      }
+    }
+  }
+  return edges;
+}
+
+function tryWeldCoincidentBoundaryShells(...breps: Brep[]): Brep | null {
+  const sourceShells = breps.flatMap((brep) => brep.shells);
+  if (sourceShells.length < 2 || sourceShells.some((shell) => shell.isClosed)) return null;
+
+  const faces: BrepFace[] = [];
+  const pointByKey = new Map<string, Point3>();
+  const edgeDrafts = new Map<string, JoinEdgeDraft>();
+  let matchedEdges = 0;
+
+  const getPoint = (point: Point3): Point3 => {
+    const key = pointKey(point);
+    const existing = pointByKey.get(key);
+    if (existing) return existing;
+    const stored = { ...point };
+    pointByKey.set(key, stored);
+    return stored;
+  };
+
+  for (const shell of sourceShells) {
+    const faceOffset = faces.length;
+    faces.push(...shell.faces);
+    for (const edge of shell.edges) {
+      const endpoints = edgeEndpoints(edge);
+      if (!endpoints) return null;
+      const [a, b] = endpoints;
+      const pa = getPoint(a);
+      const pb = getPoint(b);
+      const ka = pointKey(pa);
+      const kb = pointKey(pb);
+      const edgeKey = ka < kb ? `${ka}:${kb}` : `${kb}:${ka}`;
+      const adjacentFaces = [edge.faceIndex1, edge.faceIndex2]
+        .filter((faceIndex): faceIndex is number => faceIndex !== null && faceIndex !== undefined)
+        .map((faceIndex) => faceOffset + faceIndex);
+      const existing = edgeDrafts.get(edgeKey);
+      if (existing) {
+        matchedEdges++;
+        existing.faces.push(...adjacentFaces);
+        if (existing.faces.length > 2) return null;
+      } else {
+        edgeDrafts.set(edgeKey, {
+          curve: transformParamSpaceCurve(edge.curve),
+          faces: adjacentFaces,
+          a: pa,
+          b: pb,
+        });
+      }
+    }
+  }
+  if (matchedEdges === 0) return null;
+
+  const simplified = simplifyCollinearJoinEdges([...edgeDrafts.values()]);
+  const vertices: BrepVertex[] = [];
+  const vertexByKey = new Map<string, number>();
+  const getVertex = (point: Point3): number => {
+    const key = pointKey(point);
+    const existing = vertexByKey.get(key);
+    if (existing !== undefined) return existing;
+    const index = vertices.length;
+    vertexByKey.set(key, index);
+    vertices.push({ point: { ...point }, edgeIndices: [], tolerance: BREP_DEFAULT_TOLERANCE });
+    return index;
+  };
+  const edges: BrepEdge[] = [];
+  for (const draft of simplified) {
+    const edgeIndex = edges.length;
+    const va = getVertex(draft.a);
+    const vb = getVertex(draft.b);
+    vertices[va].edgeIndices.push(edgeIndex);
+    vertices[vb].edgeIndices.push(edgeIndex);
+    edges.push({
+      curve: draft.curve,
+      faceIndex1: draft.faces[0],
+      faceIndex2: draft.faces[1] ?? null,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+
+  return {
+    shells: [{
+      faces,
+      edges,
+      vertices,
+      isClosed: edges.length > 0 && edges.every((edge) => edge.faceIndex2 !== null),
+    }],
+  };
+}
+
 function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
   const store = viewer.getCanonicalGeometryStore();
   const operands = meshes.map((mesh) => store.resolveObjectOrAncestor(mesh));
   const breps = meshes.map((mesh) => canonicalBrepForObject(viewer, mesh));
   if (breps.some((brep) => !brep) || operands.some((record) => record?.kind !== "brep")) return;
+  const welded = tryWeldCoincidentBoundaryShells(...breps as Brep[]);
   const record = store.create({
     kind: "brep",
-    brep: brepConcat(...breps as Brep[]),
+    brep: welded ?? brepConcat(...breps as Brep[]),
     source: "edit",
     createdBy: "SdJoin",
     metadata: {
       operation: "join",
       operands: operands.map((record) => record?.id),
+      topology: welded ? "welded-coincident-boundary-edges" : "concatenated-shells",
     },
   });
   store.linkObject(joined, record.id);

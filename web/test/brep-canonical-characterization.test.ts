@@ -464,6 +464,40 @@ describe("BRep canonical migration characterization", () => {
     });
   });
 
+  test("joining exploded BRep faces welds coincident boundary edges into a closed shell", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 2, depth: 2, height: 2 }).ok).toBe(true);
+    const box = lastObject();
+    expect(box).toBeInstanceOf(THREE.Mesh);
+    const explodeResult = dispatchSync("SdExplode", { target: box?.uuid });
+    expect(explodeResult.ok).toBe(true);
+    if (!explodeResult.ok) throw new Error("expected explode to succeed");
+    const explodedIds = (explodeResult.result as { exploded: string[] }).exploded;
+    expect(explodedIds).toHaveLength(6);
+
+    const joinResult = dispatchSync("SdJoin", { targets: explodedIds });
+
+    expect(joinResult.ok).toBe(true);
+    if (!joinResult.ok) throw new Error("expected join to succeed");
+    const joined = scene.getObjectByProperty("uuid", (joinResult.result as { created: string }).created);
+    expect(joined).toBeInstanceOf(THREE.Mesh);
+    const joinedRecord = joined ? store.resolveObject(joined) : undefined;
+    expect(joinedRecord?.kind).toBe("brep");
+    if (joinedRecord?.kind !== "brep") throw new Error("expected joined canonical brep");
+    expect(joinedRecord.metadata?.topology).toBe("welded-coincident-boundary-edges");
+    expect(joinedRecord.brep.shells).toHaveLength(1);
+    const shell = joinedRecord.brep.shells[0];
+    expect(shell.faces).toHaveLength(6);
+    expect(shell.edges).toHaveLength(12);
+    expect(shell.vertices).toHaveLength(8);
+    expect(shell.isClosed).toBe(true);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(shell.vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
+  });
+
   test("SdContour creates linked canonical curve geometry from BRep faces", () => {
     const { viewer, scene, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);

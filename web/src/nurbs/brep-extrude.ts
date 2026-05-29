@@ -195,13 +195,16 @@ function _buildCapFace(
   tol: number,
   isBottom: boolean,
 ): BrepFace {
-  const pts = curveTessellate(profile, 16);
+  const pts = profile.kind === "polyline" ? profile.points : curveTessellate(profile, 16);
   if (pts.length === 0) throw new Error("extrude: profile tessellates to empty");
+  const openPts = pts.length > 1 && Pt3.distance(pts[0], pts[pts.length - 1]) < 1e-10
+    ? pts.slice(0, -1)
+    : pts;
 
   // Centroid
-  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-  const cz = pts.reduce((s, p) => s + p.z, 0) / pts.length;
+  const cx = openPts.reduce((s, p) => s + p.x, 0) / openPts.length;
+  const cy = openPts.reduce((s, p) => s + p.y, 0) / openPts.length;
+  const cz = openPts.reduce((s, p) => s + p.z, 0) / openPts.length;
   const centroid: Point3 = {
     x: cx + dir.x * zOffset,
     y: cy + dir.y * zOffset,
@@ -212,27 +215,53 @@ function _buildCapFace(
   const outward = isBottom ? V3.negate(dir) : dir;
   const plane = Pl.fromPointNormal(centroid, outward);
 
-  // Extent: bounding radius in the plane's uv space
-  let maxR = 0;
-  for (const p of pts) {
-    const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
-    const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (r > maxR) maxR = r;
+  const trimUv = [...openPts, openPts[0]].map((p) => {
+    const capPoint = {
+      x: p.x + dir.x * zOffset,
+      y: p.y + dir.y * zOffset,
+      z: p.z + dir.z * zOffset,
+    };
+    const d = Pt3.sub(capPoint, centroid);
+    return {
+      u: V3.dot(d, plane.xAxis),
+      v: V3.dot(d, plane.yAxis),
+    };
+  });
+  const uValues = trimUv.map((p) => p.u);
+  const vValues = trimUv.map((p) => p.v);
+  let uMin = Math.min(...uValues);
+  let uMax = Math.max(...uValues);
+  let vMin = Math.min(...vValues);
+  let vMax = Math.max(...vValues);
+  if (Math.abs(uMax - uMin) < 1e-9) {
+    uMin -= 0.005;
+    uMax += 0.005;
   }
-  maxR = Math.max(maxR, 0.01);
+  if (Math.abs(vMax - vMin) < 1e-9) {
+    vMin -= 0.005;
+    vMax += 0.005;
+  }
 
   const surface: PlaneSurface = {
     kind: "plane",
     plane,
-    uDomain: Iv.create(0, 1),
-    vDomain: Iv.create(0, 1),
-    uExtent: Iv.create(-maxR, maxR),
-    vExtent: Iv.create(-maxR, maxR),
+    uDomain: Iv.create(uMin, uMax),
+    vDomain: Iv.create(vMin, vMax),
+    uExtent: Iv.create(uMin, uMax),
+    vExtent: Iv.create(vMin, vMax),
   };
+  const trimPoints = trimUv.map((p) => ({ x: p.u, y: p.v, z: 0 }));
+  const parameters = [0];
+  for (let i = 1; i < trimPoints.length; i++) {
+    parameters.push(parameters[i - 1] + Math.hypot(
+      trimPoints[i].x - trimPoints[i - 1].x,
+      trimPoints[i].y - trimPoints[i - 1].y,
+    ));
+  }
 
   return {
     surface,
-    outerLoop: { curves: [], orientation: true },
+    outerLoop: { curves: [{ kind: "polyline", points: trimPoints, parameters }], orientation: true },
     innerLoops: [],
     orientation: isBottom,
     tolerance: tol,

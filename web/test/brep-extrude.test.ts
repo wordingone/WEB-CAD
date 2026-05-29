@@ -81,6 +81,24 @@ describe("extrude — rectangle profile", () => {
     expect(topCap.surface.kind).toBe("plane");
   });
 
+  test("cap faces carry footprint trim loops instead of whole-plane fallback bounds", () => {
+    const brep = extrude(rectangleProfile(4, 3), UP, 3.0);
+    const faces = brep.shells[0].faces;
+    for (const cap of [faces[faces.length - 2], faces[faces.length - 1]]) {
+      const trim = cap.outerLoop.curves[0];
+      expect(trim?.kind).toBe("polyline");
+      if (trim?.kind !== "polyline") throw new Error("expected polyline trim");
+      expect(trim.points).toHaveLength(5);
+      const world = trim.points.slice(0, -1).map((point) => pointAtUV(cap.surface, point.x, point.y));
+      const xs = world.map((point) => point.x).sort((a, b) => a - b);
+      const ys = world.map((point) => point.y).sort((a, b) => a - b);
+      expect(xs[0]).toBeCloseTo(0);
+      expect(xs[xs.length - 1]).toBeCloseTo(4);
+      expect(ys[0]).toBeCloseTo(0);
+      expect(ys[ys.length - 1]).toBeCloseTo(3);
+    }
+  });
+
   test("lateral surface evaluates at v=0 to profile start", () => {
     const brep = extrude(rectangleProfile(4, 3), UP, 3.0);
     const lateralFace = brep.shells[0].faces[0]; // first side = bottom edge
