@@ -5,6 +5,7 @@ import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
+  buildStairFlightBrep,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -268,6 +269,35 @@ function linkCompoundMeshBreps(
   obj.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     if (viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child)) return;
+    const stairFlight = child.userData.stairFlightCanonical as {
+      n?: unknown;
+      riser?: unknown;
+      tread?: unknown;
+      stairW?: unknown;
+      zBase?: unknown;
+    } | undefined;
+    if (stairFlight && [stairFlight.n, stairFlight.riser, stairFlight.tread, stairFlight.stairW, stairFlight.zBase].every((value) => Number.isFinite(Number(value)))) {
+      linkCanonicalBrep(viewer, child, buildStairFlightBrep({
+        n: Number(stairFlight.n),
+        riser: Number(stairFlight.riser),
+        tread: Number(stairFlight.tread),
+        stairW: Number(stairFlight.stairW),
+        zBase: Number(stairFlight.zBase),
+      }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-stair-flight-profile",
+          conversion: "extruded-stair-flight-profile-brep",
+        };
+      }
+      return;
+    }
     linkPlanarizedMeshCommandBrep(viewer, child, createdBy, {
       ...metadata,
       ifcClass: child.userData.ifcClass,

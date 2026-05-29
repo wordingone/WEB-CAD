@@ -10,6 +10,10 @@ import { initWallCorners } from "./wall-corners";
 import { levelStore } from "../geometry/levels";
 import { refLineStore } from "../geometry/ref-lines";
 import { STAIR_STEP_RISE as DEFAULT_STAIR_RISE, STAIR_STEP_DEPTH as DEFAULT_STAIR_TREAD, STAIR_WIDTH as DEFAULT_STAIR_WIDTH } from "./dimensions";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import type { Brep } from "../nurbs/nurbs-brep";
+import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import { getNurbsForm } from "../nurbs/nurbs-surfaces";
 
 // Module-level viewer reference (set during initCreateMode).
 let _viewer: Viewer | null = null;
@@ -290,6 +294,58 @@ export interface StairParams {
 }
 
 // Plan-view footprint bbox (in world XY) — returned so the handler can cut a slab void.
+export type StairFlightCanonicalParams = {
+  n: number;
+  riser: number;
+  tread: number;
+  stairW: number;
+  zBase: number;
+};
+
+function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
+  const points = [
+    ...points3d,
+    ...(points3d.length > 0 && (
+      points3d[0][0] !== points3d[points3d.length - 1][0]
+      || points3d[0][1] !== points3d[points3d.length - 1][1]
+      || points3d[0][2] !== points3d[points3d.length - 1][2]
+    ) ? [points3d[0]] : []),
+  ].map(([x, y, z]) => ({ x, y, z }));
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+export function stairFlightProfilePoints(params: StairFlightCanonicalParams): Array<[number, number, number]> {
+  const n = Math.max(1, Math.round(params.n));
+  const stringerD = params.riser * 2;
+  const points: Array<[number, number, number]> = [[0, 0, params.zBase]];
+  for (let i = 0; i < n; i++) {
+    points.push([i * params.tread, 0, params.zBase + (i + 1) * params.riser]);
+    points.push([(i + 1) * params.tread, 0, params.zBase + (i + 1) * params.riser]);
+  }
+  points.push([n * params.tread, 0, params.zBase + n * params.riser - stringerD]);
+  points.push([0, 0, params.zBase - stringerD]);
+  return points;
+}
+
+export function buildStairFlightBrep(params: StairFlightCanonicalParams): Brep {
+  const brep = extrudeBrep(profileFrom3dPoints(stairFlightProfilePoints(params)), { x: 0, y: 1, z: 0 }, params.stairW);
+  return {
+    shells: brep.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map((face) => ({
+        ...face,
+        surface: getNurbsForm(face.surface).surface,
+      })),
+    })),
+  };
+}
+
 export interface StairFootprint { minX: number; minY: number; maxX: number; maxY: number }
 
 const _stepMat = (): THREE.MeshStandardMaterial =>
@@ -402,6 +458,7 @@ function _buildFlightSolid(
   mesh.userData.kind = "brep";
   mesh.userData.creator = "stair";
   mesh.userData.ifcClass = "IfcStairFlight";
+  mesh.userData.stairFlightCanonical = { n, riser, tread, stairW, zBase } satisfies StairFlightCanonicalParams;
   return mesh;
 }
 

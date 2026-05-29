@@ -17,7 +17,7 @@ import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActive
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildStairFlightBrep, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";
@@ -1019,6 +1019,38 @@ function linkCreateModeCompoundMeshBreps(
     if (!(child instanceof THREE.Mesh)) return;
     const alreadyCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
     if (alreadyCanonical) return;
+    const stairFlight = child.userData.stairFlightCanonical as {
+      n?: unknown;
+      riser?: unknown;
+      tread?: unknown;
+      stairW?: unknown;
+      zBase?: unknown;
+    } | undefined;
+    if (tool === "stair" && stairFlight && [stairFlight.n, stairFlight.riser, stairFlight.tread, stairFlight.stairW, stairFlight.zBase].every((value) => Number.isFinite(Number(value)))) {
+      linkCanonicalBrep(viewer, child, buildStairFlightBrep({
+        n: Number(stairFlight.n),
+        riser: Number(stairFlight.riser),
+        tread: Number(stairFlight.tread),
+        stairW: Number(stairFlight.stairW),
+        zBase: Number(stairFlight.zBase),
+      }), "create-stair-component");
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-stair-flight-profile",
+          conversion: "extruded-stair-flight-profile-brep",
+        };
+      }
+      linked++;
+      return;
+    }
     const ok = linkPlanarizedMeshCommandBrep(viewer, child, `create-${tool}-component`, {
       parentCreator: obj.userData.creator,
       parentKind: obj.userData.kind,

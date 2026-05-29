@@ -419,20 +419,36 @@ describe("BRep canonical migration characterization", () => {
         expect(canonical.kind).toBe("brep");
         if (canonical.kind !== "brep") throw new Error(`expected canonical brep for ${verb} subcomponent`);
         expect(canonical.createdBy).toBe(createdBy);
-        expect(canonical.metadata).toMatchObject({
-          derivation: "planarized-command-mesh",
-          conversion: "merged-coplanar-planar-nurbs-brep",
-        });
         expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
-        expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
-        expect(canonical.brep.shells[0].faces.every((face) => {
-          const curve = face.outerLoop.curves[0] as { points?: unknown[] };
-          return !Array.isArray(curve.points) || curve.points.length !== 4;
-        })).toBe(true);
+        if (verb === "SdStair" && canonical.metadata?.derivation === "parametric-stair-flight-profile") {
+          expect(canonical.metadata).toMatchObject({
+            conversion: "extruded-stair-flight-profile-brep",
+          });
+          expect(canonical.brep.shells[0].isClosed).toBe(true);
+          expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
+          expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+          expect(canonical.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
+        } else {
+          expect(canonical.metadata).toMatchObject({
+            derivation: "planarized-command-mesh",
+            conversion: "merged-coplanar-planar-nurbs-brep",
+          });
+          expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+          expect(canonical.brep.shells[0].faces.every((face) => {
+            const curve = face.outerLoop.curves[0] as { points?: unknown[] };
+            return !Array.isArray(curve.points) || curve.points.length !== 4;
+          })).toBe(true);
+        }
         expect(serializedIds.has(canonical.id), `${verb} did not serialize linked canonical child ${canonical.id}`).toBe(true);
         linkedRecords.add(canonical.id);
       });
       expect(linkedRecords.size).toBeGreaterThan(0);
+      if (verb === "SdStair") {
+        expect([...linkedRecords].some((id) => {
+          const record = store.require(id);
+          return record.metadata?.derivation === "parametric-stair-flight-profile";
+        })).toBe(true);
+      }
     }
   });
 
