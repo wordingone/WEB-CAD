@@ -348,6 +348,43 @@ function straightRailSolidSweepBrep(profile: Curve, rail: Curve): Brep | null {
   return extrudeBrep(placedProfile, { x: dx / distance, y: dy / distance, z: dz / distance }, distance);
 }
 
+function polylineSectionPoints(curve: Curve): number[][] | null {
+  if (curve.kind !== "polyline" || !closedProfile(curve)) return null;
+  const pts = [...curve.points];
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  if (first && last && Math.hypot(first.x - last.x, first.y - last.y, first.z - last.z) < 1e-9) pts.pop();
+  return pts.length >= 3 ? pts.map((p) => [p.x, p.y, p.z]) : null;
+}
+
+function solidLoftBrep(surface: Surface, sections: Curve[]): Brep | null {
+  if (sections.length < 2 || !sections.every(closedProfile)) return null;
+  const first = polylineSectionPoints(sections[0]);
+  const last = polylineSectionPoints(sections[sections.length - 1]);
+  if (!first || !last) return null;
+  const bottomCap = planarTrimmedBrepFromProfile(first).shells[0]?.faces[0];
+  const topCap = planarTrimmedBrepFromProfile(last).shells[0]?.faces[0];
+  if (!bottomCap || !topCap) return null;
+  return {
+    shells: [{
+      faces: [
+        {
+          surface,
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        { ...bottomCap, orientation: false },
+        { ...topCap, orientation: true },
+      ],
+      edges: [],
+      vertices: [],
+      isClosed: true,
+    }],
+  };
+}
+
 export function registerSketchHandlers(viewer: Viewer): void {
   registerHandler("SdPoint", (args) => {
     const pos = (args.position as number[] | undefined) ?? [0, 0];
@@ -667,9 +704,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess);
       obj.userData.kind = "loft";
       obj.userData.creator = "loft";
-      linkCanonicalSurface(viewer, obj, "SdLoft", surface);
+      const solidBrep = args.solid === true ? solidLoftBrep(surface, curves) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdLoft");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdLoft", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "loft", curveCount: curves.length };
+      return { created: "loft", curveCount: curves.length, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }

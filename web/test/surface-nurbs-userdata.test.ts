@@ -201,6 +201,33 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
     expect(canonical.surface.kind).toBe("nurbs");
   });
+
+  test("solid loft links closed section curves to a capped closed BRep", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdLoft", {
+      curves: [
+        { points: [[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0], [0, 0, 0]] },
+        { points: [[0.25, 0.25, 3], [1.75, 0.25, 3], [1.75, 0.75, 3], [0.25, 0.75, 3], [0.25, 0.25, 3]] },
+      ],
+      solid: true,
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("loft");
+    expect((dr as OkResult).result.solid).toBe(true);
+    const mesh = lastMesh()!;
+    expect(mesh.userData.kind).toBe("brep");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdLoft");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    const shell = canonical.brep.shells[0];
+    expect(shell.isClosed).toBe(true);
+    expect(shell.faces.map((face) => face.surface.kind)).toEqual(["nurbs", "plane", "plane"]);
+  });
 });
 
 describe("G6 - planar surface tools store exact canonical CAD geometry", () => {

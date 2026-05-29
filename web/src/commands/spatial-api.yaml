@@ -434,6 +434,10 @@
       closed:
         type: boolean
         default: false
+      solid:
+        type: boolean
+        default: false
+        description: "When true, closed planar section curves are committed as a capped closed BRep loft; otherwise the command preserves open loft-surface behavior."
     required: [curves]
   topology_role: solid
   kg_predicates: []
