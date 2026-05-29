@@ -278,8 +278,8 @@ export const MODEL_PALETTE_CAUSAL_SPECS: Record<string, ModelPaletteCausalSpec> 
     implementationStatus: "canonical",
     evidence: [
       "viewer/op-tool.ts routes palette completion through dispatchSync(\"SdFillet\")",
-      "handlers/transforms.ts attempts canonicalEdgeChamferDisplayResult for selected supported BRep box edges before mesh fallback",
-      "handlers/transforms.ts attempts canonicalAllEdgeChamferDisplayResult for supported box-like BRep all-edge chamfers before mesh fallback",
+      "handlers/transforms.ts uses canonicalEdgeChamferDisplayResult for selected supported BRep box edges",
+      "handlers/transforms.ts uses canonicalAllEdgeChamferDisplayResult for supported box-like BRep all-edge chamfers",
       "handlers/transforms.ts returns an explicit unsupported-native-kernel error for unsupported-shape paths instead of creating a mesh-derived canonical fallback",
     ],
     weaknesses: [

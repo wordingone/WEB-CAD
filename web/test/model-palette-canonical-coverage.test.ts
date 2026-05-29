@@ -323,6 +323,7 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(fillet.evidence?.join("\n")).toContain("canonicalEdgeChamferDisplayResult");
     expect(fillet.evidence?.join("\n")).toContain("canonicalAllEdgeChamferDisplayResult");
     expect(fillet.evidence?.join("\n")).toContain("unsupported-shape paths");
+    expect(fillet.evidence?.join("\n")).not.toContain("mesh fallback");
     expect(fillet.weaknesses?.join("\n")).toContain("fails explicitly");
 
     const source = readFileSync(new URL("../src/handlers/transforms.ts", import.meta.url), "utf8");
