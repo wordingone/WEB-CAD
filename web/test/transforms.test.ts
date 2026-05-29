@@ -632,6 +632,9 @@ describe("Phase 3 — create-mode click-to-place", () => {
           : spec.expectedCreatedBy.test(value)
       ));
       expect(matched, `${spec.tool}: ${[...createdBy].join(",")}`).toBe(true);
+      if (spec.tool.startsWith("stair")) {
+        expect(result?.mesh.userData.dispatchVerb, spec.tool).toBe("SdStair");
+      }
     }
   });
 

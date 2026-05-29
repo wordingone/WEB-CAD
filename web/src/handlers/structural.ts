@@ -523,6 +523,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     group.position.z = elev;
     group.userData.layerId = resolveLayerId("SdStair", args);
     group.userData.levelId = getActiveLevelId();
+    group.userData.dispatchVerb = "SdStair";
     group.userData.dispatchArgs = args;
     group.userData.chain = chain;
     linkCompoundMeshBreps(viewer, group, "SdStairComponent", {
