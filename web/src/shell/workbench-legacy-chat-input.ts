@@ -6,10 +6,8 @@ import { iconSVG } from "../ui/icons";
 import { compileDsl } from "../commands/dsl-eval";
 import { dispatchSync, type DispatchArgs } from "../commands/dispatch";
 import { startCommandSession } from "../commands/command-session";
-import { checkConsentAndLoad } from "../agent/model-consent";
 import { isCadOnlyMode } from "../agent/boot-screen";
 import { ChatPanel } from "../chat/chat-panel";
-import { prefetchModel, MODEL_ID } from "../agent/agent-harness";
 import {
   listSavedSkills,
   type SavedSkill, type SkillStep,
@@ -389,7 +387,7 @@ export function buildDock(
   promptPane: HTMLElement | null,
   _paramPanel: HTMLElement | null,
   getCreateSequenceFn: () => string[],
-  getCapabilityGatePromiseFn: () => Promise<string>,
+  _getCapabilityGatePromiseFn: () => Promise<string>,
 ): void {
   tabsHost.innerHTML = "";
 
@@ -432,17 +430,6 @@ export function buildDock(
     });
     bodyHost.innerHTML = "";
     if (panes[id]) bodyHost.appendChild(panes[id]);
-    if (id === "prompt") {
-      void getCapabilityGatePromiseFn().then((path) => {
-        if (path === "cad-only" || path === "flags") return;
-        const remoteUrl = (import.meta.env as Record<string, string>).VITE_GEMMA_AGENT_URL ?? "";
-        if (remoteUrl) {
-          prefetchModel();
-        } else {
-          checkConsentAndLoad(MODEL_ID, () => prefetchModel());
-        }
-      });
-    }
   }
   activate("prompt");
 

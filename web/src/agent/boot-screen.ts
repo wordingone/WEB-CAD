@@ -1,9 +1,9 @@
 // boot-screen.ts — Full-viewport loading screen (#938, #1134).
-// Blocks all underlying UI interaction until agentmodel:boot-complete fires.
+// Blocks initial shell paint; if model loading starts, stays up until agentmodel:boot-complete.
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
-import { initCapabilityGate } from "./boot-capability-gate";
+import { getCapabilityGatePromise, initCapabilityGate } from "./boot-capability-gate";
 
 const LOOP_MS = 6_000;          // one travel-head cycle
 const FADE_MS = 200;             // fade-out duration on completion
@@ -12,6 +12,7 @@ const READY_HOLD_MS = 1_200;     // returning-user: hold READY pulse before fade
 let _initialized = false;
 let _done = false;
 let _isReturningUser = false;
+let _agentBootStarted = false;
 
 // Bytes progress state
 let _totalBytes = 0;             // from agentmodel:manifest
@@ -127,6 +128,14 @@ export function initBootScreen(): void {
   initCapabilityGate(document.body);
   void _detectBootPath(); // §WEB-CAD#14-B: async cold/warm detection; updates label when done
   _wireEvents();
+  void getCapabilityGatePromise().then(() => {
+    setTimeout(() => {
+      if (!_done && !_agentBootStarted) {
+        if (_hintEl) _hintEl.textContent = 'Ready';
+        _onDone();
+      }
+    }, 0);
+  });
   _startTime = performance.now();
   _tick();
 }
@@ -191,6 +200,7 @@ function _advanceToPhase(phase: _BootPhase): void {
 
 function _wireEvents(): void {
   window.addEventListener('agentmodel:manifest', (ev: Event) => {
+    _agentBootStarted = true;
     const detail = (ev as CustomEvent<{ totalBytesExpected?: number }>).detail;
     if (detail?.totalBytesExpected) _totalBytes = detail.totalBytesExpected;
     _traceEvent('manifest', { total: detail?.totalBytesExpected });
@@ -201,6 +211,7 @@ function _wireEvents(): void {
   });
 
   window.addEventListener('agentmodel:loading', (ev: Event) => {
+    _agentBootStarted = true;
     const d = (ev as CustomEvent<{
       bytes?: number; total?: number; throughputBytesPerSec?: number; file?: string; phase?: string;
     }>).detail ?? {};
@@ -248,6 +259,7 @@ function _wireEvents(): void {
   });
 
   window.addEventListener('agentmodel:drafter:loading', (ev: Event) => {
+    _agentBootStarted = true;
     const d = (ev as CustomEvent<{
       bytes?: number; total?: number; throughputBytesPerSec?: number;
     }>).detail ?? {};
@@ -282,10 +294,12 @@ function _wireEvents(): void {
     _updatePhaseLabel(); // switches to warm labels
   }, { once: true });
   window.addEventListener('agentmodel:returning-user', () => {
+    _agentBootStarted = true;
     _traceEvent('returning-user');
     _onReturningUser();
   }, { once: true });
   window.addEventListener('agentmodel:boot-complete', () => {
+    _agentBootStarted = true;
     _traceEvent('boot-complete');
     _advanceToPhase('final'); // ensures bar reaches 95%+ before _onDone() sets 100%
     // returning-user path installs its own boot-complete listener with READY_HOLD_MS delay;
