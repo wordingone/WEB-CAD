@@ -736,6 +736,8 @@
         default: 1
       axis:
         type: string
+      mode:
+        type: string
       pivot:
         type: point3
         default: "[0, 0, 0]"

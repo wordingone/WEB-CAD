@@ -80,9 +80,38 @@ function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   });
 }
 
+function resolveTransformTarget(viewer: Viewer, args: Record<string, unknown>): THREE.Object3D | null {
+  const byTarget = (args.target as string | undefined)
+    ? (viewer.getScene().getObjectByProperty("uuid", args.target as string) ?? null)
+    : null;
+  return byTarget ?? getSelected()?.transformTarget ?? viewer.getActiveObject();
+}
+
+function vectorArg(value: unknown, fallback: [number, number, number]): THREE.Vector3 {
+  if (!Array.isArray(value)) return new THREE.Vector3(...fallback);
+  return new THREE.Vector3(
+    typeof value[0] === "number" ? value[0] : fallback[0],
+    typeof value[1] === "number" ? value[1] : fallback[1],
+    typeof value[2] === "number" ? value[2] : fallback[2],
+  );
+}
+
+function dominantAxis(axis: THREE.Vector3): "x" | "y" | "z" {
+  const ax = Math.abs(axis.x);
+  const ay = Math.abs(axis.y);
+  const az = Math.abs(axis.z);
+  return ax >= ay && ax >= az ? "x" : ay >= az ? "y" : "z";
+}
+
+function axisStringVector(axis: string | null): THREE.Vector3 {
+  if (axis?.includes("y")) return new THREE.Vector3(0, 1, 0);
+  if (axis?.includes("z")) return new THREE.Vector3(0, 0, 1);
+  return new THREE.Vector3(1, 0, 0);
+}
+
 export function registerTransformHandlers(viewer: Viewer): void {
   registerHandler("SdMove", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { moved: false, reason: "no selection" };
     const before = captureTransform(sel);
     const x = (args.x as number | undefined)
@@ -107,40 +136,73 @@ export function registerTransformHandlers(viewer: Viewer): void {
   });
 
   registerHandler("SdScale", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { scaled: false, reason: "no selection" };
     const before = captureTransform(sel);
     const f = (args.factor as number | undefined) ?? 1;
-    const axis = (args.axis as string | undefined) ?? null;
-    if (!axis) {
+    if (!Number.isFinite(f) || f <= 0) return { scaled: false, reason: "factor must be positive" };
+    const baseArg = Array.isArray(args.base) ? args.base : args.pivot;
+    const base = vectorArg(baseArg, [0, 0, 0]);
+    const hasBase = Array.isArray(baseArg);
+    const mode = (args.mode as string | undefined) ?? null;
+    const axisRaw = args.axis;
+    const axis = typeof axisRaw === "string" ? axisRaw.toLowerCase() : null;
+
+    if (hasBase) {
+      const offset = sel.position.clone().sub(base);
+      if (mode === "1d") {
+        const axisVec = Array.isArray(axisRaw)
+          ? vectorArg(axisRaw, [1, 0, 0])
+          : axisStringVector(axis);
+        const key = dominantAxis(axisVec);
+        offset[key] *= f;
+        sel.position.copy(base).add(offset);
+        sel.scale[key] *= f;
+      } else if (mode === "2d" || axis === "xy") {
+        offset.x *= f;
+        offset.y *= f;
+        sel.position.copy(base).add(offset);
+        sel.scale.x *= f;
+        sel.scale.y *= f;
+      } else {
+        offset.multiplyScalar(f);
+        sel.position.copy(base).add(offset);
+        sel.scale.multiplyScalar(f);
+      }
+    } else if (!axis) {
       sel.scale.multiplyScalar(f);
     } else {
-      const ax = axis.toLowerCase();
-      if (ax.includes("x")) sel.scale.x *= f;
-      if (ax.includes("y")) sel.scale.y *= f;
-      if (ax.includes("z")) sel.scale.z *= f;
+      if (axis.includes("x")) sel.scale.x *= f;
+      if (axis.includes("y")) sel.scale.y *= f;
+      if (axis.includes("z")) sel.scale.z *= f;
     }
     sel.updateMatrix();
     sel.updateMatrixWorld(true);
     pushTransformAction(sel, before);
-    return { scaled: true, factor: f, axis: axis ?? "uniform" };
+    return { scaled: true, factor: f, axis: axis ?? "uniform", mode: mode ?? "uniform", base: hasBase ? base.toArray() : undefined };
   });
 
   registerHandler("SdRotate", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { rotated: false, reason: "no selection" };
     const before = captureTransform(sel);
     const deg = (args.angle as number | undefined) ?? 0;
     const axis = (args.axis as number[] | undefined) ?? [0, 0, 1];
-    const q = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).normalize(),
-      (deg * Math.PI) / 180,
-    );
+    const axisVec = new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).normalize();
+    const rad = (deg * Math.PI) / 180;
+    const baseArg = Array.isArray(args.base) ? args.base : args.pivot;
+    const base = vectorArg(baseArg, [0, 0, 0]);
+    if (Array.isArray(baseArg)) {
+      sel.position.sub(base);
+      sel.position.applyAxisAngle(axisVec, rad);
+      sel.position.add(base);
+    }
+    const q = new THREE.Quaternion().setFromAxisAngle(axisVec, rad);
     sel.quaternion.premultiply(q);
     sel.updateMatrix();
     sel.updateMatrixWorld(true);
     pushTransformAction(sel, before);
-    return { rotated: true, angle: deg, axis };
+    return { rotated: true, angle: deg, axis, pivot: Array.isArray(baseArg) ? base.toArray() : undefined };
   });
 
   registerHandler("SdCopy", (args) => {

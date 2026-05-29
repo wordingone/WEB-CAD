@@ -30,6 +30,11 @@ import {
   getSelected,
   clearSelected,
 } from "../src/viewer/selection-state";
+import {
+  ptHandleCoordSubmit,
+  ptHandlePoint,
+  ptStartTool,
+} from "../src/viewer/transforms";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
 
 beforeEach(() => {
@@ -849,6 +854,50 @@ describe("Phase 3 — create-mode click-to-place", () => {
 });
 
 describe("canonical geometry transform instances", () => {
+  test("precision transform palette commits dispatch SdMove/SdRotate/SdScale instead of owning local mutation", () => {
+    const scene = new THREE.Scene();
+    const viewer = {
+      getScene: () => scene,
+      setGumballEnabled: () => {},
+    };
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    scene.add(mesh);
+    setSelected({ topology: "brep", uuid: mesh.uuid, object: mesh, transformTarget: mesh });
+    const calls: Array<{ verb: string; args: Record<string, unknown> }> = [];
+
+    registerHandler("SdMove", (args) => {
+      calls.push({ verb: "SdMove", args });
+      return { moved: true };
+    });
+    registerHandler("SdRotate", (args) => {
+      calls.push({ verb: "SdRotate", args });
+      return { rotated: true };
+    });
+    registerHandler("SdScale", (args) => {
+      calls.push({ verb: "SdScale", args });
+      return { scaled: true };
+    });
+
+    ptStartTool("move");
+    ptHandlePoint(viewer as never, new THREE.Vector3(1, 2, 0));
+    ptHandlePoint(viewer as never, new THREE.Vector3(4, 6, 0));
+
+    ptStartTool("rotate");
+    ptHandlePoint(viewer as never, new THREE.Vector3(0, 0, 0));
+    ptHandlePoint(viewer as never, new THREE.Vector3(0, 0, 1));
+    ptHandleCoordSubmit(viewer as never, "45");
+
+    ptStartTool("scale-1d");
+    ptHandlePoint(viewer as never, new THREE.Vector3(0, 0, 0));
+    ptHandleCoordSubmit(viewer as never, "2");
+
+    expect(calls).toEqual([
+      { verb: "SdMove", args: { target: mesh.uuid, delta: [3, 4, 0] } },
+      { verb: "SdRotate", args: { target: mesh.uuid, pivot: [0, 0, 0], angle: 45, axis: [0, 0, 1] } },
+      { verb: "SdScale", args: { target: mesh.uuid, pivot: [0, 0, 0], factor: 2, mode: "1d", axis: "x" } },
+    ]);
+  });
+
   test("SdMove edits the linked object transform without replacing its canonical surface", () => {
     const { viewer, scene, store, mesh, record } = makeCanonicalTransformViewer();
     registerTransformHandlers(viewer as never);
@@ -863,6 +912,38 @@ describe("canonical geometry transform instances", () => {
     expect(snapshot.objectLinks[0].canonicalGeometryId).toBe(record.id);
     expect(snapshot.objectLinks[0].position).toEqual([4, 5, 6]);
     expect(snapshot.objectLinks[0].worldMatrix).toEqual(mesh.matrixWorld.elements.slice());
+  });
+
+  test("SdRotate and SdScale support precision palette base-point semantics by target id", () => {
+    const { viewer, mesh } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+    mesh.position.set(2, 0, 0);
+
+    const rotated = dispatchSync("SdRotate", {
+      target: mesh.uuid,
+      pivot: [0, 0, 0],
+      angle: 90,
+      axis: [0, 0, 1],
+    });
+
+    expect(rotated.ok).toBe(true);
+    expect(mesh.position.x).toBeCloseTo(0, 5);
+    expect(mesh.position.y).toBeCloseTo(2, 5);
+
+    const scaled = dispatchSync("SdScale", {
+      target: mesh.uuid,
+      pivot: [0, 0, 0],
+      factor: 2,
+      mode: "2d",
+      axis: "xy",
+    });
+
+    expect(scaled.ok).toBe(true);
+    expect(mesh.position.x).toBeCloseTo(0, 5);
+    expect(mesh.position.y).toBeCloseTo(4, 5);
+    expect(mesh.scale.x).toBeCloseTo(2, 5);
+    expect(mesh.scale.y).toBeCloseTo(2, 5);
+    expect(mesh.scale.z).toBeCloseTo(1, 5);
   });
 
   test("SdCopy creates a second object instance linked to the same canonical geometry", () => {
