@@ -1,20 +1,16 @@
 #!/usr/bin/env node
-// verify-211-gable-cap-coherence.mjs — TDD gate receipt for #211.
+// verify-211-gable-cap-coherence.mjs — AC receipt for #211 (LIVE gate — Kai landed geometry).
 //
-// TDD shape: asserts the TARGET state (gable-cap → closed solid).
-// EXPECTED TO FAIL on current /dev until Kai implements the closed-solid
-// gable-cap geometry on kai/brep-canonical-migration.
+// Kai mail 11583 (2026-05-29): closed-solid gable-cap geometry landed on
+// kai/brep-canonical-migration at commit 5050e822. Derivation string: "parametric-gable-cap-solid".
 //
-// Leo's directive (mail 11561): "gable-cap → thicken to CLOSED SOLID.
-// Coherence with the 27 closed-solid roof records; the open-planar-panel
-// is the gap, not the target."
-//
-// Acceptance criteria (#211) — closed-solid target:
+// Acceptance criteria (#211) — closed-solid target (now GREEN on /dev):
 //   AC1 — Zero roof canonical records have isClosed=false (no open panels)
-//   AC2 — All planar-end-cap records: isClosed=true, closedShells=1
+//   AC2 — Gable-cap records: derivation "parametric-gable-cap-solid", isClosed=true, faceCount=5
 //   AC3 — Zero "planarized-command-mesh" derivation (no mesh fallback)
-//   AC4 — At least one closed-solid record for the pitched plane faces
-//   AC5 — Gable-cap derivation signals solid extrusion (not open-panel)
+//   AC4 — At least 2 gable-cap-solid records (one per gable end)
+//   AC5 — No "parametric-planar-panel" derivation remaining
+//   AC6 — Exact topology per cap: faceCount=5, edgeCount=9, closedEdgeCount=9, vertexCount=6, all NURBS faces
 
 import { WebSocket } from "ws";
 import { execSync } from "child_process";
@@ -161,12 +157,21 @@ const canonicalSummary = await evaluate(`
       const d = r.metadata?.derivation ?? "unknown";
       derivations[d] = (derivations[d] ?? 0) + 1;
       const shell = r.brep?.shells?.[0];
+      const edges = shell?.edges ?? [];
+      const verts = shell?.vertices ?? [];
+      const faces = shell?.faces ?? [];
+      const allFacesNurbs = faces.every(f => f.surface?.kind === "nurbs" || f.geometry?.kind === "nurbs");
       shellStats.push({
         derivation: d,
         isClosed: shell?.isClosed ?? null,
-        faceCount: shell?.faces?.length ?? 0,
-        nakedEdges: shell?.edges?.filter(e => e.faceIndex2 === null).length ?? 0,
+        faceCount: faces.length,
+        edgeCount: edges.length,
+        closedEdgeCount: edges.filter(e => e.faceIndex2 !== null && e.faceIndex2 !== undefined).length,
+        nakedEdges: edges.filter(e => e.faceIndex2 === null || e.faceIndex2 === undefined).length,
+        vertexCount: verts.length,
+        allFacesNurbs,
         conversion: r.metadata?.conversion ?? null,
+        createdBy: r.createdBy ?? null,
       });
     }
     return {
@@ -195,52 +200,60 @@ if (!canonicalSummary) {
   // AC1 — zero open-shell records (no isClosed=false)
   results.ac1_no_open_shells = results.open_shells === 0;
 
-  // AC2 — all gable-end cap records are closed-solid
-  const gableEndRecords = canonicalSummary.shellStats.filter(s =>
-    s.derivation === "parametric-planar-panel" ||
-    s.derivation === "parametric-gable-cap" ||
-    s.derivation === "parametric-solid-extrusion" ||
-    // Any record that is NOT the pitched-plane box-primitive is a candidate end-cap:
-    (s.derivation !== "parametric-box-primitive" && s.derivation !== "unknown")
-  );
-  results.ac2_gable_end_records = gableEndRecords.length;
-  results.ac2_all_end_caps_closed = gableEndRecords.length === 0 ||
-    gableEndRecords.every(s => s.isClosed === true && s.nakedEdges === 0);
+  // AC2 — gable-cap-solid records exist, all isClosed=true, faceCount=5
+  const gableCapSolids = canonicalSummary.shellStats.filter(s => s.derivation === "parametric-gable-cap-solid");
+  results.ac2_gable_cap_solid_count = gableCapSolids.length;
+  results.ac2_all_closed = gableCapSolids.every(s => s.isClosed === true);
+  results.ac2_face_count_ok = gableCapSolids.every(s => s.faceCount === 5);
 
   // AC3 — zero mesh fallback
   results.ac3_no_mesh_fallback = (canonicalSummary.derivations["planarized-command-mesh"] ?? 0) === 0;
 
-  // AC4 — at least one closed-solid (pitch faces)
-  results.ac4_has_closed_solid = results.closed_shells > 0;
+  // AC4 — at least 2 gable-cap-solid records (one per gable end)
+  results.ac4_min_two_caps = gableCapSolids.length >= 2;
 
-  // AC5 — no "parametric-planar-panel" (open-panel derivation should be replaced)
+  // AC5 — no "parametric-planar-panel" derivation (replaced by gable-cap-solid)
   results.ac5_no_open_panel_derivation = (canonicalSummary.derivations["parametric-planar-panel"] ?? 0) === 0;
-  results.ac5_note = results.ac5_no_open_panel_derivation
-    ? "no parametric-planar-panel records (correct target)"
-    : `${canonicalSummary.derivations["parametric-planar-panel"]} open-panel records remain (gap to fix)`;
 
-  console.log(`  AC1 no open shells:        ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL (expected — gap not yet fixed)"}`);
-  console.log(`  AC2 end-caps all closed:   ${results.ac2_all_end_caps_closed} ${results.ac2_all_end_caps_closed ? "✓" : "✗ FAIL (expected)"}`);
-  console.log(`  AC3 no mesh fallback:      ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC4 has closed-solid:      ${results.ac4_has_closed_solid} ${results.ac4_has_closed_solid ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC5 no open-panel deriv:   ${results.ac5_no_open_panel_derivation} — ${results.ac5_note}`);
+  // AC6 — exact topology per cap: faceCount=5, edgeCount=9, closedEdgeCount=9, vertexCount=6, all NURBS faces
+  const topoChecks = gableCapSolids.map(s => ({
+    derivation: s.derivation,
+    isClosed: s.isClosed,
+    faceCount: s.faceCount,
+    edgeCount: s.edgeCount,
+    closedEdgeCount: s.closedEdgeCount,
+    vertexCount: s.vertexCount,
+    allFacesNurbs: s.allFacesNurbs,
+    pass: s.faceCount === 5 && s.edgeCount === 9 && s.closedEdgeCount === 9 && s.vertexCount === 6 && s.allFacesNurbs === true,
+  }));
+  results.ac6_topo = topoChecks;
+  results.ac6_all_topo_ok = topoChecks.length >= 2 && topoChecks.every(t => t.pass);
+
+  console.log(`  AC1 no open shells:             ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC2 gable-cap-solid (closed,f5): ${results.ac2_all_closed && results.ac2_face_count_ok} count=${results.ac2_gable_cap_solid_count} ${results.ac2_all_closed && results.ac2_face_count_ok ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC3 no mesh fallback:           ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC4 at least 2 gable caps:      ${results.ac4_min_two_caps} count=${results.ac2_gable_cap_solid_count} ${results.ac4_min_two_caps ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC5 no open-panel derivation:   ${results.ac5_no_open_panel_derivation} ${results.ac5_no_open_panel_derivation ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC6 exact topology (5f/9e/6v/nurbs): ${results.ac6_all_topo_ok} ${results.ac6_all_topo_ok ? "✓" : "✗ FAIL"}`);
+  if (topoChecks.length) console.log(`    sample: ${JSON.stringify(topoChecks[0])}`);
 }
 
 // ── Pass/fail ──────────────────────────────────────────────────────────────
 
 const pass = !results.skip &&
-  results.ac1_no_open_shells   === true &&
-  results.ac2_all_end_caps_closed === true &&
-  results.ac3_no_mesh_fallback === true &&
-  results.ac4_has_closed_solid === true &&
-  results.ac5_no_open_panel_derivation === true;
+  results.ac1_no_open_shells        === true &&
+  results.ac2_all_closed            === true &&
+  results.ac2_face_count_ok         === true &&
+  results.ac3_no_mesh_fallback      === true &&
+  results.ac4_min_two_caps          === true &&
+  results.ac5_no_open_panel_derivation === true &&
+  results.ac6_all_topo_ok           === true;
 
 const receipt = {
   sha: SHA,
   timestamp: new Date().toISOString(),
   url: TARGET_URL,
-  feature: "#211 gable-cap coherence — CLOSED-SOLID TDD target",
-  tdd_note: "EXPECTED TO FAIL on current /dev until Kai's closed-solid gable-cap geometry lands on kai/brep-canonical-migration.",
+  feature: "#211 gable-cap coherence — CLOSED-SOLID (parametric-gable-cap-solid, Kai commit 5050e822)",
   results,
   console_errors_sample: consoleErrors.slice(0, 10),
   pass,
@@ -248,20 +261,19 @@ const receipt = {
 
 writeFileSync(OUT, JSON.stringify(receipt, null, 2));
 
-console.log("\n── #211 gable-cap closed-solid TDD gate ───────────────────────────────");
+console.log("\n── #211 gable-cap closed-solid AC gate ────────────────────────────────");
 if (results.skip) {
   console.log(`  SKIP: ${results.skip}`);
 } else {
-  console.log(`  AC1 no open shells:               ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
-  console.log(`  AC2 end-caps all closed-solid:    ${results.ac2_all_end_caps_closed} ${results.ac2_all_end_caps_closed ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
+  console.log(`  AC1 no open shells:               ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC2 gable-cap-solid (closed,f5):  ${results.ac2_all_closed && results.ac2_face_count_ok} count=${results.ac2_gable_cap_solid_count} ${results.ac2_all_closed && results.ac2_face_count_ok ? "✓" : "✗ FAIL"}`);
   console.log(`  AC3 no mesh fallback:             ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC4 has closed-solid roof record: ${results.ac4_has_closed_solid} ${results.ac4_has_closed_solid ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC5 no open-panel derivation:     ${results.ac5_no_open_panel_derivation} ${results.ac5_no_open_panel_derivation ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
+  console.log(`  AC4 at least 2 caps:              ${results.ac4_min_two_caps} ${results.ac4_min_two_caps ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC5 no open-panel derivation:     ${results.ac5_no_open_panel_derivation} ${results.ac5_no_open_panel_derivation ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC6 exact topo (5f/9e/6v/nurbs):  ${results.ac6_all_topo_ok} ${results.ac6_all_topo_ok ? "✓" : "✗ FAIL"}`);
 }
-console.log(`\n  TDD AC result: ${pass ? "PASS ✓ (closed-solid path landed)" : "FAIL ✗ (expected — gap open, await Kai geometry)"}`);
+console.log(`\n  AC result: ${pass ? "PASS ✓" : "FAIL ✗"}`);
 console.log(`\nReceipt: ${OUT}`);
 
 ws.close();
-// TDD script: exit 0 always — the FAIL state is the expected pre-implementation state.
-// Change to exit(1) when this script is expected to pass (after geometry lands).
-process.exit(0);
+if (!pass) process.exit(1);
