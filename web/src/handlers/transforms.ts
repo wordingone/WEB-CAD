@@ -71,7 +71,7 @@ function canonicalBooleanDisplayResult(
   op: BooleanOp,
   createdBy: string,
   args: Record<string, unknown>,
-): THREE.Mesh | null {
+): THREE.Mesh | { error: string } | null {
   objA.updateMatrixWorld(true);
   objB.updateMatrixWorld(true);
   const store = viewer.getCanonicalGeometryStore();
@@ -85,7 +85,11 @@ function canonicalBooleanDisplayResult(
     op === "difference" ? backend.difference(brepA, brepB)
       : op === "intersection" ? backend.intersection(brepA, brepB)
         : backend.union(brepA, brepB);
-  if (!canonicalResult.ok) return null;
+  if (!canonicalResult.ok) {
+    return {
+      error: `boolean ${op} canonical BRep failed: ${canonicalResult.error.code} (${canonicalResult.error.message})`,
+    };
+  }
   const record = store.create({
     kind: "brep",
     brep: canonicalResult.brep,
@@ -100,7 +104,7 @@ function canonicalBooleanDisplayResult(
   const display = objectFromCanonicalGeometry(record);
   if (!(display instanceof THREE.Mesh)) {
     store.delete(record.id);
-    return null;
+    return { error: `boolean ${op} canonical BRep display generation failed` };
   }
   const pos = display.geometry.getAttribute("position");
   record.displayMesh = {
@@ -517,6 +521,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
       creator,
       args,
     );
+    if (canonicalResult && !(canonicalResult instanceof THREE.Mesh)) return { error: canonicalResult.error };
     if (canonicalResult) {
       scene.remove(objA); // audit-undo-ok - paired with pushReplaceAction below
       scene.remove(objB); // audit-undo-ok - paired with pushReplaceAction below
@@ -562,6 +567,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
       return { error: `boolean ${op} — both targets must be solid meshes` };
     const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
     const canonicalResult = canonicalBooleanDisplayResult(viewer, objA, objB, op, creator, { a: aId, b: bId });
+    if (canonicalResult && !(canonicalResult instanceof THREE.Mesh)) return { error: canonicalResult.error };
     if (canonicalResult) {
       scene.remove(objA); // audit-undo-ok
       scene.remove(objB); // audit-undo-ok

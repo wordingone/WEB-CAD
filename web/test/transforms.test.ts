@@ -1193,6 +1193,56 @@ describe("canonical geometry transform instances", () => {
     expect(faceCount).toBeLessThan(12);
   });
 
+  test("SdBooleanDifference refuses mesh-derived fallback when canonical BRep operands cannot be solved", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    b.position.x = 0.25;
+    a.userData.kind = "brep";
+    b.userData.kind = "brep";
+    scene.add(a, b);
+    const brepA = axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
+    brepA.shells[0].faces[0].surface = {
+      kind: "sum",
+      curveU: { kind: "line", from: { x: 0, y: 0, z: 0 }, to: { x: 1, y: 0, z: 0 }, domain: Interval.create(0, 1) },
+      curveV: { kind: "line", from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 0, z: 1 }, domain: Interval.create(0, 1) },
+      basepoint: { x: 0, y: 0, z: 0 },
+    };
+    const recordA = store.create({ kind: "brep", brep: brepA, source: "command", createdBy: "SdBox" });
+    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+    store.linkObject(a, recordA.id);
+    store.linkObject(b, recordB.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdBooleanDifference", { outer: a.uuid, inner: b.uuid });
+
+    expect(result.ok).toBe(true);
+    expect((result as { result?: { error?: string } }).result?.error).toContain("canonical BRep failed");
+    expect((result as { result?: { error?: string } }).result?.error).toContain("requires planar breps");
+    expect(added).toHaveLength(0);
+    expect(scene.children).toContain(a);
+    expect(scene.children).toContain(b);
+    expect(store.exportRecords().filter((record) => record.createdBy === "boolean-difference")).toHaveLength(0);
+  });
+
   test("SdFillet edge chamfer links planarized output to a canonical BRep record", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
