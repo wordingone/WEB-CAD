@@ -223,6 +223,12 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
   });
   card.querySelector("#consent-cancel")?.addEventListener("click", () => {
     overlay.remove();
+    const detail = { reason: "user-cancelled-model-download" };
+    (window as unknown as Record<string, unknown>).__agentModelStatus = {
+      state: "skipped",
+      ...detail,
+    };
+    window.dispatchEvent(new CustomEvent("agentmodel:boot-skipped", { detail }));
     onCancel();
   });
 
