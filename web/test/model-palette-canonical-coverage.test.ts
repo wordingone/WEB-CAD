@@ -8,6 +8,7 @@ import { getCreateToolCausalSpecs, type CreateToolCausalSpec } from "../src/tool
 import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
 import { MODEL_PALETTE_CAUSAL_SPECS } from "../src/shell/model-palette-causal-map";
 import { buildPhoneSlider } from "../src/ui/phone-slider";
+import { initShellChrome, setRibbonMode } from "../src/shell/shell";
 
 const SHARED_TOOLS = [
   "select", "move", "rotate", "scale", "copy", "array",
@@ -231,6 +232,28 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     root.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(root.dataset.activeTab).toBe("ARCH");
     expect(changes).toEqual(["CAD", "CAD", "ARCH", "CAD", "ARCH"]);
+  });
+
+  test("shell boot initializes the default MODEL ribbon instead of only marking the mode tab active", () => {
+    document.body.innerHTML = `
+      <div class="menubar"></div>
+      <div class="modebar"></div>
+      <div class="ribbon"></div>
+      <div id="sb-mode"><span class="v"></span></div>
+    `;
+    const modes: string[] = [];
+
+    initShellChrome({
+      onModeChange: (mode) => {
+        modes.push(mode);
+        setRibbonMode(mode as "model" | "layout" | "research");
+      },
+    });
+
+    expect(modes).toEqual(["model"]);
+    expect(document.querySelector(".mode-tab.active")?.getAttribute("data-mode")).toBe("model");
+    expect(document.querySelector(".yin-toggle")).toBeTruthy();
+    expect(document.querySelector('.ribbon-asset-card[data-sample="kit-fzk-haus"]')).toBeTruthy();
   });
 
   test("hidden sub-tools highlight their visible parent palette button", () => {

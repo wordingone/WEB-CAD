@@ -940,8 +940,9 @@ export function initShellChrome(opts?: { onModeChange?: (k: string) => void; onS
   const modebar = document.querySelector(".modebar") as HTMLElement | null;
   const ribbon  = document.querySelector(".ribbon")  as HTMLElement | null;
   if (menubar) buildMenubar(menubar);
-  if (modebar) buildModebar(modebar, opts?.onModeChange);
+  const activateInitialMode = modebar ? buildModebar(modebar, opts?.onModeChange) : null;
   if (ribbon)  buildRibbon(ribbon, opts?.onSplitMode);
+  activateInitialMode?.(MODES[0].key);
   wireThemeToggle();
   wireFpsCounter();
   wireUnitsCell();
