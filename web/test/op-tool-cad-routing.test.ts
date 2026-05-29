@@ -10,6 +10,37 @@ describe("CAD/BRep op-tool command parity", () => {
     }
   });
 
+  test("op-tool command completions unwrap dispatch envelopes and handler-level errors", () => {
+    const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const helperStart = source.indexOf("function dispatchFailure");
+    const helperEnd = source.indexOf("function extractLinePoints", helperStart + 1);
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    expect(helper).toContain("if (!result.ok)");
+    expect(helper).toContain('"error" in payload');
+
+    const clickStart = source.indexOf("export function opHandleClick");
+    const clickEnd = source.indexOf("export function opHandleEnter", clickStart + 1);
+    const coordStart = source.indexOf("export function opHandleCoordSubmit");
+    const coordEnd = source.indexOf("export function opStartTool", coordStart + 1);
+    expect(clickStart).toBeGreaterThanOrEqual(0);
+    expect(clickEnd).toBeGreaterThan(clickStart);
+    expect(coordStart).toBeGreaterThanOrEqual(0);
+    expect(coordEnd).toBeGreaterThan(coordStart);
+    const completions = source.slice(clickStart, clickEnd) + source.slice(coordStart, coordEnd);
+
+    expect(completions).not.toContain("as { error?: string }");
+    expect(completions).not.toContain("result?.error");
+    expect(completions).not.toContain("res?.error");
+    for (const command of ["SdExtrude", "SdLoft", "SdSweep", "SdRevolve", "SdPlane", "SdSurface", "SdExplode", "SdJoin", "SdRebuild", "SdContour", "SdFillet"]) {
+      const idx = completions.indexOf(`dispatchSync("${command}"`);
+      expect(idx, command).toBeGreaterThanOrEqual(0);
+      const local = completions.slice(idx, idx + 500);
+      expect(local, command).toContain("dispatchFailure(");
+    }
+  });
+
   test("boolean intersection uses intersection semantics from palette to Sd command", () => {
     const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
     const boolStart = source.indexOf("function opExecBoolean");

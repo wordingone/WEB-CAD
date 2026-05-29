@@ -19,7 +19,7 @@ import {
 } from "./transforms";
 import { getChooserEl, opSetHover, setChooserHint } from "./picker-hint";
 import { beginTransaction, endTransaction, pushReplaceAction } from "../history";
-import { dispatchSync } from "../commands/dispatch";
+import { dispatchSync, type DispatchResult } from "../commands/dispatch";
 import { formatLength } from "../units";
 import {
   EXTRUDABLE_CREATORS, SKETCH_PROFILE_CREATORS, CLOSED_SKETCH_CREATORS,
@@ -152,6 +152,16 @@ function round(n: number, digits = 4): number {
 
 function vecArgs(v: THREE.Vector3): [number, number, number] {
   return [round(v.x), round(v.y), round(v.z)];
+}
+
+function dispatchFailure(result: DispatchResult): string | null {
+  if (!result.ok) return result.detail ?? result.error;
+  const payload = result.result;
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error?: unknown }).error;
+    return typeof error === "string" && error ? error : null;
+  }
+  return null;
 }
 
 function extractLinePoints(line: THREE.Line): number[][] {
@@ -621,12 +631,13 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
     ? { outer: mA.uuid, inner: mB.uuid }
     : { a: mA.uuid, b: mB.uuid };
   const result = dispatchSync(verb, args);
-  if (!result.ok) {
-    ptPrompt(`Boolean failed — ${result.detail ?? result.error}`);
+  const failure = dispatchFailure(result);
+  if (failure) {
+    ptPrompt(`Boolean failed — ${failure}`);
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
-  if (op === "intersection") {
+  if (result.ok && op === "intersection") {
     const createdId = (result.result as { created?: string } | undefined)?.created;
     const created = createdId ? viewer.getScene().getObjectByProperty("uuid", createdId) : null;
     if (created) created.userData.creator = "boolean-intersection";
@@ -668,14 +679,10 @@ function tryAutoExtrudeClosedSketchForBoolean(viewer: Viewer, profile: THREE.Obj
   viewer.getScene().traverse((obj) => before.add(obj.uuid));
   beginTransaction("boolean-auto-extrude");
   const result = dispatchSync("SdExtrude", { object_id: profile.uuid, distance: 3.0 });
-  if (!result.ok) {
+  const failure = dispatchFailure(result);
+  if (failure) {
     endTransaction();
-    return { error: `Auto-extrude failed — ${result.detail ?? result.error}` };
-  }
-  const payload = result.result as { error?: string } | undefined;
-  if (payload?.error) {
-    endTransaction();
-    return { error: payload.error };
+    return { error: `Auto-extrude failed — ${failure}` };
   }
 
   const extruded = viewer.getScene().children.find((obj): obj is THREE.Mesh => (
@@ -734,9 +741,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const h = _opPreview ? (new THREE.Box3().setFromObject(_opPreview)).getSize(new THREE.Vector3()).z : 1;
     opClearPreview(viewer);
     const h2 = Math.max(0.05, h);
-    const result = dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Extrude failed: ${result.error}  [Escape = cancel]`);
+    const result = dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Extrude failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     _hooks.appendToCreateSequence(`SdExtrude({object_id:"${phase.profile.uuid}",distance:${round(h2)}})`);
@@ -775,9 +783,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const result = dispatchSync("SdLoft", {
       curves: [{ points: pts1 }, { points: pts2 }],
       solid: pointsClosed(pts1) && pointsClosed(pts2),
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Loft failed: ${result.error}  [Escape = cancel]`);
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Loft failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -814,9 +823,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       rail: { points: railPts },
       profile: { points: profilePts },
       solid: pointsClosed(profilePts),
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Sweep failed: ${result.error}  [Escape = cancel]`);
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Sweep failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -857,9 +867,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       axisTo:   [snapped3.x, snapped3.y, snapped3.z],
       angleEnd: 2 * Math.PI,
       solid: true,
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Revolve failed: ${result.error}  [Escape = cancel]`);
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Revolve failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -895,9 +906,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       origin: [origin.x, origin.y, origin.z],
       xAxis:  [xAxis.x,  xAxis.y,  xAxis.z],
       yAxis:  [snapped3.x, snapped3.y, snapped3.z],
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Plane failed: ${result.error}  [Escape = cancel]`);
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Plane failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -922,9 +934,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Surface — selected curve has insufficient points  [Escape = cancel]");
       return true;
     }
-    const result = dispatchSync("SdSurface", { profile: { points: pts } }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Surface failed: ${result.error}  [Escape = cancel]`);
+    const result = dispatchSync("SdSurface", { profile: { points: pts } });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Surface failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -938,9 +951,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Explode — click a group or solid to decompose  [Escape = cancel]"); return true; }
     const obj = hit.obj;
     opSetHover(null);
-    const result = dispatchSync("SdExplode", { target: obj.uuid }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Explode failed — ${result.error.replace(/^SdExplode - /, "")}  [Escape = cancel]`);
+    const result = dispatchSync("SdExplode", { target: obj.uuid });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Explode failed — ${failure.replace(/^SdExplode - /, "")}  [Escape = cancel]`);
       return true;
     }
     _hooks.appendToCreateSequence(`SdExplode({target:"${obj.uuid}"})`);
@@ -963,9 +977,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit || hit.obj === phase.objA) { ptPrompt("Join — click a different second object  [Escape = cancel]"); return true; }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const result = dispatchSync("SdJoin", { targets: [phase.objA.uuid, hit.obj.uuid] }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Join failed — ${result.error.replace(/^SdJoin - /, "")}  [Escape = cancel]`);
+    const result = dispatchSync("SdJoin", { targets: [phase.objA.uuid, hit.obj.uuid] });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Join failed — ${failure.replace(/^SdJoin - /, "")}  [Escape = cancel]`);
       return true;
     }
     _hooks.appendToCreateSequence(`SdJoin({targets:["${phase.objA.uuid}","${hit.obj.uuid}"]})`);
@@ -978,9 +993,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Rebuild — click a curve to rebuild  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    const result = dispatchSync("SdRebuild", { target: obj.uuid }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Rebuild failed — ${result.error.replace(/^SdRebuild - /, "")}  [Escape = cancel]`);
+    const result = dispatchSync("SdRebuild", { target: obj.uuid });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Rebuild failed — ${failure.replace(/^SdRebuild - /, "")}  [Escape = cancel]`);
       return true;
     }
     _hooks.appendToCreateSequence(`SdRebuild({target:"${obj.uuid}"})`);
@@ -993,9 +1009,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Contour — click a solid or mesh  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    const result = dispatchSync("SdContour", { target: obj.uuid, count: 5 }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Contour failed — ${result.error.replace(/^SdContour - /, "")}  [Escape = cancel]`);
+    const result = dispatchSync("SdContour", { target: obj.uuid, count: 5 });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Contour failed — ${failure.replace(/^SdContour - /, "")}  [Escape = cancel]`);
       return true;
     }
     _hooks.appendToCreateSequence(`SdContour({target:"${obj.uuid}",count:5})`);
@@ -1400,9 +1417,10 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       setTimeout(() => opFinish(viewer), 800);
       return;
     }
-    const res = dispatchSync("SdFillet", { target: target.uuid, radius: r }) as { error?: string } | null;
-    if (res?.error) {
-      ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+    const res = dispatchSync("SdFillet", { target: target.uuid, radius: r });
+    const failure = dispatchFailure(res);
+    if (failure) {
+      ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
       setTimeout(() => opFinish(viewer), 1400);
       return;
     }
@@ -1434,9 +1452,10 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
     );
     if (edgeId >= 0) {
-      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r }) as { error?: string } | null;
-      if (res?.error) {
-        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r });
+      const failure = dispatchFailure(res);
+      if (failure) {
+        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1400);
         return;
       }
@@ -1446,9 +1465,10 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
         edgeFrom: vecArgs(phase.edgeA),
         edgeTo: vecArgs(phase.edgeB),
         radius: r,
-      }) as { error?: string } | null;
-      if (res?.error) {
-        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+      });
+      const failure = dispatchFailure(res);
+      if (failure) {
+        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1600);
         return;
       }
