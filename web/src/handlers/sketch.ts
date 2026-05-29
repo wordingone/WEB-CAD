@@ -18,7 +18,7 @@ import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
-import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace, type BrepVertex } from "../nurbs/nurbs-brep";
 import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
@@ -278,6 +278,14 @@ function circleEdge(z: number, radius: number, faceIndex1: number, faceIndex2: n
   };
 }
 
+function circularSeamVertex(z: number, radius: number, edgeIndices: number[]): BrepVertex {
+  return {
+    point: { x: radius, y: 0, z },
+    edgeIndices,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
 function revolvedLineSolidBrep(surface: Surface, profile: Curve, axis: { from: Point3; to: Point3 }, start: number, end: number): Brep | null {
   if (profile.kind !== "line" || !isWorldZAxis(axis) || !isFullCircle(start, end)) return null;
   const r0 = Math.hypot(profile.from.x, profile.from.y);
@@ -303,7 +311,10 @@ function revolvedLineSolidBrep(surface: Surface, profile: Curve, axis: { from: P
         circleEdge(bottom, r0, 0, 1),
         circleEdge(top, r0, 0, 2),
       ],
-      vertices: [],
+      vertices: [
+        circularSeamVertex(bottom, r0, [0]),
+        circularSeamVertex(top, r0, [1]),
+      ],
       isClosed: true,
     }],
   };
@@ -357,6 +368,53 @@ function polylineSectionPoints(curve: Curve): number[][] | null {
   return pts.length >= 3 ? pts.map((p) => [p.x, p.y, p.z]) : null;
 }
 
+function pointFromArray(point: number[]): Point3 {
+  return { x: point[0] ?? 0, y: point[1] ?? 0, z: point[2] ?? 0 };
+}
+
+function lineEdge(from: Point3, to: Point3, faceIndex1: number, faceIndex2: number): BrepEdge {
+  return {
+    curve: {
+      kind: "line",
+      from,
+      to,
+      domain: { min: 0, max: Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function loftLoopTopology(first: number[][], last: number[][]): { edges: BrepEdge[]; vertices: BrepVertex[] } {
+  const bottom = first.map(pointFromArray);
+  const top = last.map(pointFromArray);
+  const edges: BrepEdge[] = [];
+  for (let i = 0; i < bottom.length; i++) {
+    edges.push(lineEdge(bottom[i], bottom[(i + 1) % bottom.length], 0, 1));
+  }
+  for (let i = 0; i < top.length; i++) {
+    edges.push(lineEdge(top[i], top[(i + 1) % top.length], 0, 2));
+  }
+  const vertices: BrepVertex[] = [];
+  for (let i = 0; i < bottom.length; i++) {
+    vertices.push({
+      point: bottom[i],
+      edgeIndices: [(i + bottom.length - 1) % bottom.length, i],
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+  for (let i = 0; i < top.length; i++) {
+    const offset = bottom.length;
+    vertices.push({
+      point: top[i],
+      edgeIndices: [offset + ((i + top.length - 1) % top.length), offset + i],
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+  return { edges, vertices };
+}
+
 function solidLoftBrep(surface: Surface, sections: Curve[]): Brep | null {
   if (sections.length < 2 || !sections.every(closedProfile)) return null;
   const first = polylineSectionPoints(sections[0]);
@@ -365,6 +423,7 @@ function solidLoftBrep(surface: Surface, sections: Curve[]): Brep | null {
   const bottomCap = planarTrimmedBrepFromProfile(first).shells[0]?.faces[0];
   const topCap = planarTrimmedBrepFromProfile(last).shells[0]?.faces[0];
   if (!bottomCap || !topCap) return null;
+  const topology = loftLoopTopology(first, last);
   return {
     shells: [{
       faces: [
@@ -378,8 +437,8 @@ function solidLoftBrep(surface: Surface, sections: Curve[]): Brep | null {
         { ...bottomCap, orientation: false },
         { ...topCap, orientation: true },
       ],
-      edges: [],
-      vertices: [],
+      edges: topology.edges,
+      vertices: topology.vertices,
       isClosed: true,
     }],
   };

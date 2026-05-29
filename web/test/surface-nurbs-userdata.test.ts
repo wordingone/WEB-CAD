@@ -123,7 +123,9 @@ describe("G6 - SdRevolve stores exact surface canonically", () => {
     expect(shell.isClosed).toBe(true);
     expect(shell.faces.map((face) => face.surface.kind)).toEqual(["rev", "plane", "plane"]);
     expect(shell.edges).toHaveLength(2);
+    expect(shell.vertices).toHaveLength(2);
     expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+    expect(shell.vertices.every((vertex) => vertex.edgeIndices.length > 0)).toBe(true);
   });
 });
 
@@ -227,6 +229,9 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
     const shell = canonical.brep.shells[0];
     expect(shell.isClosed).toBe(true);
     expect(shell.faces.map((face) => face.surface.kind)).toEqual(["nurbs", "plane", "plane"]);
+    expect(shell.edges).toHaveLength(8);
+    expect(shell.vertices).toHaveLength(8);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
   });
 });
 
