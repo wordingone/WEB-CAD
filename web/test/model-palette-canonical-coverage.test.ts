@@ -6,6 +6,7 @@ import { dispatchSync, registerHandler } from "../src/commands/dispatch";
 import { resolveAlias } from "../src/commands/dictionary";
 import { getCreateToolCausalSpecs, type CreateToolCausalSpec } from "../src/tools/index";
 import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
+import { MODEL_PALETTE_CAUSAL_SPECS } from "../src/shell/model-palette-causal-map";
 
 const SHARED_TOOLS = [
   "select", "move", "rotate", "scale", "copy", "array",
@@ -31,6 +32,13 @@ const TRANSFORM_TOOLS = new Set(["move", "rotate", "scale"]);
 const IMMEDIATE_TOOLS = new Set([
   "align-left", "align-center-h", "align-right", "align-top", "align-center-v", "align-bottom", "dist-h", "dist-v",
 ]);
+const HIDDEN_SUBTOOLS = [
+  "sel-window", "sel-lasso", "sel-boundary",
+  "scale-1d", "scale-2d",
+  "wall-polyline", "wall-curve", "wall-pick",
+  "stair-polyline", "stair-curve",
+  "clip-section",
+];
 
 const EXPECTED_CREATE_SPECS: Record<string, Pick<CreateToolCausalSpec, "clicks" | "chain"> & { minPoints?: number }> = {
   wall: { clicks: 2, chain: false },
@@ -278,6 +286,34 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(Object.keys(EXPECTED_PALETTE_COMMANDS).sort()).toEqual([...new Set(ids)].sort());
     for (const [paletteId, command] of Object.entries(EXPECTED_PALETTE_COMMANDS)) {
       expect(resolveAlias(paletteId), paletteId).toBe(command);
+    }
+  });
+
+  test("every model palette button and hidden subtool has explicit causal inputs and canonical outcome", () => {
+    const ids = [...new Set([
+      ...PALETTE_SECTIONS.flatMap((section) => section.tools.map((tool) => tool.id)),
+      ...HIDDEN_SUBTOOLS,
+    ])];
+    const createSpecs = getCreateToolCausalSpecs();
+
+    expect(Object.keys(MODEL_PALETTE_CAUSAL_SPECS).sort()).toEqual(ids.sort());
+    for (const id of ids) {
+      const spec = MODEL_PALETTE_CAUSAL_SPECS[id];
+      expect(spec.paletteId, id).toBe(id);
+      expect(spec.inputs.length, id).toBeGreaterThan(0);
+      expect(spec.canonicalOutcome, id).toBeTruthy();
+      expect(spec.command, id).toMatch(/^Sd/);
+
+      const expectedAlias = resolveAlias(id);
+      if (expectedAlias && expectedAlias !== id) {
+        expect(spec.command, id).toBe(expectedAlias);
+      }
+
+      if (createSpecs[id]) expect(spec.route, id).toBe("create");
+      else if (OP_TOOL_IDS.has(id)) expect(spec.route, id).toBe("op");
+      else if (TRANSFORM_TOOLS.has(id) || id.startsWith("scale-")) expect(spec.route, id).toBe("transform");
+      else if (IMMEDIATE_TOOLS.has(id)) expect(spec.route, id).toBe("immediate");
+      else if (DIRECT_TOOLS.has(id)) expect(spec.route, id).toBe("direct");
     }
   });
 
