@@ -885,6 +885,8 @@ export function resetPending(): void {
   _shiftAxisChoice = null;
 }
 
+export function isToolMidExecution(): boolean { return _pending.length > 0; }
+
 // ── screenYtoDz (local, needed by pointer handlers) ──────────────────────────
 
 function screenYtoDz(viewer: Viewer, screenY: number, base: { x: number; y: number; z?: number }): number {
