@@ -183,18 +183,22 @@ function buildInspectTab(): HTMLElement {
       return;
     }
     const obj = sel.object as THREE.Object3D;
+    const isBrepSubObject = sel.parent && (sel.topology === "face" || sel.topology === "edge" || sel.topology === "vertex");
+    const subObjectLabel = isBrepSubObject
+      ? `BRep ${sel.topology}${sel.faceIndex !== undefined ? ` #${sel.faceIndex}` : sel.edgeIndex !== undefined ? ` #${sel.edgeIndex}` : sel.vertexIndex !== undefined ? ` #${sel.vertexIndex}` : ""}`
+      : null;
     const ud = (obj.userData ?? {}) as {
       ifcClass?: string;
       guid?: string;
       storeyName?: string;
       layer?: string;
     };
-    if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
-    if (subtitle) subtitle.textContent = ud.ifcClass || sel.topology;
+    if (title) title.textContent = subObjectLabel ?? obj.name ?? sel.uuid.slice(0, 8);
+    if (subtitle) subtitle.textContent = subObjectLabel ?? ud.ifcClass ?? sel.topology;
     const nameEl = wrap.querySelector<HTMLElement>('[data-field="name"]');
     if (nameEl) nameEl.textContent = obj.name || "—";
     const typeEl = wrap.querySelector<HTMLElement>('[data-field="type"]');
-    if (typeEl) typeEl.textContent = ud.ifcClass || sel.topology;
+    if (typeEl) typeEl.textContent = subObjectLabel ?? ud.ifcClass ?? sel.topology;
     const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
     if (guidEl) guidEl.textContent = ud.guid || (sel.uuid.slice(0, 16) + "…");
     const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');

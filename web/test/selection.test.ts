@@ -42,6 +42,23 @@ test("BRep display meshes retain one BufferGeometry group per canonical face", (
   expect(source).toContain("geo.addGroup(group.start, group.count, group.materialIndex)");
 });
 
+test("BRep sub-object selections are visible and Inspect prioritizes topology over mesh metadata", () => {
+  const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(viewerSource).toContain("showSubSelectionHighlight(subSelection)");
+  expect(viewerSource).toContain("clearSubSelectionHighlight()");
+  expect(viewerSource).toContain('sel.topology === "face"');
+  expect(viewerSource).toContain('sel.topology === "edge"');
+  expect(viewerSource).toContain('sel.topology === "vertex"');
+
+  const sidebarSource = readFileSync(new URL("../src/shell/workbench-sidebar.ts", import.meta.url), "utf8");
+  expect(sidebarSource).toContain("const isBrepSubObject");
+  expect(sidebarSource).toContain("`BRep ${sel.topology}");
+  expect(sidebarSource).toContain("subObjectLabel ?? ud.ifcClass ?? sel.topology");
+
+  const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+  expect(mainSource).toContain("__getSelected");
+});
+
 beforeEach(() => {
   resetSelectionState();
   resetFilters();

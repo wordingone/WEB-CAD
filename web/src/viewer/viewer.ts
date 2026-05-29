@@ -183,6 +183,7 @@ export class Viewer {
   _thumbMatWireframe: THREE.MeshBasicMaterial | null = null;
   _thumbMatGhosted: THREE.MeshBasicMaterial | null = null;
   subTargetObject: THREE.Object3D | null = null;
+  private subSelectionHighlight: THREE.Object3D | null = null;
   _isolatedUuid: string | null = null;
   _preIsolationVisible: Map<string, boolean> = new Map();
   _sectionPlanes: THREE.Plane[] = [];
@@ -629,6 +630,79 @@ export class Viewer {
     );
   }
 
+  private clearSubSelectionHighlight(): void {
+    const obj = this.subSelectionHighlight;
+    if (!obj) return;
+    this.scene.remove(obj);
+    obj.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+      const mat = mesh.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat?.dispose?.();
+    });
+    this.subSelectionHighlight = null;
+  }
+
+  private showSubSelectionHighlight(sel: Selection): void {
+    this.clearSubSelectionHighlight();
+    if (!(sel.object instanceof THREE.Mesh)) return;
+    const mesh = sel.object;
+    mesh.updateMatrixWorld(true);
+    const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!pos) return;
+    const applyWorldMatrix = (obj: THREE.Object3D) => {
+      obj.matrixAutoUpdate = false;
+      obj.matrix.copy(mesh.matrixWorld);
+      obj.renderOrder = 999;
+      obj.userData.noSnap = true;
+      obj.userData.noRenderMode = true;
+      this.scene.add(obj);
+      this.subSelectionHighlight = obj;
+    };
+    if (sel.topology === "face" && sel.faceIndex !== undefined) {
+      const group = mesh.geometry.groups[sel.faceIndex];
+      if (!group) return;
+      const srcIndex = mesh.geometry.getIndex();
+      const readIndex = (i: number) => srcIndex ? srcIndex.getX(i) : i;
+      const positions: number[] = [];
+      const indices: number[] = [];
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        const base = positions.length / 3;
+        for (const vi of [readIndex(i), readIndex(i + 1), readIndex(i + 2)]) {
+          positions.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+        }
+        indices.push(base, base + 1, base + 2);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffc247, transparent: true, opacity: 0.42, depthTest: false, side: THREE.DoubleSide });
+      applyWorldMatrix(new THREE.Mesh(geo, mat));
+      return;
+    }
+    if (sel.topology === "edge" && sel.edgeIndex !== undefined) {
+      const edge = this.groupedBoundaryEdges(mesh)[sel.edgeIndex];
+      if (!edge) return;
+      const [ia, ib] = edge;
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(pos.getX(ia), pos.getY(ia), pos.getZ(ia)),
+        new THREE.Vector3(pos.getX(ib), pos.getY(ib), pos.getZ(ib)),
+      ]);
+      const mat = new THREE.LineBasicMaterial({ color: 0xffc247, depthTest: false });
+      applyWorldMatrix(new THREE.Line(geo, mat));
+      return;
+    }
+    if (sel.topology === "vertex" && sel.vertexIndex !== undefined) {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(pos.getX(sel.vertexIndex), pos.getY(sel.vertexIndex), pos.getZ(sel.vertexIndex)),
+      ]);
+      const mat = new THREE.PointsMaterial({ color: 0xffc247, size: 14, sizeAttenuation: false, depthTest: false });
+      applyWorldMatrix(new THREE.Points(geo, mat));
+    }
+  }
+
   private onCanvasMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
     // W-6 host-pick: intercept before all other logic.
@@ -730,6 +804,7 @@ export class Viewer {
       if (subSelection) {
         this.selectObject(subSelection.transformTarget);
         setSelected(subSelection);
+        this.showSubSelectionHighlight(subSelection);
         window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: subSelection.uuid } }));
         return;
       }
@@ -753,10 +828,12 @@ export class Viewer {
     const uuid = transformTarget?.uuid ?? null;
     // Sub-object handle click: enter handle-level selection without clearing parent handles.
     if (transformTarget && isSubObjectHandle(transformTarget)) {
+      this.clearSubSelectionHighlight();
       this.selectSubObject(transformTarget);
       return;
     }
     if (transformTarget) {
+      this.clearSubSelectionHighlight();
       this.selectObject(transformTarget);
       setSelected({
         topology: topologyForObject(transformTarget, this.getCanonicalGeometryForObject(transformTarget)?.kind),
@@ -774,6 +851,7 @@ export class Viewer {
         if ((up.clientX - px0) ** 2 + (up.clientY - py0) ** 2 < 64) {
           this.selectObject(null);
           clearSelected();
+          this.clearSubSelectionHighlight();
           window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
         }
       };
@@ -794,7 +872,7 @@ export class Viewer {
 
   getTargetObject(): THREE.Object3D | null { return this.targetObject; }
 
-  deselectCurrent(): void { Gizmos.selectObject(this, null); clearSelected(); window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } })); }
+  deselectCurrent(): void { this.clearSubSelectionHighlight(); Gizmos.selectObject(this, null); clearSelected(); window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } })); }
 
   setGumballEnabled(enabled: boolean): void { Gizmos.setGumballEnabled(this, enabled); }
 
