@@ -13,6 +13,7 @@ import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
 import type { Line, Plane, Point3 } from "../nurbs/nurbs-primitives";
 import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace } from "../nurbs/nurbs-brep";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import { CANONICAL_GEOMETRY_USERDATA_KEY } from "../geometry/canonical-geometry";
 
 const TWO_PI = Math.PI * 2;
 
@@ -254,7 +255,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     linkCanonicalBrep(viewer, mesh, extrudeBrep(profile, { x: 0, y: 0, z: 1 }, h), "SdBox");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh as THREE.Mesh, viewer.getScene());
-    return { created: "box", width: w, depth: d, height: h };
+    return { created: mesh.uuid, object_id: mesh.uuid, canonical_id: mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "box", width: w, depth: d, height: h };
   });
 
   registerHandler("SdSphere", (args) => {
@@ -269,7 +270,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.cplaneKind = cplane.kind;
     linkCanonicalBrep(viewer, mesh, sphereBrep(r), "SdSphere");
     viewer.addMesh(mesh, "brep");
-    return { created: "sphere", radius: r };
+    return { created: mesh.uuid, object_id: mesh.uuid, canonical_id: mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "sphere", radius: r };
   });
 
   registerHandler("SdCylinder", (args) => {
@@ -287,7 +288,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.cplaneKind = cplane.kind;
     linkCanonicalBrep(viewer, mesh, cylinderBrep(r, h), "SdCylinder");
     viewer.addMesh(mesh, "brep");
-    return { created: "cylinder", radius: r, height: h };
+    return { created: mesh.uuid, object_id: mesh.uuid, canonical_id: mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "cylinder", radius: r, height: h };
   });
 
   registerHandler("SdCone", (args) => {
@@ -305,7 +306,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.cplaneKind = cplane.kind;
     linkCanonicalBrep(viewer, mesh, coneBrep(r, h), "SdCone");
     viewer.addMesh(mesh, "brep");
-    return { created: "cone", radius: r, height: h };
+    return { created: mesh.uuid, object_id: mesh.uuid, canonical_id: mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "cone", radius: r, height: h };
   });
 
   registerHandler("SdExtrude", (args) => {
@@ -355,6 +356,6 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.chain = chain;
     linkCanonicalBrep(viewer, mesh, extrudeBrep(polylineProfile(pts), { x: 0, y: 0, z: 1 }, distance), "SdExtrude");
     viewer.addMesh(mesh, "brep");
-    return { created: "extrude", profile_points: pts.length, distance };
+    return { created: mesh.uuid, object_id: mesh.uuid, canonical_id: mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "extrude", profile_points: pts.length, distance };
   });
 }

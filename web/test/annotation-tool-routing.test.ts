@@ -4,6 +4,8 @@ import * as THREE from "three";
 import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
 import { registerAnnotationHandlers } from "../src/handlers/annotations";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
+import { registerNurbsHandlers } from "../src/handlers/nurbs";
+import { WORLD_XY } from "../src/viewer/cplane";
 
 function makeAnnotationViewer() {
   const scene = new THREE.Scene();
@@ -19,6 +21,8 @@ function makeAnnotationViewer() {
     scene,
     added,
     viewer: {
+      activeView: "top",
+      activeCPlane: WORLD_XY,
       getScene: () => scene,
       getCanonicalGeometryStore: () => store,
       getCanvas: () => canvas,
@@ -35,6 +39,9 @@ function makeAnnotationViewer() {
 
 beforeEach(() => {
   for (const name of ["SdAlignedDim", "SdAngularDim", "SdAreaDim", "SdVolumeDim", "SdLabel", "SdTransientMeasure"]) {
+    unregisterHandler(name);
+  }
+  for (const name of ["SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude"]) {
     unregisterHandler(name);
   }
   document.body.innerHTML = "";
@@ -101,5 +108,30 @@ describe("annotation and measurement palette command parity", () => {
     }
     const area = records.find((record) => record.createdBy === "SdAreaDim");
     expect(area?.metadata?.closed).toBe(true);
+  });
+
+  test("solid primitive results expose chainable UUIDs for downstream measurement commands", () => {
+    const { viewer } = makeAnnotationViewer();
+    registerNurbsHandlers(viewer as never);
+    registerAnnotationHandlers(viewer as never);
+
+    const box = dispatchSync("SdBox", { width: 2, depth: 3, height: 4 });
+    expect(box.ok).toBe(true);
+    if (!box.ok) throw new Error("expected SdBox to succeed");
+    const created = (box.result as { created?: string; object_id?: string; canonical_id?: string });
+    expect(typeof created.created).toBe("string");
+    expect(created.created).toBe(created.object_id);
+    expect(typeof created.canonical_id).toBe("string");
+
+    const volume = dispatchSync("SdVolumeDim", { id: created.created });
+    expect(volume.ok).toBe(true);
+    if (!volume.ok) throw new Error("expected SdVolumeDim dispatch to succeed");
+    expect((volume.result as { measured?: string }).measured).toBe("volume");
+
+    const volumeRecord = viewer.getCanonicalGeometryStore().list()
+      .find((record) => record.createdBy === "SdVolumeDim");
+    expect(volumeRecord?.kind).toBe("curve");
+    expect(volumeRecord?.metadata?.annotation).toBe(true);
+    expect(volumeRecord?.metadata?.target).toBe(created.created);
   });
 });
