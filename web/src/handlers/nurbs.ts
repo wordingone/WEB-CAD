@@ -6,11 +6,12 @@ import { resolveCPlane } from "../viewer/cplane";
 import { getActiveLevelId } from "../geometry/levels";
 import { onElementCommitted } from "../tools/join-groups";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
-import { linkCanonicalBrep, linkCanonicalSurface } from "./canonical-surface";
+import { linkCanonicalBrep } from "./canonical-surface";
 import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
 import type { Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution } from "../nurbs/nurbs-surface-algorithms";
-import type { Line, Plane } from "../nurbs/nurbs-primitives";
+import type { Line, Plane, Point3 } from "../nurbs/nurbs-primitives";
+import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace } from "../nurbs/nurbs-brep";
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 
 const TWO_PI = Math.PI * 2;
@@ -57,8 +58,126 @@ function sphereSurface(radius: number): Surface {
   }, zAxis(), 0, TWO_PI);
 }
 
-function linkAnalyticSurface(viewer: Viewer, mesh: THREE.Mesh, surface: Surface, createdBy: string): void {
-  linkCanonicalSurface(viewer, mesh, createdBy, surface);
+function trimCircle(radius: number, samples = 64): PolylineCurve {
+  const points: Point3[] = [];
+  const parameters: number[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * TWO_PI;
+    points.push({ x: Math.cos(t) * radius, y: Math.sin(t) * radius, z: 0 });
+    parameters.push(t * radius);
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function capFace(z: number, radius: number, orientation: boolean): BrepFace {
+  const plane: Plane = {
+    origin: { x: 0, y: 0, z },
+    xAxis: { x: 1, y: 0, z: 0 },
+    yAxis: { x: 0, y: 1, z: 0 },
+    normal: { x: 0, y: 0, z: 1 },
+  };
+  return {
+    surface: {
+      kind: "plane",
+      plane,
+      uDomain: { min: -radius, max: radius },
+      vDomain: { min: -radius, max: radius },
+      uExtent: { min: -radius, max: radius },
+      vExtent: { min: -radius, max: radius },
+    },
+    outerLoop: { curves: [trimCircle(radius)], orientation },
+    innerLoops: [],
+    orientation,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function circleEdge(z: number, radius: number, faceIndex1: number, faceIndex2: number): BrepEdge {
+  return {
+    curve: {
+      kind: "arc",
+      center: { x: 0, y: 0, z },
+      radius,
+      startAngle: 0,
+      endAngle: TWO_PI,
+      plane: {
+        origin: { x: 0, y: 0, z },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      domain: { min: 0, max: TWO_PI * radius },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function sphereBrep(radius: number): Brep {
+  return {
+    shells: [{
+      faces: [{
+        surface: sphereSurface(radius),
+        outerLoop: { curves: [], orientation: true },
+        innerLoops: [],
+        orientation: true,
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      }],
+      edges: [],
+      vertices: [],
+      isClosed: true,
+    }],
+  };
+}
+
+function cylinderBrep(radius: number, height: number): Brep {
+  const bottom = -height / 2;
+  const top = height / 2;
+  return {
+    shells: [{
+      faces: [
+        {
+          surface: cylinderSurface(radius, height),
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        capFace(bottom, radius, false),
+        capFace(top, radius, true),
+      ],
+      edges: [
+        circleEdge(bottom, radius, 0, 1),
+        circleEdge(top, radius, 0, 2),
+      ],
+      vertices: [],
+      isClosed: true,
+    }],
+  };
+}
+
+function coneBrep(radius: number, height: number): Brep {
+  const bottom = -height / 2;
+  return {
+    shells: [{
+      faces: [
+        {
+          surface: coneSurface(radius, height),
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        capFace(bottom, radius, false),
+      ],
+      edges: [
+        circleEdge(bottom, radius, 0, 1),
+      ],
+      vertices: [],
+      isClosed: true,
+    }],
+  };
 }
 
 function polylineProfile(points: Array<[number, number]>): PolylineCurve {
@@ -113,7 +232,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "sphere";
     mesh.userData.cplaneKind = cplane.kind;
-    linkAnalyticSurface(viewer, mesh, sphereSurface(r), "SdSphere");
+    linkCanonicalBrep(viewer, mesh, sphereBrep(r), "SdSphere");
     viewer.addMesh(mesh, "brep");
     return { created: "sphere", radius: r };
   });
@@ -131,7 +250,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "cylinder";
     mesh.userData.cplaneKind = cplane.kind;
-    linkAnalyticSurface(viewer, mesh, cylinderSurface(r, h), "SdCylinder");
+    linkCanonicalBrep(viewer, mesh, cylinderBrep(r, h), "SdCylinder");
     viewer.addMesh(mesh, "brep");
     return { created: "cylinder", radius: r, height: h };
   });
@@ -149,7 +268,7 @@ export function registerNurbsHandlers(viewer: Viewer): void {
     mesh.userData.kind = "brep";
     mesh.userData.creator = "cone";
     mesh.userData.cplaneKind = cplane.kind;
-    linkAnalyticSurface(viewer, mesh, coneSurface(r, h), "SdCone");
+    linkCanonicalBrep(viewer, mesh, coneBrep(r, h), "SdCone");
     viewer.addMesh(mesh, "brep");
     return { created: "cone", radius: r, height: h };
   });

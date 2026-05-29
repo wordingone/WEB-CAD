@@ -12,8 +12,6 @@ import { registerNurbsHandlers } from "../src/handlers/nurbs";
 import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
 import { linkOpToolExtrudeCanonical } from "../src/viewer/op-tool-canonical";
-import { domain as curveDomain } from "../src/nurbs/nurbs-curves";
-import { pointAtUV } from "../src/nurbs/nurbs-surfaces";
 import { WORLD_XY } from "../src/viewer/cplane";
 import type { Viewer } from "../src/viewer/viewer";
 
@@ -66,7 +64,7 @@ beforeEach(() => {
 });
 
 describe("BRep canonical migration characterization", () => {
-  test("analytic primitive commands keep display meshes while linking canonical revolution surfaces", () => {
+  test("analytic solid primitive commands keep display meshes while linking closed canonical BReps", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
 
@@ -89,31 +87,24 @@ describe("BRep canonical migration characterization", () => {
       const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
       expect(typeof canonicalId).toBe("string");
       const canonical = store.require(canonicalId as string);
-      expect(canonical.kind).toBe("surface");
+      expect(canonical.kind).toBe("brep");
       expect(canonical.createdBy).toBe(verb);
-      if (canonical.kind !== "surface") throw new Error("expected canonical surface");
-      expect(canonical.surface.kind).toBe("rev");
-
-      const surface = canonical.surface;
-      if (surface.kind !== "rev") throw new Error("expected revolution surface");
-      const profileDomain = curveDomain(surface.profile);
+      if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+      expect(canonical.brep.shells).toHaveLength(1);
+      const shell = canonical.brep.shells[0];
+      expect(shell.isClosed).toBe(true);
+      expect(shell.faces[0].surface.kind).toBe("rev");
       if (verb === "SdSphere") {
-        const p = pointAtUV(surface, profileDomain.max / 2, Math.PI / 2);
-        expect(p.x).toBeCloseTo(0, 6);
-        expect(p.y).toBeCloseTo(args.radius, 6);
-        expect(p.z).toBeCloseTo(0, 6);
+        expect(shell.faces).toHaveLength(1);
+        expect(shell.edges).toHaveLength(0);
       } else if (verb === "SdCylinder") {
-        const p0 = pointAtUV(surface, profileDomain.min, 0);
-        const p1 = pointAtUV(surface, profileDomain.max, Math.PI / 2);
-        expect(p0.x).toBeCloseTo(args.radius, 6);
-        expect(p0.z).toBeCloseTo(-args.height / 2, 6);
-        expect(p1.y).toBeCloseTo(args.radius, 6);
-        expect(p1.z).toBeCloseTo(args.height / 2, 6);
+        expect(shell.faces.map((face) => face.surface.kind)).toEqual(["rev", "plane", "plane"]);
+        expect(shell.edges).toHaveLength(2);
+        expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
       } else {
-        const apex = pointAtUV(surface, profileDomain.max, Math.PI);
-        expect(apex.x).toBeCloseTo(0, 6);
-        expect(apex.y).toBeCloseTo(0, 6);
-        expect(apex.z).toBeCloseTo(args.height / 2, 6);
+        expect(shell.faces.map((face) => face.surface.kind)).toEqual(["rev", "plane"]);
+        expect(shell.edges).toHaveLength(1);
+        expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
       }
     }
   });
