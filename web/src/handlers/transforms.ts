@@ -5,13 +5,12 @@ import { getSelected, setSelected, clearMultiSelected, addToMultiSelected, topol
 import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchAction } from "../history";
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
-import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
+import { csgUnion, csgDifference, csgIntersection, getUniqueEdges } from "../viewer/csg";
 import { runPolySel, runRectSel } from "../viewer/selection-ops";
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
 import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
 import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
-import { linkPlanarizedMeshEditBrep } from "./mesh-planar-brep";
 import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
 
 type BooleanOp = "union" | "difference" | "intersection";
@@ -512,6 +511,12 @@ function canonicalAllEdgeChamferDisplayResult(
   return display;
 }
 
+function unsupportedNativeFilletError(operation: string): { error: string } {
+  return {
+    error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
+  };
+}
+
 function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   const canvas = document.createElement("canvas");
   canvas.width = 32; canvas.height = 32;
@@ -1000,14 +1005,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
 
   registerHandler("SdFillet", (args) => {
     const targetId = args.target as string | undefined;
-    if (!targetId) return { error: "SdFillet — target is required" };
+    if (!targetId) return { error: "SdFillet - target is required" };
     const radius = args.radius as number | undefined;
-    if (radius === undefined || radius === null) return { error: "SdFillet — radius is required" };
-    if (!Number.isFinite(radius) || radius <= 0) return { error: `SdFillet — radius must be a positive number, got: ${radius}` };
+    if (radius === undefined || radius === null) return { error: "SdFillet - radius is required" };
+    if (!Number.isFinite(radius) || radius <= 0) return { error: `SdFillet - radius must be a positive number, got: ${radius}` };
     const scene = viewer.getScene();
     const obj = scene.getObjectByProperty("uuid", targetId);
-    if (!obj) return { error: `SdFillet — target not found: ${targetId}` };
-    if (!(obj instanceof THREE.Mesh)) return { error: `SdFillet — target is not a Mesh` };
+    if (!obj) return { error: `SdFillet - target not found: ${targetId}` };
+    if (!(obj instanceof THREE.Mesh)) return { error: "SdFillet - target is not a Mesh" };
     const edgeId = args.edgeId as number | undefined;
     const edgeFrom = args.edgeFrom as number[] | undefined;
     const edgeTo = args.edgeTo as number[] | undefined;
@@ -1015,67 +1020,33 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
       if (edgeId < 0 || edgeId >= edges.length) {
-        return { error: `SdFillet — edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
+        return { error: `SdFillet - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
       }
       const [localA, localB] = edges[edgeId];
       const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
       const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
-      const operation = {
-        operation: "edge-chamfer",
-        edgeId,
-        radius,
-      };
+      const operation = { operation: "edge-chamfer", edgeId, radius };
       const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
-      if (canonicalFillet) {
-        filleted = canonicalFillet;
-      } else {
-        filleted = chamferEdge(obj, worldA, worldB, radius);
-        if (filleted.userData._chamferError) {
-          return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-        }
-        linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", operation);
-      }
+      if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+      filleted = canonicalFillet;
     } else if (edgeFrom && edgeTo) {
       const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
       const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
-      const operation = {
-        operation: "edge-chamfer",
-        edgeFrom,
-        edgeTo,
-        radius,
-      };
+      const operation = { operation: "edge-chamfer", edgeFrom, edgeTo, radius };
       const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
-      if (canonicalFillet) {
-        filleted = canonicalFillet;
-      } else {
-        filleted = chamferEdge(obj, worldA, worldB, radius);
-        if (filleted.userData._chamferError) {
-          return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-        }
-        linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", operation);
-      }
+      if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+      filleted = canonicalFillet;
     } else {
-      const operation = {
-        operation: "all-edge-fillet",
-        radius,
-      };
+      const operation = { operation: "all-edge-fillet", radius };
       const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
-      if (canonicalFillet) {
-        filleted = canonicalFillet;
-      } else {
-        filleted = filletMesh(obj, radius);
-        if (filleted.userData._chamferError) {
-          return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-        }
-        linkPlanarizedMeshEditBrep(viewer, obj, filleted, "SdFillet", operation);
-      }
+      if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
+      filleted = canonicalFillet;
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "fillet");
     return { modified: filleted.uuid, edgeCount: edgeId !== undefined ? 1 : "all" };
   });
-
   registerHandler("SdSelect", (args) => {
     const id = args.id as string | undefined;
     if (!id) return { error: "SdSelect requires id" };

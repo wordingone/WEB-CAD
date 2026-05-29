@@ -317,12 +317,13 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     }
   });
 
-  test("mesh-derived gaps are explicit in the model palette causal map", () => {
+  test("Fillet is explicit about native-kernel coverage instead of mesh-derived fallback", () => {
     const fillet = MODEL_PALETTE_CAUSAL_SPECS.fillet;
-    expect(fillet.implementationStatus).toBe("mesh-derived-gap");
+    expect(fillet.implementationStatus).toBe("canonical");
     expect(fillet.evidence?.join("\n")).toContain("canonicalEdgeChamferDisplayResult");
     expect(fillet.evidence?.join("\n")).toContain("canonicalAllEdgeChamferDisplayResult");
-    expect(fillet.weaknesses?.join("\n")).toContain("Unsupported-shape outputs are still derived");
+    expect(fillet.evidence?.join("\n")).toContain("unsupported-shape paths");
+    expect(fillet.weaknesses?.join("\n")).toContain("fails explicitly");
 
     const source = readFileSync(new URL("../src/handlers/transforms.ts", import.meta.url), "utf8");
     const filletStart = source.indexOf('registerHandler("SdFillet"');
@@ -332,7 +333,10 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     const filletHandler = source.slice(filletStart, filletEnd);
     expect(filletHandler).toContain("canonicalEdgeChamferDisplayResult");
     expect(filletHandler).toContain("canonicalAllEdgeChamferDisplayResult");
-    expect(filletHandler).toContain("linkPlanarizedMeshEditBrep");
+    expect(filletHandler).toContain("unsupportedNativeFilletError");
+    expect(filletHandler).not.toContain("linkPlanarizedMeshEditBrep");
+    expect(filletHandler).not.toContain("chamferEdge(");
+    expect(filletHandler).not.toContain("filletMesh(");
   });
 
   test("hidden selection submodes resolve to their agent-facing Sd command equivalents", () => {

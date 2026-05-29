@@ -1322,7 +1322,7 @@ describe("canonical geometry transform instances", () => {
     expect(store.exportRecords().filter((record) => record.createdBy === "boolean-difference")).toHaveLength(0);
   });
 
-  test("SdFillet edge chamfer creates native canonical BRep output before mesh fallback", () => {
+  test("SdFillet edge chamfer creates native canonical BRep output", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1422,7 +1422,7 @@ describe("canonical geometry transform instances", () => {
     });
   });
 
-  test("SdFillet all-edge box chamfer creates native canonical BRep output before mesh fallback", () => {
+  test("SdFillet all-edge box chamfer creates native canonical BRep output", () => {
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1476,5 +1476,40 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
     expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
     expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
+  test("SdFillet unsupported shapes fail explicitly instead of creating mesh-derived canonical fallbacks", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "sphere";
+    scene.add(mesh);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdFillet", { target: mesh.uuid, radius: 0.05 });
+
+    expect(result.ok).toBe(true);
+    expect((result as { result?: { error?: string } }).result?.error).toContain("Mesh-derived fallback is disabled");
+    expect(added).toHaveLength(0);
+    expect(scene.children).toContain(mesh);
+    expect(store.exportRecords().filter((record) => record.createdBy === "SdFillet")).toHaveLength(0);
   });
 });
