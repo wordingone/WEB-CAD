@@ -17,7 +17,7 @@ import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActive
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBoxPrimitiveBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";
@@ -1071,6 +1071,53 @@ function linkCreateModeCompoundMeshBreps(
           derivation: "parametric-box-primitive",
           conversion: "extruded-rectangular-solid-brep",
           boxPrimitive,
+        };
+      }
+      linked++;
+      return;
+    }
+    const gableCap = child.userData.gableCapCanonical as {
+      landscape?: unknown;
+      sign?: unknown;
+      ridgeLenHalf?: unknown;
+      spanHalf?: unknown;
+      ridgeHeight?: unknown;
+      thickness?: unknown;
+    } | undefined;
+    if (
+      gableCap
+      && typeof gableCap.landscape === "boolean"
+      && Number.isFinite(Number(gableCap.sign))
+      && Number.isFinite(Number(gableCap.ridgeLenHalf))
+      && Number.isFinite(Number(gableCap.spanHalf))
+      && Number.isFinite(Number(gableCap.ridgeHeight))
+    ) {
+      const params = {
+        landscape: gableCap.landscape,
+        sign: Number(gableCap.sign),
+        ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+        spanHalf: Number(gableCap.spanHalf),
+        ridgeHeight: Number(gableCap.ridgeHeight),
+        thickness: Number(gableCap.thickness ?? 0.02),
+      };
+      linkCanonicalBrep(viewer, child, buildGableCapSolidBrep(params), `create-${tool}-component`);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+            ? (obj.userData.roofParams as { type?: unknown }).type
+            : undefined,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-gable-cap-solid",
+          conversion: "extruded-triangular-nurbs-brep",
+          gableCap: params,
         };
       }
       linked++;

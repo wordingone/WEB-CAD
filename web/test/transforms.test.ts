@@ -732,6 +732,15 @@ describe("Phase 3 — create-mode click-to-place", () => {
           expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
           expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 === null)).toBe(true);
           expect(canonical.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 2)).toBe(true);
+        } else if (canonical.metadata?.derivation === "parametric-gable-cap-solid") {
+          expect(canonical.metadata).toMatchObject({
+            conversion: "extruded-triangular-nurbs-brep",
+          });
+          expect(canonical.brep.shells[0].isClosed).toBe(true);
+          expect(canonical.brep.shells[0].faces).toHaveLength(5);
+          expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+          expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+          expect(canonical.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
         } else {
           expect(canonical.metadata).toMatchObject({
             derivation: "planarized-command-mesh",
@@ -751,8 +760,11 @@ describe("Phase 3 — create-mode click-to-place", () => {
       }
       if (tool === "roof") {
         expect([...linkedRecords].some((id) => store.require(id).metadata?.derivation === "parametric-box-primitive")).toBe(true);
-        expect([...linkedRecords].some((id) => store.require(id).metadata?.derivation === "parametric-planar-panel")).toBe(true);
-        expect([...linkedRecords].every((id) => store.require(id).metadata?.derivation !== "planarized-command-mesh")).toBe(true);
+        expect([...linkedRecords].some((id) => store.require(id).metadata?.derivation === "parametric-gable-cap-solid")).toBe(true);
+        expect([...linkedRecords].every((id) => {
+          const derivation = store.require(id).metadata?.derivation;
+          return derivation !== "planarized-command-mesh" && derivation !== "parametric-planar-panel";
+        })).toBe(true);
       }
     }
   });

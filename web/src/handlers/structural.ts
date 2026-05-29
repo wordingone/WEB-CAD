@@ -5,7 +5,7 @@ import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
-  buildBoxPrimitiveBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
+  buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -312,6 +312,52 @@ function linkCompoundMeshBreps(
           derivation: "parametric-box-primitive",
           conversion: "extruded-rectangular-solid-brep",
           boxPrimitive,
+        };
+      }
+      return;
+    }
+    const gableCap = child.userData.gableCapCanonical as {
+      landscape?: unknown;
+      sign?: unknown;
+      ridgeLenHalf?: unknown;
+      spanHalf?: unknown;
+      ridgeHeight?: unknown;
+      thickness?: unknown;
+    } | undefined;
+    if (
+      gableCap
+      && typeof gableCap.landscape === "boolean"
+      && Number.isFinite(Number(gableCap.sign))
+      && Number.isFinite(Number(gableCap.ridgeLenHalf))
+      && Number.isFinite(Number(gableCap.spanHalf))
+      && Number.isFinite(Number(gableCap.ridgeHeight))
+    ) {
+      linkCanonicalBrep(viewer, child, buildGableCapSolidBrep({
+        landscape: gableCap.landscape,
+        sign: Number(gableCap.sign),
+        ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+        spanHalf: Number(gableCap.spanHalf),
+        ridgeHeight: Number(gableCap.ridgeHeight),
+        thickness: Number(gableCap.thickness ?? 0.02),
+      }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-gable-cap-solid",
+          conversion: "extruded-triangular-nurbs-brep",
+          gableCap: {
+            landscape: gableCap.landscape,
+            sign: Number(gableCap.sign),
+            ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+            spanHalf: Number(gableCap.spanHalf),
+            ridgeHeight: Number(gableCap.ridgeHeight),
+            thickness: Number(gableCap.thickness ?? 0.02),
+          },
         };
       }
       return;

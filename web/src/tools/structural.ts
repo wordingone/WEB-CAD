@@ -314,6 +314,15 @@ export type PlanarPanelCanonicalParams = {
   points: Point3[];
 };
 
+export type GableCapCanonicalParams = {
+  landscape: boolean;
+  sign: number;
+  ridgeLenHalf: number;
+  spanHalf: number;
+  ridgeHeight: number;
+  thickness: number;
+};
+
 function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
   const points = [
     ...points3d,
@@ -352,6 +361,27 @@ export function buildBoxPrimitiveBrep(params: BoxPrimitiveCanonicalParams): Brep
     [-params.width / 2,  params.depth / 2, -params.height / 2],
   ]);
   return nurbsFormBrep(extrudeBrep(profile, { x: 0, y: 0, z: 1 }, params.height));
+}
+
+export function buildGableCapSolidBrep(params: GableCapCanonicalParams): Brep {
+  const sign = params.sign < 0 ? -1 : 1;
+  const thickness = Math.max(0.001, params.thickness);
+  if (params.landscape) {
+    const x = sign * params.ridgeLenHalf - sign * thickness / 2;
+    const profile = profileFrom3dPoints([
+      [x, -params.spanHalf, 0],
+      [x, params.spanHalf, 0],
+      [x, 0, params.ridgeHeight],
+    ]);
+    return nurbsFormBrep(extrudeBrep(profile, { x: sign, y: 0, z: 0 }, thickness));
+  }
+  const y = sign * params.ridgeLenHalf - sign * thickness / 2;
+  const profile = profileFrom3dPoints([
+    [-params.spanHalf, y, 0],
+    [params.spanHalf, y, 0],
+    [0, y, params.ridgeHeight],
+  ]);
+  return nurbsFormBrep(extrudeBrep(profile, { x: 0, y: sign, z: 0 }, thickness));
 }
 
 export function boxPrimitiveDimensions(mesh: THREE.Mesh): BoxPrimitiveCanonicalParams | null {
@@ -1409,6 +1439,15 @@ export function buildRoof(
       capGeom.computeVertexNormals();
       const capMesh = new THREE.Mesh(capGeom, gableCapMat.clone());
       capMesh.userData.name = "GableCap";
+      capMesh.userData.ifcClass = "IfcWall";
+      capMesh.userData.gableCapCanonical = {
+        landscape,
+        sign,
+        ridgeLenHalf,
+        spanHalf,
+        ridgeHeight: rH,
+        thickness: 0.02,
+      };
       group.add(capMesh);
     }
 
