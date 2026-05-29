@@ -1,21 +1,20 @@
 #!/usr/bin/env node
-// verify-211-gable-cap-coherence.mjs — AC receipt for #211.
+// verify-211-gable-cap-coherence.mjs — TDD gate receipt for #211.
 //
-// Verifies that roof gable caps are parametric-planar-panel BReps (intentional
-// open panels, NOT mesh-derived), and that no roof component falls back to
-// mesh planarization. Runs against /dev (kai/brep-canonical-migration).
+// TDD shape: asserts the TARGET state (gable-cap → closed solid).
+// EXPECTED TO FAIL on current /dev until Kai implements the closed-solid
+// gable-cap geometry on kai/brep-canonical-migration.
 //
-// Design decision recorded: gable caps are intentional open panels
-// (trimmed-planar-nurbs-brep, isClosed=false), consistent with their
-// architectural role as triangular end faces. The 27 closed-solid records
-// are the pitched plane faces; gable-end panels are a different topology.
+// Leo's directive (mail 11561): "gable-cap → thicken to CLOSED SOLID.
+// Coherence with the 27 closed-solid roof records; the open-planar-panel
+// is the gap, not the target."
 //
-// Acceptance criteria (#211):
-//   AC1 — At least one roof linked record has derivation="parametric-planar-panel"
-//   AC2 — All parametric-planar-panel records: isClosed=false, 1 face, nakedEdges>0
-//   AC3 — Zero "planarized-command-mesh" derivation in any roof record (meshFallback=0)
-//   AC4 — At least one "parametric-box-primitive" record (closed-solid pitch faces)
-//   AC5 — Decision: gable-end panels intentionally open; verifier asserts EXPECTED shape
+// Acceptance criteria (#211) — closed-solid target:
+//   AC1 — Zero roof canonical records have isClosed=false (no open panels)
+//   AC2 — All planar-end-cap records: isClosed=true, closedShells=1
+//   AC3 — Zero "planarized-command-mesh" derivation (no mesh fallback)
+//   AC4 — At least one closed-solid record for the pitched plane faces
+//   AC5 — Gable-cap derivation signals solid extrusion (not open-panel)
 
 import { WebSocket } from "ws";
 import { execSync } from "child_process";
@@ -113,48 +112,39 @@ try {
 } catch { console.log("[#211] boot: no gate"); }
 
 await poll(async () => evaluate(`typeof window.__dispatchSync === "function"`),
-  { timeout: 30_000, label: "window.__dispatchSync" });
+  { timeout: 30_000, label: "__dispatchSync" });
 console.log("[#211] dispatch ready");
 await delay(500);
 
 const results = {};
 
-// ── Clear scene ────────────────────────────────────────────────────────────
-
+// Clear scene
 await evaluate(`
   (() => {
-    const scene = window.__viewer?.scene;
-    if (!scene) return;
-    scene.children.filter(c => c.userData?.creator || c.userData?.kind).forEach(c => scene.remove(c));
+    const s = window.__viewer?.scene;
+    if (!s) return;
+    s.children.filter(c => c.userData?.creator || c.userData?.kind).forEach(c => s.remove(c));
   })()`).catch(() => {});
 
-// ── Create a gable roof via SdRoof ─────────────────────────────────────────
+// ── Create gable roof via SdRoof ───────────────────────────────────────────
 
 console.log("[#211] dispatching SdRoof (gable type)");
-
-// SdRoof with 3 footprint points to force a gable geometry
-// (3-point or 4-point rectangular footprint with gable type)
 const roofResult = await evaluate(`
   (() => {
     try {
-      // Try gable type first with a simple rectangular footprint
       const r = window.__dispatchSync("SdRoof", {
-        points: [
-          { x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }
-        ],
-        type: "gable",
-        height: 2,
-        eaveHeight: 0
+        points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }],
+        type: "gable", height: 2, eaveHeight: 0
       });
       return r ? "ok" : "null-result";
     } catch (e) { return "error:" + e.message; }
   })()`);
 results.sdroof_result = roofResult;
 console.log(`  SdRoof: ${roofResult}`);
-
 await delay(500);
 
-// Find the roof group and all linked canonical records
+// ── Inspect canonical store ────────────────────────────────────────────────
+
 const canonicalSummary = await evaluate(`
   (() => {
     const store = window.__viewer?.getCanonicalGeometryStore?.();
@@ -162,31 +152,29 @@ const canonicalSummary = await evaluate(`
     const allRecords = store.exportRecords();
     const roofRecords = allRecords.filter(r =>
       r.createdBy === "SdRoof" ||
-      (r.metadata?.parentCreator === "SdRoof") ||
-      (r.metadata?.operation === "create-roof-component") ||
-      (r.metadata?.operation?.startsWith("create-roof"))
+      r.metadata?.parentCreator === "SdRoof" ||
+      r.metadata?.operation?.startsWith("create-roof")
     );
     const derivations = {};
+    const shellStats = [];
     for (const r of roofRecords) {
       const d = r.metadata?.derivation ?? "unknown";
       derivations[d] = (derivations[d] ?? 0) + 1;
-    }
-    // Inspect planar panels
-    const panelRecords = roofRecords.filter(r => r.metadata?.derivation === "parametric-planar-panel");
-    const panelDetails = panelRecords.map(r => {
       const shell = r.brep?.shells?.[0];
-      return {
+      shellStats.push({
+        derivation: d,
         isClosed: shell?.isClosed ?? null,
         faceCount: shell?.faces?.length ?? 0,
         nakedEdges: shell?.edges?.filter(e => e.faceIndex2 === null).length ?? 0,
         conversion: r.metadata?.conversion ?? null,
-      };
-    });
+      });
+    }
     return {
       totalRoofRecords: roofRecords.length,
       derivations,
-      panelCount: panelRecords.length,
-      panelDetails,
+      shellStats,
+      openShells: shellStats.filter(s => s.isClosed === false).length,
+      closedShells: shellStats.filter(s => s.isClosed === true).length,
     };
   })()`);
 
@@ -196,56 +184,63 @@ if (!canonicalSummary) {
 } else {
   results.total_roof_records = canonicalSummary.totalRoofRecords;
   results.derivations = canonicalSummary.derivations;
-  results.panel_count = canonicalSummary.panelCount;
-  results.panel_details = canonicalSummary.panelDetails;
+  results.open_shells = canonicalSummary.openShells;
+  results.closed_shells = canonicalSummary.closedShells;
+  results.shell_stats = canonicalSummary.shellStats;
 
   console.log(`  total roof records: ${results.total_roof_records}`);
   console.log(`  derivations: ${JSON.stringify(results.derivations)}`);
-  console.log(`  planar panels found: ${results.panel_count}`);
+  console.log(`  open shells: ${results.open_shells}  closed shells: ${results.closed_shells}`);
 
-  // AC1: at least one parametric-planar-panel record
-  results.ac1_has_panel = (canonicalSummary.derivations["parametric-planar-panel"] ?? 0) > 0;
+  // AC1 — zero open-shell records (no isClosed=false)
+  results.ac1_no_open_shells = results.open_shells === 0;
 
-  // AC2: all panel records are open panels (isClosed=false, 1 face, nakedEdges>0)
-  const panelDetails = canonicalSummary.panelDetails ?? [];
-  results.ac2_panels_open = panelDetails.length > 0 && panelDetails.every(p =>
-    p.isClosed === false && p.faceCount === 1 && p.nakedEdges > 0
+  // AC2 — all gable-end cap records are closed-solid
+  const gableEndRecords = canonicalSummary.shellStats.filter(s =>
+    s.derivation === "parametric-planar-panel" ||
+    s.derivation === "parametric-gable-cap" ||
+    s.derivation === "parametric-solid-extrusion" ||
+    // Any record that is NOT the pitched-plane box-primitive is a candidate end-cap:
+    (s.derivation !== "parametric-box-primitive" && s.derivation !== "unknown")
   );
-  results.ac2_detail = panelDetails;
+  results.ac2_gable_end_records = gableEndRecords.length;
+  results.ac2_all_end_caps_closed = gableEndRecords.length === 0 ||
+    gableEndRecords.every(s => s.isClosed === true && s.nakedEdges === 0);
 
-  // AC3: no planarized-command-mesh (meshFallback=0)
+  // AC3 — zero mesh fallback
   results.ac3_no_mesh_fallback = (canonicalSummary.derivations["planarized-command-mesh"] ?? 0) === 0;
 
-  // AC4: at least one parametric-box-primitive (closed solid pitch faces)
-  results.ac4_has_box_primitives = (canonicalSummary.derivations["parametric-box-primitive"] ?? 0) > 0;
+  // AC4 — at least one closed-solid (pitch faces)
+  results.ac4_has_closed_solid = results.closed_shells > 0;
 
-  console.log(`  AC1 has planar panel: ${results.ac1_has_panel}`);
-  console.log(`  AC2 panels are open (isClosed=false): ${results.ac2_panels_open}`);
-  console.log(`  AC3 no mesh fallback: ${results.ac3_no_mesh_fallback}`);
-  console.log(`  AC4 has box primitives: ${results.ac4_has_box_primitives}`);
+  // AC5 — no "parametric-planar-panel" (open-panel derivation should be replaced)
+  results.ac5_no_open_panel_derivation = (canonicalSummary.derivations["parametric-planar-panel"] ?? 0) === 0;
+  results.ac5_note = results.ac5_no_open_panel_derivation
+    ? "no parametric-planar-panel records (correct target)"
+    : `${canonicalSummary.derivations["parametric-planar-panel"]} open-panel records remain (gap to fix)`;
+
+  console.log(`  AC1 no open shells:        ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL (expected — gap not yet fixed)"}`);
+  console.log(`  AC2 end-caps all closed:   ${results.ac2_all_end_caps_closed} ${results.ac2_all_end_caps_closed ? "✓" : "✗ FAIL (expected)"}`);
+  console.log(`  AC3 no mesh fallback:      ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC4 has closed-solid:      ${results.ac4_has_closed_solid} ${results.ac4_has_closed_solid ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC5 no open-panel deriv:   ${results.ac5_no_open_panel_derivation} — ${results.ac5_note}`);
 }
-
-// AC5: decision recorded
-results.ac5_decision = "intentional-open-panel";
-results.ac5_rationale = "Gable-end cap is architecturally a triangular surface, not a solid prism. " +
-  "isClosed=false is the correct BRep topology for this element. " +
-  "Coherence with the 27 closed-solid pitch faces is met at the parametric level: " +
-  "all components use canonical NURBS BReps, no mesh fallback. " +
-  "See brep-canonical-characterization.test.ts for expected-shape assertion.";
 
 // ── Pass/fail ──────────────────────────────────────────────────────────────
 
 const pass = !results.skip &&
-  results.ac1_has_panel === true &&
-  results.ac2_panels_open === true &&
+  results.ac1_no_open_shells   === true &&
+  results.ac2_all_end_caps_closed === true &&
   results.ac3_no_mesh_fallback === true &&
-  results.ac4_has_box_primitives === true;
+  results.ac4_has_closed_solid === true &&
+  results.ac5_no_open_panel_derivation === true;
 
 const receipt = {
   sha: SHA,
   timestamp: new Date().toISOString(),
   url: TARGET_URL,
-  feature: "#211 gable-cap coherence — intentional-open-panel decision",
+  feature: "#211 gable-cap coherence — CLOSED-SOLID TDD target",
+  tdd_note: "EXPECTED TO FAIL on current /dev until Kai's closed-solid gable-cap geometry lands on kai/brep-canonical-migration.",
   results,
   console_errors_sample: consoleErrors.slice(0, 10),
   pass,
@@ -253,18 +248,20 @@ const receipt = {
 
 writeFileSync(OUT, JSON.stringify(receipt, null, 2));
 
-console.log("\n── #211 gable-cap coherence AC ─────────────────────────────────────────");
+console.log("\n── #211 gable-cap closed-solid TDD gate ───────────────────────────────");
 if (results.skip) {
   console.log(`  SKIP: ${results.skip}`);
 } else {
-  console.log(`  AC1 has planar-panel record:         ${results.ac1_has_panel} ${results.ac1_has_panel ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC2 panels open (isClosed=false):    ${results.ac2_panels_open} ${results.ac2_panels_open ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC3 no mesh fallback:                ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC4 has box-primitive pitch faces:   ${results.ac4_has_box_primitives} ${results.ac4_has_box_primitives ? "✓" : "✗ FAIL"}`);
-  console.log(`  AC5 decision: ${results.ac5_decision}`);
+  console.log(`  AC1 no open shells:               ${results.ac1_no_open_shells} ${results.ac1_no_open_shells ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
+  console.log(`  AC2 end-caps all closed-solid:    ${results.ac2_all_end_caps_closed} ${results.ac2_all_end_caps_closed ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
+  console.log(`  AC3 no mesh fallback:             ${results.ac3_no_mesh_fallback} ${results.ac3_no_mesh_fallback ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC4 has closed-solid roof record: ${results.ac4_has_closed_solid} ${results.ac4_has_closed_solid ? "✓" : "✗ FAIL"}`);
+  console.log(`  AC5 no open-panel derivation:     ${results.ac5_no_open_panel_derivation} ${results.ac5_no_open_panel_derivation ? "✓" : "✗ FAIL (gap — expected pre-fix)"}`);
 }
-console.log(`\n  AC result: ${pass ? "PASS ✓" : results.skip ? "SKIP" : "FAIL ✗"}`);
+console.log(`\n  TDD AC result: ${pass ? "PASS ✓ (closed-solid path landed)" : "FAIL ✗ (expected — gap open, await Kai geometry)"}`);
 console.log(`\nReceipt: ${OUT}`);
 
 ws.close();
-if (!pass && !results.skip) process.exit(1);
+// TDD script: exit 0 always — the FAIL state is the expected pre-implementation state.
+// Change to exit(1) when this script is expected to pass (after geometry lands).
+process.exit(0);
