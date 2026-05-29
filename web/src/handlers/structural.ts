@@ -4,7 +4,7 @@ import * as THREE from "three";
 import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
-  buildSkylight, buildStair, buildReferenceLine,
+  buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -473,8 +473,11 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       }
       return { x: dx, y: dy };
     };
-    let a = toXY(args.start, 0, 0);
-    let b = toXY(args.end,   4, 0);
+    const path = Array.isArray(args.path)
+      ? (args.path as unknown[]).map((p, index) => toXY(p, index * STAIR_STEP_DEPTH, 0)).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      : [];
+    let a = path[0] ?? toXY(args.start, 0, 0);
+    let b = path[1] ?? toXY(args.end,   4, 0);
     const stairBbox = new THREE.Box3();
     let hasBounds = false;
     viewer.forEachSceneChild((child) => {
@@ -509,7 +512,13 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       riserHeight: explicitRiser  ?? (isImperial ? STAIR_STEP_RISE / FT_TO_M : STAIR_STEP_RISE),
       ...(explicitCount != null ? { count: explicitCount } : {}),
     };
-    const { group, chain, footprint } = buildStair(a, b, stairParams);
+    const typed = String(args.type ?? "straight");
+    const stairBuilt = path.length >= 2 && typed === "polyline"
+      ? buildStairOnPolyline(path, { ...stairParams, rise: levelStore.get(getActiveLevelId())?.height ?? 3.0 })
+      : path.length >= 2 && typed === "curve"
+        ? buildStairOnCurve(path, { ...stairParams, rise: levelStore.get(getActiveLevelId())?.height ?? 3.0 })
+        : buildStair(a, b, stairParams);
+    const { group, chain, footprint } = stairBuilt;
     const elev = getActiveLevelElevation();
     group.position.z = elev;
     group.userData.layerId = resolveLayerId("SdStair", args);

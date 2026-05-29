@@ -312,6 +312,7 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(commitUnlimited).toContain("commitWallSegmentsViaSd(viewer, pts)");
     expect(commitUnlimited).toContain('tool === "wall-curve"');
     expect(commitUnlimited).toContain("commitCurveWallViaSd(viewer, pts)");
+    expect(commitUnlimited).toContain("commitArchToolViaSd(viewer, tool, pts)");
 
     const curveHelperStart = source.indexOf("function commitCurveWallViaSd");
     const curveHelperEnd = source.indexOf("function commitWallPick", curveHelperStart + 1);
@@ -321,5 +322,15 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(curveHelper).toContain('dispatchSync("SdCurveWall"');
     expect(curveHelper).not.toContain("buildCurveWall(");
     expect(curveHelper).not.toContain("linkPlanarizedMeshCommandBrep");
+
+    const archCommandStart = source.indexOf("function sdArchCommandForTool");
+    const archCommandEnd = source.indexOf("function commitArchToolViaSd", archCommandStart + 1);
+    expect(archCommandStart).toBeGreaterThanOrEqual(0);
+    expect(archCommandEnd).toBeGreaterThan(archCommandStart);
+    const archCommand = source.slice(archCommandStart, archCommandEnd);
+    expect(archCommand).toContain('case "stair-polyline"');
+    expect(archCommand).toContain('case "stair-curve"');
+    expect(archCommand).toContain('return command("SdStair", { type: "polyline", path: pts.map(p3) })');
+    expect(archCommand).toContain('return command("SdStair", { type: "curve", path: pts.map(p3) })');
   });
 });

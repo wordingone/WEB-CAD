@@ -1151,6 +1151,9 @@
         type: string
         description: "Stair plan shape."
         default: straight
+      path:
+        type: polyline
+        description: "Polyline or curve control path for non-straight stair subtools."
       count:
         type: number
         description: "[optional] Explicit tread count. Overrides run-derived count."

@@ -565,6 +565,7 @@ describe("Phase 3 — create-mode click-to-place", () => {
       tool: string;
       clicks: Array<{ x: number; y: number; z?: number }>;
       expectedCreatedBy: string | RegExp;
+      commitLast?: boolean;
     }> = [
       { tool: "wall", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdWall" },
       { tool: "slab", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: "SdSlab" },
@@ -578,6 +579,8 @@ describe("Phase 3 — create-mode click-to-place", () => {
       { tool: "level", clicks: [{ x: 0, y: 0, z: 3 }], expectedCreatedBy: "SdLevel" },
       { tool: "datum", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdDatum" },
       { tool: "stair", clicks: [{ x: 0, y: 0 }, { x: 4, y: 3 }], expectedCreatedBy: /^SdStair/ },
+      { tool: "stair-polyline", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }], expectedCreatedBy: /^SdStair/, commitLast: true },
+      { tool: "stair-curve", clicks: [{ x: 0, y: 0 }, { x: 2, y: 1 }, { x: 4, y: 0 }], expectedCreatedBy: /^SdStair/, commitLast: true },
       { tool: "door", clicks: [{ x: 2, y: 1 }], expectedCreatedBy: "SdDoor" },
       { tool: "window", clicks: [{ x: 2, y: 1 }], expectedCreatedBy: "SdWindow" },
       { tool: "ramp", clicks: [{ x: 0, y: 0 }, { x: 4, y: 0 }], expectedCreatedBy: "SdRamp" },
@@ -610,8 +613,8 @@ describe("Phase 3 — create-mode click-to-place", () => {
       registerDatumHandlers(viewer as never);
 
       let result: { mesh: THREE.Object3D } | null = null;
-      for (const click of spec.clicks) {
-        result = emitClickWorld(viewer as any, click, { tool: spec.tool }) as { mesh: THREE.Object3D } | null;
+      for (let i = 0; i < spec.clicks.length; i++) {
+        result = emitClickWorld(viewer as any, spec.clicks[i], { tool: spec.tool, commit: spec.commitLast === true && i === spec.clicks.length - 1 }) as { mesh: THREE.Object3D } | null;
       }
 
       expect(result, spec.tool).not.toBeNull();

@@ -814,7 +814,7 @@ function commitSketchToolViaSd(
 
 const SD_ARCH_CREATE_TOOLS = new Set([
   "wall", "slab", "column", "beam", "roof", "space", "foundation", "ceiling", "grid", "level", "datum",
-  "stair", "door", "window", "ramp", "railing", "curtainwall", "skylight", "opening",
+  "stair", "stair-polyline", "stair-curve", "door", "window", "ramp", "railing", "curtainwall", "skylight", "opening",
 ]);
 
 function rectFootprint(a: { x: number; y: number }, b: { x: number; y: number }): number[][] {
@@ -872,6 +872,12 @@ function sdArchCommandForTool(
     case "stair":
       if (pts.length < 2) return null;
       return command("SdStair", { start: p3(first), end: p3(second) });
+    case "stair-polyline":
+      if (pts.length < 2) return null;
+      return command("SdStair", { type: "polyline", path: pts.map(p3) });
+    case "stair-curve":
+      if (pts.length < 2) return null;
+      return command("SdStair", { type: "curve", path: pts.map(p3) });
     case "door":
       return command("SdDoor", { position: p3(first) });
     case "window":
@@ -1320,6 +1326,12 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
     return results[0] ?? null;
   }
 
+  const archOut = commitArchToolViaSd(viewer, tool, pts);
+  if (archOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return archOut;
+  }
+
   const sdOut = commitSketchToolViaSd(viewer, tool, pts);
   if (sdOut) {
     dispatchSync("setActiveTool", { toolId: "select" });
@@ -1382,6 +1394,11 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
         commitMultiWalls(viewer, results);
         dispatchSync("setActiveTool", { toolId: "select" });
         return results[0] ?? null;
+      }
+      const archOut = commitArchToolViaSd(viewer, tool, pts);
+      if (archOut) {
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return archOut;
       }
       const sdOut = commitSketchToolViaSd(viewer, tool, pts);
       if (sdOut) {
