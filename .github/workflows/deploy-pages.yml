@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dev_ref:
-        description: "Optional ref to publish at /dev alongside master"
+        description: "Ref to publish at /dev (overrides .dev-ref in repo)"
         required: false
         default: ""
 
@@ -42,14 +42,25 @@ jobs:
         run: |
           mkdir -p pages
           cp -R prod/web/dist/. pages/
+      - name: Resolve dev ref
+        id: dev_ref
+        run: |
+          if [ -n "${{ inputs.dev_ref }}" ]; then
+            echo "ref=${{ inputs.dev_ref }}" >> "$GITHUB_OUTPUT"
+          elif [ -f prod/.dev-ref ]; then
+            ref=$(cat prod/.dev-ref | tr -d '[:space:]')
+            echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
       - name: Checkout dev ref
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_ref != '' }}
+        if: ${{ steps.dev_ref.outputs.ref != '' }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.dev_ref }}
+          ref: ${{ steps.dev_ref.outputs.ref }}
           path: dev
       - name: Build dev
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_ref != '' }}
+        if: ${{ steps.dev_ref.outputs.ref != '' }}
         working-directory: dev
         run: |
           bun install
@@ -57,7 +68,7 @@ jobs:
           mkdir -p ../pages/dev
           cp -R web/dist/. ../pages/dev/
           git rev-parse HEAD > ../pages/dev/COMMIT.txt
-          printf '%s\n' '${{ inputs.dev_ref }}' > ../pages/dev/REF.txt
+          printf '%s\n' '${{ steps.dev_ref.outputs.ref }}' > ../pages/dev/REF.txt
         env:
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
       - uses: actions/upload-pages-artifact@v3
