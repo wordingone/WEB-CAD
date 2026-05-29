@@ -309,6 +309,7 @@
   border: none;
   border-bottom: 1px solid var(--hairline, #333);
   color: var(--ink, #eee);
+  caret-color: var(--ink, #eee);
   font-family: inherit;
   font-size: 11px;
   letter-spacing: 0.04em;

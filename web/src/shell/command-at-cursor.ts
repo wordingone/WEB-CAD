@@ -3,6 +3,7 @@
 // appears near the pointer. Arrow keys / Tab navigate items; Enter activates the tool.
 
 import { dispatchSync } from "../commands/dispatch";
+import { isToolMidExecution } from "../tools/index.js";
 
 let _overlay: HTMLElement | null = null;
 let _pointerX = window.innerWidth / 2;
@@ -149,8 +150,11 @@ export function initCommandAtCursor(): void {
 
   document.addEventListener("keydown", (e: KeyboardEvent) => {
     if (_overlay) return;
-    if (e.key.length !== 1) return;               // non-printable
+    if (e.key.length !== 1) return;               // non-printable (Shift, Alt, etc.)
+    if (e.key === " ") return;                    // Space — reserved for canvas pan / confirm
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.shiftKey) return;                       // Shift-modified printable (e.g. Shift+A)
+    if (isToolMidExecution()) return;             // tool is capturing click sequence
     const t = document.activeElement as HTMLElement | null;
     if (!t) return;
     const tag = t.tagName;
