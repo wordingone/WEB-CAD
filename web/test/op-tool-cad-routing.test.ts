@@ -46,6 +46,37 @@ describe("CAD/BRep op-tool command parity", () => {
     expect(extrudeCommit).not.toContain("viewer.addMesh");
   });
 
+  test("loft sweep and revolve palette completions preserve closed-solid BRep intent", () => {
+    const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const loftStart = source.indexOf('if (phase.kind === "loft_curve2")');
+    const loftEnd = source.indexOf('if (phase.kind === "sweep_rail")', loftStart + 1);
+    const sweepStart = source.indexOf('if (phase.kind === "sweep_profile")');
+    const sweepEnd = source.indexOf('if (phase.kind === "revolve_profile")', sweepStart + 1);
+    const revolveStart = source.indexOf('if (phase.kind === "revolve_axis_b")');
+    const revolveEnd = source.indexOf('if (phase.kind === "plane_pt1")', revolveStart + 1);
+    expect(loftStart).toBeGreaterThanOrEqual(0);
+    expect(loftEnd).toBeGreaterThan(loftStart);
+    expect(sweepStart).toBeGreaterThanOrEqual(0);
+    expect(sweepEnd).toBeGreaterThan(sweepStart);
+    expect(revolveStart).toBeGreaterThanOrEqual(0);
+    expect(revolveEnd).toBeGreaterThan(revolveStart);
+    const loftCommit = source.slice(loftStart, loftEnd);
+    const sweepCommit = source.slice(sweepStart, sweepEnd);
+    const revolveCommit = source.slice(revolveStart, revolveEnd);
+
+    expect(source).toContain("function extractLinePoints");
+    expect(source).toContain("function pointsClosed");
+    expect(loftCommit).toContain('dispatchSync("SdLoft"');
+    expect(loftCommit).toContain("solid: pointsClosed(pts1) && pointsClosed(pts2)");
+    expect(sweepCommit).toContain('dispatchSync("SdSweep"');
+    expect(sweepCommit).toContain("solid: pointsClosed(profilePts)");
+    expect(revolveCommit).toContain('dispatchSync("SdRevolve"');
+    expect(revolveCommit).toContain("solid: true");
+    expect(loftCommit).not.toContain("new THREE.Mesh");
+    expect(sweepCommit).not.toContain("new THREE.Mesh");
+    expect(revolveCommit).not.toContain("new THREE.Mesh");
+  });
+
   test("boolean auto-extrudes closed sketch operands through SdExtrude instead of local mesh construction", () => {
     const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
     const helperStart = source.indexOf("function tryAutoExtrudeClosedSketchForBoolean");

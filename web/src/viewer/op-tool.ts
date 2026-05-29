@@ -154,6 +154,27 @@ function vecArgs(v: THREE.Vector3): [number, number, number] {
   return [round(v.x), round(v.y), round(v.z)];
 }
 
+function extractLinePoints(line: THREE.Line): number[][] {
+  const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+  const pts: number[][] = [];
+  for (let i = 0; i < pos.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
+    pts.push([v.x, v.y, v.z]);
+  }
+  return pts;
+}
+
+function pointsClosed(points: number[][], tolerance = 1e-5): boolean {
+  if (points.length < 3) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) return false;
+  const dx = first[0] - last[0];
+  const dy = first[1] - last[1];
+  const dz = (first[2] ?? 0) - (last[2] ?? 0);
+  return Math.hypot(dx, dy, dz) <= tolerance;
+}
+
 function opClearPreview(viewer: Viewer): void {
   if (_opPreview) {
     viewer.getScene().remove(_opPreview);
@@ -744,24 +765,17 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Loft — click a different profile curve for the second rail  [Escape = cancel]");
       return true;
     }
-    // Extract polyline point arrays from both curve geometries.
-    const extractPts = (line: THREE.Line): number[][] => {
-      const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const pts: number[][] = [];
-      for (let i = 0; i < pos.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
-        pts.push([v.x, v.y, v.z]);
-      }
-      return pts;
-    };
-    const pts1 = extractPts(phase.curve1);
-    const pts2 = extractPts(hit.obj as THREE.Line);
+    const pts1 = extractLinePoints(phase.curve1);
+    const pts2 = extractLinePoints(hit.obj as THREE.Line);
     if (pts1.length < 2 || pts2.length < 2) {
       ptPrompt("Loft — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const result = dispatchSync("SdLoft", { curves: [{ points: pts1 }, { points: pts2 }] }) as { error?: string } | null;
+    const result = dispatchSync("SdLoft", {
+      curves: [{ points: pts1 }, { points: pts2 }],
+      solid: pointsClosed(pts1) && pointsClosed(pts2),
+    }) as { error?: string } | null;
     if (result?.error) {
       ptPrompt(`Loft failed: ${result.error}  [Escape = cancel]`);
       return true;
@@ -789,23 +803,18 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Sweep — click a different curve for the profile  [Escape = cancel]");
       return true;
     }
-    const extractPts = (line: THREE.Line): number[][] => {
-      const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const pts: number[][] = [];
-      for (let i = 0; i < pos.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
-        pts.push([v.x, v.y, v.z]);
-      }
-      return pts;
-    };
-    const railPts    = extractPts(phase.rail);
-    const profilePts = extractPts(hit.obj as THREE.Line);
+    const railPts    = extractLinePoints(phase.rail);
+    const profilePts = extractLinePoints(hit.obj as THREE.Line);
     if (railPts.length < 2 || profilePts.length < 2) {
       ptPrompt("Sweep — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const result = dispatchSync("SdSweep", { rail: { points: railPts }, profile: { points: profilePts } }) as { error?: string } | null;
+    const result = dispatchSync("SdSweep", {
+      rail: { points: railPts },
+      profile: { points: profilePts },
+      solid: pointsClosed(profilePts),
+    }) as { error?: string } | null;
     if (result?.error) {
       ptPrompt(`Sweep failed: ${result.error}  [Escape = cancel]`);
       return true;
@@ -822,12 +831,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const pos = hit.obj.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const profilePts: number[][] = [];
-    for (let i = 0; i < pos.count; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(hit.obj.matrixWorld);
-      profilePts.push([v.x, v.y, v.z]);
-    }
+    const profilePts = extractLinePoints(hit.obj);
     _opPhase = { kind: "revolve_axis_a", profilePts };
     ptPrompt(`Revolve — profile selected (${hit.obj.userData.creator ?? "line"}) — click first axis point  [Escape = cancel]`);
     return true;
@@ -852,6 +856,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       axisFrom: [axisFrom.x, axisFrom.y, axisFrom.z],
       axisTo:   [snapped3.x, snapped3.y, snapped3.z],
       angleEnd: 2 * Math.PI,
+      solid: true,
     }) as { error?: string } | null;
     if (result?.error) {
       ptPrompt(`Revolve failed: ${result.error}  [Escape = cancel]`);
