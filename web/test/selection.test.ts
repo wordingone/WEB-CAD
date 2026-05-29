@@ -44,7 +44,7 @@ test("BRep display meshes retain one BufferGeometry group per canonical face", (
   expect(source).toContain("geo.addGroup(group.start, group.count, group.materialIndex)");
 });
 
-test("BRep sub-object selections are visible and Inspect prioritizes topology over mesh metadata", () => {
+test("BRep sub-object selections are visible and Inspect prioritizes canonical geometry over mesh metadata", () => {
   const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
   expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
   expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
@@ -60,7 +60,10 @@ test("BRep sub-object selections are visible and Inspect prioritizes topology ov
   const sidebarSource = readFileSync(new URL("../src/shell/workbench-sidebar.ts", import.meta.url), "utf8");
   expect(sidebarSource).toContain("const isBrepSubObject");
   expect(sidebarSource).toContain("`BRep ${sel.topology}");
-  expect(sidebarSource).toContain("subObjectLabel ?? ud.ifcClass ?? sel.topology");
+  expect(sidebarSource).toContain("canonicalLabelFor");
+  expect(sidebarSource).toContain("BRep/NURBS polysurface");
+  expect(sidebarSource).toContain("const typeLabel = subObjectLabel ?? canonicalLabel ?? ud.ifcClass ?? sel.topology");
+  expect(sidebarSource).toContain('data-field="exact"');
 
   const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
   expect(mainSource).toContain("__getSelected");
