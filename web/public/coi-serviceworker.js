@@ -55,6 +55,19 @@ if (typeof window === 'undefined') {
         };
         const n = navigator;
         const controlling = n.serviceWorker && n.serviceWorker.controller;
+        if (controlling && location.pathname.includes("/dev/")) {
+            const controllerUrl = n.serviceWorker.controller.scriptURL;
+            const currentUrl = new URL(window.document.currentScript.src, location.href).href;
+            if (controllerUrl && controllerUrl !== currentUrl) {
+                !coi.quiet && console.log("COOP/COEP Service Worker scope mismatch; reloading under dev scope.", {
+                    controller: controllerUrl,
+                    current: currentUrl,
+                });
+                window.sessionStorage.setItem("coiReloadedBySelf", "scope-mismatch");
+                n.serviceWorker.controller.postMessage({ type: "deregister" });
+                return;
+            }
+        }
         if (controlling && !window.crossOriginIsolated) {
             window.sessionStorage.setItem("coiCoepHasFailed", "true");
         }
