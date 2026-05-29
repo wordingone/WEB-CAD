@@ -30,7 +30,7 @@ beforeEach(() => {
   ["SdRevolve", "SdSweep", "SdLoft", "SdPlane", "SdSurface"].forEach(v => unregisterHandler(v));
 });
 
-type OkResult = { ok: true; canonical: string; result: { created: string } };
+type OkResult = { ok: true; canonical: string; result: { created: string; solid?: boolean } };
 
 function testPlaneSurface(offsetX: number): Surface {
   return {
@@ -94,6 +94,36 @@ describe("G6 - SdRevolve stores exact surface canonically", () => {
     expect(canonical.createdBy).toBe("SdRevolve");
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
     expect(canonical.surface.kind).toBe("rev");
+  });
+
+  test("solid revolve links a full 360 line-profile revolution to a capped closed BRep", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdRevolve", {
+      profile: { kind: "line", from: [2, 0, 0], to: [2, 0, 3] },
+      axisFrom: [0, 0, 0],
+      axisTo: [0, 0, 1],
+      angleStart: 0,
+      angleEnd: Math.PI * 2,
+      solid: true,
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("revolution");
+    expect((dr as OkResult).result.solid).toBe(true);
+    const mesh = lastMesh()!;
+    expect(mesh.userData.kind).toBe("brep");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdRevolve");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    const shell = canonical.brep.shells[0];
+    expect(shell.isClosed).toBe(true);
+    expect(shell.faces.map((face) => face.surface.kind)).toEqual(["rev", "plane", "plane"]);
+    expect(shell.edges).toHaveLength(2);
+    expect(shell.edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
   });
 });
 

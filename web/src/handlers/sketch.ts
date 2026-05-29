@@ -17,7 +17,7 @@ import {
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
-import { BREP_DEFAULT_TOLERANCE, type Brep } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace } from "../nurbs/nurbs-brep";
 import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
@@ -208,6 +208,104 @@ function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>): THREE.Mesh {
   geo.setAttribute("uv",       new THREE.BufferAttribute(tess.uvs, 2));
   geo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
   return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
+}
+
+function isFullCircle(start: number, end: number): boolean {
+  return Math.abs(Math.abs(end - start) - Math.PI * 2) < 1e-4;
+}
+
+function isWorldZAxis(axis: { from: Point3; to: Point3 }): boolean {
+  return Math.abs(axis.from.x) < 1e-9
+    && Math.abs(axis.from.y) < 1e-9
+    && Math.abs(axis.to.x) < 1e-9
+    && Math.abs(axis.to.y) < 1e-9
+    && Math.abs(axis.to.z - axis.from.z) > 1e-9;
+}
+
+function trimCircle(radius: number, samples = 64): Curve {
+  const points: Point3[] = [];
+  const parameters: number[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * Math.PI * 2;
+    points.push({ x: Math.cos(t) * radius, y: Math.sin(t) * radius, z: 0 });
+    parameters.push(t * radius);
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function circularCapFace(z: number, radius: number, orientation: boolean): BrepFace {
+  return {
+    surface: {
+      kind: "plane",
+      plane: {
+        origin: { x: 0, y: 0, z },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      uDomain: { min: -radius, max: radius },
+      vDomain: { min: -radius, max: radius },
+      uExtent: { min: -radius, max: radius },
+      vExtent: { min: -radius, max: radius },
+    },
+    outerLoop: { curves: [trimCircle(radius)], orientation },
+    innerLoops: [],
+    orientation,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function circleEdge(z: number, radius: number, faceIndex1: number, faceIndex2: number): BrepEdge {
+  return {
+    curve: {
+      kind: "arc",
+      center: { x: 0, y: 0, z },
+      radius,
+      startAngle: 0,
+      endAngle: Math.PI * 2,
+      plane: {
+        origin: { x: 0, y: 0, z },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      domain: { min: 0, max: Math.PI * 2 * radius },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function revolvedLineSolidBrep(surface: Surface, profile: Curve, axis: { from: Point3; to: Point3 }, start: number, end: number): Brep | null {
+  if (profile.kind !== "line" || !isWorldZAxis(axis) || !isFullCircle(start, end)) return null;
+  const r0 = Math.hypot(profile.from.x, profile.from.y);
+  const r1 = Math.hypot(profile.to.x, profile.to.y);
+  if (r0 < 1e-9 || Math.abs(r0 - r1) > 1e-6) return null;
+  const bottom = Math.min(profile.from.z, profile.to.z);
+  const top = Math.max(profile.from.z, profile.to.z);
+  if (Math.abs(top - bottom) < 1e-9) return null;
+  return {
+    shells: [{
+      faces: [
+        {
+          surface,
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        circularCapFace(bottom, r0, false),
+        circularCapFace(top, r0, true),
+      ],
+      edges: [
+        circleEdge(bottom, r0, 0, 1),
+        circleEdge(top, r0, 0, 2),
+      ],
+      vertices: [],
+      isClosed: true,
+    }],
+  };
 }
 
 export function registerSketchHandlers(viewer: Viewer): void {
@@ -479,9 +577,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess);
       obj.userData.kind = "revolution";
       obj.userData.creator = "revolve";
-      linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
+      const solidBrep = args.solid === true ? revolvedLineSolidBrep(surface, profile, axis, start, end) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdRevolve");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end };
+      return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }

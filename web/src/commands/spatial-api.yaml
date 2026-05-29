@@ -392,6 +392,10 @@
         type: number
         unit: rad
         default: 6.2832
+      solid:
+        type: boolean
+        default: false
+        description: "When true, full 360 degree revolutions of a valid line area profile are committed as capped closed BRep solids; otherwise the command preserves open revolution-surface behavior."
     required: [profile]
   topology_role: solid
   kg_predicates: []
