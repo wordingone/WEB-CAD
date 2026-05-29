@@ -278,4 +278,10 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
       expect(resolveAlias(paletteId), paletteId).toBe(command);
     }
   });
+
+  test("hidden selection submodes resolve to their agent-facing Sd command equivalents", () => {
+    expect(resolveAlias("sel-window")).toBe("SdSelectWindow");
+    expect(resolveAlias("sel-lasso")).toBe("SdSelectLasso");
+    expect(resolveAlias("sel-boundary")).toBe("SdSelectBoundary");
+  });
 });

@@ -1925,6 +1925,57 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- name: SdSelectWindow
+  kernel_op: selectWindow
+  parameters:
+    type: object
+    properties:
+      rect:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [rect]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-window, window select, crossing select, select window]
+  note: "Screen-space rectangle selection. rect=[x1,y1,x2,y2], mode=crossing|window."
+  alias_source: agent_dispatch
+
+- name: SdSelectLasso
+  kernel_op: selectLasso
+  parameters:
+    type: object
+    properties:
+      polygon:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [polygon]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-lasso, lasso select, select lasso]
+  note: "Screen-space polygon/lasso selection. mode=crossing|window."
+  alias_source: agent_dispatch
+
+- name: SdSelectBoundary
+  kernel_op: selectBoundary
+  parameters:
+    type: object
+    properties:
+      polygon:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [polygon]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-boundary, boundary select, select boundary]
+  note: "Screen-space boundary polygon selection. mode=crossing|window."
+  alias_source: agent_dispatch
+
 - name: SdDelete
   kernel_op: deleteSelected
   parameters:

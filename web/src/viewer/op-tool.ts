@@ -1178,7 +1178,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       return s ? { x: s.x, y: s.y } : null;
     }).filter((p): p is { x: number; y: number } => p !== null);
     if (poly.length >= 3) {
-      _hooks.runPolySel(viewer, poly, "crossing");
+      dispatchSync("SdSelectBoundary", { polygon: poly, mode: "crossing" });
       setTimeout(() => { _hooks.removeSelOverlay(); opFinish(viewer); }, 600);
     } else {
       ptPrompt("Boundary Select — could not extract boundary; try a different object");
@@ -1341,7 +1341,7 @@ export function opHandleEnter(viewer: Viewer): void {
 
   if (phase.kind === "sel_boundary_draw" && phase.points.length >= 3) {
     _hooks.removeSelOverlay();
-    _hooks.runPolySel(viewer, phase.points, "crossing");
+    dispatchSync("SdSelectBoundary", { polygon: phase.points, mode: "crossing" });
     setTimeout(() => opFinish(viewer), 600);
     return;
   }

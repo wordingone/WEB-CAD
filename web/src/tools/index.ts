@@ -16,7 +16,7 @@ import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView,
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
-import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
+import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
 import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
@@ -2279,13 +2279,13 @@ export function initCreateMode(viewer: Viewer): void {
       const x2 = Math.max(opPhase.startX, ev.clientX);
       const y2 = Math.max(opPhase.startY, ev.clientY);
       if (x2 - x1 > 4 || y2 - y1 > 4) {
-        runRectSel(viewer, x1, y1, x2, y2, opPhase.subMode);
+        dispatchSync("SdSelectWindow", { rect: [x1, y1, x2, y2], mode: opPhase.subMode });
         setTimeout(() => { removeSelOverlay(); opFinish(viewer); }, 600);
       } else {
         removeSelOverlay();
       }
     } else if (opPhase?.kind === "sel_lasso" && opPhase.points.length >= 3) {
-      runPolySel(viewer, opPhase.points, opPhase.subMode);
+      dispatchSync("SdSelectLasso", { polygon: opPhase.points, mode: opPhase.subMode });
       setTimeout(() => { removeSelOverlay(); opFinish(viewer); }, 600);
     } else {
       removeSelOverlay();

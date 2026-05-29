@@ -6,6 +6,7 @@ import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchActi
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
+import { runPolySel, runRectSel } from "../viewer/selection-ops";
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
 import { transformBrep } from "../nurbs/nurbs-brep";
 import type { Xform } from "../nurbs/nurbs-primitives";
@@ -114,6 +115,34 @@ function vectorListArg(value: unknown): THREE.Vector3[] {
   return value
     .filter((point): point is number[] => Array.isArray(point) && point.length >= 2)
     .map((point) => new THREE.Vector3(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0));
+}
+
+function selectionModeArg(value: unknown): "crossing" | "window" {
+  return value === "window" ? "window" : "crossing";
+}
+
+function rectArg(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 4) return null;
+  const nums = value.slice(0, 4).map((n) => Number(n));
+  return nums.every(Number.isFinite) ? nums as [number, number, number, number] : null;
+}
+
+function screenPolygonArg(value: unknown): Array<{ x: number; y: number }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((point) => {
+    if (Array.isArray(point) && point.length >= 2) {
+      const x = Number(point[0]);
+      const y = Number(point[1]);
+      return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : [];
+    }
+    if (point && typeof point === "object") {
+      const p = point as { x?: unknown; y?: unknown };
+      const x = Number(p.x);
+      const y = Number(p.y);
+      return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : [];
+    }
+    return [];
+  });
 }
 
 function curveLength(points: THREE.Vector3[]): number {
@@ -390,6 +419,27 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.getScene().add(proxy); // audit-undo-ok — transient gumball anchor, not user content
     viewer.selectObject(proxy);
     window.dispatchEvent(new CustomEvent("viewer:selectAll", { detail: { count: selectable.length } }));
+  });
+
+  registerHandler("SdSelectWindow", (args) => {
+    const rect = rectArg(args.rect);
+    if (!rect) return { error: "SdSelectWindow requires rect=[x1,y1,x2,y2]" };
+    const selected = runRectSel(viewer, rect[0], rect[1], rect[2], rect[3], selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
+  });
+
+  registerHandler("SdSelectLasso", (args) => {
+    const polygon = screenPolygonArg(args.polygon);
+    if (polygon.length < 3) return { error: "SdSelectLasso requires polygon with at least three screen points" };
+    const selected = runPolySel(viewer, polygon, selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
+  });
+
+  registerHandler("SdSelectBoundary", (args) => {
+    const polygon = screenPolygonArg(args.polygon);
+    if (polygon.length < 3) return { error: "SdSelectBoundary requires polygon with at least three screen points" };
+    const selected = runPolySel(viewer, polygon, selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
   });
 
   registerHandler("SdBoolean", (args) => {

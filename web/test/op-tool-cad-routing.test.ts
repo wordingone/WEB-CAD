@@ -74,4 +74,34 @@ describe("CAD/BRep op-tool command parity", () => {
     expect(arrayCurveCommit).not.toContain("new THREE.Box3");
     expect(arrayCurveCommit).not.toContain("_sampleAlongCurve");
   });
+
+  test("selection subtool completions route through agent-facing Sd handlers", () => {
+    const toolsSource = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
+    const pointerUpStart = toolsSource.indexOf('vpBody.addEventListener("pointerup"');
+    const pointerUpEnd = toolsSource.indexOf('window.addEventListener("keydown"', pointerUpStart + 1);
+    expect(pointerUpStart).toBeGreaterThanOrEqual(0);
+    expect(pointerUpEnd).toBeGreaterThan(pointerUpStart);
+    const pointerUpCommit = toolsSource.slice(pointerUpStart, pointerUpEnd);
+
+    expect(pointerUpCommit).toContain('dispatchSync("SdSelectWindow"');
+    expect(pointerUpCommit).toContain('dispatchSync("SdSelectLasso"');
+    expect(pointerUpCommit).not.toContain("runRectSel(");
+    expect(pointerUpCommit).not.toContain("runPolySel(");
+
+    const opToolSource = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const boundaryPick = opToolSource.slice(
+      opToolSource.indexOf('if (phase.kind === "sel_boundary_pick")'),
+      opToolSource.indexOf('if (phase.kind === "sel_boundary_draw")'),
+    );
+    const boundaryDrawStart = opToolSource.indexOf('if (phase.kind === "sel_boundary_draw" && phase.points.length >= 3)');
+    const boundaryDrawEnd = opToolSource.indexOf('if (phase.kind === "dim_area"', boundaryDrawStart + 1);
+    expect(boundaryDrawStart).toBeGreaterThanOrEqual(0);
+    expect(boundaryDrawEnd).toBeGreaterThan(boundaryDrawStart);
+    const boundaryDraw = opToolSource.slice(boundaryDrawStart, boundaryDrawEnd);
+
+    expect(boundaryPick).toContain('dispatchSync("SdSelectBoundary"');
+    expect(boundaryDraw).toContain('dispatchSync("SdSelectBoundary"');
+    expect(boundaryPick).not.toContain("_hooks.runPolySel");
+    expect(boundaryDraw).not.toContain("_hooks.runPolySel");
+  });
 });

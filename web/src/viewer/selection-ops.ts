@@ -159,11 +159,11 @@ export function collectSelectable(viewer: Viewer): THREE.Object3D[] {
   return out;
 }
 
-export function applySelResult(viewer: Viewer, matches: THREE.Object3D[]): void {
+export function applySelResult(viewer: Viewer, matches: THREE.Object3D[]): string[] {
   if (!matches.length) {
     ptPrompt("No objects in selection — try again");
     setTimeout(() => ptClearPrompt(), 1500);
-    return;
+    return [];
   }
   clearMultiSelHighlights();
   clearMultiSelected();
@@ -181,12 +181,13 @@ export function applySelResult(viewer: Viewer, matches: THREE.Object3D[]): void 
   }
   ptPrompt(`Selected ${matches.length} object${matches.length > 1 ? "s" : ""}`);
   setTimeout(() => ptClearPrompt(), 1200);
+  return matches.map((match) => match.uuid);
 }
 
-export function runRectSel(viewer: Viewer, cx1: number, cy1: number, cx2: number, cy2: number, subMode: "crossing" | "window"): void {
+export function runRectSel(viewer: Viewer, cx1: number, cy1: number, cx2: number, cy2: number, subMode: "crossing" | "window"): string[] {
   const rx1 = Math.min(cx1, cx2), ry1 = Math.min(cy1, cy2);
   const rx2 = Math.max(cx1, cx2), ry2 = Math.max(cy1, cy2);
-  if (rx2 - rx1 < 5 && ry2 - ry1 < 5) return;
+  if (rx2 - rx1 < 5 && ry2 - ry1 < 5) return [];
   const matches = collectSelectable(viewer).filter((o) => {
     const bb = screenBboxOf(viewer, o);
     if (!bb) return false;
@@ -194,11 +195,11 @@ export function runRectSel(viewer: Viewer, cx1: number, cy1: number, cx2: number
       ? bb.x2 >= rx1 && bb.x1 <= rx2 && bb.y2 >= ry1 && bb.y1 <= ry2
       : bb.x1 >= rx1 && bb.x2 <= rx2 && bb.y1 >= ry1 && bb.y2 <= ry2;
   });
-  applySelResult(viewer, matches);
+  return applySelResult(viewer, matches);
 }
 
-export function runPolySel(viewer: Viewer, poly: Array<{ x: number; y: number }>, subMode: "crossing" | "window"): void {
-  if (poly.length < 3) return;
+export function runPolySel(viewer: Viewer, poly: Array<{ x: number; y: number }>, subMode: "crossing" | "window"): string[] {
+  if (poly.length < 3) return [];
   const matches = collectSelectable(viewer).filter((o) => {
     const bb = screenBboxOf(viewer, o);
     if (!bb) return false;
@@ -208,7 +209,7 @@ export function runPolySel(viewer: Viewer, poly: Array<{ x: number; y: number }>
     }
     return pointInPolygon2D(bb.cx, bb.cy, poly);
   });
-  applySelResult(viewer, matches);
+  return applySelResult(viewer, matches);
 }
 
 // Expose _selHLOwned for the viewer:select listener in tools/index.ts
