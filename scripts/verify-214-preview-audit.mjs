@@ -89,15 +89,14 @@ const trustedKey = async (key, opts = {}) => {
     windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk });
 };
 
-// Trusted printable char: keyDown + char + keyUp sequence.
+// Trusted printable char: keyDown-only (no text) — cmd-at-cursor open() pre-fills
+// input value from e.key; char+text would cause triple-insertion.
 const trustedChar = async (char, opts = {}) => {
   const { ctrl = false, alt = false, meta = false, shift = false } = opts;
   const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (meta ? 4 : 0) | (shift ? 8 : 0);
   const wvk = char.toUpperCase().charCodeAt(0);
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: char, code: `Key${char.toUpperCase()}`,
-    modifiers, windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk, text: char });
-  await send("Input.dispatchKeyEvent", { type: "char", key: char, code: `Key${char.toUpperCase()}`,
-    modifiers, windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk, text: char });
+    modifiers, windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk });
   await send("Input.dispatchKeyEvent", { type: "keyUp", key: char, code: `Key${char.toUpperCase()}`,
     modifiers, windowsVirtualKeyCode: wvk, nativeVirtualKeyCode: wvk });
 };
@@ -187,9 +186,12 @@ console.log(`  A1 overlay opened: ${results.A1_overlay_opened}  input='${results
 
 // A2: type 'all' → input becomes 'wall', list has Wall
 if (results.A1_overlay_opened) {
+  // Use Input.insertText to append chars without keyDown-text double-insertion.
+  await evaluate(`document.querySelector('.cmd-cursor-input')?.focus()`);
+  await delay(30);
   for (const c of ["a", "l", "l"]) {
-    await trustedChar(c);
-    await delay(80);
+    await send("Input.insertText", { text: c });
+    await delay(60);
   }
   await delay(200);
   results.A2_input_value = await overlayInputValue();
