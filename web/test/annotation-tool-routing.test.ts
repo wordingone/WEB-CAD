@@ -3,9 +3,11 @@ import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import { dispatchSync, unregisterHandler } from "../src/commands/dispatch";
 import { registerAnnotationHandlers } from "../src/handlers/annotations";
+import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
 
 function makeAnnotationViewer() {
   const scene = new THREE.Scene();
+  const store = createCanonicalGeometryStore();
   const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
   camera.position.set(4, 4, 4);
   camera.lookAt(0, 0, 0);
@@ -18,6 +20,7 @@ function makeAnnotationViewer() {
     added,
     viewer: {
       getScene: () => scene,
+      getCanonicalGeometryStore: () => store,
       getCanvas: () => canvas,
       getActiveCamera: () => camera,
       addMesh: (obj: THREE.Object3D, kind?: string) => {
@@ -66,5 +69,37 @@ describe("annotation and measurement palette command parity", () => {
     expect(document.body.textContent).toContain("A");
     expect(document.body.textContent).toContain("Area:");
     expect(document.body.textContent).toContain("Vol:");
+  });
+
+  test("Sd annotation and measurement linework is canonical curve geometry", () => {
+    const { scene, viewer } = makeAnnotationViewer();
+    const solid = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 4), new THREE.MeshBasicMaterial());
+    scene.add(solid);
+    registerAnnotationHandlers(viewer as never);
+
+    expect(dispatchSync("SdAlignedDim", { a: [0, 0, 0], b: [3, 4, 0] }).ok).toBe(true);
+    expect(dispatchSync("SdAngularDim", { vertex: [0, 0, 0], ray1: [1, 0, 0], ray2: [0, 1, 0] }).ok).toBe(true);
+    expect(dispatchSync("SdAreaDim", { points: [[0, 0, 0], [2, 0, 0], [2, 2, 0], [0, 2, 0]] }).ok).toBe(true);
+    expect(dispatchSync("SdVolumeDim", { id: solid.uuid }).ok).toBe(true);
+    expect(dispatchSync("SdTransientMeasure", { a: [0, 0, 0], b: [1, 0, 0] }).ok).toBe(true);
+
+    const records = viewer.getCanonicalGeometryStore().list();
+    expect(records.map((record) => record.createdBy)).toEqual([
+      "SdAlignedDim",
+      "SdAngularDim",
+      "SdAreaDim",
+      "SdVolumeDim",
+      "SdTransientMeasure",
+    ]);
+    for (const record of records) {
+      expect(record.kind).toBe("curve");
+      expect(record.metadata?.annotation).toBe(true);
+      if (record.kind !== "curve") throw new Error("expected canonical curve");
+      expect(record.curve.kind).toBe("polyline");
+      if (record.curve.kind !== "polyline") throw new Error("expected polyline annotation curve");
+      expect(record.curve.points.length).toBeGreaterThanOrEqual(2);
+    }
+    const area = records.find((record) => record.createdBy === "SdAreaDim");
+    expect(area?.metadata?.closed).toBe(true);
   });
 });
