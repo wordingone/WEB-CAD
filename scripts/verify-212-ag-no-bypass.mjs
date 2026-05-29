@@ -159,24 +159,29 @@ const getActiveTool = () => evaluate(`
 
 const getCurrentTab = () => evaluate(`
   (() => {
+    // 3cf05e7+ exposes data-active-tab on root; older: .yin-disc.is-comp
+    const root = document.querySelector('.yin-toggle');
+    if (root?.dataset.activeTab) return root.dataset.activeTab; // 'ARCH' or 'CAD'
     const disc = document.querySelector('.yin-disc');
     return disc?.classList.contains('is-comp') ? 'CAD' : 'ARCH';
   })()`);
 
 const switchToTab = async (tab) => {
   const cur = await getCurrentTab();
-  if (cur !== tab) {
-    const toggle = await evaluate(`
-      (() => {
-        const el = document.querySelector('.yin-toggle');
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
-      })()`);
-    if (!toggle) throw new Error(".yin-toggle not found");
-    await trustedClick(toggle.x, toggle.y);
-    await delay(300);
-  }
+  if (cur === tab) return;
+  // 3cf05e7+: click the specific half; fallback to toggle center for older builds
+  const halfSel = tab === 'CAD' ? '.yin-half[data-tab="CAD"]' : '.yin-half[data-tab="ARCH"]';
+  const target = await evaluate(`
+    (() => {
+      const half = document.querySelector(${JSON.stringify(halfSel)});
+      const el = half ?? document.querySelector('.yin-toggle');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+    })()`);
+  if (!target) throw new Error(".yin-toggle not found");
+  await trustedClick(target.x, target.y);
+  await delay(300);
 };
 
 const getVisiblePaletteBtns = () => evaluate(`
