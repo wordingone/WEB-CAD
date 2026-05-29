@@ -302,6 +302,12 @@ export type StairFlightCanonicalParams = {
   zBase: number;
 };
 
+export type BoxPrimitiveCanonicalParams = {
+  width: number;
+  depth: number;
+  height: number;
+};
+
 function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
   const points = [
     ...points3d,
@@ -320,6 +326,39 @@ function profileFrom3dPoints(points3d: Array<[number, number, number]>): Polylin
   return { kind: "polyline", points, parameters };
 }
 
+function nurbsFormBrep(brep: Brep): Brep {
+  return {
+    shells: brep.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map((face) => ({
+        ...face,
+        surface: getNurbsForm(face.surface).surface,
+      })),
+    })),
+  };
+}
+
+export function buildBoxPrimitiveBrep(params: BoxPrimitiveCanonicalParams): Brep {
+  const profile = profileFrom3dPoints([
+    [-params.width / 2, -params.depth / 2, -params.height / 2],
+    [ params.width / 2, -params.depth / 2, -params.height / 2],
+    [ params.width / 2,  params.depth / 2, -params.height / 2],
+    [-params.width / 2,  params.depth / 2, -params.height / 2],
+  ]);
+  return nurbsFormBrep(extrudeBrep(profile, { x: 0, y: 0, z: 1 }, params.height));
+}
+
+export function boxPrimitiveDimensions(mesh: THREE.Mesh): BoxPrimitiveCanonicalParams | null {
+  const params = (mesh.geometry as THREE.BufferGeometry & {
+    parameters?: { width?: unknown; height?: unknown; depth?: unknown };
+  }).parameters;
+  const width = Number(params?.width);
+  const depth = Number(params?.height);
+  const height = Number(params?.depth);
+  if (![width, depth, height].every((value) => Number.isFinite(value) && value > 0)) return null;
+  return { width, depth, height };
+}
+
 export function stairFlightProfilePoints(params: StairFlightCanonicalParams): Array<[number, number, number]> {
   const n = Math.max(1, Math.round(params.n));
   const stringerD = params.riser * 2;
@@ -334,16 +373,7 @@ export function stairFlightProfilePoints(params: StairFlightCanonicalParams): Ar
 }
 
 export function buildStairFlightBrep(params: StairFlightCanonicalParams): Brep {
-  const brep = extrudeBrep(profileFrom3dPoints(stairFlightProfilePoints(params)), { x: 0, y: 1, z: 0 }, params.stairW);
-  return {
-    shells: brep.shells.map((shell) => ({
-      ...shell,
-      faces: shell.faces.map((face) => ({
-        ...face,
-        surface: getNurbsForm(face.surface).surface,
-      })),
-    })),
-  };
+  return nurbsFormBrep(extrudeBrep(profileFrom3dPoints(stairFlightProfilePoints(params)), { x: 0, y: 1, z: 0 }, params.stairW));
 }
 
 export interface StairFootprint { minX: number; minY: number; maxX: number; maxY: number }

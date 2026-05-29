@@ -428,6 +428,16 @@ describe("BRep canonical migration characterization", () => {
           expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
           expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
           expect(canonical.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
+        } else if (canonical.metadata?.derivation === "parametric-box-primitive") {
+          expect(canonical.metadata).toMatchObject({
+            conversion: "extruded-rectangular-solid-brep",
+          });
+          expect(canonical.brep.shells[0].isClosed).toBe(true);
+          expect(brepNakedEdgeCount(canonical.brep)).toBe(0);
+          expect(canonical.brep.shells[0].faces).toHaveLength(6);
+          expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+          expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
+          expect(canonical.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
         } else {
           expect(canonical.metadata).toMatchObject({
             derivation: "planarized-command-mesh",
@@ -447,6 +457,12 @@ describe("BRep canonical migration characterization", () => {
         expect([...linkedRecords].some((id) => {
           const record = store.require(id);
           return record.metadata?.derivation === "parametric-stair-flight-profile";
+        })).toBe(true);
+      }
+      if (verb === "SdRoof") {
+        expect([...linkedRecords].some((id) => {
+          const record = store.require(id);
+          return record.metadata?.derivation === "parametric-box-primitive";
         })).toBe(true);
       }
     }

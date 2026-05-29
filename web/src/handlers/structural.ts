@@ -5,7 +5,7 @@ import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
-  buildStairFlightBrep,
+  buildBoxPrimitiveBrep, buildStairFlightBrep, boxPrimitiveDimensions,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -294,6 +294,24 @@ function linkCompoundMeshBreps(
           parentId: child.userData.parentId,
           derivation: "parametric-stair-flight-profile",
           conversion: "extruded-stair-flight-profile-brep",
+        };
+      }
+      return;
+    }
+    const boxPrimitive = boxPrimitiveDimensions(child);
+    if (boxPrimitive) {
+      linkCanonicalBrep(viewer, child, buildBoxPrimitiveBrep(boxPrimitive), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-box-primitive",
+          conversion: "extruded-rectangular-solid-brep",
+          boxPrimitive,
         };
       }
       return;
