@@ -28,6 +28,9 @@ export type ModelPaletteCausalSpec = {
   route: PaletteRoute;
   inputs: string[];
   canonicalOutcome: CanonicalOutcome;
+  implementationStatus?: "canonical" | "canonical-with-mesh-display" | "mesh-derived-gap" | "state-only";
+  evidence?: string[];
+  weaknesses?: string[];
   notes?: string;
 };
 
@@ -272,6 +275,15 @@ export const MODEL_PALETTE_CAUSAL_SPECS: Record<string, ModelPaletteCausalSpec> 
     route: "op",
     inputs: ["click solid mesh or polyline/curve", "click highlighted edge or corner", "enter radius"],
     canonicalOutcome: "canonical-brep-edit",
+    implementationStatus: "mesh-derived-gap",
+    evidence: [
+      "viewer/op-tool.ts routes palette completion through dispatchSync(\"SdFillet\")",
+      "handlers/transforms.ts calls chamferEdge/filletMesh, then linkPlanarizedMeshEditBrep",
+    ],
+    weaknesses: [
+      "Canonical record is derived from the post-edit display mesh with derivation=planarized-edit-mesh, not from a BRep-native fillet/chamfer kernel.",
+      "This preserves old mesh-era perceived behavior but is not proof of true BRep/NURBS edit capability.",
+    ],
   },
   "brep-explode": {
     paletteId: "brep-explode",
@@ -568,4 +580,3 @@ export const MODEL_PALETTE_CAUSAL_SPECS: Record<string, ModelPaletteCausalSpec> 
     canonicalOutcome: "clipping-state",
   },
 };
-

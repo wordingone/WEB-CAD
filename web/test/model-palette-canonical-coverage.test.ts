@@ -317,6 +317,20 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     }
   });
 
+  test("mesh-derived gaps are explicit in the model palette causal map", () => {
+    const fillet = MODEL_PALETTE_CAUSAL_SPECS.fillet;
+    expect(fillet.implementationStatus).toBe("mesh-derived-gap");
+    expect(fillet.weaknesses?.join("\n")).toContain("not from a BRep-native fillet/chamfer kernel");
+
+    const source = readFileSync(new URL("../src/handlers/transforms.ts", import.meta.url), "utf8");
+    const filletStart = source.indexOf('registerHandler("SdFillet"');
+    const filletEnd = source.indexOf('registerHandler("SdSelect"', filletStart + 1);
+    expect(filletStart).toBeGreaterThanOrEqual(0);
+    expect(filletEnd).toBeGreaterThan(filletStart);
+    const filletHandler = source.slice(filletStart, filletEnd);
+    expect(filletHandler).toContain("linkPlanarizedMeshEditBrep");
+  });
+
   test("hidden selection submodes resolve to their agent-facing Sd command equivalents", () => {
     expect(resolveAlias("wall-curve")).toBe("SdCurveWall");
     expect(resolveAlias("sel-window")).toBe("SdSelectWindow");
