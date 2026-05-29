@@ -62,6 +62,12 @@ test("BRep sub-object selections are visible and Inspect prioritizes topology ov
   expect(mainSource).toContain("__getSelected");
 });
 
+test("Ctrl+Shift drilldown bypasses whole-object hover and Shift multi-select", () => {
+  const toolsSource = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
+  expect(toolsSource).toContain("ev.shiftKey && !ev.ctrlKey && !ev.metaKey");
+  expect(toolsSource).toContain("ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover");
+});
+
 beforeEach(() => {
   resetSelectionState();
   resetFilters();

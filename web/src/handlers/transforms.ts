@@ -11,6 +11,7 @@ import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
 import { transformBrep } from "../nurbs/nurbs-brep";
 import type { Xform } from "../nurbs/nurbs-primitives";
 import { linkPlanarizedMeshEditBrep } from "./mesh-planar-brep";
+import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
 
 type BooleanOp = "union" | "difference" | "intersection";
 
@@ -61,6 +62,60 @@ function linkCanonicalBooleanResult(
     },
   });
   store.linkObject(result, record.id);
+}
+
+function canonicalBooleanDisplayResult(
+  viewer: Viewer,
+  objA: THREE.Object3D,
+  objB: THREE.Object3D,
+  op: BooleanOp,
+  createdBy: string,
+  args: Record<string, unknown>,
+): THREE.Mesh | null {
+  objA.updateMatrixWorld(true);
+  objB.updateMatrixWorld(true);
+  const store = viewer.getCanonicalGeometryStore();
+  const canonicalA = store.resolveObjectOrAncestor(objA);
+  const canonicalB = store.resolveObjectOrAncestor(objB);
+  if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return null;
+  const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
+  const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
+  const backend = new NurbsBooleanBackend();
+  const canonicalResult =
+    op === "difference" ? backend.difference(brepA, brepB)
+      : op === "intersection" ? backend.intersection(brepA, brepB)
+        : backend.union(brepA, brepB);
+  if (!canonicalResult.ok) return null;
+  const record = store.create({
+    kind: "brep",
+    brep: canonicalResult.brep,
+    source: "edit",
+    createdBy,
+    metadata: {
+      operation: `boolean-${op}`,
+      operands: [canonicalA.id, canonicalB.id],
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const pos = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: pos?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (pos ? Math.floor(pos.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = createdBy;
+  display.userData.dispatchArgs = args;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
 }
 
 function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
@@ -453,6 +508,22 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!objA || !objB) return { error: `SdBoolean — object not found: ${!objA ? aId : bId}` };
     if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh))
       return { error: "SdBoolean — both targets must be solid meshes" };
+    const creator = opArg === "difference" ? "boolean-difference" : opArg === "intersection" ? "boolean-intersection" : "boolean-union";
+    const canonicalResult = canonicalBooleanDisplayResult(
+      viewer,
+      objA,
+      objB,
+      opArg === "difference" || opArg === "intersection" ? opArg : "union",
+      creator,
+      args,
+    );
+    if (canonicalResult) {
+      scene.remove(objA); // audit-undo-ok - paired with pushReplaceAction below
+      scene.remove(objB); // audit-undo-ok - paired with pushReplaceAction below
+      viewer.addMesh(canonicalResult, "brep", { noHistory: true });
+      pushReplaceAction(canonicalResult, [objA, objB], creator);
+      return { created: canonicalResult.uuid, op: opArg, displaySource: "canonical-brep" };
+    }
     const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     let result: THREE.Mesh;
     try {
@@ -464,7 +535,6 @@ export function registerTransformHandlers(viewer: Viewer): void {
     }
     if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0)
       return { error: "SdBoolean — result is empty (objects may not overlap)" };
-    const creator = opArg === "difference" ? "boolean-difference" : opArg === "intersection" ? "boolean-intersection" : "boolean-union";
     result.userData.kind = "brep";
     result.userData.creator = creator;
     result.userData.dispatchArgs = args;
@@ -490,6 +560,15 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!objA || !objB) return { error: `boolean ${op} — object not found: ${!objA ? aId : bId}` };
     if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh))
       return { error: `boolean ${op} — both targets must be solid meshes` };
+    const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
+    const canonicalResult = canonicalBooleanDisplayResult(viewer, objA, objB, op, creator, { a: aId, b: bId });
+    if (canonicalResult) {
+      scene.remove(objA); // audit-undo-ok
+      scene.remove(objB); // audit-undo-ok
+      viewer.addMesh(canonicalResult, "brep", { noHistory: true });
+      pushReplaceAction(canonicalResult, [objA, objB], creator);
+      return { created: canonicalResult.uuid, op, displaySource: "canonical-brep" };
+    }
     const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     let result: THREE.Mesh;
     try {
@@ -501,7 +580,6 @@ export function registerTransformHandlers(viewer: Viewer): void {
     }
     if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0)
       return { error: `boolean ${op} — result is empty (objects may not overlap)` };
-    const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
     result.userData.kind = "brep";
     result.userData.creator = creator;
     linkCanonicalBooleanResult(viewer, objA, objB, result, op, creator);

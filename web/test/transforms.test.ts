@@ -1063,8 +1063,10 @@ describe("canonical geometry transform instances", () => {
     const result = dispatchSync("SdBooleanUnion", { a: a.uuid, b: b.uuid });
 
     expect(result.ok).toBe(true);
+    expect((result as { result?: { displaySource?: string } }).result?.displaySource).toBe("canonical-brep");
     expect(added).toHaveLength(1);
     const output = added[0];
+    expect(output.userData.booleanDisplaySource).toBe("canonical-brep");
     const canonical = store.resolveObject(output);
     expect(canonical?.kind).toBe("brep");
     if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
@@ -1075,6 +1077,59 @@ describe("canonical geometry transform instances", () => {
     });
     const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
     expect(faceCount).toBeLessThan(12);
+  });
+
+  test("SdBooleanUnion creates display geometry from canonical BReps without operand BufferGeometry", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() {
+        return scene;
+      },
+      getActiveObject() {
+        return null;
+      },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() {
+        return store;
+      },
+    };
+    const a = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    const b = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    b.position.x = 1;
+    a.userData.kind = "brep";
+    b.userData.kind = "brep";
+    scene.add(a, b);
+    const recordA = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    const recordB = store.create({ kind: "brep", brep: axisBoxBrep(0, 1, 0, 1, 0, 1), source: "command", createdBy: "SdBox" });
+    store.linkObject(a, recordA.id);
+    store.linkObject(b, recordB.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdBooleanUnion", { a: a.uuid, b: b.uuid });
+
+    expect(result.ok).toBe(true);
+    expect((result as { result?: { displaySource?: string } }).result?.displaySource).toBe("canonical-brep");
+    expect(added).toHaveLength(1);
+    const output = added[0];
+    expect(output).toBeInstanceOf(THREE.Mesh);
+    const mesh = output as THREE.Mesh;
+    expect(mesh.geometry.getAttribute("position")?.count).toBeGreaterThan(0);
+    expect(mesh.userData.booleanDisplaySource).toBe("canonical-brep");
+    const canonical = store.resolveObject(output);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
+    expect(canonical.createdBy).toBe("boolean-union");
+    expect(canonical.metadata).toMatchObject({
+      operation: "boolean-union",
+      operands: [recordA.id, recordB.id],
+      displaySource: "canonical-brep",
+    });
   });
 
   test("SdBooleanUnion resolves child display operands through canonical parent BReps", () => {

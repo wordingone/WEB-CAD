@@ -1913,7 +1913,7 @@ export function initCreateMode(viewer: Viewer): void {
       }
 
       // Shift+click standard select: toggle object in multi-select.
-      if (ev.shiftKey && !_ptPhase && !getOpPhase()) {
+      if (ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !_ptPhase && !getOpPhase()) {
         const hit = opRaycastObject(viewer, ev.clientX, ev.clientY);
         if (hit) {
           ev.stopImmediatePropagation();
@@ -2060,7 +2060,7 @@ export function initCreateMode(viewer: Viewer): void {
       if (activeBtn?.dataset.tool === "select") {
         // Use viewer's pane-rect raycaster (same path as selection) so CSG display
         // meshes and regular structural elements are both detected correctly.
-        const hoverObj = viewer.raycastForHover(ev.clientX, ev.clientY);
+        const hoverObj = ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover(ev.clientX, ev.clientY);
         opSetHover(hoverObj);
       } else {
         opSetHover(null);

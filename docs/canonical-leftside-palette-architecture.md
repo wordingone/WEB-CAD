@@ -81,10 +81,10 @@ Hidden long-press subtools highlight their visible parent button:
 | `revolve` | Revolve | pick profile, two axis points | `opStartTool(revolve)` | `SdRevolve` | open profiles create canonical revolution surfaces; solid line/profile paths create capped BReps |
 | `plane` | Plane | three points | `opStartTool(plane)` | `SdPlane` | canonical plane surface |
 | `surface` | Surface | pick closed curve | `opStartTool(surface)` | `SdSurface` | canonical trimmed planar BRep |
-| `boolean` | Boolean | pick A, B, choose op | `opStartTool(boolean)` | `SdBoolean` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
-| `bool-union` | Union | pick A then B | `opStartTool(bool-union)` | `SdBooleanUnion` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
-| `bool-diff` | Difference | pick A then B | `opStartTool(bool-diff)` | `SdBooleanDifference` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
-| `bool-intersect` | Intersect | pick A then B | `opStartTool(bool-intersect)` | `SdBooleanIntersection` | display still uses mesh CSG; canonical result uses BRep backend when both operands have BRep records, including exact planar NURBS faces |
+| `boolean` | Boolean | pick A, B, choose op | `opStartTool(boolean)` | `SdBoolean` | canonical BRep operands produce both source record and display mesh from the BRep backend before mesh CSG fallback |
+| `bool-union` | Union | pick A then B | `opStartTool(bool-union)` | `SdBooleanUnion` | canonical BRep operands produce both source record and display mesh from the BRep backend before mesh CSG fallback |
+| `bool-diff` | Difference | pick A then B | `opStartTool(bool-diff)` | `SdBooleanDifference` | canonical BRep operands produce both source record and display mesh from the BRep backend before mesh CSG fallback |
+| `bool-intersect` | Intersect | pick A then B | `opStartTool(bool-intersect)` | `SdBooleanIntersection` | canonical BRep operands produce both source record and display mesh from the BRep backend before mesh CSG fallback |
 | `fillet` | Fillet | pick solid edge or curve corner, radius | `opStartTool(fillet)` | `SdFillet` | edge and all-edge paths now link planarized BRep results; not NURBS-native fillet |
 | `brep-explode` | Explode | click group/object | `opStartTool(brep-explode)` | `SdExplode` | canonical BRep targets extract one open BRep shell per face, preserving face surface plus explicit naked boundary edges/vertices |
 | `brep-join` | Join | click two objects | `opStartTool(brep-join)` | `SdJoin` | canonical open BRep faces/surfaces with coincident boundary edges are welded into one shell; separated closed solids still concatenate as separate shells |
@@ -121,7 +121,7 @@ These are known limitations, not acceptable final-state claims:
 
 | Area | Gap |
 |---|---|
-| BRep booleans | UI display generation still relies on mesh CSG. Canonical records now use the planar BRep boolean backend when possible, including exact planar NURBS boxes, but this is still not a full trimmed-surface BooleanBuilder. |
+| BRep booleans | Canonical BRep operands now create display geometry from the BRep backend before mesh CSG fallback, and tests prove the canonical path works even when operand display `BufferGeometry` is empty. Remaining gap: backend is still planar/limited, not a full arbitrary trimmed-surface BooleanBuilder. |
 | Fillet | Current fillet is mesh/polyline based and is now canonically linked for edge and all-edge paths. It does not create exact NURBS fillet surfaces between BRep faces. |
 | BRep join/rebuild/contour | Join now welds coincident boundary edges for open canonical BRep face shells, but does not do tolerance-heavy sewing for arbitrary nonmatching trims; rebuild converts face surfaces to NURBS form but does not reparameterize to a new fit count; contour stitches BRep face-plane intersections into canonical curves but is not a full arbitrary surface/solid intersection kernel. |
 | BRep explode | Canonical BRep explode now extracts one open BRep shell per face with explicit naked boundary topology; remaining gap is multi-face subobject selection/extraction rather than whole-object explode only. |
