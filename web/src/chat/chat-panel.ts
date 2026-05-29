@@ -4,7 +4,8 @@
 // through agent-harness.ts → dispatch.ts. Dispatches fire immediately after
 // each model turn; their verb names are shown as inline pills.
 
-import { runAgentTurn } from "../agent/agent-harness";
+import { MODEL_ID, prefetchModel, runAgentTurn } from "../agent/agent-harness";
+import { requestConsentAndLoad } from "../agent/model-consent";
 import { captureViewport } from "../agent/viewport-capture";
 import type { AgentDispatch, AgentResponse } from "../agent/agent-harness";
 import { invokeCommand } from "../commands/command-session";
@@ -648,6 +649,15 @@ export class ChatPanel {
             agentRing.style.cssText = `position:fixed;top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;`;
             document.body.appendChild(agentRing);
           }
+        }
+      }
+
+      const remoteUrl = (import.meta.env as Record<string, string>).VITE_GEMMA_AGENT_URL ?? "";
+      if (!remoteUrl) {
+        const consented = await requestConsentAndLoad(MODEL_ID, () => prefetchModel());
+        if (!consented) {
+          this._removeThinking(thinking);
+          return;
         }
       }
 

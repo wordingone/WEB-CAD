@@ -841,6 +841,44 @@ export function prefetchModel(): void {
   initWorkerIfNeeded();
 }
 
+function waitForWorkerBootComplete(): Promise<void> {
+  if (_arc.bootComplete) return Promise.resolve();
+  if (_arc.modelLoadError) return Promise.reject(new Error(`Model failed to load — ${_arc.modelLoadError}`));
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("agentmodel:boot-complete", onBoot);
+      window.removeEventListener("agentmodel:fatal", onFatal);
+      window.removeEventListener("agentmodel:error", onError);
+      fn();
+    };
+    const errorText = (detail: unknown): string => {
+      if (typeof detail === "string") return detail;
+      if (detail && typeof detail === "object" && "message" in detail) {
+        return String((detail as { message?: unknown }).message);
+      }
+      return "unknown model boot error";
+    };
+    const onBoot = (): void => settle(resolve);
+    const onFatal = (ev: Event): void => {
+      const msg = errorText((ev as CustomEvent<unknown>).detail ?? _arc.modelLoadError);
+      settle(() => reject(new Error(`Model failed to load — ${msg}`)));
+    };
+    const onError = (ev: Event): void => {
+      const msg = errorText((ev as CustomEvent<unknown>).detail ?? _arc.modelLoadError);
+      settle(() => reject(new Error(`Model failed to load — ${msg}`)));
+    };
+    window.addEventListener("agentmodel:boot-complete", onBoot, { once: true });
+    window.addEventListener("agentmodel:fatal", onFatal, { once: true });
+    window.addEventListener("agentmodel:error", onError, { once: true });
+    if (_arc.bootComplete) settle(resolve);
+    else if (_arc.modelLoadError) settle(() => reject(new Error(`Model failed to load — ${_arc.modelLoadError}`)));
+  });
+}
+
 /** Remote KV warmup (#492). On-device warmup is handled by the worker. */
 async function prefillSystemPromptAsync(): Promise<void> {
   if (_arc.prefillDone) return;
@@ -1712,6 +1750,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
     });
   }
   const worker = initWorkerIfNeeded();
+  if (!_arc.bootComplete) await waitForWorkerBootComplete();
 
   // Get imageUrl for vision turns (worker loads RawImage internally — no transfer needed).
   let imageUrl: string | undefined;

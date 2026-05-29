@@ -44,8 +44,9 @@ if (typeof window === 'undefined') {
         const reloadedBySelf = window.sessionStorage.getItem("coiReloadedBySelf");
         window.sessionStorage.removeItem("coiReloadedBySelf");
         const coepDegrading = (reloadedBySelf == "coepdegrade");
+        const shouldRegisterAfterReload = !reloadedBySelf || reloadedBySelf === "scope-mismatch";
         const coi = {
-            shouldRegister: () => !reloadedBySelf,
+            shouldRegister: () => shouldRegisterAfterReload,
             shouldDeregister: () => false,
             coepCredentialless: () => true,
             coepDegrade: () => true,
