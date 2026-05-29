@@ -3,13 +3,13 @@
 // Extracted from workbench.ts (lines 276–285, 86–109, 2093–2803).
 
 import { iconSVG } from "../ui/icons";
-import { compileDsl } from "../commands/dsl-eval";
-import { dispatchSync, type DispatchArgs } from "../commands/dispatch";
-import { startCommandSession } from "../commands/command-session";
 import { checkConsentAndLoad } from "../agent/model-consent";
 import { isCadOnlyMode } from "../agent/boot-screen";
 import { ChatPanel } from "../chat/chat-panel";
-import { prefetchModel, MODEL_ID } from "../agent/agent-harness";
+import {
+  prefetchModel, MODEL_ID,
+  suppressAgentSession, releaseAgentSession, isAgentSessionSuspended,
+} from "../agent/agent-harness";
 import {
   listSavedSkills,
   type SavedSkill, type SkillStep,
@@ -35,24 +35,9 @@ export const DOCK_TABS: DockTab[] = [
   { id: "history", icon: "history", label: "HISTORY" },
 ];
 
-// Merged PROMPT/CONSOLE input: one tab, two modes. Shift+Tab toggles.
-type ConsoleMode = "prompt" | "console";
-const CONSOLE_MODE_LS_KEY = "web-cad:console-mode-v1";
-function loadConsoleMode(): ConsoleMode {
-  try {
-    const v = localStorage.getItem(CONSOLE_MODE_LS_KEY);
-    return v === "console" ? "console" : "prompt";
-  } catch { return "prompt"; }
-}
-function saveConsoleMode(m: ConsoleMode): void {
-  try { localStorage.setItem(CONSOLE_MODE_LS_KEY, m); } catch {}
-}
-
-// Exposed so cmdk can flip the mode without round-tripping through the DOM.
-let _setConsoleModeFn: ((m: ConsoleMode) => void) | null = null;
-export function setConsoleMode(m: ConsoleMode): void {
-  _setConsoleModeFn?.(m);
-}
+// setConsoleMode kept as no-op — console tab removed in #213; callers in cmdk / workbench.ts re-export.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function setConsoleMode(_m: string): void { /* no-op — console tab removed */ }
 
 // Module-level chat-panel ref so skillstore:saved can push saved skills into fastpath.
 let _chatPanel: InstanceType<typeof ChatPanel> | null = null;
@@ -181,59 +166,48 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
     return wrap;
   }
 
-  let mode = loadConsoleMode();
-
   const header = el("div", "ai-header");
   function renderHeader(): void {
+    const suspended = isAgentSessionSuspended();
     header.innerHTML = `
       <div class="ai-title">
-        ${mode === "console" ? iconSVG("terminal", 13) : iconSVG("sparkle", 13)}
-        ${mode === "console" ? "CONSOLE  ·  DSL COMMAND INPUT" : "CREATE  ·  CONVERSATION WITH GEMMA"}
+        ${iconSVG("sparkle", 13)}
+        CREATE  ·  CONVERSATION WITH GEMMA
       </div>
-      <button class="mode-pill" title="Shift+Tab to toggle mode" data-mode="${mode}">
-        ${mode === "console" ? "● CONSOLE" : "○ CREATE"}
+      <button class="vram-pill${suspended ? " vram-pill--suspended" : ""}" id="vram-toggle" type="button"
+        title="${suspended ? "Resume agent (re-acquire VRAM)" : "Pause agent to free VRAM"}">
+        ${suspended ? "▶ RESUME" : "⏸ SUSPEND"}
       </button>
       <span class="ai-badge" id="ai-model-badge">
         <span class="v">G</span>EMMA·4·E4B  ·  LIVE
       </span>
     `;
-    header.querySelector(".mode-pill")?.addEventListener("click", () => {
-      setConsoleMode(mode === "console" ? "prompt" : "console");
+    header.querySelector("#vram-toggle")?.addEventListener("click", () => {
+      if (isAgentSessionSuspended()) releaseAgentSession();
+      else suppressAgentSession();
     });
   }
   renderHeader();
   wrap.appendChild(header);
+
+  // Keep vram-toggle label/state in sync whenever the harness suspends or resumes.
+  window.addEventListener("agentmodel:session-suspended", (e) => {
+    const suspended = (e as CustomEvent<{ suspended: boolean }>).detail.suspended;
+    const btn = document.getElementById("vram-toggle") as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.textContent = suspended ? "▶ RESUME" : "⏸ SUSPEND";
+    btn.title = suspended ? "Resume agent (re-acquire VRAM)" : "Pause agent to free VRAM";
+    btn.classList.toggle("vram-pill--suspended", suspended);
+  });
 
   const chatRoot = el("div", "chat-panel-root");
   const chatPanel = new ChatPanel(chatRoot);
   _chatPanel = chatPanel;
   void _refreshChatSkills();
 
-  const consolePane = buildConsoleInner();
-
   const innerHost = el("div", "create-tab-inner");
-  innerHost.appendChild(mode === "console" ? consolePane : chatRoot);
+  innerHost.appendChild(chatRoot);
   wrap.appendChild(innerHost);
-
-  _setConsoleModeFn = (m: ConsoleMode) => {
-    if (m === mode) return;
-    mode = m;
-    saveConsoleMode(m);
-    renderHeader();
-    innerHost.innerHTML = "";
-    innerHost.appendChild(m === "console" ? consolePane : chatRoot);
-  };
-
-  const ac = new AbortController();
-  document.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.shiftKey && e.key === "Tab") {
-      e.preventDefault();
-      setConsoleMode(mode === "console" ? "prompt" : "console");
-    }
-  }, { signal: ac.signal });
-  new MutationObserver(() => {
-    if (!wrap.isConnected) ac.abort();
-  }).observe(document.body, { childList: true, subtree: true });
 
   if (promptPane) {
     promptPane.classList.add("prompt-pane-embed");
@@ -242,141 +216,6 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
   const recentList = el("div", "ai-recent-list", { id: "ai-recent-list" });
   wrap.appendChild(recentList);
   renderRecentList(recentList);
-
-  return wrap;
-}
-
-// ── CONSOLE inner pane ─────────────────────────────────────────────────────────
-
-function buildConsoleInner(): HTMLElement {
-  const wrap = el("div", "console-inner-pane");
-  wrap.innerHTML = `
-    <div class="console">
-      <div class="console-history" id="console-history">
-        <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">OpenCascade WebAssembly initialized</span></div>
-        <div class="console-line info"><span class="ts">00:00:01</span><span class="glyph">·</span><span class="text">web-ifc parser ready · IFC4 schema</span></div>
-        <div class="console-line ok"><span class="ts">00:00:02</span><span class="glyph">✓</span><span class="text">Gemma 4 E4B-it ready</span></div>
-        <div class="console-line info"><span class="ts">00:00:03</span><span class="glyph">·</span><span class="text">DSL ready · type wall|slab|column|box|cut, then ⏎</span></div>
-      </div>
-      <div class="console-prompt">
-        <span class="caret">›</span>
-        <input id="console-input" placeholder="DSL — wall (0 0) (5 0) height=3 thickness=0.2     |     column (0 0) height=3 profile=square(0.3)"/>
-        <span style="font-family:var(--mono); font-size:9.5px; color:var(--ink-faint); letter-spacing:0.04em;">⏎ run</span>
-      </div>
-    </div>
-  `;
-
-  const input = wrap.querySelector<HTMLInputElement>("#console-input")!;
-  const history = wrap.querySelector<HTMLDivElement>("#console-history")!;
-  const buffer: string[] = [];
-  let bufferIdx = 0;
-
-  function ts(): string {
-    const d = new Date();
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-  }
-  function pushLine(kind: "cmd" | "ok" | "err" | "info", text: string) {
-    const line = document.createElement("div");
-    line.className = `console-line ${kind}`;
-    const glyph = kind === "cmd" ? "›" : kind === "ok" ? "✓" : kind === "err" ? "✗" : "·";
-    line.innerHTML = `<span class="ts">${ts()}</span><span class="glyph">${glyph}</span><span class="text"></span>`;
-    line.querySelector(".text")!.textContent = text;
-    history.appendChild(line);
-    history.scrollTop = history.scrollHeight;
-  }
-
-  input.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.shiftKey && e.key === "Tab") return; // let global handler take it
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const src = input.value.trim();
-      if (!src) return;
-      buffer.push(src);
-      bufferIdx = buffer.length;
-      input.value = "";
-      pushLine("cmd", src);
-
-      void (async () => {
-        const isDeclCmd = src.startsWith(":");
-        const dslSrc = isDeclCmd ? src.slice(1).trim() : src;
-
-        if (isDeclCmd) {
-          const tokens = dslSrc.split(/\s+/);
-          const verb = tokens[0];
-          const dispArgs: DispatchArgs = {};
-          for (const t of tokens.slice(1)) {
-            const eq = t.indexOf("=");
-            if (eq > 0) {
-              const k = t.slice(0, eq);
-              const v = t.slice(eq + 1);
-              const n = Number(v);
-              dispArgs[k] = Number.isFinite(n) ? n : v;
-            }
-          }
-          const sr = await startCommandSession({ command: verb, parameters: dispArgs, metadata: { source: "console" } });
-          if (sr.status === "needs_input") {
-            setPickerHint(sr.summary ?? "Click in viewport to place");
-            pushLine("info", `${verb} → ${sr.summary ?? "needs_input"}`);
-          } else if (sr.status === "success") {
-            setPickerHint(null);
-            pushLine("ok", `dispatch ${verb} → ok`);
-          } else {
-            const dr = dispatchSync(verb, dispArgs);
-            pushLine(
-              dr.ok ? "ok" : (dr.error === "HandlerThrew" || dr.error === "NoHandler" ? "err" : "info"),
-              `dispatch ${verb} → ${dr.ok ? dr.canonical! : `${dr.error}${dr.detail ? ": " + dr.detail : ""}`}`,
-            );
-          }
-        }
-
-        const c = compileDsl(dslSrc);
-        if (!c.ok) {
-          pushLine("err", `line ${c.line}: ${c.message}`);
-          return;
-        }
-        if (c.dispatches && c.dispatches.length > 0) {
-          for (const d of c.dispatches) {
-            const sr = await startCommandSession({ command: d.verb, parameters: d.args, metadata: { source: "console" } });
-            if (sr.status === "needs_input") {
-              setPickerHint(sr.summary ?? "Click in viewport to place");
-              pushLine("info", `${d.verb} → ${sr.summary ?? "needs_input"}`);
-            } else if (sr.status === "success") {
-              setPickerHint(null);
-              pushLine("ok", `dispatch ${d.verb} → ok`);
-            } else {
-              const dr = dispatchSync(d.verb, d.args);
-              pushLine(
-                dr.ok ? "ok" : (dr.error === "HandlerThrew" || dr.error === "NoHandler" ? "err" : "info"),
-                `dispatch ${d.verb} → ${dr.ok ? dr.canonical! : `${dr.error}${dr.detail ? ": " + dr.detail : ""}`}`,
-              );
-            }
-          }
-        }
-        if (c.js) {
-          const jsSrc = document.getElementById("js-source") as HTMLTextAreaElement | null;
-          const runBtn = document.getElementById("run-btn") as HTMLButtonElement | null;
-          if (jsSrc && runBtn) {
-            jsSrc.value = c.js;
-            jsSrc.dispatchEvent(new Event("input", { bubbles: true }));
-            pushLine("info", `compiled · ${c.solids.length} solid${c.solids.length === 1 ? "" : "s"} → kernel`);
-            runBtn.click();
-          } else {
-            pushLine("err", "kernel not ready (no #run-btn / #js-source)");
-          }
-        }
-      })();
-    } else if (e.key === "ArrowUp") {
-      if (buffer.length === 0) return;
-      e.preventDefault();
-      bufferIdx = Math.max(0, bufferIdx - 1);
-      input.value = buffer[bufferIdx] ?? "";
-    } else if (e.key === "ArrowDown") {
-      if (buffer.length === 0) return;
-      e.preventDefault();
-      bufferIdx = Math.min(buffer.length, bufferIdx + 1);
-      input.value = buffer[bufferIdx] ?? "";
-    }
-  });
 
   return wrap;
 }

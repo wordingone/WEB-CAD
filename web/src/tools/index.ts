@@ -16,7 +16,7 @@ import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView,
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
-import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
+import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
 import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
@@ -105,8 +105,10 @@ let _lastCreateClickY = 0;
 let _previewMesh: THREE.Mesh | null = null;
 let _markerMesh: THREE.Points | null = null;
 let _roofFootprintLine: THREE.Line | null = null;
-// Ghost preview mesh for door/window before first click (#845/#846 AC3).
+// Ghost preview mesh for door/window/opening before first click (#845/#846 AC3).
 let _openingPreviewMesh: THREE.Mesh | null = null;
+// Ghost preview mesh for column before first click (#222).
+let _columnPreviewMesh: THREE.Mesh | null = null;
 // Axis-constraint indicator line shown when Shift is held during sketch drawing.
 let _sketchShiftAxisLine: THREE.Line | null = null;
 // Cursor dot — CSS overlay div that tracks the pointer when a sketch tool is active.
@@ -186,18 +188,40 @@ function clearOpeningPreview(viewer: Viewer): void {
   _openingPreviewMesh = null;
 }
 
+function clearColumnPreview(viewer: Viewer): void {
+  if (!_columnPreviewMesh) return;
+  viewer.getScene().remove(_columnPreviewMesh);
+  (_columnPreviewMesh.geometry as THREE.BufferGeometry).dispose();
+  (_columnPreviewMesh.material as THREE.Material).dispose();
+  _columnPreviewMesh = null;
+}
+
+function updateColumnPreview(viewer: Viewer, snapped: { x: number; y: number; z?: number }): void {
+  clearColumnPreview(viewer);
+  const s = 0.3, h = DEFAULT_COLUMN_HEIGHT;
+  const elev = (snapped.z ?? 0) || levelStore.getActive().elevation;
+  const geom = new THREE.BoxGeometry(s, s, h);
+  geom.translate(0, 0, h / 2);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xd1c5b0, transparent: true, opacity: 0.35 });
+  _columnPreviewMesh = new THREE.Mesh(geom, mat);
+  _columnPreviewMesh.position.set(snapped.x, snapped.y, elev);
+  _columnPreviewMesh.userData.noSnap = true;
+  _columnPreviewMesh.userData.isPreview = true;
+  viewer.getScene().add(_columnPreviewMesh);
+}
+
 function updateOpeningPreview(
   viewer: Viewer,
-  tool: "door" | "window",
+  tool: "door" | "window" | "opening",
   snapped: { x: number; y: number; z?: number },
   clientX: number,
   clientY: number,
 ): void {
   const elev = levelStore.getActive().elevation;
-  const w = tool === "door" ? FZK_DOOR_W : FZK_WINDOW_W;
-  const h = tool === "door" ? FZK_DOOR_H : FZK_WINDOW_H;
-  const zOff = tool === "door" ? 0 : FZK_WINDOW_SILL;
-  const color = tool === "door" ? 0xaa6633 : 0x88c4e8;
+  const w = tool === "door" ? FZK_DOOR_W : tool === "window" ? FZK_WINDOW_W : 1;
+  const h = tool === "door" ? FZK_DOOR_H : tool === "window" ? FZK_WINDOW_H : 2;
+  const zOff = tool === "window" ? FZK_WINDOW_SILL : 0;
+  const color = tool === "door" ? 0xaa6633 : tool === "window" ? 0x88c4e8 : 0x666666;
 
   clearOpeningPreview(viewer);
 
@@ -275,6 +299,7 @@ export function clearTemporary(viewer: Viewer): void {
   clearSketchShiftLine(viewer);
   clearRoofFootprint(viewer);
   clearOpeningPreview(viewer);
+  clearColumnPreview(viewer);
 }
 
 // ── Cursor dot ────────────────────────────────────────────────────────────────
@@ -385,7 +410,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   "wall-polyline": { clicks: 2, chain: true, handler: atZ(([a, b]) => buildWall(a, b)) },
   "wall-curve":    {
     clicks: -1,
-    handler: atZ((pts) => pts.length >= 2 ? buildSplinePreview(pts) : buildSplinePreview([pts[0], pts[0]])),
+    handler: atZ((pts) => pts.length >= 2 ? buildCurveWall(pts) : buildSplinePreview([pts[0], pts[0]])),
     commitMulti: (pts) => pts.length >= 2 ? [buildCurveWall(pts)] : [],
   },
   rect:        { clicks: 2, handler: atZ(([a, b]) => buildRect(a, b)) },
@@ -409,7 +434,7 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   arc:         { clicks: 3, handler: atZ(([c, s, e]) => buildArc(c, s, e)) },
   polyline:    { clicks: -1, handler: atZ((pts) => buildPolyline(pts)) },
   curve:       { clicks: -1, handler: atZ((pts) => buildCurve(pts)) },
-  spline:      { clicks: -1, minPoints: 4, handler: atZ((pts) => buildSpline(pts)!) },
+  spline:      { clicks: -1, minPoints: 4, handler: atZ((pts) => buildSpline(pts) ?? buildSplinePreview(pts)) },
   point:       { clicks: 1, handler: atZ(([p]) => buildPoint(p)) },
   beam:        { clicks: 2, handler: atZ(([a, b]) => buildBeam(a, b)) },
   roof:        { clicks: 2, handler: atTopOfLevel(([a, b]) => buildRoof(a, b), DEFAULT_CEILING_OFFSET) },
@@ -491,7 +516,7 @@ function updateRubberBand(viewer: Viewer, handler: ToolHandler, livePoint: { x: 
       preview.traverse((child) => { if (child instanceof THREE.Mesh) applyPreviewMat(child); });
       _previewMesh = preview as unknown as THREE.Mesh;
     }
-    preview.traverse((c) => { c.userData.noSnap = true; });
+    preview.traverse((c) => { c.userData.noSnap = true; c.userData.isPreview = true; });
     viewer.getScene().add(preview);
   } catch {
     // Degenerate geometry — skip preview
@@ -1694,6 +1719,8 @@ export function resetPending(): void {
   _shiftAxisChoice = null;
 }
 
+export function isToolMidExecution(): boolean { return _pending.length > 0; }
+
 // ── screenYtoDz (local, needed by pointer handlers) ──────────────────────────
 
 function screenYtoDz(viewer: Viewer, screenY: number, base: { x: number; y: number; z?: number }): number {
@@ -2473,11 +2500,18 @@ export function initCreateMode(viewer: Viewer): void {
 
     if (!tool) return;
 
-    // Door/window ghost preview — runs before any click (#845/#846 AC3).
-    if (tool === "door" || tool === "window") {
-      updateOpeningPreview(viewer, tool as "door" | "window", snapped, ev.clientX, ev.clientY);
+    // Door/window/opening ghost preview — runs before any click (#845/#846 AC3, #222).
+    if (tool === "door" || tool === "window" || tool === "opening") {
+      updateOpeningPreview(viewer, tool as "door" | "window" | "opening", snapped, ev.clientX, ev.clientY);
     } else {
       clearOpeningPreview(viewer);
+    }
+
+    // Column ghost preview — runs before first click (#222).
+    if (tool === "column") {
+      updateColumnPreview(viewer, snapped);
+    } else {
+      clearColumnPreview(viewer);
     }
 
     if (_pending.length === 0) return;
@@ -2494,6 +2528,7 @@ export function initCreateMode(viewer: Viewer): void {
     hideCursorDot();
     opSetHover(null);
     clearOpeningPreview(viewer);
+    clearColumnPreview(viewer);
   });
 
   // ── pointerup ─────────────────────────────────────────────────────────────────

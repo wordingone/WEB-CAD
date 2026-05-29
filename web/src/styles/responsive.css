@@ -271,6 +271,83 @@
 .ai-badge .gpu-health.yellow { color: #c9921a; }
 .ai-badge .gpu-health.red    { color: #e05252; }
 
+.vram-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  background: var(--paper);
+  cursor: pointer;
+  user-select: none;
+}
+.vram-pill:hover { border-color: var(--ink-faint); color: var(--ink); }
+.vram-pill--suspended { color: var(--ink); border-color: var(--gemma); }
+
+/* ── command-at-cursor overlay ─────────────────────────────────────────────── */
+.cmd-cursor-overlay {
+  position: fixed;
+  z-index: 9000;
+  width: 220px;
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--hairline, #333);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  overflow: hidden;
+  font-family: var(--mono, monospace);
+}
+.cmd-cursor-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--hairline, #333);
+  color: var(--ink, #eee);
+  caret-color: var(--ink, #eee);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  outline: none;
+}
+.cmd-cursor-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.cmd-cursor-item {
+  padding: 5px 10px;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #888);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cmd-cursor-item:hover { background: var(--surface-raised, #252525); color: var(--ink, #eee); }
+.cmd-cursor-item--active { background: var(--surface-raised, #252525); color: var(--ink, #eee); }
+.cmd-cursor-arg-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #888);
+}
+.cmd-cursor-arg-input { border-bottom: none; border-top: none; }
+.cmd-cursor-arg-input.cmd-cursor-arg-error { border-bottom: 1px solid #c0392b; }
+.cmd-cursor-arg-hint {
+  padding: 4px 10px 8px;
+  font-size: 9.5px;
+  color: var(--ink-faint, #888);
+  opacity: 0.65;
+}
+
 .ai-prompt {
   width: 100%;
   flex: 1 1 0;
