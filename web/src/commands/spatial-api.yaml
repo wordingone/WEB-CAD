@@ -1024,7 +1024,7 @@
   topology_role: host
   kg_predicates: [hosts, containedIn, bounds]
   synonyms: [curvewall, curve-wall, wall-curve, splinewall, spline-wall]
-  kernel: nurbs
+  kernel: nurbs-webgpu
   alias_source: WEB-CAD
 
 - name: SdSlab

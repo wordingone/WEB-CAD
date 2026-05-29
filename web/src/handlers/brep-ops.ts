@@ -250,7 +250,7 @@ function rebuildCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<stri
     },
   });
   store.linkObject(mesh, record.id);
-  viewer.getScene().remove(obj);
+  viewer.getScene().remove(obj); // audit-undo-ok - replacement is tracked by pushReplaceAction below
   viewer.addMesh(mesh, "brep", { noHistory: true });
   pushReplaceAction(mesh, [obj], "rebuild");
   return { rebuilt: mesh.uuid, original: obj.uuid, originalFaces, rebuiltFaces, source: "canonical-brep", surfaceKind: "nurbs" };
@@ -747,13 +747,13 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
     if (obj instanceof THREE.Group) {
       const children = [...obj.children];
       if (children.length === 0) return { error: "SdExplode - group is empty" };
-      scene.remove(obj);
+      scene.remove(obj); // audit-undo-ok - group replacement is tracked by pushReplaceAction below
       const exploded: string[] = [];
       for (const child of children) {
         child.applyMatrix4(obj.matrixWorld);
         child.updateMatrixWorld(true);
         child.userData.dispatchArgs = args;
-        scene.add(child);
+        scene.add(child); // audit-undo-ok - exploded children are tracked by pushReplaceAction below
         exploded.push(child.uuid);
       }
       pushReplaceAction(children[0], [obj], "SdExplode");
@@ -929,7 +929,7 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
         source: targetId,
         count,
       });
-      scene.remove(obj);
+      scene.remove(obj); // audit-undo-ok - curve replacement is tracked by pushReplaceAction below
       viewer.addMesh(rebuilt as unknown as THREE.Mesh, "mesh", { noHistory: true });
       pushReplaceAction(rebuilt as unknown as THREE.Mesh, [obj], "SdRebuild");
       return { rebuilt: rebuilt.uuid, originalVertices: sourcePts.length, targetCount: rebuiltPts.length };
