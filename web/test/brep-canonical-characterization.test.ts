@@ -415,6 +415,10 @@ describe("BRep canonical migration characterization", () => {
       expect(record.metadata?.operation).toBe("explode-face");
       expect(record.brep.shells[0].faces).toHaveLength(1);
       expect(record.brep.shells[0].isClosed).toBe(false);
+      expect(record.brep.shells[0].edges.length).toBeGreaterThanOrEqual(4);
+      expect(record.brep.shells[0].vertices.length).toBe(record.brep.shells[0].edges.length);
+      expect(record.brep.shells[0].edges.every((edge) => edge.faceIndex1 === 0 && edge.faceIndex2 === null)).toBe(true);
+      expect(record.brep.shells[0].vertices.every((vertex) => vertex.edgeIndices.length === 2)).toBe(true);
     }
     expect(maxX).toBeGreaterThan(1.5);
   });

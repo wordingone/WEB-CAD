@@ -1,9 +1,9 @@
 import { registerHandler } from "../commands/dispatch";
 import { pushReplaceAction } from "../history";
-import { brepConcat, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, brepConcat, type Brep, type BrepEdge, type BrepFace, type BrepVertex } from "../nurbs/nurbs-brep";
 import type { Curve } from "../nurbs/nurbs-curves";
 import { transform as transformCurve } from "../nurbs/nurbs-curves";
-import type { Point3, Xform } from "../nurbs/nurbs-primitives";
+import { Interval, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import { Point3 as Pt3 } from "../nurbs/nurbs-primitives";
 import { domainU, domainV, getNurbsForm, pointAtUV, tessellateSurface, transformSurface, type NurbsSurface, type PlaneSurface } from "../nurbs/nurbs-surfaces";
 import type { Viewer } from "../viewer/viewer";
@@ -416,7 +416,7 @@ function explodeCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<stri
       faceMesh.userData.dispatchArgs = args;
       const record = store.create({
         kind: "brep",
-        brep: { shells: [{ faces: [face], edges: [], vertices: [], isClosed: false }] },
+        brep: singleFaceBrep(face),
         source: "edit",
         createdBy: "SdExplode",
         metadata: {
@@ -438,6 +438,42 @@ function explodeCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<stri
     : (() => { const m = new THREE.Mesh(); m.uuid = createdUuids[0]; return m; })(),
     [obj], "explode");
   return { exploded: createdUuids, faceCount: createdUuids.length, source: "canonical-brep" };
+}
+
+function singleFaceBrep(face: BrepFace): Brep {
+  const loop = faceLoopWorldPoints(face);
+  const vertices: BrepVertex[] = loop.map((point) => ({
+    point: { ...point },
+    edgeIndices: [],
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  }));
+  const edges: BrepEdge[] = [];
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    const length = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    edges.push({
+      curve: {
+        kind: "line",
+        from: { ...a },
+        to: { ...b },
+        domain: Interval.create(0, length),
+      },
+      faceIndex1: 0,
+      faceIndex2: null,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+    vertices[i].edgeIndices.push(i);
+    vertices[(i + 1) % loop.length].edgeIndices.push(i);
+  }
+  return {
+    shells: [{
+      faces: [face],
+      edges,
+      vertices,
+      isClosed: false,
+    }],
+  };
 }
 
 function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
