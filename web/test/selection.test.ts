@@ -76,6 +76,7 @@ test("Ctrl+Shift drilldown bypasses whole-object hover and Shift multi-select", 
   const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
   expect(viewerSource).toContain("addToMultiSelected(subSelection)");
   expect(viewerSource).toContain("subObjectCount: subSelections.length");
+  expect(viewerSource).toContain("!this.subSelectionHighlights.includes(c)");
 });
 
 test("multi-selection distinguishes multiple sub-objects on the same BRep display mesh", () => {

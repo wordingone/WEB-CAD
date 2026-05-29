@@ -854,7 +854,8 @@ export class Viewer {
     const pickables = this.scene.children.filter(
       c => c !== this.grid && c !== this.axes && !(c instanceof THREE.Sprite) &&
            !(c instanceof THREE.DirectionalLight) && !(c instanceof THREE.AmbientLight) &&
-           !gizmoSet.has(c) && c !== this.pivotProxy && c !== this._cplaneGizmo.group
+           !gizmoSet.has(c) && c !== this.pivotProxy && c !== this._cplaneGizmo.group &&
+           c !== this.subSelectionHover && !this.subSelectionHighlights.includes(c)
     );
     const hits = this.raycaster.intersectObjects(pickables, true);
     // Handles render without depth-test so they must be selectable even when
