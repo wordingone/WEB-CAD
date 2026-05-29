@@ -465,28 +465,52 @@ export class Viewer {
     return Math.max(0.05, Math.min(0.3, cameraPos.distanceTo(atRay) * 0.01));
   }
 
-  private pickBrepVertex(ray: THREE.Ray, owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }>): Selection | null {
+  private candidateBrepMeshes(hits: THREE.Intersection[]): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = [];
+    const seen = new Set<string>();
+    for (const hit of hits) {
+      if (!this.visibleHit(hit)) continue;
+      if (!(hit.object instanceof THREE.Mesh)) continue;
+      if (!this.getCanonicalBrepOwner(hit.object)) continue;
+      if (seen.has(hit.object.uuid)) continue;
+      seen.add(hit.object.uuid);
+      meshes.push(hit.object);
+    }
+    return meshes;
+  }
+
+  private meshVertexWorld(mesh: THREE.Mesh, index: number): THREE.Vector3 | null {
+    const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!pos || index < 0 || index >= pos.count) return null;
+    return new THREE.Vector3(pos.getX(index), pos.getY(index), pos.getZ(index)).applyMatrix4(mesh.matrixWorld);
+  }
+
+  private pickBrepDisplayVertex(ray: THREE.Ray, meshes: THREE.Mesh[]): Selection | null {
     if (!topologyAllowed("vertex")) return null;
     const threshold = this.subObjectPickTolerance(ray);
-    let best: { distance: number; owner: THREE.Object3D; vertexIndex: number } | null = null;
-    for (const { owner, record } of owners) {
-      let vertexOffset = 0;
-      for (const shell of record.brep.shells) {
-        for (let i = 0; i < shell.vertices.length; i++) {
-          const worldPoint = this.pointToWorld(owner, shell.vertices[i].point);
-          const distance = ray.distanceToPoint(worldPoint);
-          if (distance <= threshold && (!best || distance < best.distance)) {
-            best = { distance, owner, vertexIndex: vertexOffset + i };
-          }
+    let best: { distance: number; mesh: THREE.Mesh; owner: THREE.Object3D; vertexIndex: number } | null = null;
+    for (const mesh of meshes) {
+      const owner = this.getCanonicalBrepOwner(mesh)?.owner;
+      const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+      if (!owner || !pos) continue;
+      const seen = new Set<string>();
+      for (let i = 0; i < pos.count; i++) {
+        const worldPoint = this.meshVertexWorld(mesh, i);
+        if (!worldPoint) continue;
+        const key = `${worldPoint.x.toFixed(6)},${worldPoint.y.toFixed(6)},${worldPoint.z.toFixed(6)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const distance = ray.distanceToPoint(worldPoint);
+        if (distance <= threshold && (!best || distance < best.distance)) {
+          best = { distance, mesh, owner, vertexIndex: i };
         }
-        vertexOffset += shell.vertices.length;
       }
     }
     if (!best) return null;
     return {
       topology: "vertex",
-      uuid: best.owner.uuid,
-      object: best.owner,
+      uuid: best.mesh.uuid,
+      object: best.mesh,
       parent: best.owner,
       parentUuid: best.owner.uuid,
       vertexIndex: best.vertexIndex,
@@ -494,32 +518,60 @@ export class Viewer {
     };
   }
 
-  private pickBrepEdge(ray: THREE.Ray, owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }>): Selection | null {
+  private groupedBoundaryEdges(mesh: THREE.Mesh): Array<[number, number, number]> {
+    const geometry = mesh.geometry;
+    const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!geometry || !pos) return [];
+    const index = geometry.getIndex();
+    const groups = geometry.groups.length > 0
+      ? geometry.groups
+      : [{ start: 0, count: index ? index.count : pos.count, materialIndex: 0 }];
+    const edges: Array<[number, number, number]> = [];
+    for (const group of groups) {
+      const counts = new Map<string, { a: number; b: number; count: number }>();
+      const readIndex = (i: number) => index ? index.getX(i) : i;
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        const tri = [readIndex(i), readIndex(i + 1), readIndex(i + 2)];
+        for (const [a0, b0] of [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]) {
+          const a = Math.min(a0, b0);
+          const b = Math.max(a0, b0);
+          const key = `${a}:${b}`;
+          const prev = counts.get(key);
+          if (prev) prev.count++;
+          else counts.set(key, { a, b, count: 1 });
+        }
+      }
+      for (const edge of counts.values()) {
+        if (edge.count === 1) edges.push([edge.a, edge.b, group.materialIndex ?? 0]);
+      }
+    }
+    return edges;
+  }
+
+  private pickBrepDisplayEdge(ray: THREE.Ray, meshes: THREE.Mesh[]): Selection | null {
     if (!topologyAllowed("edge")) return null;
     const thresholdSq = this.subObjectPickTolerance(ray) ** 2;
-    let best: { distanceSq: number; owner: THREE.Object3D; edgeIndex: number } | null = null;
-    for (const { owner, record } of owners) {
-      let edgeOffset = 0;
-      for (const shell of record.brep.shells) {
-        for (let edgeIndex = 0; edgeIndex < shell.edges.length; edgeIndex++) {
-          const pts = tessellateCurve(shell.edges[edgeIndex].curve, 12);
-          for (let i = 1; i < pts.length; i++) {
-            const a = this.pointToWorld(owner, pts[i - 1]);
-            const b = this.pointToWorld(owner, pts[i]);
-            const distanceSq = ray.distanceSqToSegment(a, b);
-            if (distanceSq <= thresholdSq && (!best || distanceSq < best.distanceSq)) {
-              best = { distanceSq, owner, edgeIndex: edgeOffset + edgeIndex };
-            }
-          }
+    let best: { distanceSq: number; mesh: THREE.Mesh; owner: THREE.Object3D; edgeIndex: number } | null = null;
+    for (const mesh of meshes) {
+      const owner = this.getCanonicalBrepOwner(mesh)?.owner;
+      if (!owner) continue;
+      const edges = this.groupedBoundaryEdges(mesh);
+      for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex++) {
+        const [ia, ib] = edges[edgeIndex];
+        const a = this.meshVertexWorld(mesh, ia);
+        const b = this.meshVertexWorld(mesh, ib);
+        if (!a || !b) continue;
+        const distanceSq = ray.distanceSqToSegment(a, b);
+        if (distanceSq <= thresholdSq && (!best || distanceSq < best.distanceSq)) {
+          best = { distanceSq, mesh, owner, edgeIndex };
         }
-        edgeOffset += shell.edges.length;
       }
     }
     if (!best) return null;
     return {
       topology: "edge",
-      uuid: best.owner.uuid,
-      object: best.owner,
+      uuid: best.mesh.uuid,
+      object: best.mesh,
       parent: best.owner,
       parentUuid: best.owner.uuid,
       edgeIndex: best.edgeIndex,
@@ -562,9 +614,10 @@ export class Viewer {
       owners.push(owner);
     }
     if (owners.length === 0) return null;
+    const meshes = this.candidateBrepMeshes(hits);
     return (
-      this.pickBrepVertex(this.raycaster.ray, owners)
-      ?? this.pickBrepEdge(this.raycaster.ray, owners)
+      this.pickBrepDisplayVertex(this.raycaster.ray, meshes)
+      ?? this.pickBrepDisplayEdge(this.raycaster.ray, meshes)
       ?? this.pickBrepFace(hits)
     );
   }
