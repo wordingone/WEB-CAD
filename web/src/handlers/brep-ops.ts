@@ -335,12 +335,58 @@ function contourSegmentsForFace(face: BrepFace, z: number): Array<[Point3, Point
   return segments;
 }
 
-function makeContourCurve(a: Point3, b: Point3): Curve {
+function pointsClose(a: Point3, b: Point3, tolerance = 1e-7): boolean {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= tolerance;
+}
+
+function makeContourCurve(points: Point3[]): Curve {
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
   return {
     kind: "polyline",
-    points: [a, b],
-    parameters: [0, Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z)],
+    points,
+    parameters,
   };
+}
+
+function stitchContourSegments(segments: Array<[Point3, Point3]>): Point3[][] {
+  const remaining = segments
+    .filter(([a, b]) => !pointsClose(a, b))
+    .map(([a, b]) => [{ ...a }, { ...b }] as [Point3, Point3]);
+  const chains: Point3[][] = [];
+  while (remaining.length > 0) {
+    const [first] = remaining.splice(0, 1);
+    const chain: Point3[] = [first[0], first[1]];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const head = chain[0];
+      const tail = chain[chain.length - 1];
+      for (let i = 0; i < remaining.length; i++) {
+        const [a, b] = remaining[i];
+        if (pointsClose(tail, a)) {
+          chain.push(b);
+        } else if (pointsClose(tail, b)) {
+          chain.push(a);
+        } else if (pointsClose(head, b)) {
+          chain.unshift(a);
+        } else if (pointsClose(head, a)) {
+          chain.unshift(b);
+        } else {
+          continue;
+        }
+        remaining.splice(i, 1);
+        changed = true;
+        break;
+      }
+    }
+    chains.push(chain);
+  }
+  return chains.filter((chain) => chain.length >= 2);
 }
 
 function addContourLine(viewer: Viewer, curve: Curve, metadata: Record<string, unknown>, args: Record<string, unknown>): string {
@@ -379,19 +425,28 @@ function contourCanonicalBrep(viewer: Viewer, obj: THREE.Mesh, args: Record<stri
   const created: string[] = [];
   for (const level of levels) {
     let faceIndex = 0;
+    const levelSegments: Array<[Point3, Point3]> = [];
+    const faceIndices: number[] = [];
     for (const shell of brep.shells) {
       for (const face of shell.faces) {
         for (const [a, b] of contourSegmentsForFace(face, level)) {
-          const curve = makeContourCurve(a, b);
-          created.push(addContourLine(viewer, curve, {
-            operation: "contour",
-            source: sourceCanonical.id,
-            level,
-            faceIndex,
-          }, args));
+          levelSegments.push([a, b]);
+          faceIndices.push(faceIndex);
         }
         faceIndex++;
       }
+    }
+    for (const chain of stitchContourSegments(levelSegments)) {
+      const closed = chain.length > 2 && pointsClose(chain[0], chain[chain.length - 1]);
+      const curve = makeContourCurve([...chain]);
+      created.push(addContourLine(viewer, curve, {
+        operation: "contour",
+        source: sourceCanonical.id,
+        level,
+        faceIndices: [...new Set(faceIndices)],
+        segmentCount: levelSegments.length,
+        closed,
+      }, args));
     }
   }
   return { target: obj.uuid, contourLevels: levels, sliceCount: levels.length, interval, created, source: "canonical-brep" };

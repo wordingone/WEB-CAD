@@ -498,7 +498,7 @@ describe("BRep canonical migration characterization", () => {
     expect(shell.vertices.every((vertex) => vertex.edgeIndices.length === 3)).toBe(true);
   });
 
-  test("SdContour creates linked canonical curve geometry from BRep faces", () => {
+  test("SdContour stitches BRep face intersections into linked canonical contour loops", () => {
     const { viewer, scene, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
     registerBrepOpHandlers(viewer);
@@ -516,10 +516,10 @@ describe("BRep canonical migration characterization", () => {
     expect(result.source).toBe("canonical-brep");
     expect(result.sliceCount).toBe(1);
     expect(result.contourLevels).toHaveLength(1);
-    expect(result.created).toHaveLength(4);
+    expect(result.created).toHaveLength(1);
 
     const created = scene.children.filter((child) => !before.has(child.uuid));
-    expect(created).toHaveLength(4);
+    expect(created).toHaveLength(1);
     for (const obj of created) {
       expect(obj).toBeInstanceOf(THREE.Line);
       expect(obj.userData.kind).toBe("curve");
@@ -529,10 +529,13 @@ describe("BRep canonical migration characterization", () => {
       if (record?.kind !== "curve") throw new Error("expected contour canonical curve");
       expect(record.createdBy).toBe("SdContour");
       expect(record.metadata?.operation).toBe("contour");
+      expect(record.metadata?.closed).toBe(true);
+      expect(record.metadata?.segmentCount).toBe(4);
       expect(record.curve.kind).toBe("polyline");
       if (record.curve.kind !== "polyline") throw new Error("expected polyline contour");
-      expect(record.curve.points).toHaveLength(2);
+      expect(record.curve.points).toHaveLength(5);
       expect(record.curve.points.every((point) => Math.abs(point.z - result.contourLevels[0]) < 1e-9)).toBe(true);
+      expect(record.curve.points[0]).toEqual(record.curve.points[record.curve.points.length - 1]);
     }
   });
 
