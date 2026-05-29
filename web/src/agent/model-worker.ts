@@ -51,11 +51,6 @@ let _drafterSession: any = null;
 let _coldCacheBoot = false;
 
 const WEBGPU_CONTEXT_LIMIT = 16384;
-const GEMMA_ONNX_CPU_UNSUPPORTED =
-  "Gemma ONNX Q4 CPU/WASM fallback is unsupported: onnxruntime-web WASM has no " +
-  "GatherBlockQuantized kernel for the quantized Gemma graph (for example " +
-  "node_embedding_Quant). Use WebGPU with a compatible dedicated GPU, a remote " +
-  "Gemma endpoint, or the configured GGUF WASM backend instead.";
 
 // MTP verification gate (#679).  True = real greedy token comparison is wired
 // in webgpu-mtp-backend.ts (runMtpSpecDecode compares argmax(target) vs draftToken).
@@ -510,8 +505,9 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     console.log(`[#1627-C] classification-triggered-wasm-fallback adClass=${_adClassification} — cpu device (WASM ORT EP)`);
     post({ type: "phase_timing", phase: "wasm_fallback_classification", elapsed_ms: Date.now() - _workerStartMs, adClass: _adClassification });
   }
-  const backends: Array<{ device: "webgpu"; dtype: "q4f16"; label: string }> = [
+  const backends: Array<{ device: "webgpu" | "auto" | "cpu"; dtype: "q4f16" | "q4"; label: string }> = [
     { device: "webgpu",                       dtype: "q4f16", label: "GPU" },
+    { device: _wasmFallback ? "cpu" : "auto", dtype: "q4",   label: "CPU" },
   ];
 
   let loadedLabel = "CPU";
@@ -573,6 +569,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       loadedLabel = label;
       break;
     } catch (e) {
+      if (device === "webgpu") continue;
       post({ type: "error", error: (e as Error).message });
       return;
     }
@@ -582,10 +579,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   if (_origCachePut) Cache.prototype.put = _origCachePut as typeof Cache.prototype.put;
 
   if (!_model) {
-    const reason = forceWasm || _wasmFallback
-      ? GEMMA_ONNX_CPU_UNSUPPORTED
-      : `${GEMMA_ONNX_CPU_UNSUPPORTED} WebGPU model load failed or no WebGPU device was acquired.`;
-    post({ type: "error", error: reason });
+    post({ type: "error", error: "No backend available for model load." });
     return;
   }
 
@@ -894,14 +888,13 @@ async function handleSessionRefresh(): Promise<void> {
     return;
   }
 
-  // Mirror handleInit: WebGPU only. The quantized Gemma ONNX graph is not a valid
-  // onnxruntime-web WASM/CPU fallback because it requires GatherBlockQuantized.
+  // Mirror the backend priority from handleInit: WebGPU if device was acquired, CPU fallback.
   // _preAcquiredGpuDevice is handleInit-local; detect via ort.env.webgpu.device (set at init line 447).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const _hasWgpuDevice = !!((ort.env as any)?.webgpu?.device);
-  const refreshBackends: Array<{ device: "webgpu"; dtype: "q4f16" }> = _hasWgpuDevice
-    ? [{ device: "webgpu", dtype: "q4f16" }]
-    : [];
+  const refreshBackends: Array<{ device: "webgpu" | "cpu"; dtype: "q4f16" | "q4" }> = _hasWgpuDevice
+    ? [{ device: "webgpu", dtype: "q4f16" }, { device: "cpu", dtype: "q4" }]
+    : [{ device: "cpu", dtype: "q4" }];
 
   let refreshed = false;
   for (const { device, dtype } of refreshBackends) {
@@ -913,16 +906,37 @@ async function handleSessionRefresh(): Promise<void> {
       refreshed = true;
       break;
     } catch (e) {
+      if (device === "webgpu") continue; // try CPU fallback
       post({ type: "session-refresh-complete", skipped: false, error: (e as Error).message?.slice(0, 100) });
       return;
     }
   }
 
-  post({
-    type: "session-refresh-complete",
-    skipped: !refreshed,
-    ...(!refreshed ? { error: GEMMA_ONNX_CPU_UNSUPPORTED } : {}),
-  });
+  // §#196: warmup probe — pre-sizes GPU buffer pool after re-load to close the
+  // buffer_manager.cc:553 mapAsync race. Without this, the first real inference allocates
+  // KV cache at full production size against an un-primed pool — same race that
+  // §C-warmup-context (#1362) was added to close on cold boot.
+  if (_model && _processor && refreshed) {
+    try {
+      const proc = _processor as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const warmupText = proc.apply_chat_template(
+        [{ role: "user", content: "." }],
+        { add_generation_prompt: true, tokenize: false },
+      ) as string;
+      const warmupIn = await proc(warmupText, null);
+      if ((warmupIn.input_ids?.dims?.[1] ?? 0) < WEBGPU_CONTEXT_LIMIT - 64) {
+        await Promise.race([
+          (_model as any).generate({ ...warmupIn, max_new_tokens: 8, do_sample: false }), // eslint-disable-line @typescript-eslint/no-explicit-any
+          new Promise<void>(r => setTimeout(r, 30_000)),
+        ]);
+        await _flushWgpuQueue("session-refresh-warmup");
+      }
+    } catch (e) {
+      console.warn("[#196] warmup probe failed (non-fatal):", (e as Error).message?.slice(0, 100));
+    }
+  }
+
+  post({ type: "session-refresh-complete", skipped: !refreshed });
 }
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────

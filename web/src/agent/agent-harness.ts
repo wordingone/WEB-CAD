@@ -207,8 +207,13 @@ const ORT_SESSION_REFRESH_THRESHOLD = 2; // refresh before T3 (after T1 heavy bu
 // Session-refresh transparently re-creates from Cache API on next tab-visible event.
 const VRAM_DISPOSE_DELAY_MS = 5 * 60 * 1000; // 5 minutes hidden before dispose
 let _visibilityTimer: ReturnType<typeof setTimeout> | null = null;
-let _sessionSuspended = false; // true while session is disposed (tab was hidden >5min)
+let _sessionSuspended = false; // true while session is disposed (tab was hidden >5min or agent idle)
 let _visibilityRegistered = false; // register listener once across worker respawns
+// §#197 Delta 1: agent-idle VRAM suppression (visible tab). Default: 5 min idle → dispose.
+// Override via ?agent_idle_ms=N for CDP evidence collection (N in ms; absent = 5 min).
+const _agentIdleMsParam = parseInt(new URL(location.href).searchParams.get("agent_idle_ms") ?? "", 10);
+const AGENT_IDLE_DISPOSE_DELAY_MS = _agentIdleMsParam >= 1000 ? _agentIdleMsParam : 5 * 60 * 1000;
+let _agentIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let _ortSessionRefreshDone = false;      // guards against double-fire
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
@@ -310,6 +315,42 @@ function _checkMemoryPressure(): void {
   // Update health indicator (dot turns yellow until next READY)
   setGpuHealthTier("yellow", `Heavy GPU load — ${usedGB}GB heap, performance may degrade`);
 }
+
+// §#197 Delta 1: reset agent-idle dispose timer on any agent interaction.
+// Arms a new timer only when the session is live — not during generation, not already suspended.
+function _touchAgentActivity(): void {
+  if (_agentIdleTimer != null) { clearTimeout(_agentIdleTimer); _agentIdleTimer = null; }
+  if (_inferenceWorker && _arc.state !== "generating" && !_sessionSuspended) {
+    _agentIdleTimer = setTimeout(() => {
+      _agentIdleTimer = null;
+      if (_inferenceWorker && _arc.state !== "generating" && !_sessionSuspended) {
+        _inferenceWorker.postMessage({ type: "dispose-session" });
+        console.info(`[VRAM-IDLE] agent idle >${AGENT_IDLE_DISPOSE_DELAY_MS / 60000}min — sending dispose-session`);
+      }
+    }, AGENT_IDLE_DISPOSE_DELAY_MS);
+  }
+}
+
+// §#197 Delta 2: manual suppress/release API — same dispose/reinit lever as §#156 Layer 3.
+// suppress(): dispose ORT sessions immediately; no-op during generation or if already suspended.
+// release(): reinit from OPFS/Cache; no-op if not suspended.
+export function suppressAgentSession(): void {
+  if (_sessionSuspended || _arc.state === "generating" || !_inferenceWorker) return;
+  if (_agentIdleTimer != null) { clearTimeout(_agentIdleTimer); _agentIdleTimer = null; }
+  _inferenceWorker.postMessage({ type: "dispose-session" });
+  console.info("[VRAM-SUPPRESS] manual suppress — dispose-session sent");
+}
+
+export function releaseAgentSession(): void {
+  if (!_sessionSuspended || !_inferenceWorker) return;
+  _sessionSuspended = false;
+  setGpuHealthTier("yellow", "GPU session restoring");
+  updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
+  _inferenceWorker.postMessage({ type: "session-refresh" });
+  console.info("[VRAM-SUPPRESS] manual release — session-refresh sent");
+}
+
+export function isAgentSessionSuspended(): boolean { return _sessionSuspended; }
 
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
@@ -499,6 +540,7 @@ function initWorkerIfNeeded(): Worker {
       case "boot-complete":
         _arc.dispatch({ type: "BOOT_COMPLETE" }); // #1036 — sets bootComplete, clears nextInitNoWarmup
         window.dispatchEvent(new CustomEvent("agentmodel:boot-complete"));
+        _touchAgentActivity(); // §#197 Delta 1: start agent-idle timer after model ready
         // §#1628: emit boot_complete telemetry with elapsed time + load source.
         emitBootComplete(_telWorkerBootMs > 0 ? Date.now() - _telWorkerBootMs : 0, _telBootLoadSource);
         // §WEB-CAD#25: finalize boot metrics array.
@@ -535,22 +577,26 @@ function initWorkerIfNeeded(): Worker {
         // workerReady already set by MODEL_READY dispatch — no additional state mutation needed
         break;
       case "session-refresh-complete":
-        // §#88-C: resolve the waiting promise in recycleModelWorkerIfNeeded()
+        // §#88-C / §#197: resolve waiting promise in recycleModelWorkerIfNeeded() or idle-reinit guard.
         _sessionRefreshResolve?.();
         _sessionRefreshResolve = null;
         console.info(`[VRAM-REFRESH] worker confirmed session-refresh-complete skipped=${msg.skipped ?? false} error=${msg.error ?? "none"}`);
-        // §#156: restore badge after visibility-triggered re-init (no resolver was set).
+        // §#156 / §#197: restore badge after visibility or idle-triggered re-init.
         if (!msg.skipped && !msg.error) {
           setGpuHealthTier("green", "GPU healthy");
           updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · READY`);
+          window.dispatchEvent(new CustomEvent("agentmodel:session-suspended", { detail: { suspended: false } }));
+          _touchAgentActivity(); // §#197 Delta 1: arm idle timer after reinit completes
         }
         break;
       case "session-disposed":
-        // §#156 Layer 3: worker released ORT sessions due to tab-hidden timer.
+        // §#156 Layer 3 / §#197 Delta 1: worker released ORT sessions (tab-hidden or agent-idle).
         _sessionSuspended = true;
+        if (_agentIdleTimer != null) { clearTimeout(_agentIdleTimer); _agentIdleTimer = null; }
         setGpuHealthTier("yellow", "Session paused, GPU VRAM freed");
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  PAUSED`);
-        console.info("[VRAM-DISPOSE] session disposed — VRAM released (tab hidden >5min)");
+        console.info("[VRAM-DISPOSE] session disposed — VRAM released");
+        window.dispatchEvent(new CustomEvent("agentmodel:session-suspended", { detail: { suspended: true } }));
         break;
       case "context-budget":
         window.dispatchEvent(new CustomEvent("agentmodel:context-budget", {
@@ -839,44 +885,6 @@ export function prefetchModel(): void {
   // milliseconds → overlay fades immediately via agentmodel:returning-user.
   window.dispatchEvent(new CustomEvent("agentmodel:loading", { detail: { progress: 0 } }));
   initWorkerIfNeeded();
-}
-
-function waitForWorkerBootComplete(): Promise<void> {
-  if (_arc.bootComplete) return Promise.resolve();
-  if (_arc.modelLoadError) return Promise.reject(new Error(`Model failed to load — ${_arc.modelLoadError}`));
-
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const settle = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener("agentmodel:boot-complete", onBoot);
-      window.removeEventListener("agentmodel:fatal", onFatal);
-      window.removeEventListener("agentmodel:error", onError);
-      fn();
-    };
-    const errorText = (detail: unknown): string => {
-      if (typeof detail === "string") return detail;
-      if (detail && typeof detail === "object" && "message" in detail) {
-        return String((detail as { message?: unknown }).message);
-      }
-      return "unknown model boot error";
-    };
-    const onBoot = (): void => settle(resolve);
-    const onFatal = (ev: Event): void => {
-      const msg = errorText((ev as CustomEvent<unknown>).detail ?? _arc.modelLoadError);
-      settle(() => reject(new Error(`Model failed to load — ${msg}`)));
-    };
-    const onError = (ev: Event): void => {
-      const msg = errorText((ev as CustomEvent<unknown>).detail ?? _arc.modelLoadError);
-      settle(() => reject(new Error(`Model failed to load — ${msg}`)));
-    };
-    window.addEventListener("agentmodel:boot-complete", onBoot, { once: true });
-    window.addEventListener("agentmodel:fatal", onFatal, { once: true });
-    window.addEventListener("agentmodel:error", onError, { once: true });
-    if (_arc.bootComplete) settle(resolve);
-    else if (_arc.modelLoadError) settle(() => reject(new Error(`Model failed to load — ${_arc.modelLoadError}`)));
-  });
 }
 
 /** Remote KV warmup (#492). On-device warmup is handled by the worker. */
@@ -1735,6 +1743,24 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   // ── On-device path via Web Worker (#936) ─────────────────────────────────
   // Worker owns: from_pretrained, WebGPU probe, warmup, drafter load, tokenization,
   // generate, decode. Main thread never blocks during model load or inference.
+
+  // §#197 Delta 1: touch activity (resets idle timer); reinit if session was idle-disposed.
+  _touchAgentActivity();
+  if (_sessionSuspended && _inferenceWorker) {
+    _sessionSuspended = false;
+    setGpuHealthTier("yellow", "GPU session restoring");
+    updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
+    console.info("[VRAM-IDLE] session suspended — reinitialising before turn");
+    await Promise.race([
+      new Promise<void>(resolve => {
+        _sessionRefreshResolve = resolve;
+        _inferenceWorker!.postMessage({ type: "session-refresh" });
+      }),
+      new Promise<void>(resolve => setTimeout(resolve, 180_000)),
+    ]);
+    _sessionRefreshResolve = null;
+  }
+
   await recycleModelWorkerIfNeeded(); // #1303: release ONNX WebGPU buffer pool every N turns
   // §#1506: planned recycle sets state→recovering and bootComplete=false. The new worker
   // loads async; dispatching GENERATE_REQUESTED before boot-complete reaches a null _model
@@ -1750,7 +1776,6 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
     });
   }
   const worker = initWorkerIfNeeded();
-  if (!_arc.bootComplete) await waitForWorkerBootComplete();
 
   // Get imageUrl for vision turns (worker loads RawImage internally — no transfer needed).
   let imageUrl: string | undefined;
@@ -1934,6 +1959,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   selfSpecController.recordTurn(_mtpActive ? _selfSpecAcceptRate : 0);
   console.debug(`[agent] prefill=${Math.round(prefillMs)}ms decode=${Math.round(decodeMs)}ms in=${inputLength} out=${tokensOut} tg=${tgTps.toFixed(1)}t/s mtp=${_mtpActive} self_spec=${_selfSpecDecision.active}(${_selfSpecDecision.reason})`);
   _arc.dispatch({ type: "GENERATE_DONE", turnId }); // §P0-ARC: state → ready
+  _touchAgentActivity(); // §#197 Delta 1: restart idle timer after generation completes
   // §#88-B / §#142: re-add meshes removed before generate(). Always restore — both NL and
   // build turns. Prior behavior skipped restore when the continuation turn added new geometry
   // (_currentCreatorCount > 0), causing T1 geometry to be permanently lost when T2 dispatched

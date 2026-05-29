@@ -15,9 +15,6 @@ export type AdapterClass = "dgpu" | "igpu" | "software" | "unknown" | "no-webgpu
 export type UserPath = "dgpu-proceed" | "flags" | "wasm-fallback" | "cad-only";
 export type BootTier = "tier_0" | "tier_1" | "tier_2" | "tier_4";
 
-const WASM_GGUF_CONFIGURED =
-  !!(import.meta.env as Record<string, string | undefined>).VITE_WASM_LLAMA_TARGET_URL;
-
 export function pathToTier(path: UserPath): BootTier {
   switch (path) {
     case "dgpu-proceed": return "tier_0";
@@ -171,20 +168,6 @@ function _buildModal(
         <p class="bcg-footer">This choice is saved for this session. Reload to change.</p>
       </div>
     `;
-
-    if (!WASM_GGUF_CONFIGURED) {
-      const wasmBtn = modal.querySelector<HTMLButtonElement>('[data-path="wasm-fallback"]');
-      const wasmCard = wasmBtn?.closest(".bcg-path");
-      const perf = wasmCard?.querySelector<HTMLElement>(".bcg-path-perf");
-      const desc = wasmCard?.querySelector<HTMLElement>(".bcg-path-desc");
-      if (perf) perf.textContent = "Unavailable";
-      if (desc) desc.textContent = "This build has no GGUF WASM model configured. The Gemma ONNX Q4 model cannot run on ORT WASM/CPU.";
-      if (wasmBtn) {
-        wasmBtn.disabled = true;
-        wasmBtn.removeAttribute("data-path");
-        wasmBtn.textContent = "Fallback unavailable";
-      }
-    }
 
     // Copy button for chrome://flags URL
     modal.querySelector<HTMLButtonElement>(".bcg-copy-btn")?.addEventListener("click", (e) => {

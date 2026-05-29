@@ -1,9 +1,9 @@
 // boot-screen.ts — Full-viewport loading screen (#938, #1134).
-// Blocks initial shell paint; if model loading starts, stays up until agentmodel:boot-complete.
+// Blocks all underlying UI interaction until agentmodel:boot-complete fires.
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
-import { getCapabilityGatePromise, initCapabilityGate } from "./boot-capability-gate";
+import { initCapabilityGate } from "./boot-capability-gate";
 
 const LOOP_MS = 6_000;          // one travel-head cycle
 const FADE_MS = 200;             // fade-out duration on completion
@@ -12,7 +12,6 @@ const READY_HOLD_MS = 1_200;     // returning-user: hold READY pulse before fade
 let _initialized = false;
 let _done = false;
 let _isReturningUser = false;
-let _agentBootStarted = false;
 
 // Bytes progress state
 let _totalBytes = 0;             // from agentmodel:manifest
@@ -128,14 +127,6 @@ export function initBootScreen(): void {
   initCapabilityGate(document.body);
   void _detectBootPath(); // §WEB-CAD#14-B: async cold/warm detection; updates label when done
   _wireEvents();
-  void getCapabilityGatePromise().then(() => {
-    setTimeout(() => {
-      if (!_done && !_agentBootStarted) {
-        if (_hintEl) _hintEl.textContent = 'Ready';
-        _onDone();
-      }
-    }, 0);
-  });
   _startTime = performance.now();
   _tick();
 }
@@ -200,7 +191,6 @@ function _advanceToPhase(phase: _BootPhase): void {
 
 function _wireEvents(): void {
   window.addEventListener('agentmodel:manifest', (ev: Event) => {
-    _agentBootStarted = true;
     const detail = (ev as CustomEvent<{ totalBytesExpected?: number }>).detail;
     if (detail?.totalBytesExpected) _totalBytes = detail.totalBytesExpected;
     _traceEvent('manifest', { total: detail?.totalBytesExpected });
@@ -211,7 +201,6 @@ function _wireEvents(): void {
   });
 
   window.addEventListener('agentmodel:loading', (ev: Event) => {
-    _agentBootStarted = true;
     const d = (ev as CustomEvent<{
       bytes?: number; total?: number; throughputBytesPerSec?: number; file?: string; phase?: string;
     }>).detail ?? {};
@@ -259,7 +248,6 @@ function _wireEvents(): void {
   });
 
   window.addEventListener('agentmodel:drafter:loading', (ev: Event) => {
-    _agentBootStarted = true;
     const d = (ev as CustomEvent<{
       bytes?: number; total?: number; throughputBytesPerSec?: number;
     }>).detail ?? {};
@@ -294,12 +282,10 @@ function _wireEvents(): void {
     _updatePhaseLabel(); // switches to warm labels
   }, { once: true });
   window.addEventListener('agentmodel:returning-user', () => {
-    _agentBootStarted = true;
     _traceEvent('returning-user');
     _onReturningUser();
   }, { once: true });
   window.addEventListener('agentmodel:boot-complete', () => {
-    _agentBootStarted = true;
     _traceEvent('boot-complete');
     _advanceToPhase('final'); // ensures bar reaches 95%+ before _onDone() sets 100%
     // returning-user path installs its own boot-complete listener with READY_HOLD_MS delay;
@@ -498,81 +484,43 @@ function _onDone(): void {
 }
 
 function _onError(ev: Event): void {
+  if (_done) return;
+  _done = true;
   if (_watchdogId !== null) { clearTimeout(_watchdogId); _watchdogId = null; }
   cancelAnimationFrame(_rafId);
+  if (!_overlay) return;
   const detail = (ev as CustomEvent).detail;
   const msg = typeof detail === 'string' ? detail
     : (typeof detail?.message === 'string' ? detail.message : 'Model failed to load');
   const url: string = detail && typeof detail === 'object' && typeof detail.url === 'string'
     ? detail.url : '';
-  _showRuntimeErrorBanner(msg, url);
-  if (_done) return;
-  _onDone();
-}
-
-function _showRuntimeErrorBanner(msg: string, url: string): void {
-  (window as unknown as Record<string, unknown>).__agentRuntimeError = {
-    message: msg,
-    url,
-    timestamp: new Date().toISOString(),
-  };
-  document.getElementById('agent-runtime-error-banner')?.remove();
-  const banner = document.createElement('div');
-  banner.id = 'agent-runtime-error-banner';
-  banner.setAttribute('role', 'alert');
-  banner.style.cssText = [
-    'position:fixed',
-    'left:12px',
-    'right:12px',
-    'bottom:12px',
-    'z-index:10000',
-    'display:flex',
-    'align-items:flex-start',
-    'gap:10px',
-    'padding:10px 12px',
-    'border:1px solid rgba(255,64,64,.45)',
-    'border-radius:6px',
-    'background:rgba(12,12,12,.96)',
-    'box-shadow:0 10px 30px rgba(0,0,0,.35)',
-    'color:#ff7070',
-    'font:11px/1.4 "JetBrains Mono", "Fira Mono", monospace',
-    'pointer-events:auto',
-  ].join(';');
-
-  const copy = document.createElement('div');
-  copy.style.cssText = 'min-width:0;flex:1;';
-  const title = document.createElement('div');
-  title.style.cssText = 'font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;';
-  title.textContent = 'AI runtime error';
-  const body = document.createElement('div');
-  body.style.cssText = 'word-break:break-word;color:#ff8a8a;';
-  body.textContent = msg;
-  copy.appendChild(title);
-  copy.appendChild(body);
-  if (url) {
-    const urlLine = document.createElement('div');
-    urlLine.style.cssText = 'margin-top:4px;font-size:9px;opacity:.62;word-break:break-all;';
-    urlLine.textContent = url;
-    copy.appendChild(urlLine);
+  if (_statusEl) {
+    Object.assign(_statusEl.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '6px',
+      color: '#ff4040',
+    });
+    const errorLine = document.createElement('div');
+    errorLine.textContent = `ERROR: ${msg}`;
+    _statusEl.appendChild(errorLine);
+    if (url) {
+      const urlLine = document.createElement('div');
+      urlLine.style.cssText = 'font-size:8px;opacity:.55;word-break:break-all;max-width:min(78vw,580px);text-align:center;';
+      urlLine.textContent = url;
+      _statusEl.appendChild(urlLine);
+    }
+    const retryBtn = document.createElement('button');
+    retryBtn.textContent = 'Retry';
+    retryBtn.style.cssText = 'margin-top:2px;padding:4px 14px;border:1px solid rgba(255,64,64,.4);border-radius:4px;background:transparent;color:#ff4040;font:10px monospace;cursor:pointer;letter-spacing:.06em;';
+    retryBtn.addEventListener('click', () => { window.location.reload(); });
+    _statusEl.appendChild(retryBtn);
   }
-
-  const retryBtn = document.createElement('button');
-  retryBtn.type = 'button';
-  retryBtn.textContent = 'Reload';
-  retryBtn.style.cssText = [
-    'padding:4px 10px',
-    'border:1px solid rgba(255,64,64,.45)',
-    'border-radius:4px',
-    'background:transparent',
-    'color:#ff7070',
-    'font:10px "JetBrains Mono", "Fira Mono", monospace',
-    'cursor:pointer',
-  ].join(';');
-  retryBtn.addEventListener('click', () => { window.location.reload(); });
-
-  banner.appendChild(copy);
-  banner.appendChild(retryBtn);
-  document.body.appendChild(banner);
+  if (_pctEl) _pctEl.textContent = '';
+  if (_fileEl) _fileEl.textContent = '';
+  if (_etaEl) _etaEl.textContent = '';
+  if (_hintEl) _hintEl.style.display = 'none';
 }
 
 // ---------------------------------------------------------------------------
