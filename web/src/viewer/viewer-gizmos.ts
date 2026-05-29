@@ -74,7 +74,12 @@ export function makeObjectChangeListener(
           const _found = v.scene.getObjectByProperty("uuid", parentUuid);
           if (_found instanceof THREE.Mesh) {
             const worldDelta = new THREE.Vector3(dWorld.elements[12], dWorld.elements[13], dWorld.elements[14]);
-            deformBrepSubObject(_found, affected, worldDelta, ds.brepDeformSnapshot?.positions, v.getCanonicalGeometryStore());
+            deformBrepSubObject(_found, affected, worldDelta, ds.brepDeformSnapshot?.positions, v.getCanonicalGeometryStore(), {
+              topology: sub.userData.selectionTopology as string | undefined,
+              faceIndex: sub.userData.faceIndex as number | undefined,
+              edgeIndex: sub.userData.edgeIndex as number | undefined,
+              vertexIndex: sub.userData.vertexIndex as number | undefined,
+            });
           }
         }
       } else {
