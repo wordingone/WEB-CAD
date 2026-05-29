@@ -706,21 +706,32 @@ function tryWeldCoincidentBoundaryShells(...breps: Brep[]): Brep | null {
   };
 }
 
-function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
+function joinedCanonicalBrepRecord(viewer: Viewer, meshes: THREE.Mesh[]): { brep: Brep; operands: string[]; topology: string } | null {
   const store = viewer.getCanonicalGeometryStore();
   const operands = meshes.map((mesh) => store.resolveObjectOrAncestor(mesh));
   const breps = meshes.map((mesh) => canonicalBrepForObject(viewer, mesh));
-  if (breps.some((brep) => !brep) || operands.some((record) => record?.kind !== "brep")) return;
+  if (breps.some((brep) => !brep) || operands.some((record) => record?.kind !== "brep")) return null;
   const welded = tryWeldCoincidentBoundaryShells(...breps as Brep[]);
+  return {
+    brep: welded ?? brepConcat(...breps as Brep[]),
+    operands: operands.map((record) => record!.id),
+    topology: welded ? "welded-coincident-boundary-edges" : "concatenated-shells",
+  };
+}
+
+function linkJoinedCanonicalBreps(viewer: Viewer, meshes: THREE.Mesh[], joined: THREE.Object3D): void {
+  const store = viewer.getCanonicalGeometryStore();
+  const joinedBrep = joinedCanonicalBrepRecord(viewer, meshes);
+  if (!joinedBrep) return;
   const record = store.create({
     kind: "brep",
-    brep: welded ?? brepConcat(...breps as Brep[]),
+    brep: joinedBrep.brep,
     source: "edit",
     createdBy: "SdJoin",
     metadata: {
       operation: "join",
-      operands: operands.map((record) => record?.id),
-      topology: welded ? "welded-coincident-boundary-edges" : "concatenated-shells",
+      operands: joinedBrep.operands,
+      topology: joinedBrep.topology,
     },
   });
   store.linkObject(joined, record.id);
@@ -811,6 +822,32 @@ export function registerBrepOpHandlers(viewer: Viewer): void {
       if (!obj) return { error: `SdJoin - object not found: ${id}` };
       if (!(obj instanceof THREE.Mesh)) return { error: `SdJoin - target ${id} is not a Mesh` };
       meshes.push(obj);
+    }
+    const canonicalJoined = joinedCanonicalBrepRecord(viewer, meshes);
+    if (canonicalJoined) {
+      const mat = cloneMaterial(meshes[0].material as THREE.Material | THREE.Material[]);
+      const joined = new THREE.Mesh(makeBrepGeometry(canonicalJoined.brep), mat);
+      joined.userData.kind = "brep";
+      joined.userData.creator = "join";
+      joined.userData.dispatchArgs = args;
+      joined.userData.displaySource = "canonical-brep";
+      const record = viewer.getCanonicalGeometryStore().create({
+        kind: "brep",
+        brep: canonicalJoined.brep,
+        source: "edit",
+        createdBy: "SdJoin",
+        metadata: {
+          operation: "join",
+          operands: canonicalJoined.operands,
+          topology: canonicalJoined.topology,
+          displaySource: "canonical-brep",
+        },
+      });
+      viewer.getCanonicalGeometryStore().linkObject(joined, record.id);
+      for (const m of meshes) scene.remove(m); // audit-undo-ok - tracked by pushReplaceAction below
+      viewer.addMesh(joined, "brep", { noHistory: true });
+      pushReplaceAction(joined, meshes, "join");
+      return { created: joined.uuid, faceCount: meshes.length, source: "canonical-brep", displaySource: "canonical-brep" };
     }
     const positions: number[] = [];
     const normals: number[] = [];

@@ -105,8 +105,20 @@ export function getMultiSelected(): Selection[] {
   return _multiSet;
 }
 
+function selectionKey(sel: Selection): string {
+  return [
+    sel.parentUuid ?? sel.uuid,
+    sel.topology,
+    sel.faceIndex ?? "",
+    sel.edgeIndex ?? "",
+    sel.vertexIndex ?? "",
+    sel.uuid,
+  ].join(":");
+}
+
 export function addToMultiSelected(sel: Selection): void {
-  const already = _multiSet.findIndex((s) => s.uuid === sel.uuid);
+  const key = selectionKey(sel);
+  const already = _multiSet.findIndex((s) => selectionKey(s) === key);
   if (already >= 0) {
     _multiSet.splice(already, 1);
   } else {

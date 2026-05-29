@@ -2060,9 +2060,12 @@ export function initCreateMode(viewer: Viewer): void {
       if (activeBtn?.dataset.tool === "select") {
         // Use viewer's pane-rect raycaster (same path as selection) so CSG display
         // meshes and regular structural elements are both detected correctly.
+        if (ev.ctrlKey && ev.shiftKey) viewer.previewBrepSubObjectAt(ev.clientX, ev.clientY);
+        else viewer.clearSubSelectionHover();
         const hoverObj = ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover(ev.clientX, ev.clientY);
         opSetHover(hoverObj);
       } else {
+        viewer.clearSubSelectionHover();
         opSetHover(null);
       }
       hideCursorDot();

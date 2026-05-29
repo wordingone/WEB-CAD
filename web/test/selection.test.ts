@@ -15,6 +15,8 @@ import {
   getSelected,
   setFilter,
   getFilters,
+  addToMultiSelected,
+  getMultiSelected,
   topologyForObject,
 } from "../src/viewer/selection-state";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
@@ -44,9 +46,11 @@ test("BRep display meshes retain one BufferGeometry group per canonical face", (
 
 test("BRep sub-object selections are visible and Inspect prioritizes topology over mesh metadata", () => {
   const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
-  expect(viewerSource).toContain("showSubSelectionHighlight(subSelection)");
+  expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
+  expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
+  expect(viewerSource).toContain("previewBrepSubObjectAt");
   expect(viewerSource).toContain("clearSubSelectionHighlight()");
-  expect(viewerSource).toContain("this.selectObject(null)");
+  expect(viewerSource).toContain("this.selectSubObject(highlights[0])");
   expect(viewerSource).toContain("subObject: true");
   expect(viewerSource).toContain("parentUuid: subSelection.parentUuid");
   expect(viewerSource).toContain('sel.topology === "face"');
@@ -66,6 +70,37 @@ test("Ctrl+Shift drilldown bypasses whole-object hover and Shift multi-select", 
   const toolsSource = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
   expect(toolsSource).toContain("ev.shiftKey && !ev.ctrlKey && !ev.metaKey");
   expect(toolsSource).toContain("ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover");
+  expect(toolsSource).toContain("viewer.previewBrepSubObjectAt(ev.clientX, ev.clientY)");
+  expect(toolsSource).toContain("viewer.clearSubSelectionHover()");
+
+  const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(viewerSource).toContain("addToMultiSelected(subSelection)");
+  expect(viewerSource).toContain("subObjectCount: subSelections.length");
+});
+
+test("multi-selection distinguishes multiple sub-objects on the same BRep display mesh", () => {
+  resetSelectionState();
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+  const parent = new THREE.Group();
+  addToMultiSelected({
+    topology: "face",
+    uuid: mesh.uuid,
+    object: mesh,
+    parent,
+    parentUuid: parent.uuid,
+    faceIndex: 0,
+    transformTarget: parent,
+  });
+  addToMultiSelected({
+    topology: "face",
+    uuid: mesh.uuid,
+    object: mesh,
+    parent,
+    parentUuid: parent.uuid,
+    faceIndex: 1,
+    transformTarget: parent,
+  });
+  expect(getMultiSelected()).toHaveLength(2);
 });
 
 beforeEach(() => {

@@ -505,6 +505,36 @@ describe("BRep canonical migration characterization", () => {
     });
   });
 
+  test("SdJoin creates display geometry from canonical BReps without operand BufferGeometry", () => {
+    const { viewer, scene, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+    registerBrepOpHandlers(viewer);
+
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const first = lastObject() as THREE.Mesh;
+    expect(dispatchSync("SdBox", { width: 1, depth: 1, height: 1 }).ok).toBe(true);
+    const second = lastObject() as THREE.Mesh;
+    second.position.set(2, 0, 0);
+    second.updateMatrixWorld(true);
+    first.geometry = new THREE.BufferGeometry();
+    second.geometry = new THREE.BufferGeometry();
+
+    const joinResult = dispatchSync("SdJoin", { targets: [first.uuid, second.uuid] });
+
+    expect(joinResult.ok).toBe(true);
+    if (!joinResult.ok) throw new Error("expected join to succeed");
+    expect((joinResult.result as { displaySource?: string }).displaySource).toBe("canonical-brep");
+    const joined = scene.getObjectByProperty("uuid", (joinResult.result as { created: string }).created);
+    expect(joined).toBeInstanceOf(THREE.Mesh);
+    const position = (joined as THREE.Mesh).geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+    expect(position?.count).toBeGreaterThan(0);
+    const joinedRecord = joined ? store.resolveObject(joined) : undefined;
+    expect(joinedRecord?.kind).toBe("brep");
+    if (joinedRecord?.kind !== "brep") throw new Error("expected joined canonical brep");
+    expect(joinedRecord.metadata?.displaySource).toBe("canonical-brep");
+    expect(joinedRecord.brep.shells).toHaveLength(2);
+  });
+
   test("joining exploded BRep faces welds coincident boundary edges into a closed shell", () => {
     const { viewer, scene, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);
