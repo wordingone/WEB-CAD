@@ -17,6 +17,7 @@ import {
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace } from "../nurbs/nurbs-brep";
 import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
 
@@ -306,6 +307,45 @@ function revolvedLineSolidBrep(surface: Surface, profile: Curve, axis: { from: P
       isClosed: true,
     }],
   };
+}
+
+function closedProfile(profile: Curve): boolean {
+  if (profile.kind === "polyline") {
+    if (profile.points.length < 4) return false;
+    const first = profile.points[0];
+    const last = profile.points[profile.points.length - 1];
+    return Math.hypot(first.x - last.x, first.y - last.y, first.z - last.z) < 1e-9;
+  }
+  if (profile.kind === "arc") {
+    return Math.abs(Math.abs(profile.endAngle - profile.startAngle) - Math.PI * 2) < 1e-4;
+  }
+  return false;
+}
+
+function translateCurve(curve: Curve, offset: Point3): Curve {
+  const translate = (p: Point3): Point3 => ({ x: p.x + offset.x, y: p.y + offset.y, z: p.z + offset.z });
+  if (curve.kind === "line") return { ...curve, from: translate(curve.from), to: translate(curve.to) };
+  if (curve.kind === "polyline") return { ...curve, points: curve.points.map(translate) };
+  if (curve.kind === "arc") return { ...curve, center: translate(curve.center), plane: { ...curve.plane, origin: translate(curve.plane.origin) } };
+  const cvs = [...curve.cvs];
+  for (let i = 0; i < curve.cvCount; i++) {
+    const base = i * curve.cvStride;
+    cvs[base] = (cvs[base] ?? 0) + offset.x;
+    cvs[base + 1] = (cvs[base + 1] ?? 0) + offset.y;
+    cvs[base + 2] = (cvs[base + 2] ?? 0) + offset.z;
+  }
+  return { ...curve, cvs };
+}
+
+function straightRailSolidSweepBrep(profile: Curve, rail: Curve): Brep | null {
+  if (rail.kind !== "line" || !closedProfile(profile)) return null;
+  const dx = rail.to.x - rail.from.x;
+  const dy = rail.to.y - rail.from.y;
+  const dz = rail.to.z - rail.from.z;
+  const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (distance < 1e-9) return null;
+  const placedProfile = translateCurve(profile, rail.from);
+  return extrudeBrep(placedProfile, { x: dx / distance, y: dy / distance, z: dz / distance }, distance);
 }
 
 export function registerSketchHandlers(viewer: Viewer): void {
@@ -600,9 +640,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const obj = surfaceToMesh(tess);
       obj.userData.kind = "sweep";
       obj.userData.creator = "sweep";
-      linkCanonicalSurface(viewer, obj, "SdSweep", surface);
+      const solidBrep = args.solid === true ? straightRailSolidSweepBrep(profile, rail) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdSweep");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdSweep", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "sweep" };
+      return { created: "sweep", solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }

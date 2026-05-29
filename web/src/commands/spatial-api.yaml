@@ -413,6 +413,10 @@
         type: edge_or_surface
       rail:
         type: curve
+      solid:
+        type: boolean
+        default: false
+        description: "When true, closed profile curves swept along a straight rail are committed as capped closed BRep solids; otherwise the command preserves open sweep-surface behavior."
     required: [profile, rail]
   topology_role: solid
   kg_predicates: []

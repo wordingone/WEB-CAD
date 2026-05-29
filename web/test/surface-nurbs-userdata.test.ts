@@ -149,6 +149,32 @@ describe("G6 - SdSweep stores exact surface canonically", () => {
     if (canonical.kind !== "surface") throw new Error("expected canonical surface");
     expect(canonical.surface.kind).toBe("nurbs");
   });
+
+  test("solid sweep links a closed profile on a straight rail to a capped closed BRep", () => {
+    const { viewer, store, lastMesh } = makeViewer();
+    registerSketchHandlers(viewer);
+
+    const dr = dispatchSync("SdSweep", {
+      profile: { points: [[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0], [0, 0, 0]] },
+      rail: { kind: "line", from: [0, 0, 0], to: [0, 0, 3] },
+      solid: true,
+    });
+
+    expect(dr.ok).toBe(true);
+    expect((dr as OkResult).result.created).toBe("sweep");
+    expect((dr as OkResult).result.solid).toBe(true);
+    const mesh = lastMesh()!;
+    expect(mesh.userData.kind).toBe("brep");
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.createdBy).toBe("SdSweep");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    const shell = canonical.brep.shells[0];
+    expect(shell.isClosed).toBe(true);
+    expect(shell.faces.map((face) => face.surface.kind)).toEqual(["sum", "sum", "sum", "sum", "plane", "plane"]);
+    expect(shell.faces).toHaveLength(6);
+  });
 });
 
 describe("G6 - SdLoft stores exact surface canonically", () => {
