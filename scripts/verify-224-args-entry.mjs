@@ -3,7 +3,7 @@
 //
 // Verifies that command-at-cursor args mode executes tools from typed dimensional
 // values (imperial strings) with correct geometry dimensions.
-// Targets localhost:5175 (serving tree, after autofwd sync from master).
+// Targets localhost:5847 (vite.config strictPort).
 //
 // Acceptance criteria (#224):
 //   AC1 — circle 5' → mesh created, bounding-box diameter ≈ 3.048 m (2 × 1.524)
@@ -26,7 +26,7 @@ const OUT = `state/verify-224-args-entry-${SHA}-${Date.now()}.json`;
 const targets = JSON.parse(
   execSync(`curl -s http://localhost:${CDP_PORT}/json`, { encoding: "utf8" })
 );
-const pageTarget = targets.find(t => t.type === "page" && (t.url ?? "").includes("5175"));
+const pageTarget = targets.find(t => t.type === "page" && (t.url ?? "").includes("5847"));
 const target = pageTarget ?? targets.find(t => t.type === "page");
 if (!target) { console.error("No page target"); process.exit(1); }
 
