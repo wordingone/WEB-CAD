@@ -877,11 +877,9 @@ export class Viewer {
         }
         addToMultiSelected(subSelection);
         const subSelections = getMultiSelected().filter((sel) => sel.parentUuid && ["face", "edge", "vertex"].includes(sel.topology));
-        const highlights = this.showSubSelectionHighlights(subSelections);
+        this.showSubSelectionHighlights(subSelections);
         this.clearSubSelectionHover();
-        if (highlights.length > 1) this.setMultiTargets(highlights);
-        else if (highlights.length === 1) this.selectSubObject(highlights[0]);
-        else this.selectObject(null);
+        this.selectObject(null);
         setSelected(subSelection);
         window.dispatchEvent(new CustomEvent("viewer:select", {
           detail: {
