@@ -802,10 +802,20 @@ export class Viewer {
     if (drilldown && !handleHit) {
       const subSelection = this.pickBrepSubObject(hits);
       if (subSelection) {
-        this.selectObject(subSelection.transformTarget);
+        this.selectObject(null);
         setSelected(subSelection);
         this.showSubSelectionHighlight(subSelection);
-        window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: subSelection.uuid } }));
+        window.dispatchEvent(new CustomEvent("viewer:select", {
+          detail: {
+            uuid: null,
+            subObject: true,
+            topology: subSelection.topology,
+            parentUuid: subSelection.parentUuid,
+            faceIndex: subSelection.faceIndex,
+            edgeIndex: subSelection.edgeIndex,
+            vertexIndex: subSelection.vertexIndex,
+          },
+        }));
         return;
       }
     }

@@ -46,6 +46,9 @@ test("BRep sub-object selections are visible and Inspect prioritizes topology ov
   const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
   expect(viewerSource).toContain("showSubSelectionHighlight(subSelection)");
   expect(viewerSource).toContain("clearSubSelectionHighlight()");
+  expect(viewerSource).toContain("this.selectObject(null)");
+  expect(viewerSource).toContain("subObject: true");
+  expect(viewerSource).toContain("parentUuid: subSelection.parentUuid");
   expect(viewerSource).toContain('sel.topology === "face"');
   expect(viewerSource).toContain('sel.topology === "edge"');
   expect(viewerSource).toContain('sel.topology === "vertex"');
