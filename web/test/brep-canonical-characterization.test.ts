@@ -136,6 +136,37 @@ describe("BRep canonical migration characterization", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
+  test("SdBox accepts vector size and center without NaN display geometry", () => {
+    const { viewer, store, lastObject } = makeViewer();
+    registerNurbsHandlers(viewer);
+
+    const result = dispatchSync("SdBox", { size: [2, 2, 2], center: [0, 0, 1] });
+    expect(result.ok).toBe(true);
+
+    const obj = lastObject();
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+    const mesh = obj as THREE.Mesh;
+    const position = mesh.geometry.getAttribute("position");
+    expect(position.count).toBeGreaterThan(0);
+    for (let i = 0; i < position.count; i++) {
+      expect(Number.isFinite(position.getX(i))).toBe(true);
+      expect(Number.isFinite(position.getY(i))).toBe(true);
+      expect(Number.isFinite(position.getZ(i))).toBe(true);
+    }
+    expect(mesh.position.toArray()).toEqual([0, 0, 0]);
+    mesh.geometry.computeBoundingSphere();
+    expect(mesh.geometry.boundingSphere?.radius).toBeGreaterThan(0);
+    expect(Number.isFinite(mesh.geometry.boundingSphere?.radius)).toBe(true);
+
+    const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    expect(typeof canonicalId).toBe("string");
+    const canonical = store.require(canonicalId as string);
+    expect(canonical.kind).toBe("brep");
+    if (canonical.kind !== "brep") throw new Error("expected canonical brep");
+    expect(canonical.brep.shells[0].faces).toHaveLength(6);
+    expect(canonical.displayMesh?.vertexCount).toBe(position.count);
+  });
+
   test("SdExtrude links profile extrusion output to a canonical BRep", () => {
     const { viewer, store, lastObject } = makeViewer();
     registerNurbsHandlers(viewer);

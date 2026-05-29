@@ -257,6 +257,24 @@
         type: number
         unit: m
         default: 1
+      size:
+        oneOf:
+          - type: number
+          - type: array
+            items:
+              type: number
+            minItems: 3
+            maxItems: 3
+        unit: m
+        description: "Scalar cube size or [width, depth, height]."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "Optional world-space center [x, y, z]."
     required: []
   topology_role: solid
   kg_predicates: []

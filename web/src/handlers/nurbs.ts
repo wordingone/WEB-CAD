@@ -17,6 +17,18 @@ import { CANONICAL_GEOMETRY_USERDATA_KEY } from "../geometry/canonical-geometry"
 
 const TWO_PI = Math.PI * 2;
 
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function numericTuple3(value: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length < 3) return undefined;
+  const x = finiteNumber(value[0], NaN);
+  const y = finiteNumber(value[1], NaN);
+  const z = finiteNumber(value[2], NaN);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? [x, y, z] : undefined;
+}
+
 function zAxis(): Line {
   return { from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 0, z: 1 } };
 }
@@ -229,16 +241,24 @@ function displayGeometryProfile2d(srcObj: THREE.Object3D): [number, number][] | 
 
 export function registerNurbsHandlers(viewer: Viewer): void {
   registerHandler("SdBox", (args) => {
-    const w = (args.width as number | undefined) ?? (args.size as number | undefined) ?? 1;
-    const d = (args.depth as number | undefined) ?? (args.length as number | undefined) ?? 1;
-    const h = (args.height as number | undefined) ?? 1;
+    const sizeTuple = numericTuple3(args.size);
+    const scalarSize = finiteNumber(args.size, 1);
+    const w = finiteNumber(args.width, sizeTuple?.[0] ?? scalarSize);
+    const d = finiteNumber(args.depth, finiteNumber(args.length, sizeTuple?.[1] ?? scalarSize));
+    const h = finiteNumber(args.height, sizeTuple?.[2] ?? scalarSize);
+    const center = numericTuple3(args.center);
     const cplane = resolveCPlane("SdBox", args as Record<string, unknown>, viewer);
     const c1 = { x: -w / 2, y: -d / 2 };
     const c2 = { x: w / 2, y: d / 2 };
     const c3 = { x: h, y: 0 };
     const { mesh, chain } = buildBox(c1, c2, c3);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), cplane.normal);
-    mesh.position.z = getActiveLevelElevation();
+    const levelElevation = getActiveLevelElevation();
+    if (center) {
+      mesh.position.set(center[0], center[1], center[2] - h / 2);
+    } else {
+      mesh.position.z = levelElevation;
+    }
     mesh.userData.cplaneKind = cplane.kind;
     mesh.userData.layerId = resolveLayerId("SdBox", args);
     mesh.userData.levelId = getActiveLevelId();
