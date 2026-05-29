@@ -4,7 +4,7 @@ import type { Viewer } from "./viewer.js";
 import type { Pane } from "./viewer.js";
 import { updateClippingPlane, removeClippingPlane, clearSectionBox, rebuildFill } from "./viewer-sections.js";
 import { getSnap } from "./snap-state.js";
-import { getHandles, getHandleParent, showHandlesFor, clearHandles, isSubObjectHandle, refitParentGeometry } from "./sub-object-handles.js";
+import { getHandles, getHandleParent, showHandlesFor, clearHandles, isSubObjectHandle, refitParentGeometry, deformBrepSubObject } from "./sub-object-handles.js";
 import { clearSelected, setSelected } from "./selection-state.js";
 import { emitChainFragment } from "./transforms.js";
 import {
@@ -25,6 +25,7 @@ export interface DragState {
   resetNeighborIds: string[];
   wallOpeningEntries: Array<[THREE.Object3D, THREE.Matrix4, TransformSnapshot]>;
   shiftSnapHandler: ((ev: KeyboardEvent) => void) | null;
+  brepDeformSnapshot: { parentUuid: string; positions: Float32Array } | null;
 }
 
 export function makeObjectChangeListener(
@@ -64,12 +65,27 @@ export function makeObjectChangeListener(
       if (label) updateClippingPlane(v, label, v.targetObject as THREE.Mesh);
     }
     if (v.subTargetObject && mode === "translate") {
-      const cpIndex = v.subTargetObject.userData.cpIndex as number;
-      const parent = getHandleParent();
-      if (parent && Array.isArray(parent.userData.controlPoints)) {
-        const local = parent.worldToLocal(v.subTargetObject.position.clone());
-        (parent.userData.controlPoints as THREE.Vector3[])[cpIndex].copy(local);
-        refitParentGeometry(parent, v.getCanonicalGeometryStore());
+      if (v.subTargetObject.userData.brepSubObject === true) {
+        // BRep sub-object deformation — #202
+        const sub = v.subTargetObject;
+        const parentUuid = sub.userData.parentUuid as string | undefined;
+        const affected = sub.userData.affectedVertexIndices as number[] | undefined;
+        if (parentUuid && affected) {
+          const _found = v.scene.getObjectByProperty("uuid", parentUuid);
+          if (_found instanceof THREE.Mesh) {
+            const worldDelta = new THREE.Vector3(dWorld.elements[12], dWorld.elements[13], dWorld.elements[14]);
+            deformBrepSubObject(_found, affected, worldDelta, ds.brepDeformSnapshot?.positions, v.getCanonicalGeometryStore());
+          }
+        }
+      } else {
+        // CP handle deformation (line / polyline / curve / wall)
+        const cpIndex = v.subTargetObject.userData.cpIndex as number;
+        const parent = getHandleParent();
+        if (parent && Array.isArray(parent.userData.controlPoints)) {
+          const local = parent.worldToLocal(v.subTargetObject.position.clone());
+          (parent.userData.controlPoints as THREE.Vector3[])[cpIndex].copy(local);
+          refitParentGeometry(parent, v.getCanonicalGeometryStore());
+        }
       }
     }
     if (!v.subTargetObject) {
@@ -170,6 +186,18 @@ export function makeDraggingChangedListener(
           });
         }
       }
+      // BRep sub-object deform snapshot — captured once at drag start; used for idempotent delta apply. #202
+      ds.brepDeformSnapshot = null;
+      if (v.subTargetObject?.userData.brepSubObject === true) {
+        const parentUuid = v.subTargetObject.userData.parentUuid as string | undefined;
+        if (parentUuid) {
+          const _snapMesh = v.scene.getObjectByProperty("uuid", parentUuid);
+          if (_snapMesh instanceof THREE.Mesh) {
+            const _posAttr = _snapMesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+            ds.brepDeformSnapshot = { parentUuid, positions: (_posAttr.array as Float32Array).slice() };
+          }
+        }
+      }
     } else if (!dragging && v.pivotProxy && v.targetObject) {
       const before = v.pivotMatrixBeforeDrag;
       const dWorld = new THREE.Matrix4().copy(v.pivotProxy.matrix).multiply(before.clone().invert());
@@ -254,6 +282,35 @@ export function makeDraggingChangedListener(
       }
       ds.snapshot = null;
       ds.multiSnapshots = [];
+      // BRep sub-object deform undo commit — #202
+      if (ds.brepDeformSnapshot) {
+        const { parentUuid, positions: beforePositions } = ds.brepDeformSnapshot;
+        const _undoMeshObj = v.scene.getObjectByProperty("uuid", parentUuid);
+        if (_undoMeshObj instanceof THREE.Mesh) {
+          const _posAttr = _undoMeshObj.geometry.getAttribute("position") as THREE.BufferAttribute;
+          const afterPositions = (_posAttr.array as Float32Array).slice();
+          const mesh = _undoMeshObj;
+          pushCustomAction(
+            () => {
+              const pa = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+              (pa.array as Float32Array).set(beforePositions);
+              pa.needsUpdate = true;
+              mesh.geometry.computeVertexNormals();
+              mesh.geometry.computeBoundingSphere();
+              mesh.geometry.computeBoundingBox();
+            },
+            () => {
+              const pa = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+              (pa.array as Float32Array).set(afterPositions);
+              pa.needsUpdate = true;
+              mesh.geometry.computeVertexNormals();
+              mesh.geometry.computeBoundingSphere();
+              mesh.geometry.computeBoundingBox();
+            },
+          );
+        }
+        ds.brepDeformSnapshot = null;
+      }
     }
   };
 }
@@ -343,7 +400,7 @@ export function buildGizmos(v: Viewer, perspPane: Pane): void {
   const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
   for (const mode of ["translate", "rotate", "scale"] as const) {
     const g = new TransformControls(perspPane.camera, perspPane.body);
-    const ds: DragState = { snapshot: null, multiSnapshots: [], resetNeighborIds: [], wallOpeningEntries: [], shiftSnapHandler: null };
+    const ds: DragState = { snapshot: null, multiSnapshots: [], resetNeighborIds: [], wallOpeningEntries: [], shiftSnapHandler: null, brepDeformSnapshot: null };
     g.setMode(mode);
     g.setSpace("local");
     if (mode === "translate") g.size = 1.0;

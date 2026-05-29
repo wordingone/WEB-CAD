@@ -708,7 +708,13 @@ export class Viewer {
       geo.setIndex(indices);
       geo.computeVertexNormals();
       const mat = new THREE.MeshBasicMaterial({ color: opts.color, transparent: true, opacity: opts.opacity, depthTest: false, side: THREE.DoubleSide });
-      return applyWorldMatrix(new THREE.Mesh(geo, mat));
+      const faceOverlay = applyWorldMatrix(new THREE.Mesh(geo, mat));
+      const uniqueVerts = new Set<number>();
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        uniqueVerts.add(readIndex(i)); uniqueVerts.add(readIndex(i + 1)); uniqueVerts.add(readIndex(i + 2));
+      }
+      faceOverlay.userData.affectedVertexIndices = [...uniqueVerts];
+      return faceOverlay;
     }
     if (sel.topology === "edge" && sel.edgeIndex !== undefined) {
       const edge = this.groupedBoundaryEdges(mesh)[sel.edgeIndex];
@@ -719,14 +725,18 @@ export class Viewer {
         new THREE.Vector3(pos.getX(ib), pos.getY(ib), pos.getZ(ib)),
       ]);
       const mat = new THREE.LineBasicMaterial({ color: opts.color, depthTest: false });
-      return applyWorldMatrix(new THREE.Line(geo, mat));
+      const edgeOverlay = applyWorldMatrix(new THREE.Line(geo, mat));
+      edgeOverlay.userData.affectedVertexIndices = [ia, ib];
+      return edgeOverlay;
     }
     if (sel.topology === "vertex" && sel.vertexIndex !== undefined) {
       const geo = new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(pos.getX(sel.vertexIndex), pos.getY(sel.vertexIndex), pos.getZ(sel.vertexIndex)),
       ]);
       const mat = new THREE.PointsMaterial({ color: opts.color, size: 14, sizeAttenuation: false, depthTest: false });
-      return applyWorldMatrix(new THREE.Points(geo, mat));
+      const vertOverlay = applyWorldMatrix(new THREE.Points(geo, mat));
+      vertOverlay.userData.affectedVertexIndices = [sel.vertexIndex];
+      return vertOverlay;
     }
     return null;
   }

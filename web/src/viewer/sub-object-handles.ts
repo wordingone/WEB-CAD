@@ -269,3 +269,39 @@ export function refitParentGeometry(parent: THREE.Object3D, canonicalStore?: Can
   obj.geometry.dispose();
   obj.geometry = newGeom;
 }
+
+// Apply a world-space translation delta to a set of vertex indices on a BRep mesh.
+// Restores from snapshotPositions first (drag-start state) so the total delta from
+// dWorld is applied idempotently across the drag frames — no per-frame drift.
+export function deformBrepSubObject(
+  parent: THREE.Mesh,
+  affectedVertexIndices: number[],
+  worldDelta: THREE.Vector3,
+  snapshotPositions: Float32Array | undefined,
+  store?: CanonicalGeometryStore,
+): void {
+  const pos = parent.geometry.getAttribute("position") as THREE.BufferAttribute;
+
+  if (snapshotPositions) {
+    (pos.array as Float32Array).set(snapshotPositions);
+  }
+
+  parent.updateMatrixWorld(true);
+  const localDelta = worldDelta.clone().transformDirection(parent.matrixWorld.clone().invert());
+
+  for (const vi of affectedVertexIndices) {
+    pos.setXYZ(vi, pos.getX(vi) + localDelta.x, pos.getY(vi) + localDelta.y, pos.getZ(vi) + localDelta.z);
+  }
+
+  pos.needsUpdate = true;
+  parent.geometry.computeVertexNormals();
+  parent.geometry.computeBoundingSphere();
+  parent.geometry.computeBoundingBox();
+
+  if (store) {
+    const record = store.resolveObjectOrAncestor(parent);
+    if (record?.kind === "brep") {
+      store.upsert({ ...record, source: "edit", metadata: { ...record.metadata, editedBy: "deformBrepSubObject" } });
+    }
+  }
+}
