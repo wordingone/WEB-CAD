@@ -365,6 +365,13 @@ export class Viewer {
     this.raycaster.params.Line.threshold = 0.15;
     this.raycaster.params.Points.threshold = 0.2;
     viewportAreaEl.addEventListener("pointerdown", (e: PointerEvent) => this.onCanvasMouseDown(e));
+    viewportAreaEl.addEventListener("pointermove", (e: PointerEvent) => {
+      if (e.ctrlKey && e.shiftKey) {
+        this.previewBrepSubObjectAt(e.clientX, e.clientY);
+      } else if (this.subSelectionHover) {
+        this.clearSubSelectionHover();
+      }
+    });
 
     if (perspPane && perspPane.camera instanceof THREE.PerspectiveCamera) {
       this.pivotProxy = new THREE.Object3D();
