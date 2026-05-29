@@ -739,8 +739,14 @@ export function linkPlanarizedMeshCommandBrep(
   mesh: THREE.Mesh,
   createdBy: string,
   metadata: Record<string, unknown>,
+  options: MeshToPlanarBrepOptions = {},
 ): boolean {
-  const brep = meshToPlanarBrep(mesh);
+  const brep = meshToPlanarBrep(mesh, {
+    mergeCoplanarFaces: true,
+    surfaceKind: "nurbs",
+    avoidTriangularFaces: true,
+    ...options,
+  });
   if (!brep) return false;
   const store = viewer.getCanonicalGeometryStore();
   const position = mesh.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
@@ -758,7 +764,9 @@ export function linkPlanarizedMeshCommandBrep(
     },
     metadata: {
       ...metadata,
-      derivation: "planarized-display-mesh",
+      derivation: "planarized-command-mesh",
+      conversion: "merged-coplanar-planar-nurbs-brep",
+      facePolicy: "merge adjacent coplanar generated command triangles and split residual triangular loops so canonical BRep faces are not triangular",
     },
   });
   store.linkObject(mesh, record.id);

@@ -662,8 +662,16 @@ describe("Phase 3 — create-mode click-to-place", () => {
         expect(canonical.kind).toBe("brep");
         if (canonical.kind !== "brep") throw new Error(`expected canonical BRep for ${tool} subcomponent`);
         expect(canonical.createdBy).toBe(createdBy);
-        expect(canonical.metadata).toMatchObject({ derivation: "planarized-display-mesh" });
+        expect(canonical.metadata).toMatchObject({
+          derivation: "planarized-command-mesh",
+          conversion: "merged-coplanar-planar-nurbs-brep",
+        });
         expect(canonical.brep.shells[0].faces.length).toBeGreaterThan(0);
+        expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
+        expect(canonical.brep.shells[0].faces.every((face) => {
+          const curve = face.outerLoop.curves[0] as { points?: unknown[] };
+          return !Array.isArray(curve.points) || curve.points.length !== 4;
+        })).toBe(true);
         linkedRecords.add(canonical.id);
       });
       expect(linkedRecords.size).toBeGreaterThan(0);
