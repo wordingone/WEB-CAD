@@ -711,7 +711,9 @@ describe("BRep canonical migration characterization", () => {
     expect(opTool).toContain(': "SdBooleanIntersection"');
     expect(opTool).toContain("const result = dispatchSync(verb, args)");
     expect(opTool).toContain('dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 })');
-    expect(opTool).toContain("linkOpToolExtrudeCanonical(viewer, extruded, 3.0)");
+    expect(opTool).toContain("function tryAutoExtrudeClosedSketchForBoolean");
+    expect(opTool).toContain('dispatchSync("SdExtrude", { object_id: profile.uuid, distance: 3.0 })');
+    expect(opTool).not.toContain("linkOpToolExtrudeCanonical(viewer, extruded, 3.0)");
   });
 
   test("structural and create-mode canonical checks resolve through ancestors", () => {

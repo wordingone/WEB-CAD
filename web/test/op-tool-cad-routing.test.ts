@@ -46,6 +46,31 @@ describe("CAD/BRep op-tool command parity", () => {
     expect(extrudeCommit).not.toContain("viewer.addMesh");
   });
 
+  test("boolean auto-extrudes closed sketch operands through SdExtrude instead of local mesh construction", () => {
+    const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const helperStart = source.indexOf("function tryAutoExtrudeClosedSketchForBoolean");
+    const helperEnd = source.indexOf("export function opHandleClick", helperStart + 1);
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    const boolStart = source.indexOf('if (phase.kind === "bool_a")');
+    const boolEnd = source.indexOf('if (phase.kind === "bool_op")', boolStart + 1);
+    expect(boolStart).toBeGreaterThanOrEqual(0);
+    expect(boolEnd).toBeGreaterThan(boolStart);
+    const boolCommit = source.slice(boolStart, boolEnd);
+
+    expect(helper).toContain('dispatchSync("SdExtrude"');
+    expect(helper).toContain("object_id: profile.uuid");
+    expect(helper).toContain("distance: 3.0");
+    expect(helper).toContain("autoExtrudedForBoolean");
+    expect(helper).not.toContain("opBuildExtrudeMesh");
+    expect(helper).not.toContain("linkOpToolExtrudeCanonical");
+    expect(boolCommit).toContain("tryAutoExtrudeClosedSketchForBoolean(viewer, objA)");
+    expect(boolCommit).toContain("tryAutoExtrudeClosedSketchForBoolean(viewer, objB)");
+    expect(boolCommit).not.toContain("linkOpToolExtrudeCanonical");
+    expect(boolCommit).not.toContain("viewer.getScene().add(extruded)");
+  });
+
   test("BRep palette completions no longer mutate scene locally instead of dispatching Sd ops", () => {
     const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
     const start = source.indexOf('if (phase.kind === "brep_explode_pick")');

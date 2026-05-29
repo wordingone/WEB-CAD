@@ -18,7 +18,7 @@ import {
   ptShowCoordInput, ptHideCoordInput, _ptCoordInputEl,
 } from "./transforms";
 import { getChooserEl, opSetHover, setChooserHint } from "./picker-hint";
-import { pushReplaceAction } from "../history";
+import { beginTransaction, endTransaction, pushReplaceAction } from "../history";
 import { dispatchSync } from "../commands/dispatch";
 import { formatLength } from "../units";
 import {
@@ -27,7 +27,6 @@ import {
 } from "./op-tool-extrude-mesh";
 import { applyBoolHighlight, restoreBoolHighlight } from "./op-tool-bool-highlight";
 import { opApply2DFillet } from "./op-tool-fillet-2d";
-import { linkOpToolExtrudeCanonical } from "./op-tool-canonical";
 
 // Re-export for callers that import these from op-tool (barrel pattern).
 export { EXTRUDABLE_CREATORS, opRaycastObject } from "./op-tool-extrude-mesh";
@@ -637,6 +636,45 @@ function opShowBoolChooser(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Obj
   chooserEl.classList.add("visible");
 }
 
+function tryAutoExtrudeClosedSketchForBoolean(viewer: Viewer, profile: THREE.Object3D): { obj?: THREE.Object3D; error?: string } {
+  const creator = profile.userData.creator as string | undefined;
+  const isClosed = !!(profile.userData.isClosed as boolean | undefined);
+  if (!creator || !(CLOSED_SKETCH_CREATORS.has(creator) || (creator === "curve" && isClosed))) {
+    return { error: "Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape." };
+  }
+
+  const before = new Set<string>();
+  viewer.getScene().traverse((obj) => before.add(obj.uuid));
+  beginTransaction("boolean-auto-extrude");
+  const result = dispatchSync("SdExtrude", { object_id: profile.uuid, distance: 3.0 });
+  if (!result.ok) {
+    endTransaction();
+    return { error: `Auto-extrude failed — ${result.detail ?? result.error}` };
+  }
+  const payload = result.result as { error?: string } | undefined;
+  if (payload?.error) {
+    endTransaction();
+    return { error: payload.error };
+  }
+
+  const extruded = viewer.getScene().children.find((obj): obj is THREE.Mesh => (
+    !before.has(obj.uuid)
+      && obj instanceof THREE.Mesh
+      && (obj.userData.dispatchVerb === "SdExtrude" || obj.userData.creator === "extrude")
+  )) ?? null;
+  if (!extruded) {
+    endTransaction();
+    return { error: "Auto-extrude failed — SdExtrude did not create a selectable solid" };
+  }
+
+  extruded.userData.autoExtrudedForBoolean = true;
+  viewer.getScene().remove(profile);
+  extruded.updateMatrixWorld(true);
+  pushReplaceAction(extruded, [profile], "extrude");
+  endTransaction();
+  return { obj: extruded };
+}
+
 // â”€â”€ Click handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function opHandleClick(viewer: Viewer, clientX: number, clientY: number): boolean {
@@ -965,22 +1003,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Boolean — click first solid  (2D closed sketches auto-extrude to 3 m)"); return true; }
     let objA: THREE.Object3D = hit.obj;
     if (!(objA instanceof THREE.Mesh)) {
-      const cr = objA.userData.creator as string | undefined;
-      const isClosed = !!(objA.userData.isClosed as boolean | undefined);
-      if (cr && (CLOSED_SKETCH_CREATORS.has(cr) || (cr === "curve" && isClosed))) {
-        const extruded = opBuildExtrudeMesh(objA, 3.0);
-        extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
-        extruded.userData.autoExtrudedForBoolean = true;
-        linkOpToolExtrudeCanonical(viewer, extruded, 3.0);
-        viewer.getScene().remove(objA);
-        viewer.getScene().add(extruded);
-        extruded.updateMatrixWorld(true);
-        pushReplaceAction(extruded, [objA], "extrude");
-        objA = extruded;
-      } else {
-        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+      const autoExtrude = tryAutoExtrudeClosedSketchForBoolean(viewer, objA);
+      if (!autoExtrude.obj) {
+        ptPrompt(autoExtrude.error ?? "Boolean auto-extrude failed");
         return true;
       }
+      objA = autoExtrude.obj;
     }
     opSetHover(null);
     const mA = objA as THREE.Mesh;
@@ -998,22 +1026,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit || hit.obj === phase.objA) { ptPrompt("Boolean — click a different second solid"); return true; }
     let objB: THREE.Object3D = hit.obj;
     if (!(objB instanceof THREE.Mesh)) {
-      const cr = objB.userData.creator as string | undefined;
-      const isClosed = !!(objB.userData.isClosed as boolean | undefined);
-      if (cr && (CLOSED_SKETCH_CREATORS.has(cr) || (cr === "curve" && isClosed))) {
-        const extruded = opBuildExtrudeMesh(objB, 3.0);
-        extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
-        extruded.userData.autoExtrudedForBoolean = true;
-        linkOpToolExtrudeCanonical(viewer, extruded, 3.0);
-        viewer.getScene().remove(objB);
-        viewer.getScene().add(extruded);
-        extruded.updateMatrixWorld(true);
-        pushReplaceAction(extruded, [objB], "extrude");
-        objB = extruded;
-      } else {
-        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+      const autoExtrude = tryAutoExtrudeClosedSketchForBoolean(viewer, objB);
+      if (!autoExtrude.obj) {
+        ptPrompt(autoExtrude.error ?? "Boolean auto-extrude failed");
         return true;
       }
+      objB = autoExtrude.obj;
     }
     opSetHover(null);
     const mB = objB as THREE.Mesh;
