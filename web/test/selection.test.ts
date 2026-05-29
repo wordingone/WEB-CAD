@@ -72,6 +72,7 @@ test("Ctrl+Shift drilldown bypasses whole-object hover and Shift multi-select", 
   expect(toolsSource).toContain("ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover");
   expect(toolsSource).toContain("viewer.previewBrepSubObjectAt(ev.clientX, ev.clientY)");
   expect(toolsSource).toContain("viewer.clearSubSelectionHover()");
+  expect(toolsSource).toContain("detail?.subObject");
 
   const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
   expect(viewerSource).toContain("addToMultiSelected(subSelection)");

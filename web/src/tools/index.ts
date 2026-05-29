@@ -1747,7 +1747,8 @@ export function initCreateMode(viewer: Viewer): void {
   const ALIGN_TOOLS = new Set(["align-left", "align-right", "align-top", "align-bottom", "align-center-h", "align-center-v", "dist-h", "dist-v"]);
 
   // Clear multi-select highlights when the viewer performs a normal single-object selection.
-  window.addEventListener("viewer:select", () => {
+  window.addEventListener("viewer:select", (ev) => {
+    if ((ev as CustomEvent).detail?.subObject) return;
     if (!isSelHLOwned()) { clearMultiSelHighlights(); clearMultiSelected(); }
   });
 
