@@ -212,7 +212,7 @@ let _visibilityRegistered = false; // register listener once across worker respa
 // §#197 Delta 1: agent-idle VRAM suppression (visible tab). Default: 5 min idle → dispose.
 // Override via ?agent_idle_ms=N for CDP evidence collection (N in ms; absent = 5 min).
 const _agentIdleMsParam = parseInt(new URL(location.href).searchParams.get("agent_idle_ms") ?? "", 10);
-const AGENT_IDLE_DISPOSE_DELAY_MS = _agentIdleMsParam > 0 ? _agentIdleMsParam : 5 * 60 * 1000;
+const AGENT_IDLE_DISPOSE_DELAY_MS = _agentIdleMsParam >= 1000 ? _agentIdleMsParam : 5 * 60 * 1000;
 let _agentIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let _ortSessionRefreshDone = false;      // guards against double-fire
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
