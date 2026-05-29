@@ -109,6 +109,36 @@ function axisStringVector(axis: string | null): THREE.Vector3 {
   return new THREE.Vector3(1, 0, 0);
 }
 
+function vectorListArg(value: unknown): THREE.Vector3[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((point): point is number[] => Array.isArray(point) && point.length >= 2)
+    .map((point) => new THREE.Vector3(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0));
+}
+
+function curveLength(points: THREE.Vector3[]): number {
+  let length = 0;
+  for (let i = 1; i < points.length; i++) length += points[i].distanceTo(points[i - 1]);
+  return length;
+}
+
+function sampleAlongCurve(points: THREE.Vector3[], count: number): THREE.Vector3[] {
+  const distances: number[] = [0];
+  for (let i = 1; i < points.length; i++) distances.push(distances[i - 1] + points[i].distanceTo(points[i - 1]));
+  const total = distances[distances.length - 1] ?? 0;
+  const samples: THREE.Vector3[] = [];
+  const n = Math.max(2, count);
+  for (let i = 0; i < n; i++) {
+    const t = total === 0 ? 0 : (i / (n - 1)) * total;
+    let segment = 0;
+    while (segment < distances.length - 2 && distances[segment + 1] < t) segment++;
+    const span = distances[segment + 1] - distances[segment];
+    const alpha = span > 0 ? (t - distances[segment]) / span : 0;
+    samples.push(points[segment].clone().lerp(points[Math.min(segment + 1, points.length - 1)], Math.min(1, alpha)));
+  }
+  return samples;
+}
+
 export function registerTransformHandlers(viewer: Viewer): void {
   registerHandler("SdMove", (args) => {
     const sel = resolveTransformTarget(viewer, args);
@@ -296,6 +326,31 @@ export function registerTransformHandlers(viewer: Viewer): void {
       ids.push(clone.uuid);
     }
     return { created: ids.length, count };
+  });
+
+  registerHandler("SdArrayAlongCurve", (args) => {
+    const sel = resolveTransformTarget(viewer, args);
+    if (!sel) return { created: false, reason: "no selection" };
+    const path = vectorListArg(args.path ?? args.curve ?? args.points);
+    if (path.length < 2) return { created: false, reason: "path requires at least two points" };
+    if (curveLength(path) <= 1e-9) return { created: false, reason: "path length must be positive" };
+    const count = Math.max(2, Math.round((args.count as number | undefined) ?? 3));
+    const sourceCenter = new THREE.Vector3();
+    new THREE.Box3().setFromObject(sel).getCenter(sourceCenter);
+    const samples = sampleAlongCurve(path, count);
+    const batchObjs: THREE.Object3D[] = [];
+    for (const sample of samples) {
+      const clone = sel.clone(true);
+      clone.position.x += sample.x - sourceCenter.x;
+      clone.position.y += sample.y - sourceCenter.y;
+      clone.position.z += sample.z - sourceCenter.z;
+      clone.userData = { ...sel.userData, creator: "array-along-curve" };
+      viewer.addMesh(clone, (clone.userData.kind as string | undefined) ?? "mesh", { noHistory: true });
+      replayCloneSideEffects(clone, viewer.getScene());
+      batchObjs.push(clone);
+    }
+    pushBatchAction(batchObjs, "SdArrayAlongCurve");
+    return { created: batchObjs.length, count, pathLength: curveLength(path) };
   });
 
   registerHandler("SdAlignObjects", (args) => {

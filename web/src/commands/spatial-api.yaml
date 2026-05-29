@@ -905,6 +905,25 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- name: SdArrayAlongCurve
+  kernel_op: array_along_curve
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+      path:
+        type: list_any
+      count:
+        type: integer
+        default: 3
+    required: [target, path]
+  topology_role: transform
+  kg_predicates: [groupedWith]
+  synonyms: [array along curve, along curve array, path array, distribute along curve]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
 - name: SdAlignObjects
   kernel_op: alignObjects
   parameters:

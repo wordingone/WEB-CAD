@@ -1484,18 +1484,11 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "array_curve_count") {
     const n = Math.round(Number(raw.trim()));
     if (isNaN(n) || n < 2) { ptPrompt("Along Curve — type count (min 2)"); return; }
-    const src = phase.source;
-    const srcCtr = new THREE.Vector3();
-    new THREE.Box3().setFromObject(src).getCenter(srcCtr);
-    const positions = _sampleAlongCurve(phase.curvePts, n);
-    for (const pos of positions) {
-      dispatchSync("SdCopy", {
-        target: src.uuid,
-        x: round(pos.x - srcCtr.x),
-        y: round(pos.y - srcCtr.y),
-        z: round(pos.z - srcCtr.z),
-      });
-    }
+    dispatchSync("SdArrayAlongCurve", {
+      target: phase.source.uuid,
+      path: phase.curvePts.map(vecArgs),
+      count: n,
+    });
     opFinish(viewer);
   }
 
@@ -1668,23 +1661,6 @@ function _curveLength(pts: THREE.Vector3[]): number {
   let len = 0;
   for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
   return len;
-}
-
-function _sampleAlongCurve(pts: THREE.Vector3[], count: number): THREE.Vector3[] {
-  const segs: number[] = [0];
-  for (let i = 1; i < pts.length; i++) segs.push(segs[i - 1] + pts[i].distanceTo(pts[i - 1]));
-  const total = segs[segs.length - 1];
-  const result: THREE.Vector3[] = [];
-  const n = Math.max(2, count);
-  for (let i = 0; i < n; i++) {
-    const t = (i / (n - 1)) * total;
-    let si = 0;
-    while (si < segs.length - 2 && segs[si + 1] < t) si++;
-    const segLen = segs[si + 1] - segs[si];
-    const alpha = segLen > 0 ? (t - segs[si]) / segLen : 0;
-    result.push(pts[si].clone().lerp(pts[Math.min(si + 1, pts.length - 1)], Math.min(1, alpha)));
-  }
-  return result;
 }
 
 function _opPhaseStartArray(source: THREE.Object3D): void {

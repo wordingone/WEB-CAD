@@ -59,4 +59,19 @@ describe("CAD/BRep op-tool command parity", () => {
     expect(filletCommit).not.toContain("viewer.addMesh");
     expect(filletCommit).not.toContain("pushReplaceAction");
   });
+
+  test("along-curve array completion routes through one agent-facing SdArrayAlongCurve command", () => {
+    const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const start = source.indexOf('if (phase.kind === "array_curve_count")');
+    const end = source.indexOf('if (phase.kind === "array_polar_count")', start + 1);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const arrayCurveCommit = source.slice(start, end);
+
+    expect(arrayCurveCommit).toContain('dispatchSync("SdArrayAlongCurve"');
+    expect(arrayCurveCommit).toContain("path:");
+    expect(arrayCurveCommit).not.toContain('dispatchSync("SdCopy"');
+    expect(arrayCurveCommit).not.toContain("new THREE.Box3");
+    expect(arrayCurveCommit).not.toContain("_sampleAlongCurve");
+  });
 });

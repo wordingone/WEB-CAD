@@ -48,6 +48,7 @@ beforeEach(() => {
     "SdArrayLinear",
     "SdArrayGrid",
     "SdArrayPolar",
+    "SdArrayAlongCurve",
     "SdArray",
     "SdBoolean",
     "SdBooleanUnion",
@@ -996,6 +997,29 @@ describe("canonical geometry transform instances", () => {
       [20, 0, 0],
       [20, 20, 0],
     ]);
+  });
+
+  test("SdArrayAlongCurve creates one command-level path array while preserving canonical links", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdArrayAlongCurve", {
+      target: mesh.uuid,
+      path: [[0, 0, 0], [10, 0, 0]],
+      count: 3,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(added).toHaveLength(3);
+    for (const obj of added) {
+      expect(store.resolveObject(obj)).toBe(record);
+      expect(obj.userData.creator).toBe("array-along-curve");
+    }
+    expect(added.map((obj) => obj.position.x)).toEqual([0, 5, 10]);
+
+    const snapshot = inspectCanonicalGeometry(store, scene.children);
+    const links = snapshot.objectLinks.filter((link) => link.canonicalGeometryId === record.id);
+    expect(links).toHaveLength(4);
   });
 
   test("SdBooleanUnion links transformed display operands to a world-space canonical BRep result", () => {
