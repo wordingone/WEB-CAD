@@ -912,6 +912,30 @@ async function handleSessionRefresh(): Promise<void> {
     }
   }
 
+  // §#196: warmup probe — pre-sizes GPU buffer pool after re-load to close the
+  // buffer_manager.cc:553 mapAsync race. Without this, the first real inference allocates
+  // KV cache at full production size against an un-primed pool — same race that
+  // §C-warmup-context (#1362) was added to close on cold boot.
+  if (_model && _processor && refreshed) {
+    try {
+      const proc = _processor as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const warmupText = proc.apply_chat_template(
+        [{ role: "user", content: "." }],
+        { add_generation_prompt: true, tokenize: false },
+      ) as string;
+      const warmupIn = await proc(warmupText, null);
+      if ((warmupIn.input_ids?.dims?.[1] ?? 0) < WEBGPU_CONTEXT_LIMIT - 64) {
+        await Promise.race([
+          (_model as any).generate({ ...warmupIn, max_new_tokens: 8, do_sample: false }), // eslint-disable-line @typescript-eslint/no-explicit-any
+          new Promise<void>(r => setTimeout(r, 30_000)),
+        ]);
+        await _flushWgpuQueue("session-refresh-warmup");
+      }
+    } catch (e) {
+      console.warn("[#196] warmup probe failed (non-fatal):", (e as Error).message?.slice(0, 100));
+    }
+  }
+
   post({ type: "session-refresh-complete", skipped: !refreshed });
 }
 
