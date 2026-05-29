@@ -1185,7 +1185,8 @@ export type SerializedSceneObj = {
 };
 
 function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
-  if (obj.userData.creator == null && obj.userData.kind == null) return null;
+  const hasCanonicalLink = typeof obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string";
+  if (obj.userData.creator == null && obj.userData.kind == null && !hasCanonicalLink) return null;
   const userData = { ...obj.userData };
   if (typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string") {
     delete userData.nurbsSurface;

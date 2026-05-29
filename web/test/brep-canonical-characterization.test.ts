@@ -13,6 +13,7 @@ import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
 import { linkOpToolExtrudeCanonical } from "../src/viewer/op-tool-canonical";
 import { WORLD_XY } from "../src/viewer/cplane";
+import { __sceneSerializationForTests } from "../src/viewer/viewer";
 import type { Viewer } from "../src/viewer/viewer";
 
 function source(path: string): string {
@@ -357,6 +358,10 @@ describe("BRep canonical migration characterization", () => {
       expect(obj).toBeInstanceOf(THREE.Group);
 
       const linkedRecords = new Set<string>();
+      const serialized = obj ? __sceneSerializationForTests.serializeSceneObj(obj) : null;
+      const serializedIds = serialized
+        ? __sceneSerializationForTests.collectCanonicalGeometryIds([serialized])
+        : new Set<string>();
       obj?.traverse((child) => {
         const canonical = store.resolveObject(child);
         if (!canonical) return;
@@ -373,6 +378,7 @@ describe("BRep canonical migration characterization", () => {
           const curve = face.outerLoop.curves[0] as { points?: unknown[] };
           return !Array.isArray(curve.points) || curve.points.length !== 4;
         })).toBe(true);
+        expect(serializedIds.has(canonical.id), `${verb} did not serialize linked canonical child ${canonical.id}`).toBe(true);
         linkedRecords.add(canonical.id);
       });
       expect(linkedRecords.size).toBeGreaterThan(0);
