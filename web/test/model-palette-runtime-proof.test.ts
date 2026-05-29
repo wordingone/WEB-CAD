@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { getEntry, resolveAlias } from "../src/commands/dictionary";
 import { MODEL_PALETTE_CAUSAL_SPECS } from "../src/shell/model-palette-causal-map";
 
 type ProofCase = {
@@ -17,6 +18,17 @@ const GEOMETRY_OUTCOMES = new Set([
   "canonical-reference",
   "canonical-annotation-curve",
   "dom-annotation",
+]);
+
+const EXACT_GEOMETRY_OUTCOMES = new Set([
+  "canonical-curve",
+  "canonical-point",
+  "canonical-surface",
+  "canonical-brep",
+  "canonical-brep-edit",
+  "canonical-brep-derived-curves",
+  "canonical-reference",
+  "canonical-annotation-curve",
 ]);
 
 const PROOF_BY_COMMAND: Record<string, ProofCase> = {
@@ -81,6 +93,31 @@ function source(file: string): string {
 }
 
 describe("MODEL palette runtime proof index", () => {
+  test("every palette causal command is an agent-facing spatial dictionary command", () => {
+    for (const spec of Object.values(MODEL_PALETTE_CAUSAL_SPECS)) {
+      const entry = getEntry(spec.command);
+      expect(entry, `${spec.paletteId} -> ${spec.command}`).toBeDefined();
+      if (!entry) throw new Error(`missing dictionary entry for ${spec.paletteId} -> ${spec.command}`);
+      expect(resolveAlias(spec.paletteId), spec.paletteId).toBe(spec.command);
+      expect(entry.parameters.type, spec.command).toBe("object");
+      expect(entry.parameters.properties, spec.command).toBeDefined();
+      expect(Array.isArray(entry.parameters.required), spec.command).toBe(true);
+    }
+  });
+
+  test("exact geometry palette outcomes are backed by CAD kernels, not UI-only routes", () => {
+    for (const spec of Object.values(MODEL_PALETTE_CAUSAL_SPECS)) {
+      if (!EXACT_GEOMETRY_OUTCOMES.has(spec.canonicalOutcome)) continue;
+      const entry = getEntry(spec.command);
+      expect(entry, `${spec.paletteId} -> ${spec.command}`).toBeDefined();
+      if (!entry) throw new Error(`missing dictionary entry for ${spec.paletteId} -> ${spec.command}`);
+      expect(["nurbs-webgpu", "replicad"], `${spec.paletteId} kernel`).toContain(entry.kernel);
+      expect(entry.topology_role, `${spec.paletteId} topology_role`).not.toBe("view");
+      expect(entry.topology_role, `${spec.paletteId} topology_role`).not.toBe("selection");
+      expect(entry.kernel_op, `${spec.paletteId} kernel_op`).toBeTruthy();
+    }
+  });
+
   test("every geometry-producing palette command has a concrete runtime proof file", () => {
     const commands = [...new Set(Object.values(MODEL_PALETTE_CAUSAL_SPECS)
       .filter((spec) => GEOMETRY_OUTCOMES.has(spec.canonicalOutcome))

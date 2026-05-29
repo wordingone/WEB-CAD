@@ -756,7 +756,7 @@
     required: []
   topology_role: transform
   kg_predicates: []
-  synonyms: [scale, resize]
+  synonyms: [scale, resize, scale-1d, scale-2d]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -990,7 +990,7 @@
     required: []
   topology_role: host
   kg_predicates: [hosts, containedIn, bounds]
-  synonyms: [wall, makewall, drawwall, w, IfcWall]
+  synonyms: [wall, makewall, drawwall, w, IfcWall, wall-polyline, wall-pick]
   hotkey: W
   kernel: replicad
   alias_source: generic_cad_vocabulary
@@ -1182,7 +1182,7 @@
   strictDims: true
   topology_role: host
   kg_predicates: [containedIn, connectedTo]
-  synonyms: [stair, stairs, steps, staircase, IfcStair]
+  synonyms: [stair, stairs, steps, staircase, IfcStair, stair-polyline, stair-curve]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -2610,7 +2610,7 @@
     required: [origin, normal]
   topology_role: view
   kg_predicates: []
-  synonyms: [clip, clippingplane, "clipping plane", "cut plane", "section plane", "clip plane"]
+  synonyms: [clip, clippingplane, "clipping plane", "cut plane", "section plane", "clip plane", clip-section]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
