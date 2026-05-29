@@ -9,7 +9,10 @@ import { startCommandSession } from "../commands/command-session";
 import { checkConsentAndLoad } from "../agent/model-consent";
 import { isCadOnlyMode } from "../agent/boot-screen";
 import { ChatPanel } from "../chat/chat-panel";
-import { prefetchModel, MODEL_ID } from "../agent/agent-harness";
+import {
+  prefetchModel, MODEL_ID,
+  suppressAgentSession, releaseAgentSession, isAgentSessionSuspended,
+} from "../agent/agent-harness";
 import {
   listSavedSkills,
   type SavedSkill, type SkillStep,
@@ -185,6 +188,7 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
 
   const header = el("div", "ai-header");
   function renderHeader(): void {
+    const suspended = isAgentSessionSuspended();
     header.innerHTML = `
       <div class="ai-title">
         ${mode === "console" ? iconSVG("terminal", 13) : iconSVG("sparkle", 13)}
@@ -193,6 +197,10 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
       <button class="mode-pill" title="Shift+Tab to toggle mode" data-mode="${mode}">
         ${mode === "console" ? "● CONSOLE" : "○ CREATE"}
       </button>
+      <button class="vram-pill${suspended ? " vram-pill--suspended" : ""}" id="vram-toggle" type="button"
+        title="${suspended ? "Resume agent (re-acquire VRAM)" : "Pause agent to free VRAM"}">
+        ${suspended ? "▶ RESUME" : "⏸ SUSPEND"}
+      </button>
       <span class="ai-badge" id="ai-model-badge">
         <span class="v">G</span>EMMA·4·E4B  ·  LIVE
       </span>
@@ -200,9 +208,23 @@ export function buildPromptTabBody(promptPane: HTMLElement | null): HTMLElement 
     header.querySelector(".mode-pill")?.addEventListener("click", () => {
       setConsoleMode(mode === "console" ? "prompt" : "console");
     });
+    header.querySelector("#vram-toggle")?.addEventListener("click", () => {
+      if (isAgentSessionSuspended()) releaseAgentSession();
+      else suppressAgentSession();
+    });
   }
   renderHeader();
   wrap.appendChild(header);
+
+  // Keep vram-toggle label/state in sync whenever the harness suspends or resumes.
+  window.addEventListener("agentmodel:session-suspended", (e) => {
+    const suspended = (e as CustomEvent<{ suspended: boolean }>).detail.suspended;
+    const btn = document.getElementById("vram-toggle") as HTMLButtonElement | null;
+    if (!btn) return;
+    btn.textContent = suspended ? "▶ RESUME" : "⏸ SUSPEND";
+    btn.title = suspended ? "Resume agent (re-acquire VRAM)" : "Pause agent to free VRAM";
+    btn.classList.toggle("vram-pill--suspended", suspended);
+  });
 
   const chatRoot = el("div", "chat-panel-root");
   const chatPanel = new ChatPanel(chatRoot);
