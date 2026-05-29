@@ -14,6 +14,7 @@
 
 import * as THREE from "three";
 import { applyDrafting, removeDrafting, type DraftingOpts } from "../geometry/drafting";
+import { canonicalBrepEdgeGeometryForObject } from "./brep-edge-geometry";
 import type { Viewer } from "./viewer";
 
 export type RenderMode   = "shaded" | "wireframe" | "ghosted" | "realistic" | "technical";
@@ -128,7 +129,8 @@ export function setRenderMode(mode: RenderMode): void {
         depthWrite: false,
         side: THREE.DoubleSide,
       });
-      const eGeom = new THREE.EdgesGeometry(mesh.geometry, 1);
+      const eGeom = canonicalBrepEdgeGeometryForObject(_viewer?.getCanonicalGeometryStore?.(), mesh)
+        ?? new THREE.EdgesGeometry(mesh.geometry, 1);
       const eMat = new THREE.LineBasicMaterial({ color: 0x2a2a3a, opacity: 0.95, transparent: true });
       const lines = new THREE.LineSegments(eGeom, eMat);
       lines.userData[RM_OVERLAY] = true;
@@ -158,7 +160,9 @@ export function setRenderMode(mode: RenderMode): void {
       mesh.add(lines);
     });
   } else if (mode === "technical") {
-    const opts: DraftingOpts = {};
+    const opts: DraftingOpts = {
+      edgeGeometryProvider: (mesh) => canonicalBrepEdgeGeometryForObject(_viewer?.getCanonicalGeometryStore?.(), mesh),
+    };
     applyDrafting(scene, opts);
     if (_lt !== "solid") _refreshDraftingLines();
   }
