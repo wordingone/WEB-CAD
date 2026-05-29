@@ -10,6 +10,28 @@ describe("CAD/BRep op-tool command parity", () => {
     }
   });
 
+  test("boolean intersection uses intersection semantics from palette to Sd command", () => {
+    const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
+    const boolStart = source.indexOf("function opExecBoolean");
+    const boolEnd = source.indexOf("function opShowBoolChooser", boolStart + 1);
+    const startHandlers = source.slice(
+      source.indexOf('} else if (tool === "boolean")'),
+      source.indexOf('} else if (tool === "brep-explode")'),
+    );
+
+    expect(boolStart).toBeGreaterThanOrEqual(0);
+    expect(boolEnd).toBeGreaterThan(boolStart);
+    const boolExec = source.slice(boolStart, boolEnd);
+
+    expect(source).toContain('presetOp?: "union" | "difference" | "intersection"');
+    expect(startHandlers).toContain('tool === "bool-intersect"');
+    expect(startHandlers).toContain('presetOp: "intersection"');
+    expect(boolExec).toContain(': "SdBooleanIntersection"');
+    expect(boolExec).toContain('op === "intersection"');
+    expect(boolExec).not.toContain('op === "split"');
+    expect(boolExec).not.toContain('boolean-split');
+  });
+
   test("extrude completion no longer commits through private mesh construction", () => {
     const source = readFileSync(new URL("../src/viewer/op-tool.ts", import.meta.url), "utf8");
     const start = source.indexOf('if (phase.kind === "extrude_height")');

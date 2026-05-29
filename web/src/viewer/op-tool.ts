@@ -70,8 +70,8 @@ export function registerOpToolHooks(hooks: OpToolHooks): void {
 export type OpPhase =
   | { kind: "extrude_select" }
   | { kind: "extrude_height"; profile: THREE.Object3D; cx: number; cy: number; w: number; d: number }
-  | { kind: "bool_a"; presetOp?: "union" | "difference" | "split" }
-  | { kind: "bool_b"; objA: THREE.Object3D; presetOp?: "union" | "difference" | "split" }
+  | { kind: "bool_a"; presetOp?: "union" | "difference" | "intersection" }
+  | { kind: "bool_b"; objA: THREE.Object3D; presetOp?: "union" | "difference" | "intersection" }
   | { kind: "bool_op"; objA: THREE.Object3D; objB: THREE.Object3D }
   | { kind: "fillet_select" }
   | { kind: "fillet_edge";        target: THREE.Mesh | THREE.Line }
@@ -579,7 +579,7 @@ export function opUpdateSelectHoverPreview(viewer: Viewer, profile: THREE.Object
 
 // â”€â”€ Boolean operation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "split"): void {
+function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "intersection"): void {
   restoreBoolHighlight(objA); restoreBoolHighlight(objB);
 
   if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh)) {
@@ -606,10 +606,10 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
-  if (op === "split") {
+  if (op === "intersection") {
     const createdId = (result.result as { created?: string } | undefined)?.created;
     const created = createdId ? viewer.getScene().getObjectByProperty("uuid", createdId) : null;
-    if (created) created.userData.creator = "boolean-split";
+    if (created) created.userData.creator = "boolean-intersection";
   }
   opFinish(viewer);
 }
@@ -622,10 +622,10 @@ function opShowBoolChooser(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Obj
   label.className = "chooser-label";
   label.textContent = "Boolean operation:";
   chooserEl.appendChild(label);
-  const ops: Array<["union" | "difference" | "split", string]> = [
+  const ops: Array<["union" | "difference" | "intersection", string]> = [
     ["union",      "Union"],
     ["difference", "Difference (A âˆ’ B)"],
-    ["split",      "Split (A âˆ© B)"],
+    ["intersection", "Intersection (A âˆ© B)"],
   ];
   for (const [op, lbl] of ops) {
     const chip = document.createElement("button");
@@ -987,7 +987,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     applyBoolHighlight(mA, 0x003399);
     _opPhase = { kind: "bool_b", objA, presetOp: phase.presetOp };
     const bPrompt = phase.presetOp
-      ? `${phase.presetOp === "split" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} — click second solid (A highlighted)`
+      ? `${phase.presetOp === "intersection" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} — click second solid (A highlighted)`
       : "Boolean — click the second solid (first highlighted in blue)";
     ptPrompt(bPrompt);
     return true;
@@ -1553,7 +1553,7 @@ export function opStartTool(viewer: Viewer, tool: string): void {
     _opPhase = { kind: "bool_a", presetOp: "difference" };
     ptPrompt("Difference — click first solid (A)  [Escape = cancel]");
   } else if (tool === "bool-intersect") {
-    _opPhase = { kind: "bool_a", presetOp: "split" };
+    _opPhase = { kind: "bool_a", presetOp: "intersection" };
     ptPrompt("Intersect — click first solid  [Escape = cancel]");
   } else if (tool === "brep-explode") {
     _opPhase = { kind: "brep_explode_pick" };

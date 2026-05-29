@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach } from "bun:test";
+import { readFileSync } from "node:fs";
 import { getState, setState, syncToolActiveClass } from "../src/app-state";
 import { buildPalette, PALETTE_SECTIONS } from "../src/shell/workbench-panels";
 import { dispatchSync } from "../src/commands/dispatch";
@@ -283,5 +284,29 @@ describe("MODEL left palette ARCH/CAD coverage", () => {
     expect(resolveAlias("sel-window")).toBe("SdSelectWindow");
     expect(resolveAlias("sel-lasso")).toBe("SdSelectLasso");
     expect(resolveAlias("sel-boundary")).toBe("SdSelectBoundary");
+  });
+
+  test("straight wall submodes commit through SdWall instead of local buildWall meshes", () => {
+    const source = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
+    const helperStart = source.indexOf("function commitWallSegmentsViaSd");
+    const helperEnd = source.indexOf("function commitWallPick", helperStart + 1);
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    const helper = source.slice(helperStart, helperEnd);
+    expect(helper).toContain('dispatchSync("SdWall"');
+    expect(helper).not.toContain("buildWall(");
+    expect(helper).not.toContain("viewer.addMesh");
+
+    const wallPickStart = source.indexOf("function commitWallPick");
+    const wallPickEnd = source.indexOf("function commitUnlimited", wallPickStart + 1);
+    expect(wallPickStart).toBeGreaterThanOrEqual(0);
+    expect(wallPickEnd).toBeGreaterThan(wallPickStart);
+    const wallPick = source.slice(wallPickStart, wallPickEnd);
+    expect(wallPick).toContain("commitWallSegmentsViaSd(viewer, pts, closed)");
+    expect(wallPick).not.toContain("const r = buildWall");
+
+    const commitUnlimited = source.slice(wallPickEnd, source.indexOf("export function emitClickWorld", wallPickEnd + 1));
+    expect(commitUnlimited).toContain('tool === "wall-polyline"');
+    expect(commitUnlimited).toContain("commitWallSegmentsViaSd(viewer, pts)");
   });
 });

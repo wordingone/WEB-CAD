@@ -1161,6 +1161,35 @@ function commitMultiWalls(viewer: Viewer, results: SingleResult[]): void {
   }
 }
 
+function commitWallSegmentsViaSd(
+  viewer: Viewer,
+  pts: Array<{ x: number; y: number; z?: number }>,
+  closed = false,
+): SingleResult[] | null {
+  if (pts.length < 2) return null;
+  const n = pts.length;
+  const count = closed ? n : n - 1;
+  const results: SingleResult[] = [];
+  for (let i = 0; i < count; i++) {
+    const start = pts[i];
+    const end = pts[(i + 1) % n];
+    const args = {
+      start: { x: round(start.x), y: round(start.y), z: round(start.z ?? 0) },
+      end: { x: round(end.x), y: round(end.y), z: round(end.z ?? 0) },
+    };
+    const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+    const result = dispatchSync("SdWall", args);
+    if (!result.ok) return null;
+    const created = commandCreatedObject(viewer, before);
+    if (!created) return null;
+    const chain = `SdWall(${JSON.stringify(args)})`;
+    _createSequence.push(chain);
+    pushAction(created, chain);
+    results.push({ mesh: created, chain });
+  }
+  return results;
+}
+
 function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
   const creator = obj.userData.creator as string | undefined;
   const z0 = obj instanceof THREE.Mesh ? (obj as THREE.Mesh).position.z : 0;
@@ -1222,14 +1251,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
   }
   const closedKinds = new Set(["rectangle", "polygon", "circle", "slab"]);
   const closed = closedKinds.has(obj.userData.kind as string ?? "");
-  const n = pts.length;
-  const results: SingleResult[] = [];
-  for (let i = 0; i < (closed ? n : n - 1); i++) {
-    const r = buildWall(pts[i], pts[(i + 1) % n]);
-    r.mesh.position.z = z0;
-    results.push(r);
+  if (!commitWallSegmentsViaSd(viewer, pts, closed)) {
+    setPickerHint("wall-pick â€” failed to create walls from reference geometry");
+    return;
   }
-  commitMultiWalls(viewer, results);
   hideCursorDot();
   setPickerHint(null);
   dispatchSync("setActiveTool", { toolId: "select" });
@@ -1248,6 +1273,12 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
   _pending = [];
   hideCursorDot();
   setPickerHint(null);
+
+  if (tool === "wall-polyline") {
+    const results = commitWallSegmentsViaSd(viewer, pts);
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return results?.[0] ?? null;
+  }
 
   if (handler.commitMulti) {
     const results = handler.commitMulti(pts);
