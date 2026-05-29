@@ -443,7 +443,6 @@ export function getCreateToolCausalSpecs(): Record<string, CreateToolCausalSpec>
 
 const TOOL_TODOS: Record<string, string> = {
   arc:     "draw(start).arcTo(end, [via]).sketchOnPlane('XY').extrude(thickness)",
-  revolve: "select profile then axis then angle — TODO 3-step gizmo flow",
   move:    "select then drag — already covered by transform gizmo",
   rotate:  "select then drag — already covered by transform gizmo",
   scale:   "select then drag — already covered by transform gizmo",

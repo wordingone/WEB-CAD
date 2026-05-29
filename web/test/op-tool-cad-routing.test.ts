@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { OP_TOOL_IDS } from "../src/viewer/picker-hint";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 describe("CAD/BRep op-tool command parity", () => {
   test("visible CAD/BRep op-tool completions route through agent-facing Sd handlers", () => {
@@ -106,6 +111,20 @@ describe("CAD/BRep op-tool command parity", () => {
     expect(loftCommit).not.toContain("new THREE.Mesh");
     expect(sweepCommit).not.toContain("new THREE.Mesh");
     expect(revolveCommit).not.toContain("new THREE.Mesh");
+  });
+
+  test("op-tool palette buttons are not stale create-mode TODO fallbacks", () => {
+    const source = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
+    const start = source.indexOf("const TOOL_TODOS");
+    const end = source.indexOf("};", start + 1);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const todoBlock = source.slice(start, end);
+
+    for (const toolId of OP_TOOL_IDS) {
+      expect(todoBlock, toolId).not.toMatch(new RegExp(`(?:^|[\\s,{])["']?${escapeRegExp(toolId)}["']?\\s*:`));
+    }
+    expect(todoBlock).not.toContain("TODO 3-step gizmo flow");
   });
 
   test("boolean auto-extrudes closed sketch operands through SdExtrude instead of local mesh construction", () => {
