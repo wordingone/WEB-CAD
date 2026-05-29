@@ -71,7 +71,7 @@ $chromeArgs = @(
     "--remote-debugging-port=$CDP_PORT",
     "--user-data-dir=$ChromeDataDir",
     "--no-default-browser-check",
-    "--disable-features=CalculateNativeWinOcclusion",
+    "--disable-features=CalculateNativeWinOcclusion,DesktopPWAs,WebAppInstallation",
     $DEV_URL
 )
 Write-Host "Launching Chromium..."
