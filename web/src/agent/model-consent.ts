@@ -260,31 +260,25 @@ async function hasCachedModel(modelId: string): Promise<boolean> {
  * (e.g. localStorage cleared after a prior download), calls onProceed() immediately.
  * Otherwise shows the consent dialog first.
  */
-export function requestConsentAndLoad(modelId: string, onProceed: () => void): Promise<boolean> {
+export function checkConsentAndLoad(modelId: string, onProceed: () => void): void {
   wireProgressEvents();
 
   if (hasConsent()) {
     onProceed();
-    return Promise.resolve(true);
+    return;
   }
 
   // If model files are already cached, skip the dialog — no download will happen.
-  return hasCachedModel(modelId).then((cached) => {
+  hasCachedModel(modelId).then((cached) => {
     if (cached) {
       grantConsent();
       onProceed();
-      return true;
+      return;
     }
-    return new Promise<boolean>((resolve) => {
-      const overlay = buildConsentDialog(
-        () => { grantConsent(); onProceed(); resolve(true); },
-        () => { resolve(false); },
-      );
-      document.body.appendChild(overlay);
-    });
+    const overlay = buildConsentDialog(
+      () => { grantConsent(); onProceed(); },
+      () => { /* user cancelled — no load until next attempt */ },
+    );
+    document.body.appendChild(overlay);
   });
-}
-
-export function checkConsentAndLoad(modelId: string, onProceed: () => void): void {
-  void requestConsentAndLoad(modelId, onProceed);
 }
