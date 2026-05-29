@@ -479,6 +479,21 @@ export class Viewer {
     return meshes;
   }
 
+  private visibleSceneBrepMeshes(): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = [];
+    this.scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (!this.getCanonicalBrepOwner(obj)) return;
+      let current: THREE.Object3D | null = obj;
+      while (current) {
+        if (!current.visible) return;
+        current = current.parent;
+      }
+      meshes.push(obj);
+    });
+    return meshes;
+  }
+
   private meshVertexWorld(mesh: THREE.Mesh, index: number): THREE.Vector3 | null {
     const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
     if (!pos || index < 0 || index >= pos.count) return null;
@@ -604,17 +619,9 @@ export class Viewer {
   }
 
   private pickBrepSubObject(hits: THREE.Intersection[]): Selection | null {
-    const owners: Array<{ owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } }> = [];
-    const seen = new Set<string>();
-    for (const hit of hits) {
-      if (!this.visibleHit(hit)) continue;
-      const owner = this.getCanonicalBrepOwner(hit.object);
-      if (!owner || seen.has(owner.owner.uuid)) continue;
-      seen.add(owner.owner.uuid);
-      owners.push(owner);
-    }
-    if (owners.length === 0) return null;
     const meshes = this.candidateBrepMeshes(hits);
+    if (meshes.length === 0) meshes.push(...this.visibleSceneBrepMeshes());
+    if (meshes.length === 0) return null;
     return (
       this.pickBrepDisplayVertex(this.raycaster.ray, meshes)
       ?? this.pickBrepDisplayEdge(this.raycaster.ray, meshes)
