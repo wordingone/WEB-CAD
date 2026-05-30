@@ -8,7 +8,7 @@ import { clippingPlaneStore, type CPlaneBounds } from "./geometry/clipping-plane
 import { setActiveClipPlaneEntity } from "./viewer/clip-plane-handles";
 import { getLayoutHost } from "./shell/modes";
 import { addLinkedClipPlaneSheet } from "./shell/layout";
-import { clearSelected } from "./viewer/selection-state";
+import { clearSelected, clearMultiSelected } from "./viewer/selection-state";
 import { registerGoalHandlers } from "./agent/goal-handlers";
 import { registerTransformHandlers } from "./handlers/transforms";
 import { registerNurbsHandlers } from "./handlers/nurbs";
@@ -184,6 +184,7 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     viewer.clearScene();
     clearHistory();
     scenePanel.clear();
+    clearMultiSelected();
     clearSelected();
     window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
     return { ok: true, cleared: true };
