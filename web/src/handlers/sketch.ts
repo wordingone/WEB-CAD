@@ -20,6 +20,7 @@ import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-
 import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace, type BrepVertex } from "../nurbs/nurbs-brep";
 import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
+import { CANONICAL_GEOMETRY_USERDATA_KEY } from "../geometry/canonical-geometry";
 
 // Suppress unused-import warnings for curve utilities used only via inference
 void curvePointAt; void curveDomain;
@@ -721,7 +722,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
         linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
       }
       viewer.addMesh(obj, "mesh");
-      return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end, solid: Boolean(solidBrep) };
+      return { created: obj.uuid, object_id: obj.uuid, canonical_id: obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
@@ -744,7 +745,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
         linkCanonicalSurface(viewer, obj, "SdSweep", surface);
       }
       viewer.addMesh(obj, "mesh");
-      return { created: "sweep", solid: Boolean(solidBrep) };
+      return { created: obj.uuid, object_id: obj.uuid, canonical_id: obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "sweep", solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
@@ -771,7 +772,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
         linkCanonicalSurface(viewer, obj, "SdLoft", surface);
       }
       viewer.addMesh(obj, "mesh");
-      return { created: "loft", curveCount: curves.length, solid: Boolean(solidBrep) };
+      return { created: obj.uuid, object_id: obj.uuid, canonical_id: obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY], primitive: "loft", curveCount: curves.length, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
