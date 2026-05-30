@@ -8,7 +8,7 @@
 //   ChangeMap       — Created/Modified/Generated/Deleted history (LibreCAD pattern)
 //   registerBackend — opt-in runtime registry; per-op backend selection at call site
 //   ToyBackend      — pure-JS correctness baseline; union = structural concat
-//   NurbsBooleanBackend — SSI-backed backend for PlaneSurface-only breps (#115)
+//   NurbsBooleanBackend — SSI-backed backend for planar Breps (#115)
 //
 // Three backends (this file registers the first two):
 //   'toy'      — pure-JS structural concat (PR-1)
@@ -30,7 +30,7 @@
 import type { Brep, BrepFace, BrepShell } from "./nurbs-brep";
 import { brepConcat, BREP_DEFAULT_TOLERANCE } from "./nurbs-brep";
 import type { BooleanOptions } from "./nurbs-brep";
-import type { PlaneSurface } from "./nurbs-surfaces";
+import type { NurbsSurface, PlaneSurface } from "./nurbs-surfaces";
 import { domainU as surfDomainU, domainV as surfDomainV, normalAtUV, pointAtUV } from "./nurbs-surfaces";
 import { Vector3 as V3, Point3 as Pt3 } from "./nurbs-primitives";
 import type { Point3 } from "./nurbs-primitives";
@@ -281,8 +281,8 @@ registerBackend(new ToyBooleanBackend());
 //
 // Strategy (OCCT BRepAlgoAPI_BooleanOperation pattern):
 //   1. section(): SSI on all face pairs → intersection curves
-//   2. _allPlanar(): detect if both operands are PlaneSurface-only
-//   3. _planarBoolean(): face-classification for convex PlaneSurface breps:
+//   2. _allPlanar(): detect if both operands are plane or exact planar degree-1 NURBS
+//   3. _planarBoolean(): face-classification for convex planar breps:
 //        - Compute outward test point for each face
 //        - Ray-cast into other brep to determine inside/outside
 //        - Select faces per operation (union/difference/intersection)
@@ -293,10 +293,61 @@ registerBackend(new ToyBooleanBackend());
 //
 // Ref: OCCT BRepAlgoAPI_BooleanOperation.hxx; Weiler-Atherton face classification.
 
-/** Return true if every face in every shell uses a PlaneSurface. */
+function _linearNurbsAsPlaneSurface(surface: NurbsSurface): PlaneSurface | null {
+  if (surface.isRational || surface.order[0] !== 2 || surface.order[1] !== 2) return null;
+  if (surface.cvCount[0] !== 2 || surface.cvCount[1] !== 2 || surface.dim !== 3) return null;
+  const cv = (i: number, j: number): Point3 => {
+    const base = i * surface.cvStride[0] + j * surface.cvStride[1];
+    return {
+      x: surface.cvs[base] ?? 0,
+      y: surface.cvs[base + 1] ?? 0,
+      z: surface.cvs[base + 2] ?? 0,
+    };
+  };
+  const p00 = cv(0, 0);
+  const p01 = cv(0, 1);
+  const p10 = cv(1, 0);
+  const p11 = cv(1, 1);
+  const ux = Pt3.sub(p10, p00);
+  const vy = Pt3.sub(p01, p00);
+  const diagonal = Pt3.sub(p11, p00);
+  const expectedDiagonal = { x: ux.x + vy.x, y: ux.y + vy.y, z: ux.z + vy.z };
+  if (Pt3.distance(diagonal, expectedDiagonal) > BREP_DEFAULT_TOLERANCE * 10) return null;
+  const uLen = V3.length(ux);
+  const vLen = V3.length(vy);
+  if (uLen <= BREP_DEFAULT_TOLERANCE || vLen <= BREP_DEFAULT_TOLERANCE) return null;
+  const xAxis = V3.scale(ux, 1 / uLen);
+  const yAxis = V3.scale(vy, 1 / vLen);
+  const normal = V3.cross(xAxis, yAxis);
+  if (V3.length(normal) <= BREP_DEFAULT_TOLERANCE) return null;
+  const unitNormal = V3.normalize(normal);
+  const uDomain = surfDomainU(surface);
+  const vDomain = surfDomainV(surface);
+  const origin = {
+    x: p00.x - xAxis.x * uDomain.min - yAxis.x * vDomain.min,
+    y: p00.y - xAxis.y * uDomain.min - yAxis.y * vDomain.min,
+    z: p00.z - xAxis.z * uDomain.min - yAxis.z * vDomain.min,
+  };
+  return {
+    kind: "plane",
+    plane: { origin, xAxis, yAxis, normal: unitNormal },
+    uDomain,
+    vDomain,
+    uExtent: uDomain,
+    vExtent: vDomain,
+  };
+}
+
+function _facePlaneSurface(face: BrepFace): PlaneSurface | null {
+  if (face.surface.kind === "plane") return face.surface;
+  if (face.surface.kind === "nurbs") return _linearNurbsAsPlaneSurface(face.surface);
+  return null;
+}
+
+/** Return true if every face in every shell uses a PlaneSurface or exact planar degree-1 NURBS surface. */
 function _allPlanar(brep: Brep): boolean {
   return brep.shells.every((sh) =>
-    sh.faces.every((f) => f.surface.kind === "plane"),
+    sh.faces.every((f) => _facePlaneSurface(f) !== null),
   );
 }
 
@@ -319,9 +370,10 @@ function _hasMeshFaces(brep: Brep): boolean {
  */
 function _outwardTestPt(face: BrepFace, eps: number): Point3 {
   const surf = face.surface;
-  if (surf.kind === "plane") {
-    const n = face.orientation ? surf.plane.normal : V3.negate(surf.plane.normal);
-    const o = surf.plane.origin;
+  const planar = _facePlaneSurface(face);
+  if (planar) {
+    const n = face.orientation ? planar.plane.normal : V3.negate(planar.plane.normal);
+    const o = planar.plane.origin;
     return { x: o.x + eps * n.x, y: o.y + eps * n.y, z: o.z + eps * n.z };
   }
   // Generic: evaluate at surface midpoint
@@ -349,8 +401,8 @@ function _pointInSolid(pt: Point3, solid: Brep): boolean {
 
   for (const shell of solid.shells) {
     for (const face of shell.faces) {
-      if (face.surface.kind !== "plane") continue;
-      const surf = face.surface as PlaneSurface;
+      const surf = _facePlaneSurface(face);
+      if (!surf) continue;
       const n = surf.plane.normal;
       const denom = V3.dot(n, rayDir);
       if (Math.abs(denom) < 1e-10) continue; // parallel to ray
@@ -391,7 +443,7 @@ function _emptyChangeMap(): ChangeMap {
 type BooleanOp = "union" | "difference" | "intersection";
 
 /**
- * Face-classification boolean for PlaneSurface-only breps.
+ * Face-classification boolean for planar breps.
  *
  * For each face F in operand A:
  *   - Compute outward test point P = centroid + ε * outward_normal
@@ -457,7 +509,7 @@ function _planarBoolean(op: BooleanOp, a: Brep, b: Brep, opts?: BooleanOptions):
 /**
  * SSI-backed NURBS boolean backend (priority 10 — beats ToyBooleanBackend at 0).
  *
- * Handles PlaneSurface-only breps via face-classification (union / difference /
+ * Handles planar breps via face-classification (union / difference /
  * intersection). Falls back to ToyBooleanBackend for union on non-planar breps
  * and mesh operands. Returns NOT_IMPLEMENTED for difference/intersection on
  * non-planar inputs (full BooleanBuilder is a future deliverable).
@@ -481,7 +533,7 @@ export class NurbsBooleanBackend implements IBooleanBackend {
       return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: difference not supported for mesh operands", backend: this.id } };
     }
     if (_allPlanar(a) && _allPlanar(b)) return _planarBoolean("difference", a, b, opts);
-    return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: difference requires PlaneSurface-only breps (BooleanBuilder future)", backend: this.id } };
+    return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: difference requires planar breps (BooleanBuilder future)", backend: this.id } };
   }
 
   intersection(a: Brep, b: Brep, opts?: BooleanOptions): BrepResult {
@@ -489,7 +541,7 @@ export class NurbsBooleanBackend implements IBooleanBackend {
       return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: intersection not supported for mesh operands", backend: this.id } };
     }
     if (_allPlanar(a) && _allPlanar(b)) return _planarBoolean("intersection", a, b, opts);
-    return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: intersection requires PlaneSurface-only breps (BooleanBuilder future)", backend: this.id } };
+    return { ok: false, error: { code: "NOT_IMPLEMENTED", message: "nurbs backend: intersection requires planar breps (BooleanBuilder future)", backend: this.id } };
   }
 
   /**

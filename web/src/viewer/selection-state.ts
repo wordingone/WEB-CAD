@@ -22,6 +22,19 @@ export type Topology =
   | "brep"
   | "compound";
 
+export function topologyForObject(obj: THREE.Object3D, canonicalKind?: string): Topology {
+  const kind = canonicalKind ?? (obj.userData?.kind as string | undefined);
+  if (kind === "brep") return "brep";
+  if (kind === "compound") return "compound";
+  if (kind === "curve") return "curve";
+  if (kind === "point") return "vertex";
+  if (kind === "surface") return "face";
+  if (obj instanceof THREE.Group) return "compound";
+  if (obj instanceof THREE.Line) return "curve";
+  if (obj instanceof THREE.Points) return "vertex";
+  return "mesh";
+}
+
 // What can be selected. The Three.js `object` is the picking proxy (the
 // vertex sprite, edge tube, face mesh, or the parent mesh). For sub-object
 // hits, `parent` points at the owning brep/compound mesh. `index` is the
@@ -92,8 +105,20 @@ export function getMultiSelected(): Selection[] {
   return _multiSet;
 }
 
+function selectionKey(sel: Selection): string {
+  return [
+    sel.parentUuid ?? sel.uuid,
+    sel.topology,
+    sel.faceIndex ?? "",
+    sel.edgeIndex ?? "",
+    sel.vertexIndex ?? "",
+    sel.uuid,
+  ].join(":");
+}
+
 export function addToMultiSelected(sel: Selection): void {
-  const already = _multiSet.findIndex((s) => s.uuid === sel.uuid);
+  const key = selectionKey(sel);
+  const already = _multiSet.findIndex((s) => selectionKey(s) === key);
   if (already >= 0) {
     _multiSet.splice(already, 1);
   } else {

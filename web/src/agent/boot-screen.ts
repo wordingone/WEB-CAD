@@ -1,5 +1,6 @@
 // boot-screen.ts — Full-viewport loading screen (#938, #1134).
-// Blocks all underlying UI interaction until agentmodel:boot-complete fires.
+// Blocks all underlying UI interaction until agentmodel:boot-complete fires,
+// or until agentmodel:boot-skipped makes the CAD workbench available without AI.
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
@@ -315,6 +316,15 @@ function _wireEvents(): void {
         _onDone();
       }
     })();
+  }, { once: true });
+  window.addEventListener('agentmodel:boot-skipped', (ev: Event) => {
+    _traceEvent('boot-skipped');
+    const detail = (ev as CustomEvent).detail as { reason?: string } | undefined;
+    (window as unknown as Record<string, unknown>).__agentModelStatus = {
+      state: 'skipped',
+      reason: detail?.reason ?? 'model-not-loaded',
+    };
+    _onDone();
   }, { once: true });
   window.addEventListener('agentmodel:error', (ev: Event) => {
     _traceEvent('error');

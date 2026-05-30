@@ -4,7 +4,8 @@ import * as THREE from "three";
 import {
   buildWall, buildWallPitchedTop, buildSlab, buildColumn, buildBeam,
   buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall,
-  buildSkylight, buildStair, buildReferenceLine,
+  buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
+  buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
   type RoofParams, type CurtainWallParams, type StairParams,
   DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
 } from "../tools/structural";
@@ -18,6 +19,375 @@ import { DEFAULT_CEILING_OFFSET } from "../tools/index";
 import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "../tools/dimensions";
 import { resolveLayerId, getActiveLevelElevation } from "./shared";
 import { getState } from "../app-state";
+import { linkCanonicalBrep } from "./canonical-surface";
+import { linkPlanarizedMeshCommandBrep } from "./mesh-planar-brep";
+import { createCatmullRomAsNurbs } from "../nurbs/nurbs-curves";
+import type { Curve, LineCurve, PolylineCurve } from "../nurbs/nurbs-curves";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
+import type { Point3 } from "../nurbs/nurbs-primitives";
+
+function rectangleProfile(minX: number, maxX: number, minY: number, maxY: number): PolylineCurve {
+  return profileFrom2dPoints([
+    [minX, minY],
+    [maxX, minY],
+    [maxX, maxY],
+    [minX, maxY],
+    [minX, minY],
+  ]);
+}
+
+function profileFrom2dPoints(points2d: Array<[number, number]>): PolylineCurve {
+  const points = [
+    ...points2d,
+    ...(points2d.length > 0 && (points2d[0][0] !== points2d[points2d.length - 1][0] || points2d[0][1] !== points2d[points2d.length - 1][1])
+      ? [points2d[0]]
+      : []),
+  ].map(([x, y]) => ({ x, y, z: 0 }));
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function profileFrom3dPoints(points3d: Array<[number, number, number]>): PolylineCurve {
+  const points = [
+    ...points3d,
+    ...(points3d.length > 0 && (
+      points3d[0][0] !== points3d[points3d.length - 1][0]
+      || points3d[0][1] !== points3d[points3d.length - 1][1]
+      || points3d[0][2] !== points3d[points3d.length - 1][2]
+    ) ? [points3d[0]] : []),
+  ].map(([x, y, z]) => ({ x, y, z }));
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function linkExtrudedRectangleBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number,
+  height: number,
+  createdBy: string,
+  zOffset = 0,
+): void {
+  const brep = extrudeBrep(rectangleProfile(minX, maxX, minY, maxY), { x: 0, y: 0, z: 1 }, height);
+  const localBrep = zOffset === 0
+    ? brep
+    : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
+  linkCanonicalBrep(viewer, obj, localBrep, createdBy);
+}
+
+function linkPitchedWallBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  length: number,
+  thickness: number,
+  eaveHeight: number,
+  ridgeHeight: number,
+): void {
+  const halfLen = length / 2;
+  const profile = profileFrom3dPoints([
+    [-halfLen, -thickness / 2, 0],
+    [halfLen, -thickness / 2, 0],
+    [halfLen, -thickness / 2, eaveHeight],
+    [0, -thickness / 2, eaveHeight + ridgeHeight],
+    [-halfLen, -thickness / 2, eaveHeight],
+    [-halfLen, -thickness / 2, 0],
+  ]);
+  linkCanonicalBrep(viewer, obj, extrudeBrep(profile, { x: 0, y: 1, z: 0 }, thickness), "SdWall");
+}
+
+function point3FromArg(value: unknown): Point3 | null {
+  if (Array.isArray(value) && value.length >= 2) {
+    const x = Number(value[0]);
+    const y = Number(value[1]);
+    const z = Number(value[2] ?? 0);
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? { x, y, z } : null;
+  }
+  if (value && typeof value === "object") {
+    const rec = value as { x?: unknown; y?: unknown; z?: unknown };
+    const x = Number(rec.x);
+    const y = Number(rec.y);
+    const z = Number(rec.z ?? 0);
+    return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? { x, y, z } : null;
+  }
+  return null;
+}
+
+function lineCurve(from: Point3, to: Point3): LineCurve {
+  return { kind: "line", from, to, domain: { min: 0, max: Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) } };
+}
+
+function makeFace(surface: BrepFace["surface"]): BrepFace {
+  return {
+    surface,
+    outerLoop: { curves: [], orientation: true },
+    innerLoops: [],
+    orientation: true,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function buildCurveWallMesh(points: Point3[], thickness: number, height: number): THREE.Mesh {
+  const z0 = points[0]?.z ?? 0;
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, 0)));
+  const sampleCount = Math.max((points.length - 1) * 16, 32);
+  const centerline = curve.getPoints(sampleCount);
+  const half = thickness / 2;
+  const positions: number[] = [];
+  const tangents = centerline.map((_, i) => {
+    const prev = centerline[Math.max(0, i - 1)];
+    const next = centerline[Math.min(centerline.length - 1, i + 1)];
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  });
+
+  for (let i = 0; i < centerline.length; i++) {
+    const p = centerline[i];
+    const tangent = tangents[i];
+    const nx = -tangent.y;
+    const ny = tangent.x;
+    positions.push(p.x + half * nx, p.y + half * ny, z0);
+    positions.push(p.x + half * nx, p.y + half * ny, z0 + height);
+    positions.push(p.x - half * nx, p.y - half * ny, z0);
+    positions.push(p.x - half * nx, p.y - half * ny, z0 + height);
+  }
+
+  const indices: number[] = [];
+  for (let i = 0; i < centerline.length - 1; i++) {
+    const ob0 = 4 * i, ot0 = 4 * i + 1, ib0 = 4 * i + 2, it0 = 4 * i + 3;
+    const ob1 = 4 * (i + 1), ot1 = 4 * (i + 1) + 1, ib1 = 4 * (i + 1) + 2, it1 = 4 * (i + 1) + 3;
+    indices.push(ob0, ot0, ob1, ob1, ot0, ot1);
+    indices.push(ib0, ib1, it0, ib1, it1, it0);
+    indices.push(ot0, it0, ot1, ot1, it0, it1);
+    indices.push(ob0, ob1, ib0, ob1, ib1, ib0);
+  }
+  indices.push(0, 2, 1, 1, 2, 3);
+  const e = centerline.length - 1;
+  indices.push(4 * e, 4 * e + 1, 4 * e + 2, 4 * e + 1, 4 * e + 3, 4 * e + 2);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({ color: 0x9ec5d8, roughness: 0.55, metalness: 0.05 });
+  return new THREE.Mesh(geometry, material);
+}
+
+function buildCurveWallBrep(points: Point3[], thickness: number, height: number): Brep {
+  const z0 = points[0]?.z ?? 0;
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p.x, p.y, 0)));
+  const sampleCount = Math.max((points.length - 1) * 16, 32);
+  const centerline = curve.getPoints(sampleCount);
+  const half = thickness / 2;
+
+  const outerBottom: Point3[] = [];
+  const innerBottom: Point3[] = [];
+  for (let i = 0; i < centerline.length; i++) {
+    const prev = centerline[Math.max(0, i - 1)];
+    const next = centerline[Math.min(centerline.length - 1, i + 1)];
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const p = centerline[i];
+    outerBottom.push({ x: p.x + half * nx, y: p.y + half * ny, z: z0 });
+    innerBottom.push({ x: p.x - half * nx, y: p.y - half * ny, z: z0 });
+  }
+  const outerTop = outerBottom.map((p) => ({ ...p, z: z0 + height }));
+  const innerTop = innerBottom.map((p) => ({ ...p, z: z0 + height }));
+
+  const outerBottomCurve = createCatmullRomAsNurbs(outerBottom);
+  const outerTopCurve = createCatmullRomAsNurbs(outerTop);
+  const innerBottomCurve = createCatmullRomAsNurbs(innerBottom);
+  const innerTopCurve = createCatmullRomAsNurbs(innerTop);
+  const first = 0;
+  const last = outerBottom.length - 1;
+  const startBottom = lineCurve(outerBottom[first], innerBottom[first]);
+  const startTop = lineCurve(outerTop[first], innerTop[first]);
+  const endBottom = lineCurve(outerBottom[last], innerBottom[last]);
+  const endTop = lineCurve(outerTop[last], innerTop[last]);
+  const startOuterVertical = lineCurve(outerBottom[first], outerTop[first]);
+  const startInnerVertical = lineCurve(innerBottom[first], innerTop[first]);
+  const endOuterVertical = lineCurve(outerBottom[last], outerTop[last]);
+  const endInnerVertical = lineCurve(innerBottom[last], innerTop[last]);
+
+  const faces = [
+    makeFace(loftSurfaces([outerBottomCurve, outerTopCurve])),
+    makeFace(loftSurfaces([innerBottomCurve, innerTopCurve])),
+    makeFace(loftSurfaces([outerTopCurve, innerTopCurve])),
+    makeFace(loftSurfaces([outerBottomCurve, innerBottomCurve])),
+    makeFace(loftSurfaces([startOuterVertical, startInnerVertical])),
+    makeFace(loftSurfaces([endOuterVertical, endInnerVertical])),
+  ];
+  const edges: Curve[] = [
+    outerBottomCurve, outerTopCurve, innerBottomCurve, innerTopCurve,
+    startBottom, startTop, endBottom, endTop,
+    startOuterVertical, startInnerVertical, endOuterVertical, endInnerVertical,
+  ];
+  return {
+    shells: [{
+      faces,
+      edges: edges.map((edge, i) => ({
+        curve: edge,
+        faceIndex1: Math.min(i % faces.length, faces.length - 1),
+        faceIndex2: Math.min((i + 1) % faces.length, faces.length - 1),
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      })),
+      vertices: [
+        outerBottom[first], outerTop[first], innerBottom[first], innerTop[first],
+        outerBottom[last], outerTop[last], innerBottom[last], innerTop[last],
+      ].map((point, edgeIndex) => ({ point, edgeIndices: [edgeIndex], tolerance: BREP_DEFAULT_TOLERANCE })),
+      isClosed: true,
+    }],
+  };
+}
+
+function linkCompoundMeshBreps(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  createdBy: string,
+  metadata: Record<string, unknown>,
+): void {
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    if (viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child)) return;
+    const stairFlight = child.userData.stairFlightCanonical as {
+      n?: unknown;
+      riser?: unknown;
+      tread?: unknown;
+      stairW?: unknown;
+      zBase?: unknown;
+    } | undefined;
+    if (stairFlight && [stairFlight.n, stairFlight.riser, stairFlight.tread, stairFlight.stairW, stairFlight.zBase].every((value) => Number.isFinite(Number(value)))) {
+      linkCanonicalBrep(viewer, child, buildStairFlightBrep({
+        n: Number(stairFlight.n),
+        riser: Number(stairFlight.riser),
+        tread: Number(stairFlight.tread),
+        stairW: Number(stairFlight.stairW),
+        zBase: Number(stairFlight.zBase),
+      }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-stair-flight-profile",
+          conversion: "extruded-stair-flight-profile-brep",
+        };
+      }
+      return;
+    }
+    const boxPrimitive = boxPrimitiveDimensions(child);
+    if (boxPrimitive) {
+      linkCanonicalBrep(viewer, child, buildBoxPrimitiveBrep(boxPrimitive), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-box-primitive",
+          conversion: "extruded-rectangular-solid-brep",
+          boxPrimitive,
+        };
+      }
+      return;
+    }
+    const gableCap = child.userData.gableCapCanonical as {
+      landscape?: unknown;
+      sign?: unknown;
+      ridgeLenHalf?: unknown;
+      spanHalf?: unknown;
+      ridgeHeight?: unknown;
+      thickness?: unknown;
+    } | undefined;
+    if (
+      gableCap
+      && typeof gableCap.landscape === "boolean"
+      && Number.isFinite(Number(gableCap.sign))
+      && Number.isFinite(Number(gableCap.ridgeLenHalf))
+      && Number.isFinite(Number(gableCap.spanHalf))
+      && Number.isFinite(Number(gableCap.ridgeHeight))
+    ) {
+      linkCanonicalBrep(viewer, child, buildGableCapSolidBrep({
+        landscape: gableCap.landscape,
+        sign: Number(gableCap.sign),
+        ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+        spanHalf: Number(gableCap.spanHalf),
+        ridgeHeight: Number(gableCap.ridgeHeight),
+        thickness: Number(gableCap.thickness ?? 0.02),
+      }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-gable-cap-solid",
+          conversion: "extruded-triangular-nurbs-brep",
+          gableCap: {
+            landscape: gableCap.landscape,
+            sign: Number(gableCap.sign),
+            ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+            spanHalf: Number(gableCap.spanHalf),
+            ridgeHeight: Number(gableCap.ridgeHeight),
+            thickness: Number(gableCap.thickness ?? 0.02),
+          },
+        };
+      }
+      return;
+    }
+    const panelPoints = planarPanelPoints(child);
+    if (panelPoints) {
+      linkCanonicalBrep(viewer, child, buildPlanarPanelBrep({ points: panelPoints }), createdBy);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          ...metadata,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          parentId: child.userData.parentId,
+          derivation: "parametric-planar-panel",
+          conversion: "trimmed-planar-nurbs-brep",
+          panelVertexCount: panelPoints.length,
+        };
+      }
+      return;
+    }
+    linkPlanarizedMeshCommandBrep(viewer, child, createdBy, {
+      ...metadata,
+      ifcClass: child.userData.ifcClass,
+      name: child.userData.name,
+      parentId: child.userData.parentId,
+    });
+  });
+}
 
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
@@ -70,11 +440,48 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.creator = "wall";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    if (topProfile === "pitched") {
+      const t = (mesh.userData.wallThickness as number | undefined) ?? 0.2;
+      linkPitchedWallBrep(viewer, mesh, wallLenCheck, t, eaveH, ridgeH);
+    } else {
+      const t = (mesh.userData.wallThickness as number | undefined) ?? 0.2;
+      linkExtrudedRectangleBrep(viewer, mesh, -wallLenCheck / 2, wallLenCheck / 2, -t / 2, t / 2, effectiveH, "SdWall");
+    }
     viewer.addMesh(mesh, "brep");
     if (topProfile !== "pitched") attemptWallCornerJoins(mesh, viewer.getScene());
     onElementCommitted(mesh, viewer.getScene());
     const dx = b.x - a.x, dy = b.y - a.y;
     return { created: "wall", length: Math.sqrt(dx * dx + dy * dy) || wallLen };
+  });
+
+  registerHandler("SdCurveWall", (args) => {
+    const cplaneKind = (viewer as Viewer & { activeCPlane?: { kind?: string } }).activeCPlane?.kind ?? "world";
+    const rawPoints = args.points as unknown[] | undefined;
+    const points = rawPoints?.map(point3FromArg).filter((p): p is Point3 => !!p) ?? [];
+    if (points.length < 2) return { error: "SdCurveWall requires at least 2 points", created: null };
+    const thickness = Math.max(0.01, Number(args.thickness ?? 0.2));
+    const height = Math.max(0.01, Number(args.height ?? DEFAULT_WALL_HEIGHT));
+    if (!Number.isFinite(thickness) || !Number.isFinite(height)) {
+      return { error: "SdCurveWall requires finite thickness and height", created: null };
+    }
+
+    const mesh = buildCurveWallMesh(points, thickness, height);
+    mesh.userData.kind = "brep";
+    mesh.userData.creator = "wall";
+    mesh.userData.createdBy = "SdCurveWall";
+    mesh.userData.isCurveWall = true;
+    mesh.userData.wallThickness = thickness;
+    mesh.userData.wallHeight = height;
+    mesh.userData.controlPoints = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    mesh.userData.cplaneKind = cplaneKind;
+    mesh.userData.layerId = resolveLayerId("SdCurveWall", args);
+    mesh.userData.levelId = getActiveLevelId();
+    mesh.userData.dispatchArgs = args;
+    mesh.userData.chain = `SdCurveWall(${JSON.stringify({ points, thickness, height })})`;
+    linkCanonicalBrep(viewer, mesh, buildCurveWallBrep(points, thickness, height), "SdCurveWall");
+    viewer.addMesh(mesh, "brep");
+    onElementCommitted(mesh, viewer.getScene());
+    return { created: mesh.uuid, points: points.length, surfaceKind: "nurbs", kind: "brep" };
   });
 
   registerHandler("SdSlab", (args) => {
@@ -99,6 +506,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, t, "SdSlab");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "slab", width: w, depth: d };
@@ -115,6 +523,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -0.15, 0.15, -0.15, 0.15, 4, "SdColumn");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "column" };
@@ -125,16 +534,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = args.end as number[] | undefined;
     const a = { x: s?.[0] ?? 0, y: s?.[1] ?? 0 };
     const b = { x: e?.[0] ?? 4, y: e?.[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildBeam(a, b);
     mesh.position.z += getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdBeam", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const beamLen = Math.sqrt(dx * dx + dy * dy) || 4;
+    linkExtrudedRectangleBrep(viewer, mesh, -beamLen / 2, beamLen / 2, -0.1, 0.1, 0.2, "SdBeam", -0.1);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "beam", length: Math.sqrt(dx * dx + dy * dy) || 4 };
+    return { created: "beam", length: beamLen };
   });
 
   registerHandler("SdMember", (args) => {
@@ -160,6 +571,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.layerId = resolveLayerId("SdMember", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(profileFrom2dPoints(pts), { x: 0, y: 0, z: 1 }, length), "SdMember");
     viewer.addMesh(mesh, "brep");
     return { created: "member", length, profile_points: pts.length };
   });
@@ -173,8 +585,11 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       }
       return { x: dx, y: dy };
     };
-    let a = toXY(args.start, 0, 0);
-    let b = toXY(args.end,   4, 0);
+    const path = Array.isArray(args.path)
+      ? (args.path as unknown[]).map((p, index) => toXY(p, index * STAIR_STEP_DEPTH, 0)).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      : [];
+    let a = path[0] ?? toXY(args.start, 0, 0);
+    let b = path[1] ?? toXY(args.end,   4, 0);
     const stairBbox = new THREE.Box3();
     let hasBounds = false;
     viewer.forEachSceneChild((child) => {
@@ -209,13 +624,26 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       riserHeight: explicitRiser  ?? (isImperial ? STAIR_STEP_RISE / FT_TO_M : STAIR_STEP_RISE),
       ...(explicitCount != null ? { count: explicitCount } : {}),
     };
-    const { group, chain, footprint } = buildStair(a, b, stairParams);
+    const typed = String(args.type ?? "straight");
+    const stairBuilt = path.length >= 2 && typed === "polyline"
+      ? buildStairOnPolyline(path, { ...stairParams, rise: levelStore.get(getActiveLevelId())?.height ?? 3.0 })
+      : path.length >= 2 && typed === "curve"
+        ? buildStairOnCurve(path, { ...stairParams, rise: levelStore.get(getActiveLevelId())?.height ?? 3.0 })
+        : buildStair(a, b, stairParams);
+    const { group, chain, footprint } = stairBuilt;
     const elev = getActiveLevelElevation();
     group.position.z = elev;
     group.userData.layerId = resolveLayerId("SdStair", args);
     group.userData.levelId = getActiveLevelId();
+    group.userData.dispatchVerb = "SdStair";
     group.userData.dispatchArgs = args;
     group.userData.chain = chain;
+    linkCompoundMeshBreps(viewer, group, "SdStairComponent", {
+      parentCreator: "stair",
+      stairId: group.userData.stairId,
+      stairParams: group.userData.stairParams,
+      levelId: group.userData.levelId,
+    });
     viewer.addMesh(group, "brep");
 
     const targetH = levelStore.get(getActiveLevelId())?.height ?? (isImperial ? 9.0 : 3.0);
@@ -325,6 +753,13 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCompoundMeshBreps(viewer, mesh, "SdRoofComponent", {
+      parentCreator: "roof",
+      roofType,
+      roofParams: mesh.userData.roofParams,
+      levelId: mesh.userData.levelId,
+      ifcPredefinedType: mesh.userData.ifcPredefinedType,
+    });
 
     beginTransaction("SdRoof+gable-trim");
     viewer.addMesh(mesh, "brep");
@@ -460,20 +895,26 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdSpace", (args) => {
     const fp = args.footprint as number[][] | undefined;
     let w = 5, d = 4;
+    let centerX = 0, centerY = 0;
     if (fp && fp.length >= 2) {
       const xs = fp.map((p) => p[0]);
       const ys = fp.map((p) => p[1]);
       w = (Math.max(...xs) - Math.min(...xs)) || 5;
       d = (Math.max(...ys) - Math.min(...ys)) || 4;
+      centerX = (Math.max(...xs) + Math.min(...xs)) / 2;
+      centerY = (Math.max(...ys) + Math.min(...ys)) / 2;
     }
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildSpace(a, b);
+    mesh.position.x = centerX;
+    mesh.position.y = centerY;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdSpace", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 2.8, "SdSpace");
     if (args.name) mesh.userData.spaceName = args.name as string;
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
@@ -483,14 +924,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdFoundation", (args) => {
     const w = (args.width as number | undefined) ?? 6;
     const d = (args.depth as number | undefined) ?? 6;
+    const pos = args.position as number[] | undefined;
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildFoundation(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdFoundation", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 0.5, "SdFoundation", -0.5);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "foundation", width: w, depth: d };
@@ -499,6 +944,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdCeiling", (args) => {
     const w = (args.width as number | undefined) ?? 5;
     const d = (args.depth as number | undefined) ?? 4;
+    const pos = args.position as number[] | undefined;
     let a = { x: -w / 2, y: -d / 2 };
     let b = { x: w / 2, y: d / 2 };
     const ceilProf = args.profile as number[][] | undefined;
@@ -509,11 +955,14 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       b = { x: Math.max(...xs), y: Math.max(...ys) };
     }
     const { mesh, chain } = buildCeiling(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation() + DEFAULT_CEILING_OFFSET;
     mesh.userData.layerId = resolveLayerId("SdCeiling", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -Math.abs(b.x - a.x) / 2, Math.abs(b.x - a.x) / 2, -Math.abs(b.y - a.y) / 2, Math.abs(b.y - a.y) / 2, 0.05, "SdCeiling", -0.025);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "ceiling", width: w, depth: d };
@@ -541,12 +990,20 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    viewer.addMesh(mesh, "brep");
+    const cwLen = Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2) || wallLen;
     const _joinShell = mesh.userData.joinableShell as THREE.Mesh | undefined;
     if (_joinShell instanceof THREE.Mesh) {
       _joinShell.position.z = mesh.position.z;
       _joinShell.userData.levelId = getActiveLevelId();
       _joinShell.userData.layerId = resolveLayerId("SdCurtainWall", args);
+    }
+    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, DEFAULT_WALL_HEIGHT, "SdCurtainWall");
+    const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(mesh);
+    if (canonical && _joinShell instanceof THREE.Mesh) {
+      viewer.getCanonicalGeometryStore().linkObject(_joinShell, canonical.id);
+    }
+    viewer.addMesh(mesh, "brep");
+    if (_joinShell instanceof THREE.Mesh) {
       viewer.addMesh(_joinShell, "brep");
       onElementCommitted(_joinShell, viewer.getScene());
     }
@@ -576,6 +1033,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.layerId = resolveLayerId("SdPlate", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
+    linkCanonicalBrep(viewer, mesh, extrudeBrep(profileFrom2dPoints(pts), { x: 0, y: 0, z: 1 }, thickness), "SdPlate");
     viewer.addMesh(mesh, "brep");
     return { created: "plate", thickness, profile_points: pts.length };
   });
@@ -583,14 +1041,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdSkylight", (args) => {
     const w = (args.width as number | undefined) ?? 1.2;
     const d = (args.depth as number | undefined) ?? 1.2;
+    const pos = args.position as number[] | undefined;
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const { mesh, chain } = buildSkylight(a, b);
+    mesh.position.x = pos?.[0] ?? 0;
+    mesh.position.y = pos?.[1] ?? 0;
     mesh.position.z = getActiveLevelElevation() + DEFAULT_CEILING_OFFSET;
     mesh.userData.layerId = resolveLayerId("SdSkylight", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkExtrudedRectangleBrep(viewer, mesh, -w / 2, w / 2, -d / 2, d / 2, 0.04, "SdSkylight", -0.02);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "skylight", width: w, depth: d };
@@ -601,16 +1063,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = (args.end   as number[] | undefined) ?? [4, 0];
     const a = { x: s[0] ?? 0, y: s[1] ?? 0 };
     const b = { x: e[0] ?? 4, y: e[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildRamp(a, b);
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdRamp", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const rampRun = Math.sqrt(dx * dx + dy * dy) || 1;
+    linkExtrudedRectangleBrep(viewer, mesh, -rampRun / 2, rampRun / 2, -0.6, 0.6, 0.15, "SdRamp", rampRun / 24 - 0.075);
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "ramp", run: Math.sqrt(dx * dx + dy * dy) || 1 };
+    return { created: "ramp", run: rampRun };
   });
 
   registerHandler("SdRailing", (args) => {
@@ -618,16 +1082,18 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     const e = (args.end   as number[] | undefined) ?? [3, 0];
     const a = { x: s[0] ?? 0, y: s[1] ?? 0 };
     const b = { x: e[0] ?? 3, y: e[1] ?? 0 };
+    const dx = b.x - a.x, dy = b.y - a.y;
     const { mesh, chain } = buildRailing(a, b);
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.layerId = resolveLayerId("SdRailing", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const railingLen = Math.sqrt(dx * dx + dy * dy) || 1;
+    linkExtrudedRectangleBrep(viewer, mesh, -railingLen / 2, railingLen / 2, -0.025, 0.025, 1, "SdRailing");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
-    const dx = b.x - a.x, dy = b.y - a.y;
-    return { created: "railing", length: Math.sqrt(dx * dx + dy * dy) || 1 };
+    return { created: "railing", length: railingLen };
   });
 
   registerHandler("SdReferenceLine", (args) => {
@@ -640,6 +1106,32 @@ export function registerStructuralHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const curve: LineCurve = {
+      kind: "line",
+      from: { x: 0, y: -len / 2, z: 0 },
+      to: { x: 0, y: len / 2, z: 0 },
+      domain: { min: 0, max: len },
+    };
+    const canonical = viewer.getCanonicalGeometryStore().create({
+      kind: "curve",
+      curve,
+      source: "command",
+      createdBy: "SdReferenceLine",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        vertexCount: 2,
+        derivation: "tessellated-curve",
+      },
+      metadata: {
+        worldStart: [a.x, a.y, 0],
+        worldEnd: [b.x, b.y, 0],
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(mesh, canonical.id);
     viewer.addMesh(mesh, "brep");
     return { created: "reference-line", origin: [a.x, a.y], end: [b.x, b.y] };
   });

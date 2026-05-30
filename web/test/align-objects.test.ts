@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import * as THREE from "three";
 import { getDictionary } from "../src/commands/dictionary";
-import { registerHandler, unregisterHandler } from "../src/commands/dispatch";
+import { dispatchSync, registerHandler, unregisterHandler } from "../src/commands/dispatch";
 import { clearCommandSession, startCommandSession } from "../src/commands/command-session";
-
-function clearAllHandlers() {
-  for (const e of getDictionary()) unregisterHandler(e.name);
-}
+import { registerTransformHandlers } from "../src/handlers/transforms";
+import { alignToolCommandMode } from "../src/tools/index";
+import { addToMultiSelected, clearMultiSelected, clearSelected } from "../src/viewer/selection-state";
 
 beforeEach(() => {
-  clearAllHandlers();
+  unregisterHandler("SdAlignObjects");
   clearCommandSession();
+  clearSelected();
+  clearMultiSelected();
 });
 
 describe("SdAlignObjects", () => {
@@ -86,5 +88,39 @@ describe("SdAlignObjects", () => {
     expect(entry?.synonyms).toContain("align left");
     expect(entry?.synonyms).toContain("align right");
     expect(entry?.synonyms).toContain("distribute horizontal");
+  });
+
+  test("palette ids normalize to the same modes accepted by SdAlignObjects", () => {
+    expect(alignToolCommandMode("align-left")).toBe("left");
+    expect(alignToolCommandMode("align-center-h")).toBe("center-h");
+    expect(alignToolCommandMode("dist-v")).toBe("dist-v");
+    expect(alignToolCommandMode("right")).toBe("right");
+  });
+
+  test("SdAlignObjects mode=left mutates the selected objects through the same align implementation", () => {
+    const scene = new THREE.Scene();
+    const viewer = {
+      getScene: () => scene,
+      getActiveObject: () => null,
+      addMesh: (obj: THREE.Object3D) => {
+        scene.add(obj);
+        return obj;
+      },
+      getCanonicalGeometryStore: () => ({ resolveObjectOrAncestor: () => null }),
+    };
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    a.position.x = 0;
+    b.position.x = 5;
+    scene.add(a, b);
+    addToMultiSelected({ topology: "mesh", uuid: a.uuid, object: a, transformTarget: a });
+    addToMultiSelected({ topology: "mesh", uuid: b.uuid, object: b, transformTarget: b });
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdAlignObjects", { mode: "left" });
+
+    expect(result.ok).toBe(true);
+    expect(a.position.x).toBeCloseTo(0);
+    expect(b.position.x).toBeCloseTo(0);
   });
 });

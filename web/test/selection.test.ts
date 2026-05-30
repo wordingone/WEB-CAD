@@ -7,6 +7,7 @@
 // behavior end-to-end without needing real cursor events.
 
 import { describe, test, expect, beforeEach } from "bun:test";
+import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import {
   resetSelectionState,
@@ -14,8 +15,99 @@ import {
   getSelected,
   setFilter,
   getFilters,
+  addToMultiSelected,
+  getMultiSelected,
+  topologyForObject,
 } from "../src/viewer/selection-state";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
+
+test("canonical BRep render meshes resolve as brep topology for Inspect", () => {
+  const carrier = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+  carrier.userData.kind = "mesh";
+  expect(topologyForObject(carrier, "brep")).toBe("brep");
+});
+
+test("live viewer Ctrl+Shift path routes BRep picks to sub-object selection", () => {
+  const source = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(source).toContain("const drilldown = e.ctrlKey && e.shiftKey");
+  expect(source).toContain("this.pickBrepSubObject(hits)");
+  expect(source).toContain('topology: "vertex"');
+  expect(source).toContain('topology: "edge"');
+  expect(source).toContain('topology: "face"');
+  expect(source).toContain("geometry.groups");
+});
+
+test("BRep display meshes retain one BufferGeometry group per canonical face", () => {
+  const source = readFileSync(new URL("../src/handlers/brep-ops.ts", import.meta.url), "utf8");
+  expect(source).toContain("const groups:");
+  expect(source).toContain("groups.push({ start, count, materialIndex: faceIndex })");
+  expect(source).toContain("geo.addGroup(group.start, group.count, group.materialIndex)");
+});
+
+test("BRep sub-object selections are visible and Inspect prioritizes canonical geometry over mesh metadata", () => {
+  const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
+  expect(viewerSource).toContain("showSubSelectionHighlights(subSelections)");
+  expect(viewerSource).toContain("previewBrepSubObjectAt");
+  expect(viewerSource).toContain("clearSubSelectionHighlight()");
+  expect(viewerSource).toContain("this.selectSubObject(highlights[0])");
+  expect(viewerSource).toContain("this.setMultiTargets(highlights)");
+  expect(viewerSource).toContain("subObject: true");
+  expect(viewerSource).toContain("parentUuid: subSelection.parentUuid");
+  expect(viewerSource).toContain('sel.topology === "face"');
+  expect(viewerSource).toContain('sel.topology === "edge"');
+  expect(viewerSource).toContain('sel.topology === "vertex"');
+
+  const sidebarSource = readFileSync(new URL("../src/shell/workbench-sidebar.ts", import.meta.url), "utf8");
+  expect(sidebarSource).toContain("const isBrepSubObject");
+  expect(sidebarSource).toContain("`BRep ${sel.topology}");
+  expect(sidebarSource).toContain("canonicalLabelFor");
+  expect(sidebarSource).toContain("BRep/NURBS polysurface");
+  expect(sidebarSource).toContain("const typeLabel = subObjectLabel ?? canonicalLabel ?? ud.ifcClass ?? sel.topology");
+  expect(sidebarSource).toContain('data-field="exact"');
+
+  const mainSource = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+  expect(mainSource).toContain("__getSelected");
+});
+
+test("Ctrl+Shift drilldown bypasses whole-object hover and Shift multi-select", () => {
+  const toolsSource = readFileSync(new URL("../src/tools/index.ts", import.meta.url), "utf8");
+  expect(toolsSource).toContain("ev.shiftKey && !ev.ctrlKey && !ev.metaKey");
+  expect(toolsSource).toContain("ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover");
+  expect(toolsSource).toContain("viewer.previewBrepSubObjectAt(ev.clientX, ev.clientY)");
+  expect(toolsSource).toContain("viewer.clearSubSelectionHover()");
+  expect(toolsSource).toContain("detail?.subObject");
+
+  const viewerSource = readFileSync(new URL("../src/viewer/viewer.ts", import.meta.url), "utf8");
+  expect(viewerSource).toContain("addToMultiSelected(subSelection)");
+  expect(viewerSource).toContain("subObjectCount: subSelections.length");
+  expect(viewerSource).toContain("!this.subSelectionHighlights.includes(c)");
+});
+
+test("multi-selection distinguishes multiple sub-objects on the same BRep display mesh", () => {
+  resetSelectionState();
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+  const parent = new THREE.Group();
+  addToMultiSelected({
+    topology: "face",
+    uuid: mesh.uuid,
+    object: mesh,
+    parent,
+    parentUuid: parent.uuid,
+    faceIndex: 0,
+    transformTarget: parent,
+  });
+  addToMultiSelected({
+    topology: "face",
+    uuid: mesh.uuid,
+    object: mesh,
+    parent,
+    parentUuid: parent.uuid,
+    faceIndex: 1,
+    transformTarget: parent,
+  });
+  expect(getMultiSelected()).toHaveLength(2);
+});
 
 beforeEach(() => {
   resetSelectionState();

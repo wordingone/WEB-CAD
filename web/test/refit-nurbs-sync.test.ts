@@ -6,7 +6,13 @@ import { describe, test, expect } from "bun:test";
 import * as THREE from "three";
 import { refitParentGeometry } from "../src/viewer/sub-object-handles";
 import type { NurbsCurve } from "../src/nurbs/nurbs-curves";
+import type { PolylineCurve } from "../src/nurbs/nurbs-curves";
+import { extrude } from "../src/nurbs/brep-extrude";
 import type { SumSurface } from "../src/nurbs/nurbs-surfaces";
+import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
+  createCanonicalGeometryStore,
+} from "../src/geometry/canonical-geometry";
 
 function makeLine(ax: number, ay: number, bx: number, by: number): THREE.Line {
   const cx = (ax + bx) / 2, cy = (ay + by) / 2;
@@ -76,6 +82,86 @@ describe("G7 — refitParentGeometry syncs nurbsCurve for line", () => {
     const nc = line.userData.nurbsCurve as NurbsCurve;
     expect(nc.knots.length).toBe(2);
   });
+
+  test("linked canonical curve record updates when line CP moves", () => {
+    const line = makeLine(0, 0, 4, 0);
+    const store = createCanonicalGeometryStore();
+    const initial = store.create({
+      kind: "curve",
+      curve: {
+        kind: "nurbs",
+        dim: 3,
+        isRational: false,
+        order: 2,
+        cvCount: 2,
+        knots: [0, 1],
+        cvs: [-2, 0, 0, 2, 0, 0],
+        cvStride: 3,
+      },
+      source: "command",
+      createdBy: "SdLine",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 2,
+        derivation: "tessellated-curve",
+      },
+    });
+    store.linkObject(line, initial.id);
+
+    (line.userData.controlPoints as THREE.Vector3[])[1].set(3, 0, 0);
+    refitParentGeometry(line, store);
+
+    expect(line.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBe(initial.id);
+    const updated = store.require(initial.id);
+    expect(updated.kind).toBe("curve");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "curve" || updated.curve.kind !== "nurbs") throw new Error("expected canonical NURBS curve");
+    expect(updated.curve.cvs[3]).toBeCloseTo(3, 5);
+  });
+
+  test("child line edits update the nearest canonical ancestor curve record", () => {
+    const group = new THREE.Group();
+    const line = makeLine(0, 0, 4, 0);
+    group.add(line);
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "curve",
+      curve: {
+        kind: "nurbs",
+        dim: 3,
+        isRational: false,
+        order: 2,
+        cvCount: 2,
+        knots: [0, 1],
+        cvs: [-2, 0, 0, 2, 0, 0],
+        cvStride: 3,
+      },
+      source: "command",
+      createdBy: "SdLineGroup",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 2,
+        derivation: "tessellated-curve",
+      },
+    });
+    store.linkObject(group, record.id);
+
+    (line.userData.controlPoints as THREE.Vector3[])[1].set(3, 0, 0);
+    refitParentGeometry(line, store);
+
+    expect(line.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBeUndefined();
+    const updated = store.require(record.id);
+    expect(updated.kind).toBe("curve");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "curve" || updated.curve.kind !== "nurbs") throw new Error("expected canonical NURBS curve");
+    expect(updated.curve.cvs[3]).toBeCloseTo(3, 5);
+  });
 });
 
 describe("G7 — refitParentGeometry syncs nurbsCurve for spline", () => {
@@ -120,5 +206,136 @@ describe("G7 — refitParentGeometry syncs nurbsSurface for wall", () => {
     // height = 3 (default)
     const lv = ss.curveV as { to: { z: number } };
     expect(lv.to.z).toBeCloseTo(3, 5);
+  });
+
+  test("linked canonical surface record updates when wall endpoint moves", () => {
+    const wall = makeWall(0, 0, 4, 0);
+    const initialSurface = wall.userData.nurbsSurface as SumSurface | undefined;
+    refitParentGeometry(wall);
+    const store = createCanonicalGeometryStore();
+    const currentSurface = (wall.userData.nurbsSurface as SumSurface) ?? initialSurface;
+    const record = store.create({
+      kind: "surface",
+      surface: currentSurface,
+      source: "command",
+      createdBy: "SdWall",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 8,
+        triangleCount: 12,
+        derivation: "tessellated-surface",
+      },
+    });
+    store.linkObject(wall, record.id);
+
+    const cps = wall.userData.controlPoints as THREE.Vector3[];
+    cps[1].set(4, 0, 0);
+    refitParentGeometry(wall, store);
+
+    const updated = store.require(record.id);
+    expect(updated.kind).toBe("surface");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "surface") throw new Error("expected canonical surface");
+    const sum = updated.surface as SumSurface;
+    expect(sum.curveU.kind).toBe("line");
+    if (sum.curveU.kind !== "line") throw new Error("expected line curveU");
+    expect(sum.curveU.domain.max).toBeCloseTo(6, 5);
+  });
+
+  test("linked canonical BRep record updates when wall endpoint moves", () => {
+    const wall = makeWall(0, 0, 4, 0);
+    const profile: PolylineCurve = {
+      kind: "polyline",
+      points: [
+        { x: -2, y: -0.1, z: 0 },
+        { x: 2, y: -0.1, z: 0 },
+        { x: 2, y: 0.1, z: 0 },
+        { x: -2, y: 0.1, z: 0 },
+        { x: -2, y: -0.1, z: 0 },
+      ],
+      parameters: [0, 4, 4.2, 8.2, 8.4],
+    };
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "brep",
+      brep: extrude(profile, { x: 0, y: 0, z: 1 }, 3),
+      source: "command",
+      createdBy: "SdWall",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 8,
+        triangleCount: 12,
+        derivation: "tessellated-brep",
+      },
+    });
+    store.linkObject(wall, record.id);
+
+    const cps = wall.userData.controlPoints as THREE.Vector3[];
+    cps[1].set(4, 0, 0);
+    refitParentGeometry(wall, store);
+
+    const updated = store.require(record.id);
+    expect(updated.kind).toBe("brep");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "brep") throw new Error("expected canonical brep");
+    expect(updated.brep.shells[0].faces).toHaveLength(6);
+    const firstFace = updated.brep.shells[0].faces[0].surface;
+    expect(firstFace.kind).toBe("sum");
+    if (firstFace.kind !== "sum" || firstFace.curveU.kind !== "line") throw new Error("expected wall lateral face");
+    expect(firstFace.curveU.domain.max).toBeCloseTo(6, 5);
+  });
+
+  test("child wall edits update the nearest canonical ancestor BRep record", () => {
+    const group = new THREE.Group();
+    const wall = makeWall(0, 0, 4, 0);
+    group.add(wall);
+    const profile: PolylineCurve = {
+      kind: "polyline",
+      points: [
+        { x: -2, y: -0.1, z: 0 },
+        { x: 2, y: -0.1, z: 0 },
+        { x: 2, y: 0.1, z: 0 },
+        { x: -2, y: 0.1, z: 0 },
+        { x: -2, y: -0.1, z: 0 },
+      ],
+      parameters: [0, 4, 4.2, 8.2, 8.4],
+    };
+    const store = createCanonicalGeometryStore();
+    const record = store.create({
+      kind: "brep",
+      brep: extrude(profile, { x: 0, y: 0, z: 1 }, 3),
+      source: "command",
+      createdBy: "SdWallGroup",
+      displayMesh: {
+        revision: 1,
+        generatedAt: 1,
+        vertexCount: 8,
+        triangleCount: 12,
+        derivation: "tessellated-brep",
+      },
+    });
+    store.linkObject(group, record.id);
+
+    const cps = wall.userData.controlPoints as THREE.Vector3[];
+    cps[1].set(4, 0, 0);
+    refitParentGeometry(wall, store);
+
+    expect(wall.userData[CANONICAL_GEOMETRY_USERDATA_KEY]).toBeUndefined();
+    const updated = store.require(record.id);
+    expect(updated.kind).toBe("brep");
+    expect(updated.source).toBe("edit");
+    expect(updated.displayMesh?.revision).toBe(2);
+    expect(updated.metadata).toMatchObject({ editedBy: "refitParentGeometry" });
+    if (updated.kind !== "brep") throw new Error("expected canonical brep");
+    const firstFace = updated.brep.shells[0].faces[0].surface;
+    expect(firstFace.kind).toBe("sum");
+    if (firstFace.kind !== "sum" || firstFace.curveU.kind !== "line") throw new Error("expected wall lateral face");
+    expect(firstFace.curveU.domain.max).toBeCloseTo(6, 5);
   });
 });

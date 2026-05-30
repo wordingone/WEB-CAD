@@ -9,7 +9,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { axesGizmoSVG } from "../ui/icons.js";
 import { getState, subscribe } from "../app-state.js";
-import { setSelected, clearSelected } from "./selection-state.js";
+import {
+  setSelected,
+  clearSelected,
+  clearMultiSelected,
+  addToMultiSelected,
+  getMultiSelected,
+  topologyForObject,
+  topologyAllowed,
+  type Selection,
+} from "./selection-state.js";
 import { emitChainFragment } from "./transforms.js";
 import { getSnap, subscribeSnap } from "./snap-state.js";
 import { showHandlesFor, clearHandles, isSubObjectHandle, getHandles, getHandleParent, refitParentGeometry } from "./sub-object-handles.js";
@@ -23,6 +32,19 @@ import { ClipFillManager } from "./clip-fill.js";
 import { getLayerForCreator } from "../geometry/layers.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
 import type { ClassifiedEdgeSeg } from "./edge-classifier.js";
+import {
+  CANONICAL_GEOMETRY_USERDATA_KEY,
+  createCanonicalGeometryStore,
+  type CanonicalGeometry,
+  type CanonicalGeometryStore,
+} from "../geometry/canonical-geometry.js";
+import { objectFromCanonicalGeometry } from "../geometry/canonical-display.js";
+import {
+  inspectCanonicalClipping,
+  inspectCanonicalGeometry,
+  type CanonicalClippingSnapshot,
+  type CanonicalGeometrySnapshot,
+} from "../geometry/canonical-introspection.js";
 export type { ClassifiedEdgeSeg } from "./edge-classifier.js";
 export { LINEWEIGHT, DASH_PATTERN, DXF_LWEIGHT, DXF_LINETYPE } from "./edge-classifier.js";
 
@@ -169,6 +191,8 @@ export class Viewer {
   _thumbMatWireframe: THREE.MeshBasicMaterial | null = null;
   _thumbMatGhosted: THREE.MeshBasicMaterial | null = null;
   subTargetObject: THREE.Object3D | null = null;
+  private subSelectionHighlights: THREE.Object3D[] = [];
+  private subSelectionHover: THREE.Object3D | null = null;
   _isolatedUuid: string | null = null;
   _preIsolationVisible: Map<string, boolean> = new Map();
   _sectionPlanes: THREE.Plane[] = [];
@@ -179,6 +203,7 @@ export class Viewer {
   // Construction plane (W-1). Updated by setView(); overridden by SdSetCPlane (W-4).
   activeView:   string = "persp";
   activeCPlane: CPlane = WORLD_XY;
+  private canonicalGeometryStore: CanonicalGeometryStore = createCanonicalGeometryStore();
   // CPlane gizmo (#361) — grid + axis lines rendered at the active construction plane.
   _cplaneGizmo: CPlaneGizmo = new CPlaneGizmo();
   // W-6 host-pick (#343): when set, the next canvas click picks a face and derives a CPlane from its normal.
@@ -267,7 +292,12 @@ export class Viewer {
       const obj = this.scene.getObjectByProperty("uuid", uuid) ?? null;
       this.selectObject(obj);
       if (obj) {
-        setSelected({ topology: "mesh", uuid: obj.uuid, object: obj, transformTarget: obj });
+        setSelected({
+          topology: topologyForObject(obj, this.getCanonicalGeometryForObject(obj)?.kind),
+          uuid: obj.uuid,
+          object: obj,
+          transformTarget: obj,
+        });
         window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: obj.uuid } }));
       } else {
         clearSelected();
@@ -335,6 +365,13 @@ export class Viewer {
     this.raycaster.params.Line.threshold = 0.15;
     this.raycaster.params.Points.threshold = 0.2;
     viewportAreaEl.addEventListener("pointerdown", (e: PointerEvent) => this.onCanvasMouseDown(e));
+    viewportAreaEl.addEventListener("pointermove", (e: PointerEvent) => {
+      if (e.ctrlKey && e.shiftKey) {
+        this.previewBrepSubObjectAt(e.clientX, e.clientY);
+      } else if (this.subSelectionHover) {
+        this.clearSubSelectionHover();
+      }
+    });
 
     if (perspPane && perspPane.camera instanceof THREE.PerspectiveCamera) {
       this.pivotProxy = new THREE.Object3D();
@@ -410,6 +447,346 @@ export class Viewer {
   private _applyClearColor(): void { Rendering.applyClearColor(this); }
 
   private handleResize(): void { Camera.handleResize(this); }
+
+  private visibleHit(hit: THREE.Intersection): boolean {
+    let o: THREE.Object3D | null = hit.object;
+    while (o) {
+      if (!o.visible) return false;
+      o = o.parent;
+    }
+    const dlId = hit.object.userData.drawingLayerId as string | undefined;
+    if (dlId) {
+      const dl = drawingLayerStore.get(dlId);
+      if (dl && (!dl.visible || dl.locked)) return false;
+    }
+    return true;
+  }
+
+  private getCanonicalBrepOwner(obj: THREE.Object3D | null | undefined): { owner: THREE.Object3D; record: CanonicalGeometry & { kind: "brep" } } | null {
+    let current: THREE.Object3D | null | undefined = obj;
+    while (current) {
+      const record = this.canonicalGeometryStore.resolveObject(current);
+      if (record?.kind === "brep") return { owner: current, record };
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private pointToWorld(owner: THREE.Object3D, point: { x: number; y: number; z: number }): THREE.Vector3 {
+    return new THREE.Vector3(point.x, point.y, point.z).applyMatrix4(owner.matrixWorld);
+  }
+
+  private subObjectPickTolerance(ray: THREE.Ray): number {
+    const cameraPos = this.getActiveCamera().getWorldPosition(new THREE.Vector3());
+    const atRay = ray.at(1, new THREE.Vector3());
+    return Math.max(0.05, Math.min(0.3, cameraPos.distanceTo(atRay) * 0.01));
+  }
+
+  private candidateBrepMeshes(hits: THREE.Intersection[]): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = [];
+    const seen = new Set<string>();
+    for (const hit of hits) {
+      if (!this.visibleHit(hit)) continue;
+      if (!(hit.object instanceof THREE.Mesh)) continue;
+      if (!this.getCanonicalBrepOwner(hit.object)) continue;
+      if (seen.has(hit.object.uuid)) continue;
+      seen.add(hit.object.uuid);
+      meshes.push(hit.object);
+    }
+    return meshes;
+  }
+
+  private visibleSceneBrepMeshes(): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = [];
+    this.scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (!this.getCanonicalBrepOwner(obj)) return;
+      let current: THREE.Object3D | null = obj;
+      while (current) {
+        if (!current.visible) return;
+        current = current.parent;
+      }
+      meshes.push(obj);
+    });
+    return meshes;
+  }
+
+  private meshVertexWorld(mesh: THREE.Mesh, index: number): THREE.Vector3 | null {
+    const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!pos || index < 0 || index >= pos.count) return null;
+    return new THREE.Vector3(pos.getX(index), pos.getY(index), pos.getZ(index)).applyMatrix4(mesh.matrixWorld);
+  }
+
+  private pickBrepDisplayVertex(ray: THREE.Ray, meshes: THREE.Mesh[]): Selection | null {
+    if (!topologyAllowed("vertex")) return null;
+    const threshold = this.subObjectPickTolerance(ray);
+    let best: { distance: number; mesh: THREE.Mesh; owner: THREE.Object3D; vertexIndex: number } | null = null;
+    for (const mesh of meshes) {
+      const owner = this.getCanonicalBrepOwner(mesh)?.owner;
+      const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+      if (!owner || !pos) continue;
+      const seen = new Set<string>();
+      for (let i = 0; i < pos.count; i++) {
+        const worldPoint = this.meshVertexWorld(mesh, i);
+        if (!worldPoint) continue;
+        const key = `${worldPoint.x.toFixed(6)},${worldPoint.y.toFixed(6)},${worldPoint.z.toFixed(6)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const distance = ray.distanceToPoint(worldPoint);
+        if (distance <= threshold && (!best || distance < best.distance)) {
+          best = { distance, mesh, owner, vertexIndex: i };
+        }
+      }
+    }
+    if (!best) return null;
+    return {
+      topology: "vertex",
+      uuid: best.mesh.uuid,
+      object: best.mesh,
+      parent: best.owner,
+      parentUuid: best.owner.uuid,
+      vertexIndex: best.vertexIndex,
+      transformTarget: best.owner,
+    };
+  }
+
+  private groupedBoundaryEdges(mesh: THREE.Mesh): Array<[number, number, number]> {
+    const geometry = mesh.geometry;
+    const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!geometry || !pos) return [];
+    const index = geometry.getIndex();
+    const groups = geometry.groups.length > 0
+      ? geometry.groups
+      : [{ start: 0, count: index ? index.count : pos.count, materialIndex: 0 }];
+    const edges: Array<[number, number, number]> = [];
+    for (const group of groups) {
+      const counts = new Map<string, { a: number; b: number; count: number }>();
+      const readIndex = (i: number) => index ? index.getX(i) : i;
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        const tri = [readIndex(i), readIndex(i + 1), readIndex(i + 2)];
+        for (const [a0, b0] of [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]]) {
+          const a = Math.min(a0, b0);
+          const b = Math.max(a0, b0);
+          const key = `${a}:${b}`;
+          const prev = counts.get(key);
+          if (prev) prev.count++;
+          else counts.set(key, { a, b, count: 1 });
+        }
+      }
+      for (const edge of counts.values()) {
+        if (edge.count === 1) edges.push([edge.a, edge.b, group.materialIndex ?? 0]);
+      }
+    }
+    return edges;
+  }
+
+  private pickBrepDisplayEdge(ray: THREE.Ray, meshes: THREE.Mesh[]): Selection | null {
+    if (!topologyAllowed("edge")) return null;
+    const thresholdSq = this.subObjectPickTolerance(ray) ** 2;
+    let best: { distanceSq: number; mesh: THREE.Mesh; owner: THREE.Object3D; edgeIndex: number } | null = null;
+    for (const mesh of meshes) {
+      const owner = this.getCanonicalBrepOwner(mesh)?.owner;
+      if (!owner) continue;
+      const edges = this.groupedBoundaryEdges(mesh);
+      for (let edgeIndex = 0; edgeIndex < edges.length; edgeIndex++) {
+        const [ia, ib] = edges[edgeIndex];
+        const a = this.meshVertexWorld(mesh, ia);
+        const b = this.meshVertexWorld(mesh, ib);
+        if (!a || !b) continue;
+        const distanceSq = ray.distanceSqToSegment(a, b);
+        if (distanceSq <= thresholdSq && (!best || distanceSq < best.distanceSq)) {
+          best = { distanceSq, mesh, owner, edgeIndex };
+        }
+      }
+    }
+    if (!best) return null;
+    return {
+      topology: "edge",
+      uuid: best.mesh.uuid,
+      object: best.mesh,
+      parent: best.owner,
+      parentUuid: best.owner.uuid,
+      edgeIndex: best.edgeIndex,
+      transformTarget: best.owner,
+    };
+  }
+
+  private pickBrepFace(hits: THREE.Intersection[]): Selection | null {
+    if (!topologyAllowed("face")) return null;
+    const hit = hits.find((h) => this.visibleHit(h) && this.getCanonicalBrepOwner(h.object));
+    if (!hit) return null;
+    const owner = this.getCanonicalBrepOwner(hit.object)?.owner;
+    if (!owner) return null;
+    const geometry = (hit.object as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+    let faceIndex = hit.faceIndex ?? 0;
+    if (geometry?.groups?.length) {
+      const triStart = faceIndex * 3;
+      const groupIndex = geometry.groups.findIndex((group) => triStart >= group.start && triStart < group.start + group.count);
+      if (groupIndex >= 0) faceIndex = groupIndex;
+    }
+    return {
+      topology: "face",
+      uuid: hit.object.uuid,
+      object: hit.object,
+      parent: owner,
+      parentUuid: owner.uuid,
+      faceIndex,
+      transformTarget: owner,
+    };
+  }
+
+  private pickBrepSubObject(hits: THREE.Intersection[]): Selection | null {
+    const meshes = this.candidateBrepMeshes(hits);
+    if (meshes.length === 0) meshes.push(...this.visibleSceneBrepMeshes());
+    if (meshes.length === 0) return null;
+    return (
+      this.pickBrepDisplayVertex(this.raycaster.ray, meshes)
+      ?? this.pickBrepDisplayEdge(this.raycaster.ray, meshes)
+      ?? this.pickBrepFace(hits)
+    );
+  }
+
+  private disposeSubSelectionOverlay(obj: THREE.Object3D): void {
+    this.scene.remove(obj);
+    obj.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+      const mat = mesh.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat?.dispose?.();
+    });
+  }
+
+  private clearSubSelectionHighlight(): void {
+    for (const obj of this.subSelectionHighlights) this.disposeSubSelectionOverlay(obj);
+    this.subSelectionHighlights = [];
+  }
+
+  public clearSubSelectionHover(): void {
+    if (!this.subSelectionHover) return;
+    this.disposeSubSelectionOverlay(this.subSelectionHover);
+    this.subSelectionHover = null;
+  }
+
+  private createSubSelectionOverlay(sel: Selection, opts: { color: number; opacity: number }): THREE.Object3D | null {
+    if (!(sel.object instanceof THREE.Mesh)) return null;
+    const mesh = sel.object;
+    mesh.updateMatrixWorld(true);
+    const pos = mesh.geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!pos) return null;
+    const applyWorldMatrix = (obj: THREE.Object3D) => {
+      obj.matrixAutoUpdate = false;
+      obj.matrix.copy(mesh.matrixWorld);
+      obj.renderOrder = 999;
+      obj.userData.noSnap = true;
+      obj.userData.noRenderMode = true;
+      obj.userData.brepSubObject = true;
+      obj.userData.selectionTopology = sel.topology;
+      obj.userData.parentUuid = sel.parentUuid;
+      if (sel.faceIndex !== undefined) obj.userData.faceIndex = sel.faceIndex;
+      if (sel.edgeIndex !== undefined) obj.userData.edgeIndex = sel.edgeIndex;
+      if (sel.vertexIndex !== undefined) obj.userData.vertexIndex = sel.vertexIndex;
+      this.scene.add(obj);
+      return obj;
+    };
+    if (sel.topology === "face" && sel.faceIndex !== undefined) {
+      const group = mesh.geometry.groups[sel.faceIndex];
+      if (!group) return null;
+      const srcIndex = mesh.geometry.getIndex();
+      const readIndex = (i: number) => srcIndex ? srcIndex.getX(i) : i;
+      const positions: number[] = [];
+      const indices: number[] = [];
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        const base = positions.length / 3;
+        for (const vi of [readIndex(i), readIndex(i + 1), readIndex(i + 2)]) {
+          positions.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+        }
+        indices.push(base, base + 1, base + 2);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshBasicMaterial({ color: opts.color, transparent: true, opacity: opts.opacity, depthTest: false, side: THREE.DoubleSide });
+      const faceOverlay = applyWorldMatrix(new THREE.Mesh(geo, mat));
+      const uniqueVerts = new Set<number>();
+      for (let i = group.start; i + 2 < group.start + group.count; i += 3) {
+        uniqueVerts.add(readIndex(i)); uniqueVerts.add(readIndex(i + 1)); uniqueVerts.add(readIndex(i + 2));
+      }
+      faceOverlay.userData.affectedVertexIndices = [...uniqueVerts];
+      return faceOverlay;
+    }
+    if (sel.topology === "edge" && sel.edgeIndex !== undefined) {
+      const edge = this.groupedBoundaryEdges(mesh)[sel.edgeIndex];
+      if (!edge) return null;
+      const [ia, ib] = edge;
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(pos.getX(ia), pos.getY(ia), pos.getZ(ia)),
+        new THREE.Vector3(pos.getX(ib), pos.getY(ib), pos.getZ(ib)),
+      ]);
+      const mat = new THREE.LineBasicMaterial({ color: opts.color, depthTest: false });
+      const edgeOverlay = applyWorldMatrix(new THREE.Line(geo, mat));
+      edgeOverlay.userData.affectedVertexIndices = [ia, ib];
+      return edgeOverlay;
+    }
+    if (sel.topology === "vertex" && sel.vertexIndex !== undefined) {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(pos.getX(sel.vertexIndex), pos.getY(sel.vertexIndex), pos.getZ(sel.vertexIndex)),
+      ]);
+      const mat = new THREE.PointsMaterial({ color: opts.color, size: 14, sizeAttenuation: false, depthTest: false });
+      const vertOverlay = applyWorldMatrix(new THREE.Points(geo, mat));
+      vertOverlay.userData.affectedVertexIndices = [sel.vertexIndex];
+      return vertOverlay;
+    }
+    return null;
+  }
+
+  private showSubSelectionHighlight(sel: Selection): void {
+    this.clearSubSelectionHighlight();
+    const obj = this.createSubSelectionOverlay(sel, { color: 0xffc247, opacity: 0.42 });
+    if (obj) this.subSelectionHighlights = [obj];
+  }
+
+  private showSubSelectionHighlights(selections: Selection[]): THREE.Object3D[] {
+    this.clearSubSelectionHighlight();
+    this.subSelectionHighlights = selections
+      .map((sel) => this.createSubSelectionOverlay(sel, { color: 0xffc247, opacity: 0.42 }))
+      .filter((obj): obj is THREE.Object3D => obj !== null);
+    return this.subSelectionHighlights;
+  }
+
+  private raycastSceneAt(clientX: number, clientY: number): THREE.Intersection[] | null {
+    const hitPane = this.panes.find(p => {
+      const r = p.el.getBoundingClientRect();
+      return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+    });
+    if (!hitPane) return null;
+    const pr = hitPane.el.getBoundingClientRect();
+    const ndcX = ((clientX - pr.left) / pr.width) * 2 - 1;
+    const ndcY = -((clientY - pr.top) / pr.height) * 2 + 1;
+    this.raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), hitPane.camera);
+    const gizmoSet = new Set<THREE.Object3D>(this.gizmos);
+    const pickables = this.scene.children.filter(
+      c => c !== this.grid && c !== this.axes && !(c instanceof THREE.Sprite) &&
+           !(c instanceof THREE.DirectionalLight) && !(c instanceof THREE.AmbientLight) &&
+           !gizmoSet.has(c) && c !== this.pivotProxy && c !== this._cplaneGizmo.group &&
+           c !== this.subSelectionHover && !this.subSelectionHighlights.includes(c)
+    );
+    return this.raycaster.intersectObjects(pickables, true);
+  }
+
+  public previewBrepSubObjectAt(clientX: number, clientY: number): Selection | null {
+    const hits = this.raycastSceneAt(clientX, clientY);
+    if (!hits) {
+      this.clearSubSelectionHover();
+      return null;
+    }
+    const sel = this.pickBrepSubObject(hits);
+    this.clearSubSelectionHover();
+    if (!sel) return null;
+    this.subSelectionHover = this.createSubSelectionOverlay(sel, { color: 0x44aaff, opacity: 0.28 });
+    return sel;
+  }
 
   private onCanvasMouseDown(e: MouseEvent): void {
     if (e.button !== 0) return;
@@ -494,7 +871,8 @@ export class Viewer {
     const pickables = this.scene.children.filter(
       c => c !== this.grid && c !== this.axes && !(c instanceof THREE.Sprite) &&
            !(c instanceof THREE.DirectionalLight) && !(c instanceof THREE.AmbientLight) &&
-           !gizmoSet.has(c) && c !== this.pivotProxy && c !== this._cplaneGizmo.group
+           !gizmoSet.has(c) && c !== this.pivotProxy && c !== this._cplaneGizmo.group &&
+           c !== this.subSelectionHover && !this.subSelectionHighlights.includes(c)
     );
     const hits = this.raycaster.intersectObjects(pickables, true);
     // Handles render without depth-test so they must be selectable even when
@@ -504,15 +882,39 @@ export class Viewer {
     const handleHit = hits.find(h => handleSet.has(h.object) || (h.object.parent !== null && handleSet.has(h.object.parent)));
     // #950: Three.js intersectObjects does not check visibility — filter out objects
     // whose effective visibility is false (hidden level, hidden layer, etc.).
-    const visibleHit = hits.find(h => {
-      let o: THREE.Object3D | null = h.object;
-      while (o) { if (!o.visible) return false; o = o.parent; }
-      // #964: skip objects on locked or hidden drawing layers.
-      const dlId = h.object.userData.drawingLayerId as string | undefined;
-      if (dlId) { const dl = drawingLayerStore.get(dlId); if (dl && (!dl.visible || dl.locked)) return false; }
-      return true;
-    });
+    const visibleHit = hits.find(h => this.visibleHit(h));
     let hit = (handleHit ?? visibleHit)?.object ?? null;
+    const drilldown = e.ctrlKey && e.shiftKey;
+    if (drilldown && !handleHit) {
+      const subSelection = this.pickBrepSubObject(hits);
+      if (subSelection) {
+        const existing = getMultiSelected();
+        if (existing.some((sel) => !sel.parentUuid || !["face", "edge", "vertex"].includes(sel.topology))) {
+          clearMultiSelected();
+        }
+        addToMultiSelected(subSelection);
+        const subSelections = getMultiSelected().filter((sel) => sel.parentUuid && ["face", "edge", "vertex"].includes(sel.topology));
+        const highlights = this.showSubSelectionHighlights(subSelections);
+        this.clearSubSelectionHover();
+        if (highlights.length > 1) this.setMultiTargets(highlights);
+        else if (highlights.length === 1) this.selectSubObject(highlights[0]);
+        else this.selectObject(null);
+        setSelected(subSelection);
+        window.dispatchEvent(new CustomEvent("viewer:select", {
+          detail: {
+            uuid: null,
+            subObject: true,
+            topology: subSelection.topology,
+            parentUuid: subSelection.parentUuid,
+            faceIndex: subSelection.faceIndex,
+            edgeIndex: subSelection.edgeIndex,
+            vertexIndex: subSelection.vertexIndex,
+            subObjectCount: subSelections.length,
+          },
+        }));
+        return;
+      }
+    }
     // CSG display mesh hit: redirect selection to the nearest logical member
     // WITHOUT dissolving the group — the join stays intact until the user drags.
     if (hit?.userData?.isJoinDisplay) {
@@ -532,13 +934,17 @@ export class Viewer {
     const uuid = transformTarget?.uuid ?? null;
     // Sub-object handle click: enter handle-level selection without clearing parent handles.
     if (transformTarget && isSubObjectHandle(transformTarget)) {
+      this.clearSubSelectionHover();
+      this.clearSubSelectionHighlight();
       this.selectSubObject(transformTarget);
       return;
     }
     if (transformTarget) {
+      this.clearSubSelectionHover();
+      this.clearSubSelectionHighlight();
       this.selectObject(transformTarget);
       setSelected({
-        topology: "mesh",
+        topology: topologyForObject(transformTarget, this.getCanonicalGeometryForObject(transformTarget)?.kind),
         uuid: transformTarget.uuid,
         object: transformTarget,
         transformTarget,
@@ -553,6 +959,8 @@ export class Viewer {
         if ((up.clientX - px0) ** 2 + (up.clientY - py0) ** 2 < 64) {
           this.selectObject(null);
           clearSelected();
+          this.clearSubSelectionHover();
+          this.clearSubSelectionHighlight();
           window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
         }
       };
@@ -573,7 +981,7 @@ export class Viewer {
 
   getTargetObject(): THREE.Object3D | null { return this.targetObject; }
 
-  deselectCurrent(): void { Gizmos.selectObject(this, null); clearSelected(); window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } })); }
+  deselectCurrent(): void { this.clearSubSelectionHover(); this.clearSubSelectionHighlight(); Gizmos.selectObject(this, null); clearSelected(); window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } })); }
 
   setGumballEnabled(enabled: boolean): void { Gizmos.setGumballEnabled(this, enabled); }
 
@@ -611,6 +1019,43 @@ export class Viewer {
 
   getScene(): THREE.Scene {
     return this.scene;
+  }
+
+  getCanonicalGeometryStore(): CanonicalGeometryStore {
+    return this.canonicalGeometryStore;
+  }
+
+  getCanonicalGeometryForObject(obj: THREE.Object3D): CanonicalGeometry | undefined {
+    return this.canonicalGeometryStore.resolveObjectOrAncestor(obj);
+  }
+
+  exportCanonicalGeometry(): CanonicalGeometry[] {
+    const linked = _collectCanonicalGeometryIds(this.exportScene());
+    return this.canonicalGeometryStore.exportRecords().filter((record) => linked.has(record.id));
+  }
+
+  importCanonicalGeometry(records: unknown[]): number {
+    return this.canonicalGeometryStore.importRecords(records);
+  }
+
+  inspectCanonicalGeometry(): CanonicalGeometrySnapshot {
+    return inspectCanonicalGeometry(this.canonicalGeometryStore, this.scene.children);
+  }
+
+  inspectCanonicalClipping(): CanonicalClippingSnapshot {
+    const sectionPlanes = this._sectionPlanes.map((plane, index) => ({
+      label: `section-box-${index}`,
+      source: "section-box" as const,
+      plane,
+    }));
+    const clipLabels = new Map<THREE.Plane, string>();
+    this._clipLabels.forEach((plane, label) => clipLabels.set(plane, label));
+    const clipPlanes = this._clipPlanes.map((plane, index) => ({
+      label: clipLabels.get(plane) ?? `clip-${index}`,
+      source: "clipping-plane" as const,
+      plane,
+    }));
+    return inspectCanonicalClipping(this.canonicalGeometryStore, this.scene.children, [...sectionPlanes, ...clipPlanes]);
   }
 
   getCanvas(): HTMLCanvasElement {
@@ -727,7 +1172,7 @@ export class Viewer {
 
   importScene(objects: SerializedSceneObj[]): void {
     for (const s of objects) {
-      const obj = _deserializeSceneObj(s);
+      const obj = _deserializeSceneObj(s, this.canonicalGeometryStore);
       if (obj) this.scene.add(obj);
     }
   }
@@ -753,21 +1198,32 @@ export type SerializedSceneObj = {
   scale: [number, number, number];
   color?: number;
   geometry?: { position: number[]; normal?: number[]; index?: number[] };
+  displaySource?: "canonical" | "serialized-geometry";
   userData: Record<string, unknown>;
   children?: SerializedSceneObj[];
 };
 
 function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
-  if (obj.userData.creator == null && obj.userData.kind == null) return null;
+  const hasCanonicalLink = typeof obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string";
+  if (obj.userData.creator == null && obj.userData.kind == null && !hasCanonicalLink) return null;
+  const userData = { ...obj.userData };
+  if (typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string") {
+    delete userData.nurbsSurface;
+    delete userData.nurbsCurve;
+    delete userData.nurbsCVs;
+  }
   const s: SerializedSceneObj = {
     uuid: obj.uuid,
     position: obj.position.toArray() as [number, number, number],
     quaternion: [obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w],
     scale: obj.scale.toArray() as [number, number, number],
-    userData: { ...obj.userData },
+    userData,
   };
   const mesh = obj as THREE.Mesh;
-  if (mesh.isMesh && mesh.geometry) {
+  const canonicalId = typeof userData[CANONICAL_GEOMETRY_USERDATA_KEY] === "string"
+    ? userData[CANONICAL_GEOMETRY_USERDATA_KEY] as string
+    : null;
+  if (mesh.isMesh && mesh.geometry && canonicalId === null) {
     const geo = mesh.geometry as THREE.BufferGeometry;
     const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
     const normAttr = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
@@ -779,6 +1235,9 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
     };
     const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
     if (mat && "color" in mat) s.color = (mat as THREE.MeshStandardMaterial).color.getHex();
+    s.displaySource = "serialized-geometry";
+  } else if (canonicalId !== null) {
+    s.displaySource = "canonical";
   }
   if (obj.children.length > 0) {
     const kids: SerializedSceneObj[] = [];
@@ -788,7 +1247,22 @@ function _serializeSceneObj(obj: THREE.Object3D): SerializedSceneObj | null {
   return s;
 }
 
-function _deserializeSceneObj(s: SerializedSceneObj): THREE.Object3D | null {
+function _collectCanonicalGeometryIds(objects: SerializedSceneObj[]): Set<string> {
+  const ids = new Set<string>();
+  const visit = (obj: SerializedSceneObj): void => {
+    const id = obj.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
+    if (typeof id === "string") ids.add(id);
+    for (const child of obj.children ?? []) visit(child);
+  };
+  for (const obj of objects) visit(obj);
+  return ids;
+}
+
+function geometryFromCanonical(record: CanonicalGeometry): THREE.Object3D | null {
+  return objectFromCanonicalGeometry(record);
+}
+
+function _deserializeSceneObj(s: SerializedSceneObj, canonicalStore?: CanonicalGeometryStore): THREE.Object3D | null {
   let obj: THREE.Object3D;
   if (s.geometry) {
     const geo = new THREE.BufferGeometry();
@@ -798,15 +1272,23 @@ function _deserializeSceneObj(s: SerializedSceneObj): THREE.Object3D | null {
     const mat = new THREE.MeshStandardMaterial({ color: s.color ?? 0x888888, roughness: 0.6, metalness: 0.1 });
     obj = new THREE.Mesh(geo, mat);
   } else {
-    obj = new THREE.Group();
+    const canonicalId = s.userData?.[CANONICAL_GEOMETRY_USERDATA_KEY];
+    const canonical = typeof canonicalId === "string" ? canonicalStore?.get(canonicalId) : undefined;
+    obj = canonical ? (geometryFromCanonical(canonical) ?? new THREE.Group()) : new THREE.Group();
   }
   obj.position.fromArray(s.position);
   obj.quaternion.set(s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3]);
   obj.scale.fromArray(s.scale);
   obj.userData = { ...s.userData };
   if (s.children) {
-    for (const cs of s.children) { const child = _deserializeSceneObj(cs); if (child) obj.add(child); }
+    for (const cs of s.children) { const child = _deserializeSceneObj(cs, canonicalStore); if (child) obj.add(child); }
   }
   return obj;
 }
+
+export const __sceneSerializationForTests = {
+  serializeSceneObj: _serializeSceneObj,
+  deserializeSceneObj: _deserializeSceneObj,
+  collectCanonicalGeometryIds: _collectCanonicalGeometryIds,
+};
 

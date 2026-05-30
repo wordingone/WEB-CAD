@@ -169,19 +169,20 @@ const boxR1 = await evaluate(`(() => { try { return window.__dispatchSync("SdBox
 console.log(`  SdBox: ${boxR1}`);
 await delay(300);
 
-// Select the box, then fillet edge 0
-await evaluate(`
+// Get box UUID (SdBox sets creator="box")
+const boxUuid1 = await evaluate(`
   (() => {
     const s = window.__viewer?.scene;
-    if (!s) return;
-    const box = s.children.find(c => c.userData?.creator === "SdBox");
-    if (box) window.__setSelected?.([box]);
+    return s?.children.find(c => c.userData?.creator === "box")?.uuid ?? null;
   })()`);
-await delay(200);
+console.log(`  box uuid1: ${boxUuid1 ? boxUuid1.slice(0,8)+"..." : "null"}`);
 
-const filletR1 = await evaluate(`(() => { try { return window.__dispatchSync("SdFillet", { radius: 0.3, edges: [0] }) ? "ok" : "null" } catch(e) { return "err:"+e.message } })()`);
+const filletR1 = await evaluate(`(() => { try {
+  const r = window.__dispatchSync("SdFillet", { target: ${JSON.stringify(boxUuid1)}, radius: 0.3, edgeId: 0 });
+  return r?.error ? "err:" + r.error + (r.detail ? ":" + r.detail : "") : (r?.ok ? "ok" : "null");
+} catch(e) { return "err:"+e.message } })()`);
 results.case1_selected_edge.fillet_result = filletR1;
-console.log(`  SdFillet(edges:[0]): ${filletR1}`);
+console.log(`  SdFillet(target, edgeId:0): ${filletR1}`);
 await delay(400);
 
 const filletObj1 = await findByCreator("SdFillet");
@@ -212,19 +213,22 @@ const boxR2 = await evaluate(`(() => { try { return window.__dispatchSync("SdBox
 console.log(`  SdBox: ${boxR2}`);
 await delay(300);
 
-await evaluate(`
+// Get box UUID for all-edge fillet (SdBox sets creator="box")
+const boxUuid2 = await evaluate(`
   (() => {
     const s = window.__viewer?.scene;
-    if (!s) return;
-    const box = s.children.find(c => c.userData?.creator === "SdBox");
-    if (box) window.__setSelected?.([box]);
+    return s?.children.find(c => c.userData?.creator === "box")?.uuid ?? null;
   })()`);
+console.log(`  box uuid2: ${boxUuid2 ? boxUuid2.slice(0,8)+"..." : "null"}`);
 await delay(200);
 
-// All-edge: omit edges param (or pass empty array / all-edge flag)
-const filletR2 = await evaluate(`(() => { try { return window.__dispatchSync("SdFillet", { radius: 0.15 }) ? "ok" : "null" } catch(e) { return "err:"+e.message } })()`);
+// All-edge: pass target + radius (no edgeId)
+const filletR2 = await evaluate(`(() => { try {
+  const r = window.__dispatchSync("SdFillet", { target: ${JSON.stringify(boxUuid2)}, radius: 0.15 });
+  return r?.error ? "err:" + r.error + (r.detail ? ":" + r.detail : "") : (r?.ok ? "ok" : "null");
+} catch(e) { return "err:"+e.message } })()`);
 results.case2_all_edge.fillet_result = filletR2;
-console.log(`  SdFillet(all-edges): ${filletR2}`);
+console.log(`  SdFillet(target, all-edges): ${filletR2}`);
 await delay(400);
 
 const filletObj2 = await findByCreator("SdFillet");
@@ -258,25 +262,33 @@ await delay(300);
 const canonCountBefore = await evaluate(`
   (() => { const s = window.__viewer?.getCanonicalGeometryStore?.(); return s ? s.exportRecords().length : 0; })()`);
 
-await evaluate(`
+// Get sphere UUID (SdSphere sets creator="sphere")
+const sphereUuid = await evaluate(`
   (() => {
     const sc = window.__viewer?.scene;
-    if (!sc) return;
-    const sp = sc.children.find(c => c.userData?.creator === "SdSphere" || c.userData?.kind === "brep");
-    if (sp) window.__setSelected?.([sp]);
+    return sc?.children.find(c => c.userData?.creator === "sphere")?.uuid ?? null;
   })()`);
+console.log(`  sphere uuid: ${sphereUuid ? sphereUuid.slice(0,8)+"..." : "null"}`);
 await delay(200);
 
-const filletR3 = await evaluate(`(() => { try { const r = window.__dispatchSync("SdFillet", { radius: 0.2, edges: [0] }); return r ? "ok" : "null" } catch(e) { return "err:"+e.message } })()`);
+// dispatchSync wraps handler result in { ok: true, result: ... } even on handler errors.
+// "explicitly failed" = ok:true with result.error, or ok:false with dispatch error.
+const filletR3 = await evaluate(`(() => { try {
+  const r = window.__dispatchSync("SdFillet", { target: ${JSON.stringify(sphereUuid)}, radius: 0.2, edgeId: 0 });
+  if (!r?.ok) return "dispatch-err:" + r?.error;
+  if (r?.result?.error) return "handler-err:" + r.result.error;
+  return "ok";
+} catch(e) { return "err:"+e.message } })()`);
 results.case3_unsupported.fillet_result = filletR3;
-console.log(`  SdFillet(sphere edge 0): ${filletR3}`);
+console.log(`  SdFillet(sphere target, edgeId:0): ${filletR3}`);
 await delay(300);
 
 const canonCountAfter = await evaluate(`
   (() => { const s = window.__viewer?.getCanonicalGeometryStore?.(); return s ? s.exportRecords().length : 0; })()`);
 
 const noPhantomRecord = (canonCountAfter ?? 0) <= (canonCountBefore ?? 0);
-const failedExplicitly = filletR3?.startsWith("err:") || filletR3 === "null";
+// handler-err: = graceful explicit fail (handler returned {error:...}); dispatch-err: = dispatch-level fail
+const failedExplicitly = filletR3?.startsWith("handler-err:") || filletR3?.startsWith("dispatch-err:") || filletR3?.startsWith("err:");
 results.case3_unsupported = {
   fillet_result: filletR3,
   canon_before: canonCountBefore,

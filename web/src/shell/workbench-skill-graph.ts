@@ -535,8 +535,8 @@ export function renderParameters(uuid: string | null): void {
   if (!_paramsWrap) return;
   _paramsWrap.innerHTML = "";
 
-  const viewer = (window as unknown as { __viewer?: { getScene(): { getObjectByUuid(u: string): THREE.Object3D | undefined }; removeObject(o: THREE.Object3D): boolean } }).__viewer;
-  const obj = uuid && viewer ? viewer.getScene().getObjectByUuid(uuid) : null;
+  const viewer = (window as unknown as { __viewer?: { getScene(): THREE.Scene; removeObject(o: THREE.Object3D): boolean } }).__viewer;
+  const obj = uuid && viewer ? viewer.getScene().getObjectByProperty("uuid", uuid) : null;
   const dispatchArgs = obj?.userData.dispatchArgs as Record<string, unknown> | undefined;
   const dispatchVerb = (obj?.userData.dispatchVerb ?? obj?.userData.creator) as string | undefined;
 

@@ -7,7 +7,7 @@ import {
   type Point3, type Vector3, type Plane, type Interval, type Line, type Xform,
   Point3 as Pt3, Vector3 as V3, Interval as Iv, Plane as Pl,
 } from "./nurbs-primitives";
-import { type Curve, pointAt as curvePointAt, domain as curveDomain } from "./nurbs-curves";
+import { type Curve, pointAt as curvePointAt, domain as curveDomain, transform as transformCurve } from "./nurbs-curves";
 
 // ── Surface type definitions ──────────────────────────────────────────────────
 
@@ -297,7 +297,59 @@ export function reverseSurface(s: Surface, dir: 0 | 1): Surface {
 }
 
 export function transformSurface(s: Surface, x: Xform): Surface {
-  return transformSurface(getNurbsForm(s).surface, x);
+  switch (s.kind) {
+    case "plane": {
+      const plane = Pl.create(
+        Pt3.transform(s.plane.origin, x),
+        V3.transform(s.plane.xAxis, x),
+        V3.transform(s.plane.yAxis, x),
+      );
+      return { ...s, plane };
+    }
+    case "sum":
+      return {
+        ...s,
+        basepoint: Pt3.transform(s.basepoint, x),
+        curveU: transformCurve(s.curveU, x),
+        curveV: transformCurve(s.curveV, x),
+      };
+    case "rev":
+      return {
+        ...s,
+        profile: transformCurve(s.profile, x),
+        axis: {
+          from: Pt3.transform(s.axis.from, x),
+          to: Pt3.transform(s.axis.to, x),
+        },
+      };
+    case "nurbs": {
+      const cvs = [...s.cvs];
+      const dim = s.dim;
+      for (let i = 0; i < s.cvCount[0]; i++) {
+        for (let j = 0; j < s.cvCount[1]; j++) {
+          const base = i * s.cvStride[0] + j * s.cvStride[1];
+          const w = s.isRational ? s.cvs[base + dim] ?? 1 : 1;
+          const point = {
+            x: s.isRational && w !== 0 ? (s.cvs[base] ?? 0) / w : s.cvs[base] ?? 0,
+            y: s.isRational && w !== 0 ? (s.cvs[base + 1] ?? 0) / w : s.cvs[base + 1] ?? 0,
+            z: s.isRational && w !== 0 ? (s.cvs[base + 2] ?? 0) / w : s.cvs[base + 2] ?? 0,
+          };
+          const transformed = Pt3.transform(point, x);
+          if (s.isRational) {
+            cvs[base] = transformed.x * w;
+            cvs[base + 1] = transformed.y * w;
+            cvs[base + 2] = transformed.z * w;
+            cvs[base + dim] = w;
+          } else {
+            cvs[base] = transformed.x;
+            cvs[base + 1] = transformed.y;
+            cvs[base + 2] = transformed.z;
+          }
+        }
+      }
+      return { ...s, cvs };
+    }
+  }
 }
 
 // ── Tessellation ──────────────────────────────────────────────────────────────

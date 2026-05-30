@@ -3,8 +3,12 @@ import type { Viewer, MeshIn, Bounds } from "./viewer.js";
 import { fitCamera } from "./viewer-camera.js";
 import { clearSelected } from "./selection-state.js";
 import { drawingLayerStore } from "../geometry/drawing-layers.js";
+import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
+import { linkPlanarizedMeshImportBrep } from "../handlers/mesh-planar-brep.js";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
 
 export function clearScene(v: Viewer): void {
+  v.getCanonicalGeometryStore().clear();
   if (v.currentMesh) {
     v.scene.remove(v.currentMesh); // audit-undo-ok: currentMesh is the IFC model view object set by file-load; clearScene is the file-load/reset path, not a user spatial action
     v.currentMesh.geometry.dispose();
@@ -78,6 +82,11 @@ export function setMesh(v: Viewer, mesh: MeshIn, bounds: Bounds): void {
   });
   const m = new THREE.Mesh(geometry, material);
   m.position.set(cx, cy, cz);
+  m.userData.kind = "brep";
+  m.userData.creator = "mesh-import";
+  linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), m, "mesh-import", {
+    source: "setMesh",
+  });
   v.scene.add(m); // audit-undo-ok: setMesh is the file-load path (IFC/mesh import); currentMesh is the model view object, not a user spatial action
   v.currentMesh = m;
   const edges = new THREE.EdgesGeometry(geometry, 25);
@@ -95,6 +104,8 @@ export function setMesh(v: Viewer, mesh: MeshIn, bounds: Bounds): void {
 
 export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): void {
   clearScene(v);
+  const importFormat = typeof object.userData.importFormat === "string" ? object.userData.importFormat : undefined;
+  const importFilename = typeof object.userData.importFilename === "string" ? object.userData.importFilename : undefined;
   const cx = (bounds.min[0] + bounds.max[0]) / 2;
   const cy = (bounds.min[1] + bounds.max[1]) / 2;
   const cz = bounds.min[2];
@@ -102,6 +113,22 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
   wrapper.position.set(0, 0, 0);
   object.position.sub(new THREE.Vector3(cx, cy, cz));
   wrapper.add(object);
+  object.updateMatrixWorld(true);
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.userData.kind ??= "brep";
+    mesh.userData.creator ??= "mesh-import";
+    linkPlanarizedMeshImportBrep(v.getCanonicalGeometryStore(), mesh, String(mesh.userData.creator), {
+      source: "setObject",
+      objectName: mesh.name || undefined,
+      format: importFormat ?? (mesh.userData.ifcClass ? "ifc" : undefined),
+      filename: importFilename,
+      expressID: mesh.userData.expressID,
+      ifcClass: mesh.userData.ifcClass,
+      guid: mesh.userData.guid,
+    });
+  });
   v.scene.add(wrapper); // audit-undo-ok: setObject is the IFC file-load path; wrapper is the IFC scene graph root, not a user spatial action
   v.currentObject = wrapper;
   const hw = (bounds.max[0] - bounds.min[0]) / 2;
@@ -111,7 +138,39 @@ export function setObject(v: Viewer, object: THREE.Object3D, bounds: Bounds): vo
 }
 
 export function getActiveMeshData(v: Viewer): { vertices: Float32Array; indices: Uint32Array } | null {
+  const appendCanonical = (
+    canonical: CanonicalGeometry | undefined,
+    matrix: THREE.Matrix4,
+    verts: number[],
+    idx: number[],
+  ): boolean => {
+    if (!canonical || (canonical.kind !== "brep" && canonical.kind !== "surface")) return false;
+    const tmp = new THREE.Vector3();
+    const appendSurface = (surface: Extract<CanonicalGeometry, { kind: "surface" }>["surface"], resolution: number) => {
+      const tess = tessellateSurface(surface, resolution, resolution);
+      const baseIndex = verts.length / 3;
+      for (let i = 0; i < tess.positions.length; i += 3) {
+        tmp.set(tess.positions[i], tess.positions[i + 1], tess.positions[i + 2]);
+        tmp.applyMatrix4(matrix);
+        verts.push(tmp.x, tmp.y, tmp.z);
+      }
+      for (const index of tess.indices) idx.push(baseIndex + index);
+      return tess.positions.length > 0 && tess.indices.length > 0;
+    };
+    if (canonical.kind === "surface") return appendSurface(canonical.surface, 16);
+    let appended = false;
+    for (const shell of canonical.brep.shells) {
+      for (const face of shell.faces) appended = appendSurface(face.surface, 4) || appended;
+    }
+    return appended;
+  };
+
   if (v.currentMesh) {
+    const canonicalVerts: number[] = [];
+    const canonicalIdx: number[] = [];
+    if (appendCanonical(v.getCanonicalGeometryForObject(v.currentMesh), new THREE.Matrix4(), canonicalVerts, canonicalIdx)) {
+      return { vertices: new Float32Array(canonicalVerts), indices: new Uint32Array(canonicalIdx) };
+    }
     const g = v.currentMesh.geometry;
     const pos = g.attributes.position?.array as Float32Array | undefined;
     const idx = g.index?.array;
@@ -125,6 +184,7 @@ export function getActiveMeshData(v: Viewer): { vertices: Float32Array; indices:
     const matWorld = new THREE.Matrix4();
     v.currentObject.updateMatrixWorld(true);
     v.currentObject.traverse((child) => {
+      if (appendCanonical(v.getCanonicalGeometryForObject(child), child.matrixWorld, verts, idx)) return;
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       const g = mesh.geometry as THREE.BufferGeometry;

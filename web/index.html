@@ -8,6 +8,25 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
   <link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@400;500;600;700&family=Inconsolata:wght@400;500;700&family=Reddit+Mono:wght@300;400;500;700&display=swap" rel="stylesheet" crossorigin="anonymous" />
   <link rel="stylesheet" href="./src/style.css" />
+  <script>
+    (() => {
+      const controller = navigator.serviceWorker && navigator.serviceWorker.controller;
+      if (!controller || !location.pathname.includes("/dev/")) return;
+      const expected = new URL("./coi-serviceworker.js", location.href).href;
+      if (controller.scriptURL === expected) return;
+      const key = "webCadDevScopeRepair";
+      if (sessionStorage.getItem(key) === controller.scriptURL) return;
+      sessionStorage.setItem(key, controller.scriptURL);
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => {
+          if (registration.active && registration.active.scriptURL !== expected) {
+            return registration.unregister();
+          }
+          return false;
+        })))
+        .finally(() => location.reload());
+    })();
+  </script>
   <script>window.coi = { coepCredentialless: () => true };</script>
   <script src="./coi-serviceworker.js"></script>
 </head>

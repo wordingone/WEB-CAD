@@ -257,6 +257,24 @@
         type: number
         unit: m
         default: 1
+      size:
+        oneOf:
+          - type: number
+          - type: array
+            items:
+              type: number
+            minItems: 3
+            maxItems: 3
+        unit: m
+        description: "Scalar cube size or [width, depth, height]."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "Optional world-space center [x, y, z]."
     required: []
   topology_role: solid
   kg_predicates: []
@@ -392,6 +410,10 @@
         type: number
         unit: rad
         default: 6.2832
+      solid:
+        type: boolean
+        default: false
+        description: "When true, full 360 degree revolutions of a valid line area profile are committed as capped closed BRep solids; otherwise the command preserves open revolution-surface behavior."
     required: [profile]
   topology_role: solid
   kg_predicates: []
@@ -409,6 +431,10 @@
         type: edge_or_surface
       rail:
         type: curve
+      solid:
+        type: boolean
+        default: false
+        description: "When true, closed profile curves swept along a straight rail are committed as capped closed BRep solids; otherwise the command preserves open sweep-surface behavior."
     required: [profile, rail]
   topology_role: solid
   kg_predicates: []
@@ -426,6 +452,10 @@
       closed:
         type: boolean
         default: false
+      solid:
+        type: boolean
+        default: false
+        description: "When true, closed planar section curves are committed as a capped closed BRep loft; otherwise the command preserves open loft-surface behavior."
     required: [curves]
   topology_role: solid
   kg_predicates: []
@@ -488,7 +518,7 @@
     required: [a, b]
   topology_role: compound
   kg_predicates: []
-  synonyms: [union, fuse, booleanunion, "boolean union", merge, add]
+  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -504,7 +534,7 @@
     required: [outer, inner]
   topology_role: solid
   kg_predicates: [hosts]
-  synonyms: [difference, cut, subtract, "boolean cut", booleandiff]
+  synonyms: [difference, cut, subtract, "boolean cut", booleandiff, bool-diff]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -520,7 +550,7 @@
     required: [a, b]
   topology_role: solid
   kg_predicates: []
-  synonyms: [intersection, intersect, common]
+  synonyms: [intersection, intersect, common, bool-intersect]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -736,13 +766,15 @@
         default: 1
       axis:
         type: string
+      mode:
+        type: string
       pivot:
         type: point3
         default: "[0, 0, 0]"
     required: []
   topology_role: transform
   kg_predicates: []
-  synonyms: [scale, resize]
+  synonyms: [scale, resize, scale-1d, scale-2d]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -903,6 +935,25 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- name: SdArrayAlongCurve
+  kernel_op: array_along_curve
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+      path:
+        type: list_any
+      count:
+        type: integer
+        default: 3
+    required: [target, path]
+  topology_role: transform
+  kg_predicates: [groupedWith]
+  synonyms: [array along curve, along curve array, path array, distribute along curve]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
 - name: SdAlignObjects
   kernel_op: alignObjects
   parameters:
@@ -914,7 +965,7 @@
     required: [mode]
   topology_role: transform
   kg_predicates: []
-  synonyms: [align, distribute, align left, align right, align top, align bottom, align center, align center horizontal, align center vertical, distribute horizontal, distribute vertical]
+  synonyms: [align, distribute, align left, align-left, align right, align-right, align top, align-top, align bottom, align-bottom, align center, align center horizontal, align-center-h, align center vertical, align-center-v, distribute horizontal, dist-h, distribute vertical, dist-v]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -957,10 +1008,42 @@
     required: []
   topology_role: host
   kg_predicates: [hosts, containedIn, bounds]
-  synonyms: [wall, makewall, drawwall, w, IfcWall]
+  synonyms: [wall, makewall, drawwall, w, IfcWall, wall-polyline, wall-pick]
   hotkey: W
   kernel: replicad
   alias_source: generic_cad_vocabulary
+
+- name: SdCurveWall
+  kernel_op: makeCurveWall
+  parameters:
+    type: object
+    properties:
+      points:
+        type: polyline
+        description: "Spline control points as [x,y,z] arrays or {x,y,z} objects."
+      thickness:
+        type: number
+        unit: m
+        default: 0.2
+      height:
+        type: number
+        unit: m
+        default: 3
+      closed:
+        type: boolean
+        default: false
+      level:
+        type: string
+        description: "Level ID or name. Overrides active level."
+      layer:
+        type: string
+        description: "Layer ID to override automatic creator-to-layer routing."
+    required: [points]
+  topology_role: host
+  kg_predicates: [hosts, containedIn, bounds]
+  synonyms: [curvewall, curve-wall, wall-curve, splinewall, spline-wall]
+  kernel: nurbs-webgpu
+  alias_source: WEB-CAD
 
 - name: SdSlab
   ifc4_class: IfcSlab
@@ -1098,6 +1181,9 @@
         type: string
         description: "Stair plan shape."
         default: straight
+      path:
+        type: polyline
+        description: "Polyline or curve control path for non-straight stair subtools."
       count:
         type: number
         description: "[optional] Explicit tread count. Overrides run-derived count."
@@ -1114,7 +1200,7 @@
   strictDims: true
   topology_role: host
   kg_predicates: [containedIn, connectedTo]
-  synonyms: [stair, stairs, steps, staircase, IfcStair]
+  synonyms: [stair, stairs, steps, staircase, IfcStair, stair-polyline, stair-curve]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -1768,7 +1854,7 @@
     required: [targets]
   topology_role: solid
   kg_predicates: []
-  synonyms: [join, joinbrep, merge-surfaces]
+  synonyms: [join, brep-join, joinbrep, merge-surfaces]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -1786,7 +1872,7 @@
     required: [target]
   topology_role: curve
   kg_predicates: []
-  synonyms: [rebuild, refit]
+  synonyms: [rebuild, brep-rebuild, refit]
   kernel: nurbs-webgpu
   alias_source: generic_cad_vocabulary
 
@@ -1807,7 +1893,7 @@
     required: [target]
   topology_role: curve
   kg_predicates: []
-  synonyms: [contour, sections, slice]
+  synonyms: [contour, brep-contour, sections, slice]
   kernel: nurbs-webgpu
   alias_source: generic_cad_vocabulary
 
@@ -1903,6 +1989,57 @@
   hotkey: A
   kernel: replicad
   alias_source: generic_cad_vocabulary
+
+- name: SdSelectWindow
+  kernel_op: selectWindow
+  parameters:
+    type: object
+    properties:
+      rect:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [rect]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-window, window select, crossing select, select window]
+  note: "Screen-space rectangle selection. rect=[x1,y1,x2,y2], mode=crossing|window."
+  alias_source: agent_dispatch
+
+- name: SdSelectLasso
+  kernel_op: selectLasso
+  parameters:
+    type: object
+    properties:
+      polygon:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [polygon]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-lasso, lasso select, select lasso]
+  note: "Screen-space polygon/lasso selection. mode=crossing|window."
+  alias_source: agent_dispatch
+
+- name: SdSelectBoundary
+  kernel_op: selectBoundary
+  parameters:
+    type: object
+    properties:
+      polygon:
+        type: list_any
+      mode:
+        type: string
+        default: crossing
+    required: [polygon]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [sel-boundary, boundary select, select boundary]
+  note: "Screen-space boundary polygon selection. mode=crossing|window."
+  alias_source: agent_dispatch
 
 - name: SdDelete
   kernel_op: deleteSelected
@@ -2159,7 +2296,7 @@
     required: [a, b]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [aligned dim, linear dim, distance, measure length, SdDimAligned, aligned dimension, dim aligned, linear dimension]
+  synonyms: [aligned dim, aligned-dim, linear dim, distance, measure length, SdDimAligned, aligned dimension, dim aligned, linear dimension]
   returns: {measured: length, distance: number, unit: m}
   alias_source: generic_cad_vocabulary
 
@@ -2177,7 +2314,7 @@
     required: [vertex, ray1, ray2]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [angular dim, angle between, measure angle, SdDimAngular, angular dimension, dim angular, angle dimension]
+  synonyms: [angular dim, angular-dim, angle between, measure angle, SdDimAngular, angular dimension, dim angular, angle dimension]
   returns: {measured: angle, angleDeg: number, unit: deg}
   alias_source: generic_cad_vocabulary
 
@@ -2191,7 +2328,7 @@
     required: [points]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [area dim, measure area, polygon area, floor area]
+  synonyms: [area dim, area-dim, measure area, polygon area, floor area]
   returns: {measured: area, area: number, unit: m2}
   alias_source: generic_cad_vocabulary
 
@@ -2205,7 +2342,7 @@
     required: [id]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [volume dim, measure volume, object volume]
+  synonyms: [volume dim, volume-dim, measure volume, object volume]
   returns: {measured: volume, volume: number, unit: m3}
   alias_source: generic_cad_vocabulary
 
@@ -2238,7 +2375,7 @@
     required: []
   topology_role: annotation
   kg_predicates: []
-  synonyms: [transient measure, quick measure, measure distance, measure]
+  synonyms: [transient measure, transient-measure, quick measure, measure distance, measure]
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2435,7 +2572,7 @@
     required: [min, max]
   topology_role: view
   kg_predicates: []
-  synonyms: [sectionbox, "section box", "crop box", "clip box", "section volume"]
+  synonyms: [section, sectionbox, "section box", "crop box", "clip box", "section volume"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -2491,7 +2628,7 @@
     required: [origin, normal]
   topology_role: view
   kg_predicates: []
-  synonyms: [clippingplane, "clipping plane", "cut plane", "section plane", "clip plane"]
+  synonyms: [clip, clippingplane, "clipping plane", "cut plane", "section plane", "clip plane", clip-section]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 

@@ -84,6 +84,7 @@ function buildInspectTab(): HTMLElement {
       <div class="prop-section-title">IDENTITY</div>
       <div class="prop-row"><span class="k">Name</span><span class="v" data-field="name">—</span></div>
       <div class="prop-row"><span class="k">Type</span><span class="v" data-field="type">—</span></div>
+      <div class="prop-row"><span class="k">Exact</span><span class="v" data-field="exact">—</span></div>
       <div class="prop-row"><span class="k">GUID</span><span class="v" data-field="guid">—</span></div>
       <div class="prop-row"><span class="k">Storey</span><span class="v" data-field="storey">—</span></div>
       <div class="prop-row"><span class="k">Layer</span><span class="v" data-field="layer">—</span></div>
@@ -144,12 +145,33 @@ function buildInspectTab(): HTMLElement {
   function updateInspect(sel: Selection | null): void {
     const title = wrap.querySelector<HTMLElement>(".props-title");
     const subtitle = wrap.querySelector<HTMLElement>(".props-subtitle");
+    const runtimeViewer = (window as unknown as { __viewer?: Viewer }).__viewer;
+    const canonicalFor = (selection: Selection) => {
+      const owner = selection.parent ?? selection.transformTarget ?? selection.object;
+      return runtimeViewer?.getCanonicalGeometryForObject(owner)
+        ?? runtimeViewer?.getCanonicalGeometryForObject(selection.object);
+    };
+    const canonicalLabelFor = (selection: Selection): string | null => {
+      const record = canonicalFor(selection);
+      if (!record) return null;
+      if (record.kind === "brep") {
+        const shellCount = record.brep.shells.length;
+        const faceCount = record.brep.shells.reduce((n, shell) => n + shell.faces.length, 0);
+        const edgeCount = record.brep.shells.reduce((n, shell) => n + shell.edges.length, 0);
+        const closed = record.brep.shells.length > 0 && record.brep.shells.every((shell) => shell.isClosed);
+        return `${closed ? "Closed " : ""}BRep/NURBS polysurface · ${shellCount} shell${shellCount === 1 ? "" : "s"} · ${faceCount} face${faceCount === 1 ? "" : "s"} · ${edgeCount} edge${edgeCount === 1 ? "" : "s"}`;
+      }
+      if (record.kind === "surface") return `NURBS/analytic surface · ${record.surface.kind}`;
+      if (record.kind === "curve") return `NURBS/analytic curve · ${record.curve.kind}`;
+      return "Exact point";
+    };
+    const canonicalIdFor = (selection: Selection): string | null => canonicalFor(selection)?.id ?? null;
 
     const multi = getMultiSelected();
     if (multi.length > 1) {
       if (title) title.textContent = `${multi.length} components selected`;
       const types = [...new Set(
-        multi.map((s) => (s.object.userData?.ifcClass as string | undefined) || s.topology)
+        multi.map((s) => canonicalLabelFor(s) || (s.object.userData?.ifcClass as string | undefined) || s.topology)
       )].sort().join(", ");
       if (subtitle) subtitle.textContent = types;
       wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
@@ -183,18 +205,27 @@ function buildInspectTab(): HTMLElement {
       return;
     }
     const obj = sel.object as THREE.Object3D;
+    const isBrepSubObject = sel.parent && (sel.topology === "face" || sel.topology === "edge" || sel.topology === "vertex");
+    const subObjectLabel = isBrepSubObject
+      ? `BRep ${sel.topology}${sel.faceIndex !== undefined ? ` #${sel.faceIndex}` : sel.edgeIndex !== undefined ? ` #${sel.edgeIndex}` : sel.vertexIndex !== undefined ? ` #${sel.vertexIndex}` : ""}`
+      : null;
     const ud = (obj.userData ?? {}) as {
       ifcClass?: string;
       guid?: string;
       storeyName?: string;
       layer?: string;
     };
-    if (title) title.textContent = obj.name || sel.uuid.slice(0, 8);
-    if (subtitle) subtitle.textContent = ud.ifcClass || sel.topology;
+    if (title) title.textContent = subObjectLabel ?? obj.name ?? sel.uuid.slice(0, 8);
+    const canonicalLabel = canonicalLabelFor(sel);
+    const canonicalId = canonicalIdFor(sel);
+    const typeLabel = subObjectLabel ?? canonicalLabel ?? ud.ifcClass ?? sel.topology;
+    if (subtitle) subtitle.textContent = subObjectLabel && canonicalLabel ? `${subObjectLabel} · ${canonicalLabel}` : typeLabel;
     const nameEl = wrap.querySelector<HTMLElement>('[data-field="name"]');
     if (nameEl) nameEl.textContent = obj.name || "—";
     const typeEl = wrap.querySelector<HTMLElement>('[data-field="type"]');
-    if (typeEl) typeEl.textContent = ud.ifcClass || sel.topology;
+    if (typeEl) typeEl.textContent = typeLabel;
+    const exactEl = wrap.querySelector<HTMLElement>('[data-field="exact"]');
+    if (exactEl) exactEl.textContent = canonicalId ? `${canonicalId} · ${canonicalLabel}` : "—";
     const guidEl = wrap.querySelector<HTMLElement>('[data-field="guid"]');
     if (guidEl) guidEl.textContent = ud.guid || (sel.uuid.slice(0, 16) + "…");
     const storeyEl = wrap.querySelector<HTMLElement>('[data-field="storey"]');

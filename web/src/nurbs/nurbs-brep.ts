@@ -32,8 +32,11 @@
 //   - OCCT BOPAlgo_Options.hxx:31-32 (FuzzyValue), TopoDS_Shape.hxx:40-90.
 
 import type { Surface } from "./nurbs-surfaces";
+import { transformSurface } from "./nurbs-surfaces";
 import type { Curve } from "./nurbs-curves";
-import type { Point3 } from "./nurbs-primitives";
+import { transform as transformCurve } from "./nurbs-curves";
+import type { Point3, Xform } from "./nurbs-primitives";
+import { Point3 as Pt3 } from "./nurbs-primitives";
 
 // ── Tolerance constants ───────────────────────────────────────────────────────
 
@@ -186,6 +189,34 @@ export function brepFromSurface(surface: Surface): Brep {
  */
 export function brepConcat(...breps: Brep[]): Brep {
   return { shells: breps.flatMap((b) => b.shells) };
+}
+
+export function transformBrep(brep: Brep, xform: Xform): Brep {
+  return {
+    shells: brep.shells.map((shell) => ({
+      ...shell,
+      faces: shell.faces.map((face) => ({
+        ...face,
+        surface: transformSurface(face.surface, xform),
+        outerLoop: {
+          ...face.outerLoop,
+          curves: face.outerLoop.curves.map((curve) => transformCurve(curve, xform)),
+        },
+        innerLoops: face.innerLoops.map((loop) => ({
+          ...loop,
+          curves: loop.curves.map((curve) => transformCurve(curve, xform)),
+        })),
+      })),
+      edges: shell.edges.map((edge) => ({
+        ...edge,
+        curve: transformCurve(edge.curve, xform),
+      })),
+      vertices: shell.vertices.map((vertex) => ({
+        ...vertex,
+        point: Pt3.transform(vertex.point, xform),
+      })),
+    })),
+  };
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────

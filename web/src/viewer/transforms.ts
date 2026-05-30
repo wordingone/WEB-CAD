@@ -28,7 +28,6 @@ import {
   clearSelected,
   type Selection,
 } from "./selection-state";
-import { pushTransformAction } from "../history";
 import { getSnap } from "./snap-state";
 import { unprojectToAxisLine, getLastSnapEdgeDir } from "./snap-state";
 import { dispatchSync } from "../commands/dispatch";
@@ -490,12 +489,10 @@ export function ptCancel(viewer: Viewer, resetTool = true): void {
 }
 
 function ptCommitMove(obj: THREE.Object3D, delta: THREE.Vector3): void {
-  obj.position.add(delta);
-  obj.updateMatrix();
-  obj.updateMatrixWorld(true);
+  dispatchSync("SdMove", { target: obj.uuid, delta: delta.toArray() });
 }
 
-function ptCommitRotate(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: number, axisDir?: THREE.Vector3): void {
+function ptApplyRotatePreview(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: number, axisDir?: THREE.Vector3): void {
   const rad = angleDeg * Math.PI / 180;
   const axis = axisDir ? axisDir.clone().normalize() : new THREE.Vector3(0, 0, 1);
   obj.position.sub(base);
@@ -505,6 +502,11 @@ function ptCommitRotate(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: numb
   obj.quaternion.premultiply(q);
   obj.updateMatrix();
   obj.updateMatrixWorld(true);
+}
+
+function ptCommitRotate(obj: THREE.Object3D, base: THREE.Vector3, angleDeg: number, axisDir?: THREE.Vector3): void {
+  const axis = axisDir ? axisDir.clone().normalize() : new THREE.Vector3(0, 0, 1);
+  dispatchSync("SdRotate", { target: obj.uuid, pivot: base.toArray(), angle: angleDeg, axis: axis.toArray() });
 }
 
 // Live rotation preview during angle_end — called on every mousemove.
@@ -527,42 +529,25 @@ export function ptUpdateAnglePreview(worldX: number, worldY: number, shiftSnap: 
   obj.position.copy(_ptInitPos);
   obj.quaternion.copy(_ptInitQuat);
   obj.scale.copy(_ptInitScale);
-  ptCommitRotate(obj, phase.base, angleDeg, phase.axisDir);
+  ptApplyRotatePreview(obj, phase.base, angleDeg, phase.axisDir);
   return angleDeg;
 }
 
 function ptCommitScale(obj: THREE.Object3D, base: THREE.Vector3, factor: number): void {
   if (!Number.isFinite(factor) || factor <= 0) return;
-  obj.position.sub(base);
-  obj.position.multiplyScalar(factor);
-  obj.position.add(base);
-  obj.scale.multiplyScalar(factor);
-  obj.updateMatrix();
-  obj.updateMatrixWorld(true);
+  dispatchSync("SdScale", { target: obj.uuid, pivot: base.toArray(), factor, mode: "3d" });
 }
 
 function ptCommitScale1D(obj: THREE.Object3D, base: THREE.Vector3, dir: THREE.Vector3, factor: number): void {
   if (!Number.isFinite(factor) || factor <= 0) return;
   const ax = Math.abs(dir.x), ay = Math.abs(dir.y), az = Math.abs(dir.z);
-  const axis: "x" | "y" | "z" = ax >= ay && ax >= az ? "x" : ay >= az ? "y" : "z";
-  const offset = obj.position.clone().sub(base);
-  offset[axis] *= factor;
-  obj.position.copy(base).add(offset);
-  obj.scale[axis] *= factor;
-  obj.updateMatrix();
-  obj.updateMatrixWorld(true);
+  const axis = ax >= ay && ax >= az ? "x" : ay >= az ? "y" : "z";
+  dispatchSync("SdScale", { target: obj.uuid, pivot: base.toArray(), factor, mode: "1d", axis });
 }
 
 function ptCommitScale2D(obj: THREE.Object3D, base: THREE.Vector3, factor: number): void {
   if (!Number.isFinite(factor) || factor <= 0) return;
-  const offset = obj.position.clone().sub(base);
-  offset.x *= factor;
-  offset.y *= factor;
-  obj.position.copy(base).add(offset);
-  obj.scale.x *= factor;
-  obj.scale.y *= factor;
-  obj.updateMatrix();
-  obj.updateMatrixWorld(true);
+  dispatchSync("SdScale", { target: obj.uuid, pivot: base.toArray(), factor, mode: "2d", axis: "xy" });
 }
 
 export function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
@@ -628,10 +613,13 @@ export function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
 
   if (phase.kind === "end_move") {
     if (_ptInitPos) {
-      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       obj.position.copy(_ptInitPos).add(worldPt.clone().sub(phase.start));
       obj.updateMatrix(); obj.updateMatrixWorld(true);
-      pushTransformAction(obj, before);
+      obj.position.copy(_ptInitPos);
+      obj.quaternion.copy(_ptInitQuat!);
+      obj.scale.copy(_ptInitScale!);
+      obj.updateMatrix(); obj.updateMatrixWorld(true);
+      ptCommitMove(obj, worldPt.clone().sub(phase.start));
     }
     ptFinish(viewer);
     return;
@@ -645,11 +633,11 @@ export function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
     const angleDeg = (snap.snapOn && snap.polarOn)
       ? Math.round(raw / snap.angleStep) * snap.angleStep : raw;
     if (_ptInitPos && _ptInitQuat) {
-      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat.clone(), scale: _ptInitScale!.clone() };
       obj.position.copy(_ptInitPos);
       obj.quaternion.copy(_ptInitQuat);
+      obj.scale.copy(_ptInitScale!);
+      obj.updateMatrix(); obj.updateMatrixWorld(true);
       ptCommitRotate(obj, phase.base, angleDeg, phase.axisDir);
-      pushTransformAction(obj, before);
     }
     ptFinish(viewer);
     return;
@@ -671,9 +659,10 @@ export function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
     const refDist = phase.refPt.distanceTo(phase.base);
     const newDist = worldPt.distanceTo(phase.base);
     if (refDist > 1e-6 && _ptInitPos && _ptInitScale) {
-      const before = { pos: _ptInitPos.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale.clone() };
       obj.position.copy(_ptInitPos);
+      obj.quaternion.copy(_ptInitQuat!);
       obj.scale.copy(_ptInitScale);
+      obj.updateMatrix(); obj.updateMatrixWorld(true);
       const factor = newDist / refDist;
       if (phase.mode === "1d") {
         ptCommitScale1D(obj, phase.base, phase.refPt.clone().sub(phase.base), factor);
@@ -682,7 +671,6 @@ export function ptHandlePoint(viewer: Viewer, worldPt: THREE.Vector3): void {
       } else {
         ptCommitScale(obj, phase.base, factor);
       }
-      pushTransformAction(obj, before);
     }
     ptFinish(viewer);
   }
@@ -710,10 +698,8 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
       if (phase.kind === "start") {
         ptHandlePoint(viewer, pt);
       } else {
-        const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
         resetToInit();
         ptCommitMove(obj, pt.clone().sub(phase.start));
-        pushTransformAction(obj, before);
         ptFinish(viewer);
       }
     }
@@ -727,10 +713,8 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "angle_end") {
     const deg = parts[0];
     if (Number.isFinite(deg)) {
-      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       resetToInit();
       ptCommitRotate(obj, phase.base, deg, phase.axisDir);
-      pushTransformAction(obj, before);
       ptFinish(viewer);
     }
     return;
@@ -738,7 +722,6 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
 
   if (phase.kind === "scale_ref") {
     if (parts.length === 1 && Number.isFinite(parts[0]) && parts[0] > 0) {
-      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       resetToInit();
       const f = parts[0];
       if (phase.mode === "1d") {
@@ -748,7 +731,6 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
       } else {
         ptCommitScale(obj, phase.base, f);
       }
-      pushTransformAction(obj, before);
       ptFinish(viewer);
     } else if (parts.length >= 2 && parts.every(Number.isFinite)) {
       ptHandlePoint(viewer, new THREE.Vector3(parts[0], parts[1], parts[2] ?? 0));
@@ -759,7 +741,6 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "scale_end") {
     const factor = parts[0];
     if (Number.isFinite(factor) && factor > 0) {
-      const before = { pos: _ptInitPos!.clone(), quat: _ptInitQuat!.clone(), scale: _ptInitScale!.clone() };
       resetToInit();
       if (phase.mode === "1d") {
         ptCommitScale1D(obj, phase.base, phase.refPt.clone().sub(phase.base), factor);
@@ -768,7 +749,6 @@ export function ptHandleCoordSubmit(viewer: Viewer, raw: string): void {
       } else {
         ptCommitScale(obj, phase.base, factor);
       }
-      pushTransformAction(obj, before);
       ptFinish(viewer);
     }
   }

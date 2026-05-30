@@ -8,7 +8,7 @@
 //   op-tool-fillet-2d.ts     — opApply2DFillet
 
 import * as THREE from "three";
-import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "./csg";
+import { getUniqueEdges } from "./csg";
 import type { Viewer } from "./viewer";
 import { getSnap, closestPtOnSegToRay } from "./snap-state";
 import { nearestSnapVertex } from "./snap-state";
@@ -18,9 +18,9 @@ import {
   ptShowCoordInput, ptHideCoordInput, _ptCoordInputEl,
 } from "./transforms";
 import { getChooserEl, opSetHover, setChooserHint } from "./picker-hint";
-import { pushAction, pushReplaceAction } from "../history";
-import { dispatchSync } from "../commands/dispatch";
-import { formatLength, formatArea, formatVolume } from "../units";
+import { beginTransaction, endTransaction, pushReplaceAction } from "../history";
+import { dispatchSync, type DispatchResult } from "../commands/dispatch";
+import { formatLength } from "../units";
 import {
   EXTRUDABLE_CREATORS, SKETCH_PROFILE_CREATORS, CLOSED_SKETCH_CREATORS,
   opBuildExtrudeMesh, opRaycastObject,
@@ -69,8 +69,8 @@ export function registerOpToolHooks(hooks: OpToolHooks): void {
 export type OpPhase =
   | { kind: "extrude_select" }
   | { kind: "extrude_height"; profile: THREE.Object3D; cx: number; cy: number; w: number; d: number }
-  | { kind: "bool_a"; presetOp?: "union" | "difference" | "split" }
-  | { kind: "bool_b"; objA: THREE.Object3D; presetOp?: "union" | "difference" | "split" }
+  | { kind: "bool_a"; presetOp?: "union" | "difference" | "intersection" }
+  | { kind: "bool_b"; objA: THREE.Object3D; presetOp?: "union" | "difference" | "intersection" }
   | { kind: "bool_op"; objA: THREE.Object3D; objB: THREE.Object3D }
   | { kind: "fillet_select" }
   | { kind: "fillet_edge";        target: THREE.Mesh | THREE.Line }
@@ -150,6 +150,41 @@ function round(n: number, digits = 4): number {
   return Math.round(n * f) / f;
 }
 
+function vecArgs(v: THREE.Vector3): [number, number, number] {
+  return [round(v.x), round(v.y), round(v.z)];
+}
+
+function dispatchFailure(result: DispatchResult): string | null {
+  if (!result.ok) return result.detail ?? result.error;
+  const payload = result.result;
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error?: unknown }).error;
+    return typeof error === "string" && error ? error : null;
+  }
+  return null;
+}
+
+function extractLinePoints(line: THREE.Line): number[][] {
+  const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
+  const pts: number[][] = [];
+  for (let i = 0; i < pos.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
+    pts.push([v.x, v.y, v.z]);
+  }
+  return pts;
+}
+
+function pointsClosed(points: number[][], tolerance = 1e-5): boolean {
+  if (points.length < 3) return false;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (!first || !last) return false;
+  const dx = first[0] - last[0];
+  const dy = first[1] - last[1];
+  const dz = (first[2] ?? 0) - (last[2] ?? 0);
+  return Math.hypot(dx, dy, dz) <= tolerance;
+}
+
 function opClearPreview(viewer: Viewer): void {
   if (_opPreview) {
     viewer.getScene().remove(_opPreview);
@@ -219,27 +254,6 @@ export function opAddLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer)
   el.textContent = text;
   document.body.appendChild(el);
   _opLabels.push(el);
-  const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
-  if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
-  return el;
-}
-
-function opBuildDimLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer): HTMLElement {
-  const el = document.createElement("div");
-  el.style.cssText = [
-    "position:fixed",
-    "background:rgba(0,0,0,0.72)",
-    "color:#fff",
-    "padding:2px 6px",
-    "border-radius:3px",
-    "font-size:11px",
-    "font-family:var(--mono,monospace)",
-    "pointer-events:none",
-    "z-index:9999",
-    "white-space:nowrap",
-  ].join(";");
-  el.textContent = text;
-  document.body.appendChild(el);
   const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
   if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
   return el;
@@ -595,7 +609,7 @@ export function opUpdateSelectHoverPreview(viewer: Viewer, profile: THREE.Object
 
 // â”€â”€ Boolean operation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "split"): void {
+function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "intersection"): void {
   restoreBoolHighlight(objA); restoreBoolHighlight(objB);
 
   if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh)) {
@@ -610,33 +624,24 @@ function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3
   mA.updateMatrixWorld(true);
   mB.updateMatrixWorld(true);
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
-  const tags: Record<string, string> = { union: "boolean-union", difference: "boolean-difference", split: "boolean-split" };
-
-  let result: THREE.Mesh;
-  try {
-    if      (op === "union")      result = csgUnion(mA, mB, mat);
-    else if (op === "difference") result = csgDifference(mA, mB, mat);
-    else                          result = csgIntersection(mA, mB, mat);
-  } catch {
-    ptPrompt("Boolean failed — geometry may be non-manifold. Try extruding simpler profiles.");
+  const verb = op === "union" ? "SdBooleanUnion"
+    : op === "difference" ? "SdBooleanDifference"
+      : "SdBooleanIntersection";
+  const args = op === "difference"
+    ? { outer: mA.uuid, inner: mB.uuid }
+    : { a: mA.uuid, b: mB.uuid };
+  const result = dispatchSync(verb, args);
+  const failure = dispatchFailure(result);
+  if (failure) {
+    ptPrompt(`Boolean failed — ${failure}`);
     setTimeout(() => ptClearPrompt(), 4000);
     opFinish(viewer); return;
   }
-
-  if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0) {
-    ptPrompt("Boolean produced no geometry — ensure the two solids overlap in 3D.");
-    setTimeout(() => ptClearPrompt(), 4000);
-    opFinish(viewer); return;
+  if (result.ok && op === "intersection") {
+    const createdId = (result.result as { created?: string } | undefined)?.created;
+    const created = createdId ? viewer.getScene().getObjectByProperty("uuid", createdId) : null;
+    if (created) created.userData.creator = "boolean-intersection";
   }
-
-  const creator = tags[op];
-  result.userData.kind = "brep";
-  result.userData.creator = creator;
-  viewer.getScene().remove(objA);
-  viewer.getScene().remove(objB);
-  viewer.addMesh(result, "brep", { noHistory: true });
-  pushReplaceAction(result, [objA, objB], creator);
   opFinish(viewer);
 }
 
@@ -648,10 +653,10 @@ function opShowBoolChooser(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Obj
   label.className = "chooser-label";
   label.textContent = "Boolean operation:";
   chooserEl.appendChild(label);
-  const ops: Array<["union" | "difference" | "split", string]> = [
+  const ops: Array<["union" | "difference" | "intersection", string]> = [
     ["union",      "Union"],
     ["difference", "Difference (A âˆ’ B)"],
-    ["split",      "Split (A âˆ© B)"],
+    ["intersection", "Intersection (A âˆ© B)"],
   ];
   for (const [op, lbl] of ops) {
     const chip = document.createElement("button");
@@ -661,6 +666,41 @@ function opShowBoolChooser(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Obj
     chooserEl.appendChild(chip);
   }
   chooserEl.classList.add("visible");
+}
+
+function tryAutoExtrudeClosedSketchForBoolean(viewer: Viewer, profile: THREE.Object3D): { obj?: THREE.Object3D; error?: string } {
+  const creator = profile.userData.creator as string | undefined;
+  const isClosed = !!(profile.userData.isClosed as boolean | undefined);
+  if (!creator || !(CLOSED_SKETCH_CREATORS.has(creator) || (creator === "curve" && isClosed))) {
+    return { error: "Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape." };
+  }
+
+  const before = new Set<string>();
+  viewer.getScene().traverse((obj) => before.add(obj.uuid));
+  beginTransaction("boolean-auto-extrude");
+  const result = dispatchSync("SdExtrude", { object_id: profile.uuid, distance: 3.0 });
+  const failure = dispatchFailure(result);
+  if (failure) {
+    endTransaction();
+    return { error: `Auto-extrude failed — ${failure}` };
+  }
+
+  const extruded = viewer.getScene().children.find((obj): obj is THREE.Mesh => (
+    !before.has(obj.uuid)
+      && obj instanceof THREE.Mesh
+      && (obj.userData.dispatchVerb === "SdExtrude" || obj.userData.creator === "extrude")
+  )) ?? null;
+  if (!extruded) {
+    endTransaction();
+    return { error: "Auto-extrude failed — SdExtrude did not create a selectable solid" };
+  }
+
+  extruded.userData.autoExtrudedForBoolean = true;
+  viewer.getScene().remove(profile);
+  extruded.updateMatrixWorld(true);
+  pushReplaceAction(extruded, [profile], "extrude");
+  endTransaction();
+  return { obj: extruded };
 }
 
 // â”€â”€ Click handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -701,12 +741,13 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     const h = _opPreview ? (new THREE.Box3().setFromObject(_opPreview)).getSize(new THREE.Vector3()).z : 1;
     opClearPreview(viewer);
     const h2 = Math.max(0.05, h);
-    const mesh = opBuildExtrudeMesh(phase.profile, h2);
-    mesh.userData.kind = "brep";
-    mesh.userData.creator = "extrude";
-    viewer.addMesh(mesh, "brep", { noHistory: true });
-    _hooks.appendToCreateSequence(`// extrude h=${round(h2)} from profile creator=${phase.profile.userData.creator ?? "unknown"}`);
-    pushAction(mesh, "extrude");
+    const result = dispatchSync("SdExtrude", { object_id: phase.profile.uuid, distance: h2 });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Extrude failed: ${failure}  [Escape = cancel]`);
+      return true;
+    }
+    _hooks.appendToCreateSequence(`SdExtrude({object_id:"${phase.profile.uuid}",distance:${round(h2)}})`);
     opFinish(viewer);
     return true;
   }
@@ -732,26 +773,20 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Loft — click a different profile curve for the second rail  [Escape = cancel]");
       return true;
     }
-    // Extract polyline point arrays from both curve geometries.
-    const extractPts = (line: THREE.Line): number[][] => {
-      const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const pts: number[][] = [];
-      for (let i = 0; i < pos.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
-        pts.push([v.x, v.y, v.z]);
-      }
-      return pts;
-    };
-    const pts1 = extractPts(phase.curve1);
-    const pts2 = extractPts(hit.obj as THREE.Line);
+    const pts1 = extractLinePoints(phase.curve1);
+    const pts2 = extractLinePoints(hit.obj as THREE.Line);
     if (pts1.length < 2 || pts2.length < 2) {
       ptPrompt("Loft — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const result = dispatchSync("SdLoft", { curves: [{ points: pts1 }, { points: pts2 }] }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Loft failed: ${result.error}  [Escape = cancel]`);
+    const result = dispatchSync("SdLoft", {
+      curves: [{ points: pts1 }, { points: pts2 }],
+      solid: pointsClosed(pts1) && pointsClosed(pts2),
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Loft failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -777,25 +812,21 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Sweep — click a different curve for the profile  [Escape = cancel]");
       return true;
     }
-    const extractPts = (line: THREE.Line): number[][] => {
-      const pos = line.geometry.getAttribute("position") as THREE.BufferAttribute;
-      const pts: number[][] = [];
-      for (let i = 0; i < pos.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(line.matrixWorld);
-        pts.push([v.x, v.y, v.z]);
-      }
-      return pts;
-    };
-    const railPts    = extractPts(phase.rail);
-    const profilePts = extractPts(hit.obj as THREE.Line);
+    const railPts    = extractLinePoints(phase.rail);
+    const profilePts = extractLinePoints(hit.obj as THREE.Line);
     if (railPts.length < 2 || profilePts.length < 2) {
       ptPrompt("Sweep — selected curves have insufficient points  [Escape = cancel]");
       return true;
     }
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const result = dispatchSync("SdSweep", { rail: { points: railPts }, profile: { points: profilePts } }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Sweep failed: ${result.error}  [Escape = cancel]`);
+    const result = dispatchSync("SdSweep", {
+      rail: { points: railPts },
+      profile: { points: profilePts },
+      solid: pointsClosed(profilePts),
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Sweep failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -810,12 +841,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const pos = hit.obj.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const profilePts: number[][] = [];
-    for (let i = 0; i < pos.count; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(hit.obj.matrixWorld);
-      profilePts.push([v.x, v.y, v.z]);
-    }
+    const profilePts = extractLinePoints(hit.obj);
     _opPhase = { kind: "revolve_axis_a", profilePts };
     ptPrompt(`Revolve — profile selected (${hit.obj.userData.creator ?? "line"}) — click first axis point  [Escape = cancel]`);
     return true;
@@ -840,9 +866,11 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       axisFrom: [axisFrom.x, axisFrom.y, axisFrom.z],
       axisTo:   [snapped3.x, snapped3.y, snapped3.z],
       angleEnd: 2 * Math.PI,
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Revolve failed: ${result.error}  [Escape = cancel]`);
+      solid: true,
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Revolve failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -878,9 +906,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       origin: [origin.x, origin.y, origin.z],
       xAxis:  [xAxis.x,  xAxis.y,  xAxis.z],
       yAxis:  [snapped3.x, snapped3.y, snapped3.z],
-    }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Plane failed: ${result.error}  [Escape = cancel]`);
+    });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Plane failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -905,9 +934,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Surface — selected curve has insufficient points  [Escape = cancel]");
       return true;
     }
-    const result = dispatchSync("SdSurface", { profile: { points: pts } }) as { error?: string } | null;
-    if (result?.error) {
-      ptPrompt(`Surface failed: ${result.error}  [Escape = cancel]`);
+    const result = dispatchSync("SdSurface", { profile: { points: pts } });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Surface failed: ${failure}  [Escape = cancel]`);
       return true;
     }
     opFinish(viewer);
@@ -921,21 +951,13 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Explode — click a group or solid to decompose  [Escape = cancel]"); return true; }
     const obj = hit.obj;
     opSetHover(null);
-    if (obj instanceof THREE.Group) {
-      const children = [...obj.children];
-      if (children.length === 0) { ptPrompt("Explode — group is empty  [Escape = cancel]"); return true; }
-      const scene = viewer.getScene();
-      scene.remove(obj);
-      for (const child of children) {
-        child.applyMatrix4(obj.matrixWorld);
-        child.updateMatrixWorld(true);
-        scene.add(child);
-      }
-      pushReplaceAction(children[0], [obj], "explode");
-    } else {
-      ptPrompt("Explode — select a Group object to explode  [Escape = cancel]");
+    const result = dispatchSync("SdExplode", { target: obj.uuid });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Explode failed — ${failure.replace(/^SdExplode - /, "")}  [Escape = cancel]`);
       return true;
     }
+    _hooks.appendToCreateSequence(`SdExplode({target:"${obj.uuid}"})`);
     opFinish(viewer);
     return true;
   }
@@ -955,17 +977,13 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit || hit.obj === phase.objA) { ptPrompt("Join — click a different second object  [Escape = cancel]"); return true; }
     opSetHover(null);
     applyBoolHighlight(hit.obj, 0x44aaff);
-    const grp = new THREE.Group();
-    grp.userData.kind = "group";
-    grp.userData.creator = "join";
-    const scene = viewer.getScene();
-    scene.remove(phase.objA);
-    scene.remove(hit.obj);
-    grp.add(phase.objA);
-    grp.add(hit.obj);
-    grp.updateMatrixWorld(true);
-    scene.add(grp);
-    pushAction(grp, "join(A, B)");
+    const result = dispatchSync("SdJoin", { targets: [phase.objA.uuid, hit.obj.uuid] });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Join failed — ${failure.replace(/^SdJoin - /, "")}  [Escape = cancel]`);
+      return true;
+    }
+    _hooks.appendToCreateSequence(`SdJoin({targets:["${phase.objA.uuid}","${hit.obj.uuid}"]})`);
     opFinish(viewer);
     return true;
   }
@@ -975,39 +993,13 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Rebuild — click a curve to rebuild  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    if (!(obj instanceof THREE.Line)) {
-      ptPrompt("Rebuild — click a curve (line/spline) object  [Escape = cancel]");
+    const result = dispatchSync("SdRebuild", { target: obj.uuid });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Rebuild failed — ${failure.replace(/^SdRebuild - /, "")}  [Escape = cancel]`);
       return true;
     }
-    const cps = obj.userData.controlPoints as Array<{ x: number; y: number; z?: number }> | undefined;
-    if (!cps || cps.length < 2) {
-      ptPrompt("Rebuild — curve has no stored control points  [Escape = cancel]");
-      return true;
-    }
-    // Re-tessellate with 4Ã— the current sample count.
-    const sampleCount = Math.max(cps.length * 32, 128);
-    const newPts: THREE.Vector3[] = [];
-    const cx = obj.position.x, cy = obj.position.y, cz = obj.position.z;
-    for (let i = 0; i <= sampleCount; i++) {
-      const t = i / sampleCount;
-      const idx = Math.min(Math.floor(t * (cps.length - 1)), cps.length - 2);
-      const s = (t * (cps.length - 1)) - idx;
-      const a = cps[idx], b = cps[idx + 1];
-      newPts.push(new THREE.Vector3(
-        cx + a.x + (b.x - a.x) * s,
-        cy + a.y + (b.y - a.y) * s,
-        cz + ((a.z ?? 0) + ((b.z ?? 0) - (a.z ?? 0)) * s),
-      ));
-    }
-    const geom = new THREE.BufferGeometry().setFromPoints(newPts);
-    const mat = (obj.material as THREE.LineBasicMaterial).clone();
-    const rebuilt = new THREE.Line(geom, mat);
-    rebuilt.userData = { ...obj.userData };
-    rebuilt.updateMatrixWorld(true);
-    const scene = viewer.getScene();
-    scene.remove(obj);
-    scene.add(rebuilt);
-    pushReplaceAction(rebuilt, [obj], "rebuild");
+    _hooks.appendToCreateSequence(`SdRebuild({target:"${obj.uuid}"})`);
     opFinish(viewer);
     return true;
   }
@@ -1017,30 +1009,13 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Contour — click a solid or mesh  [Escape = cancel]"); return true; }
     opSetHover(null);
     const obj = hit.obj;
-    const bbox = new THREE.Box3().setFromObject(obj);
-    if (bbox.isEmpty()) { ptPrompt("Contour — selected object has no bounds  [Escape = cancel]"); return true; }
-    const zRange = bbox.max.z - bbox.min.z;
-    const planeCount = 5;
-    const step = zRange / (planeCount + 1);
-    const scene = viewer.getScene();
-    for (let i = 1; i <= planeCount; i++) {
-      const z = bbox.min.z + step * i;
-      const x0 = bbox.min.x, x1 = bbox.max.x;
-      const y0 = bbox.min.y, y1 = bbox.max.y;
-      const pts = [
-        new THREE.Vector3(x0, y0, z), new THREE.Vector3(x1, y0, z),
-        new THREE.Vector3(x1, y1, z), new THREE.Vector3(x0, y1, z),
-        new THREE.Vector3(x0, y0, z),
-      ];
-      const geom = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: 0x0066cc });
-      const contourLine = new THREE.Line(geom, mat);
-      contourLine.userData.kind = "contour";
-      contourLine.userData.creator = "contour";
-      contourLine.userData.sourceZ = z;
-      scene.add(contourLine);
-      pushAction(contourLine, `contour(z=${z.toFixed(2)})`);
+    const result = dispatchSync("SdContour", { target: obj.uuid, count: 5 });
+    const failure = dispatchFailure(result);
+    if (failure) {
+      ptPrompt(`Contour failed — ${failure.replace(/^SdContour - /, "")}  [Escape = cancel]`);
+      return true;
     }
+    _hooks.appendToCreateSequence(`SdContour({target:"${obj.uuid}",count:5})`);
     opFinish(viewer);
     return true;
   }
@@ -1050,28 +1025,19 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit) { ptPrompt("Boolean — click first solid  (2D closed sketches auto-extrude to 3 m)"); return true; }
     let objA: THREE.Object3D = hit.obj;
     if (!(objA instanceof THREE.Mesh)) {
-      const cr = objA.userData.creator as string | undefined;
-      const isClosed = !!(objA.userData.isClosed as boolean | undefined);
-      if (cr && (CLOSED_SKETCH_CREATORS.has(cr) || (cr === "curve" && isClosed))) {
-        const extruded = opBuildExtrudeMesh(objA, 3.0);
-        extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
-        extruded.userData.autoExtrudedForBoolean = true;
-        viewer.getScene().remove(objA);
-        viewer.getScene().add(extruded);
-        extruded.updateMatrixWorld(true);
-        pushReplaceAction(extruded, [objA], "extrude");
-        objA = extruded;
-      } else {
-        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+      const autoExtrude = tryAutoExtrudeClosedSketchForBoolean(viewer, objA);
+      if (!autoExtrude.obj) {
+        ptPrompt(autoExtrude.error ?? "Boolean auto-extrude failed");
         return true;
       }
+      objA = autoExtrude.obj;
     }
     opSetHover(null);
     const mA = objA as THREE.Mesh;
     applyBoolHighlight(mA, 0x003399);
     _opPhase = { kind: "bool_b", objA, presetOp: phase.presetOp };
     const bPrompt = phase.presetOp
-      ? `${phase.presetOp === "split" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} — click second solid (A highlighted)`
+      ? `${phase.presetOp === "intersection" ? "Intersect" : phase.presetOp.charAt(0).toUpperCase() + phase.presetOp.slice(1)} — click second solid (A highlighted)`
       : "Boolean — click the second solid (first highlighted in blue)";
     ptPrompt(bPrompt);
     return true;
@@ -1082,21 +1048,12 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     if (!hit || hit.obj === phase.objA) { ptPrompt("Boolean — click a different second solid"); return true; }
     let objB: THREE.Object3D = hit.obj;
     if (!(objB instanceof THREE.Mesh)) {
-      const cr = objB.userData.creator as string | undefined;
-      const isClosed = !!(objB.userData.isClosed as boolean | undefined);
-      if (cr && (CLOSED_SKETCH_CREATORS.has(cr) || (cr === "curve" && isClosed))) {
-        const extruded = opBuildExtrudeMesh(objB, 3.0);
-        extruded.userData.creator = "extrude"; extruded.userData.kind = "brep";
-        extruded.userData.autoExtrudedForBoolean = true;
-        viewer.getScene().remove(objB);
-        viewer.getScene().add(extruded);
-        extruded.updateMatrixWorld(true);
-        pushReplaceAction(extruded, [objB], "extrude");
-        objB = extruded;
-      } else {
-        ptPrompt("Boolean needs 3D solids — open curves/lines can't be auto-extruded. Close the profile first or use a closed shape.");
+      const autoExtrude = tryAutoExtrudeClosedSketchForBoolean(viewer, objB);
+      if (!autoExtrude.obj) {
+        ptPrompt(autoExtrude.error ?? "Boolean auto-extrude failed");
         return true;
       }
+      objB = autoExtrude.obj;
     }
     opSetHover(null);
     const mB = objB as THREE.Mesh;
@@ -1174,12 +1131,8 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   }
 
   if (phase.kind === "tmeasure_b" && snapped3) {
-    const dist = snapped3.distanceTo(phase.ptA);
-    const mid = phase.ptA.clone().add(snapped3).multiplyScalar(0.5);
     opClearPreview(viewer);
-    _opPreview = opBuildAnnotLine([phase.ptA, snapped3]);
-    viewer.getScene().add(_opPreview);
-    opAddLabel(`${formatLength(dist)}`, mid, viewer);
+    dispatchSync("SdTransientMeasure", { a: vecArgs(phase.ptA), b: vecArgs(snapped3) });
     opFinish(viewer);
     return true;
   }
@@ -1190,11 +1143,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       const hit = opRaycastObject(viewer, clientX, clientY);
       const target = hit?.obj ?? null;
       if (!target) { ptPrompt("Volume — click an object to measure"); return true; }
-      const box = new THREE.Box3().setFromObject(target);
-      const size = new THREE.Vector3(); box.getSize(size);
-      const vol = size.x * size.y * size.z;
-      const ctr = new THREE.Vector3(); box.getCenter(ctr);
-      opAddLabel(`Vol: ${formatVolume(vol)}`, ctr, viewer);
+      dispatchSync("SdVolumeDim", { id: target.uuid });
       opFinish(viewer);
       return true;
     }
@@ -1217,14 +1166,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   }
 
   if (phase.kind === "dim_b" && snapped3) {
-    const dist = snapped3.distanceTo(phase.ptA);
-    const mid = phase.ptA.clone().add(snapped3).multiplyScalar(0.5);
-    const grp = new THREE.Group();
-    grp.add(opBuildAnnotLine([phase.ptA, snapped3]));
-    grp.userData.creator = "IfcAnnotationDimension";
-    const labelEl = opBuildDimLabel(formatLength(dist), mid, viewer);
-    grp.userData.dimLabelEls = [labelEl];
-    viewer.addMesh(grp, "dim");
+    dispatchSync("SdAlignedDim", { a: vecArgs(phase.ptA), b: vecArgs(snapped3) });
     opFinish(viewer);
     return true;
   }
@@ -1234,16 +1176,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       _opPhase = { kind: "dim_c", tool: "angular-dim", ptA: phase.ptA, ptB: snapped3 };
       ptPrompt("Angular dimension — click second ray point");
     } else {
-      const v1 = phase.ptB.clone().sub(phase.ptA).normalize();
-      const v2 = snapped3.clone().sub(phase.ptA).normalize();
-      const angleDeg = Math.acos(Math.max(-1, Math.min(1, v1.dot(v2)))) * 180 / Math.PI;
-      const grp = new THREE.Group();
-      grp.add(opBuildAnnotLine([phase.ptA, phase.ptB]));
-      grp.add(opBuildAnnotLine([phase.ptA, snapped3]));
-      grp.userData.creator = "IfcAnnotationDimension";
-      const labelEl = opBuildDimLabel(`${angleDeg.toFixed(1)}Â°`, phase.ptA, viewer);
-      grp.userData.dimLabelEls = [labelEl];
-      viewer.addMesh(grp, "dim");
+      dispatchSync("SdAngularDim", { vertex: vecArgs(phase.ptA), ray1: vecArgs(phase.ptB), ray2: vecArgs(snapped3) });
       opFinish(viewer);
     }
     return true;
@@ -1285,7 +1218,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       return s ? { x: s.x, y: s.y } : null;
     }).filter((p): p is { x: number; y: number } => p !== null);
     if (poly.length >= 3) {
-      _hooks.runPolySel(viewer, poly, "crossing");
+      dispatchSync("SdSelectBoundary", { polygon: poly, mode: "crossing" });
       setTimeout(() => { _hooks.removeSelOverlay(); opFinish(viewer); }, 600);
     } else {
       ptPrompt("Boundary Select — could not extract boundary; try a different object");
@@ -1448,27 +1381,13 @@ export function opHandleEnter(viewer: Viewer): void {
 
   if (phase.kind === "sel_boundary_draw" && phase.points.length >= 3) {
     _hooks.removeSelOverlay();
-    _hooks.runPolySel(viewer, phase.points, "crossing");
+    dispatchSync("SdSelectBoundary", { polygon: phase.points, mode: "crossing" });
     setTimeout(() => opFinish(viewer), 600);
     return;
   }
 
   if (phase.kind === "dim_area" && phase.pts.length >= 3) {
-    let area = 0;
-    const pts = phase.pts;
-    for (let i = 0; i < pts.length; i++) {
-      const j = (i + 1) % pts.length;
-      area += pts[i].x * pts[j].y;
-      area -= pts[j].x * pts[i].y;
-    }
-    area = Math.abs(area) / 2;
-    const ctr = pts.reduce((a, b) => a.clone().add(b), new THREE.Vector3()).multiplyScalar(1 / pts.length);
-    const grp = new THREE.Group();
-    grp.add(opBuildAnnotLine([...pts, pts[0]]));
-    grp.userData.creator = "IfcAnnotationDimension";
-    const labelEl = opBuildDimLabel(`Area: ${formatArea(area)}`, ctr, viewer);
-    grp.userData.dimLabelEls = [labelEl];
-    viewer.addMesh(grp, "dim");
+    dispatchSync("SdAreaDim", { points: phase.pts.map(vecArgs) });
     opFinish(viewer);
     return;
   }
@@ -1498,10 +1417,13 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       setTimeout(() => opFinish(viewer), 800);
       return;
     }
-    const filleted = filletMesh(target, r);
-    viewer.getScene().remove(target); // audit-undo-ok: tracked by pushReplaceAction below
-    viewer.addMesh(filleted, "brep", { noHistory: true });
-    pushReplaceAction(filleted, [target], "fillet");
+    const res = dispatchSync("SdFillet", { target: target.uuid, radius: r });
+    const failure = dispatchFailure(res);
+    if (failure) {
+      ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
+      setTimeout(() => opFinish(viewer), 1400);
+      return;
+    }
     ptPrompt(`Fillet r=${formatLength(r)} applied`);
     setTimeout(() => opFinish(viewer), 400);
   }
@@ -1530,23 +1452,26 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
       (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
     );
     if (edgeId >= 0) {
-      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r }) as { error?: string } | null;
-      if (res?.error) {
-        ptPrompt(`Fillet — ${res.error.replace(/^SdFillet — /, "")}`);
+      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r });
+      const failure = dispatchFailure(res);
+      if (failure) {
+        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1400);
         return;
       }
     } else {
-      // Fallback: direct chamfer when edge not found in enumeration.
-      const filleted = chamferEdge(meshTarget, phase.edgeA, phase.edgeB, r);
-      if (filleted.userData._chamferError) {
-        ptPrompt("Fillet — edge cannot be chamfered (curved or non-manifold surface); select a straight edge on a flat face");
+      const res = dispatchSync("SdFillet", {
+        target: meshTarget.uuid,
+        edgeFrom: vecArgs(phase.edgeA),
+        edgeTo: vecArgs(phase.edgeB),
+        radius: r,
+      });
+      const failure = dispatchFailure(res);
+      if (failure) {
+        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1600);
         return;
       }
-      viewer.getScene().remove(meshTarget); // audit-undo-ok: tracked by pushReplaceAction below
-      viewer.addMesh(filleted, "brep", { noHistory: true });
-      pushReplaceAction(filleted, [meshTarget], "fillet");
     }
     ptPrompt(`Fillet r=${formatLength(r)} applied`);
     setTimeout(() => opFinish(viewer), 400);
@@ -1555,7 +1480,7 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "label_text") {
     const text = raw.trim();
     if (!text) { ptPrompt("Label — type text for the label"); return; }
-    opAddLabel(text, phase.pt, viewer);
+    dispatchSync("SdLabel", { text, position: vecArgs(phase.pt) });
     opFinish(viewer);
   }
 
@@ -1602,18 +1527,11 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
   if (phase.kind === "array_curve_count") {
     const n = Math.round(Number(raw.trim()));
     if (isNaN(n) || n < 2) { ptPrompt("Along Curve — type count (min 2)"); return; }
-    const src = phase.source;
-    const srcCtr = new THREE.Vector3();
-    new THREE.Box3().setFromObject(src).getCenter(srcCtr);
-    const positions = _sampleAlongCurve(phase.curvePts, n);
-    for (const pos of positions) {
-      dispatchSync("SdCopy", {
-        target: src.uuid,
-        x: round(pos.x - srcCtr.x),
-        y: round(pos.y - srcCtr.y),
-        z: round(pos.z - srcCtr.z),
-      });
-    }
+    dispatchSync("SdArrayAlongCurve", {
+      target: phase.source.uuid,
+      path: phase.curvePts.map(vecArgs),
+      count: n,
+    });
     opFinish(viewer);
   }
 
@@ -1678,7 +1596,7 @@ export function opStartTool(viewer: Viewer, tool: string): void {
     _opPhase = { kind: "bool_a", presetOp: "difference" };
     ptPrompt("Difference — click first solid (A)  [Escape = cancel]");
   } else if (tool === "bool-intersect") {
-    _opPhase = { kind: "bool_a", presetOp: "split" };
+    _opPhase = { kind: "bool_a", presetOp: "intersection" };
     ptPrompt("Intersect — click first solid  [Escape = cancel]");
   } else if (tool === "brep-explode") {
     _opPhase = { kind: "brep_explode_pick" };
@@ -1786,23 +1704,6 @@ function _curveLength(pts: THREE.Vector3[]): number {
   let len = 0;
   for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
   return len;
-}
-
-function _sampleAlongCurve(pts: THREE.Vector3[], count: number): THREE.Vector3[] {
-  const segs: number[] = [0];
-  for (let i = 1; i < pts.length; i++) segs.push(segs[i - 1] + pts[i].distanceTo(pts[i - 1]));
-  const total = segs[segs.length - 1];
-  const result: THREE.Vector3[] = [];
-  const n = Math.max(2, count);
-  for (let i = 0; i < n; i++) {
-    const t = (i / (n - 1)) * total;
-    let si = 0;
-    while (si < segs.length - 2 && segs[si + 1] < t) si++;
-    const segLen = segs[si + 1] - segs[si];
-    const alpha = segLen > 0 ? (t - segs[si]) / segLen : 0;
-    result.push(pts[si].clone().lerp(pts[Math.min(si + 1, pts.length - 1)], Math.min(1, alpha)));
-  }
-  return result;
 }
 
 function _opPhaseStartArray(source: THREE.Object3D): void {

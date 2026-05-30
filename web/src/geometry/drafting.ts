@@ -41,6 +41,8 @@ export type DraftingOpts = {
   ink?: number;
   // Optional override of the paper-fill hex.
   paper?: number;
+  // Prefer canonical object/BRep edges over tessellated display mesh edges.
+  edgeGeometryProvider?: (mesh: THREE.Mesh) => THREE.BufferGeometry | null;
 };
 
 export function applyDrafting(root: THREE.Object3D, opts: DraftingOpts = {}): void {
@@ -66,7 +68,8 @@ export function applyDrafting(root: THREE.Object3D, opts: DraftingOpts = {}): vo
     if (alreadyHas) return;
 
     // Object-line pass — 30° crease threshold.
-    const eGeoObj = new THREE.EdgesGeometry(geom, ANGLE_OBJECT);
+    const canonicalEdges = opts.edgeGeometryProvider?.(mesh) ?? null;
+    const eGeoObj = canonicalEdges?.clone() ?? new THREE.EdgesGeometry(geom, ANGLE_OBJECT);
     const matObj = new THREE.LineBasicMaterial({
       color: ink,
       linewidth: 1,
@@ -80,7 +83,7 @@ export function applyDrafting(root: THREE.Object3D, opts: DraftingOpts = {}): vo
     mesh.add(linesObj);
 
     // Silhouette pass — 70° threshold (heavier creases / hard breaks).
-    const eGeoSil = new THREE.EdgesGeometry(geom, ANGLE_SILHOUETTE);
+    const eGeoSil = canonicalEdges ?? new THREE.EdgesGeometry(geom, ANGLE_SILHOUETTE);
     const matSil = new THREE.LineBasicMaterial({
       color: ink,
       linewidth: 1,

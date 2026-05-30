@@ -25,7 +25,7 @@ import { initSectionHandles } from "./viewer/section-handles";
 import { initClipPlaneHandles } from "./viewer/clip-plane-handles";
 import { initWallHeightHandle } from "./viewer/wall-height-handle";
 import { initRenderModes } from "./viewer/render-modes";
-import { setSelected } from "./viewer/selection-state";
+import { getSelected, setSelected } from "./viewer/selection-state";
 import { syncLevelOpacities } from "./handlers/datum";
 import { updateLevelSprite } from "./tools/structural";
 import * as THREE from "three";
@@ -87,6 +87,7 @@ levelStore.subscribe(() => {
   document.dispatchEvent(new CustomEvent("viewer:parity-changed", { detail }));
 };
 (window as unknown as { __setSelected: typeof setSelected }).__setSelected = setSelected;
+(window as unknown as { __getSelected: typeof getSelected }).__getSelected = getSelected;
 
 initRenderModes(viewer);
 syncToolActiveClass();

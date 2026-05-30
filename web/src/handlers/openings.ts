@@ -16,9 +16,29 @@ import { pushAction, pushReplaceAction, beginTransaction, endTransaction } from 
 import { resolveCPlane } from "../viewer/cplane";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
 import { resolveLayerId } from "./shared";
+import { linkCanonicalBrep } from "./canonical-surface";
+import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
 
 function getActiveLevelElevation(): number {
   return levelStore.get(getActiveLevelId())?.elevation ?? 0;
+}
+
+function rectangleProfile(width: number, thickness: number): PolylineCurve {
+  const hw = width / 2;
+  const ht = thickness / 2;
+  const points = [
+    { x: -hw, y: -ht, z: 0 },
+    { x: hw, y: -ht, z: 0 },
+    { x: hw, y: ht, z: 0 },
+    { x: -hw, y: ht, z: 0 },
+    { x: -hw, y: -ht, z: 0 },
+  ];
+  return { kind: "polyline", points, parameters: [0, width, width + thickness, 2 * width + thickness, 2 * width + 2 * thickness] };
+}
+
+function linkOpeningEnvelopeBrep(viewer: Viewer, mesh: THREE.Object3D, width: number, thickness: number, height: number, createdBy: string): void {
+  linkCanonicalBrep(viewer, mesh, extrudeBrep(rectangleProfile(width, thickness), { x: 0, y: 0, z: 1 }, height), createdBy);
 }
 
 export function registerOpeningHandlers(viewer: Viewer): void {
@@ -101,6 +121,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkOpeningEnvelopeBrep(viewer, mesh, doorW, 0.2, doorH, "SdDoor");
     viewer.addMesh(mesh, "brep", { noHistory: true });
     let voidCut = false;
     beginTransaction("SdDoor");
@@ -188,6 +209,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkOpeningEnvelopeBrep(viewer, mesh, winW, 0.2, winH, "SdWindow");
     viewer.addMesh(mesh, "brep", { noHistory: true });
     let voidCut = false;
     beginTransaction("SdWindow");
@@ -229,6 +251,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkOpeningEnvelopeBrep(viewer, mesh, 1, 0.25, 2, "SdOpening");
     viewer.addMesh(mesh, "brep", { noHistory: true });
     let voidCut = false;
     beginTransaction("SdOpening");

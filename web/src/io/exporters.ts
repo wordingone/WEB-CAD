@@ -22,12 +22,87 @@ import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
+import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
+import { canonicalGeometryToIfcNurbsSurfaces } from "../ifc/canonical-ifc.js";
+import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
+import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
+import type { Curve, NurbsCurve as KernelNurbsCurve } from "../nurbs/nurbs-curves.js";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces.js";
+import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.js";
+
+export type CanonicalExportOptions = {
+  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
+};
+
+function meshFromCanonicalSurface(record: Extract<CanonicalGeometry, { kind: "surface" }>): THREE.Mesh | null {
+  const tess = tessellateSurface(record.surface, 16, 16);
+  if (tess.positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(tess.positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(tess.normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(tess.indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
+}
+
+function meshFromCanonicalBrep(record: Extract<CanonicalGeometry, { kind: "brep" }>): THREE.Mesh | null {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const shell of record.brep.shells) {
+    for (const face of shell.faces) {
+      const tess = tessellateSurface(face.surface, 4, 4);
+      positions.push(...tess.positions);
+      normals.push(...tess.normals);
+      for (const index of tess.indices) indices.push(index + offset);
+      offset += tess.positions.length / 3;
+    }
+  }
+  if (positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
+}
+
+function objectFromCanonical(record: CanonicalGeometry): THREE.Object3D | null {
+  if (record.kind === "brep") return meshFromCanonicalBrep(record);
+  if (record.kind === "surface") return meshFromCanonicalSurface(record);
+  if (record.kind === "curve") {
+    const pts = tessellateCurve(record.curve, 64).map((p) => new THREE.Vector3(p.x, p.y, p.z));
+    return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial());
+  }
+  if (record.kind === "point") {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([record.point.x, record.point.y, record.point.z]), 3));
+    return new THREE.Points(geo, new THREE.PointsMaterial());
+  }
+  return null;
+}
+
+function canonicalExportObject(object: THREE.Object3D, options: CanonicalExportOptions): THREE.Object3D {
+  const canonical = options.getCanonicalGeometryForObject?.(object);
+  const replacement = canonical ? objectFromCanonical(canonical) : null;
+  const clone = replacement ?? object.clone(false);
+  clone.name = object.name;
+  clone.position.copy(object.position);
+  clone.quaternion.copy(object.quaternion);
+  clone.scale.copy(object.scale);
+  clone.visible = object.visible;
+  clone.userData = { ...object.userData };
+  if (replacement) return clone;
+  for (const child of object.children) clone.add(canonicalExportObject(child, options));
+  return clone;
+}
 
 // --- OBJ ---
 
-export function exportObj(object: THREE.Object3D): string {
+export function exportObj(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
   const exporter = new OBJExporter();
-  return exporter.parse(object);
+  const target = options.getCanonicalGeometryForObject ? canonicalExportObject(object, options) : object;
+  target.updateMatrixWorld(true);
+  return exporter.parse(target);
 }
 
 // --- glTF (JSON) ---
@@ -83,9 +158,11 @@ export async function exportUsdz(object: THREE.Object3D): Promise<Uint8Array> {
 
 // --- STL (binary) ---
 
-export function exportStl(object: THREE.Object3D): ArrayBuffer {
+export function exportStl(object: THREE.Object3D, options: CanonicalExportOptions = {}): ArrayBuffer {
   const exporter = new STLExporter();
-  const result = exporter.parse(object, { binary: true });
+  const target = options.getCanonicalGeometryForObject ? canonicalExportObject(object, options) : object;
+  target.updateMatrixWorld(true);
+  const result = exporter.parse(target, { binary: true });
   if (result instanceof ArrayBuffer) return result;
   // STLExporter binary mode always returns DataView in some three versions.
   if (result && typeof (result as unknown as DataView).buffer !== "undefined") {
@@ -97,9 +174,167 @@ export function exportStl(object: THREE.Object3D): ArrayBuffer {
 
 // --- 3DM (Rhino) ---
 
-// Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, converts
-// each mesh to a rhino3dm.Mesh, adds to a File3dm, serializes to bytes.
-export async function export3dm(object: THREE.Object3D): Promise<Uint8Array> {
+export type Export3dmOptions = {
+  getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
+};
+
+type Segment3 = [number, number, number, number, number, number];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function addKernelNurbsSurfaceToRhinoFile(rh: any, file: any, surface: KernelNurbsSurface): void {
+  const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
+  const isRational = weights.some((w) => w !== 1);
+  const ns = rh.NurbsSurface.create(3, isRational, degreeU + 1, degreeV + 1, countU, countV);
+  if (!ns) throw new Error("addKernelNurbsSurfaceToRhinoFile: NurbsSurface.create returned null");
+
+  const pts = ns.points();
+  for (let i = 0; i < countU; i++) {
+    for (let j = 0; j < countV; j++) {
+      const idx = i * countV + j;
+      const p = controlPoints[idx];
+      const w = weights[idx] ?? 1;
+      if (!p) continue;
+      pts.set(i, j, isRational ? [p[0] * w, p[1] * w, p[2] * w, w] : [p[0], p[1], p[2]]);
+    }
+  }
+
+  const ku = ns.knotsU();
+  const kv = ns.knotsV();
+  const truncU = knotsU.slice(1, knotsU.length - 1);
+  const truncV = knotsV.slice(1, knotsV.length - 1);
+  if (truncU.length !== ku.count) {
+    ns.delete?.();
+    throw new Error(`addKernelNurbsSurfaceToRhinoFile: U-knot length mismatch ${truncU.length} vs ${ku.count}`);
+  }
+  if (truncV.length !== kv.count) {
+    ns.delete?.();
+    throw new Error(`addKernelNurbsSurfaceToRhinoFile: V-knot length mismatch ${truncV.length} vs ${kv.count}`);
+  }
+  for (let i = 0; i < truncU.length; i++) ku.set(i, truncU[i]);
+  for (let i = 0; i < truncV.length; i++) kv.set(i, truncV[i]);
+
+  file.objects().addSurface(ns);
+  ns.delete?.();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function addKernelNurbsCurveToRhinoFile(rh: any, file: any, curve: KernelNurbsCurve): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nc: any = new rh.NurbsCurve(curve.dim, curve.isRational, curve.order, curve.cvCount);
+  const pts = nc.points();
+  for (let i = 0; i < curve.cvCount; i++) {
+    const base = i * curve.cvStride;
+    const w = curve.isRational ? curve.cvs[base + curve.dim] ?? 1 : 1;
+    const point = [
+      curve.cvs[base] ?? 0,
+      curve.cvs[base + 1] ?? 0,
+      curve.dim >= 3 ? curve.cvs[base + 2] ?? 0 : 0,
+    ];
+    pts.set(i, curve.isRational ? [...point, w] : point);
+  }
+
+  const knots = nc.knots();
+  if (curve.knots.length !== knots.count) {
+    nc.delete?.();
+    throw new Error(`addKernelNurbsCurveToRhinoFile: knot length mismatch ${curve.knots.length} vs ${knots.count}`);
+  }
+  for (let i = 0; i < curve.knots.length; i++) knots.set(i, curve.knots[i]);
+
+  file.objects().addCurve(nc);
+  nc.delete?.();
+}
+
+function lineCurveToNurbs(curve: Extract<Curve, { kind: "line" }>): KernelNurbsCurve {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: 2,
+    knots: [0, 1],
+    cvs: [
+      curve.from.x, curve.from.y, curve.from.z,
+      curve.to.x, curve.to.y, curve.to.z,
+    ],
+    cvStride: 3,
+  };
+}
+
+function polylineCurveToNurbs(curve: Extract<Curve, { kind: "polyline" }>): KernelNurbsCurve {
+  const points = curve.points.length >= 2 ? curve.points : [
+    curve.points[0] ?? { x: 0, y: 0, z: 0 },
+    curve.points[0] ?? { x: 0, y: 0, z: 0 },
+  ];
+  const max = points.length - 1;
+  const knots = points.map((_, i) => {
+    const param = curve.parameters[i];
+    return Number.isFinite(param) ? param : i / max;
+  });
+  const cvs = points.flatMap((point) => [point.x, point.y, point.z]);
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: points.length,
+    knots,
+    cvs,
+    cvStride: 3,
+  };
+}
+
+function exactCanonicalCurveToNurbs(curve: Curve): KernelNurbsCurve {
+  switch (curve.kind) {
+    case "nurbs":
+      return curve;
+    case "line":
+      return lineCurveToNurbs(curve);
+    case "polyline":
+      return polylineCurveToNurbs(curve);
+    case "arc":
+      return nurbsCurveFromArc(curve);
+  }
+}
+
+function canonicalCurveToRhinoNurbs(curve: Curve, matrix?: THREE.Matrix4): KernelNurbsCurve {
+  let nurbs: KernelNurbsCurve;
+  try {
+    nurbs = exactCanonicalCurveToNurbs(curve);
+  } catch {
+    nurbs = curveToNurbsForm(curve).curve;
+  }
+  if (!matrix) return nurbs;
+  const cvs: number[] = [];
+  for (let i = 0; i < nurbs.cvCount; i++) {
+    const base = i * nurbs.cvStride;
+    const w = nurbs.isRational ? nurbs.cvs[base + nurbs.dim] ?? 1 : 1;
+    const point = new THREE.Vector3(
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base] ?? 0) / w : nurbs.cvs[base] ?? 0,
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base + 1] ?? 0) / w : nurbs.cvs[base + 1] ?? 0,
+      nurbs.isRational && w !== 0 ? (nurbs.cvs[base + 2] ?? 0) / w : nurbs.cvs[base + 2] ?? 0,
+    ).applyMatrix4(matrix);
+    if (nurbs.isRational) {
+      cvs.push(point.x * w, point.y * w, point.z * w, w);
+    } else {
+      cvs.push(point.x, point.y, point.z);
+    }
+  }
+  return { ...nurbs, dim: 3, cvs, cvStride: nurbs.isRational ? 4 : 3 };
+}
+
+export function canonicalNurbsFor3dm(
+  mesh: THREE.Mesh,
+  options: Export3dmOptions,
+): KernelNurbsSurface[] {
+  const canonical = options.getCanonicalGeometryForObject?.(mesh);
+  const fromCanonical = canonicalGeometryToIfcNurbsSurfaces(canonical, mesh.matrixWorld);
+  if (fromCanonical.length > 0) return fromCanonical;
+  return [];
+}
+
+// Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, writes
+// canonical/runtime NURBS surfaces where available, and falls back to meshes.
+export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rhino3dmInit = ((await import("rhino3dm")) as any).default;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -110,8 +345,20 @@ export async function export3dm(object: THREE.Object3D): Promise<Uint8Array> {
 
   object.updateMatrixWorld(true);
   object.traverse((child) => {
+    const canonical = options.getCanonicalGeometryForObject?.(child);
+    if (canonical?.kind === "curve") {
+      addKernelNurbsCurveToRhinoFile(rh, file, canonicalCurveToRhinoNurbs(canonical.curve, child.matrixWorld));
+      return;
+    }
+
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
+    const nurbsSurfaces = canonicalNurbsFor3dm(mesh, options);
+    if (nurbsSurfaces.length > 0) {
+      for (const surface of nurbsSurfaces) addKernelNurbsSurfaceToRhinoFile(rh, file, surface);
+      return;
+    }
+
     const geom = mesh.geometry as THREE.BufferGeometry;
     const posAttr = geom.attributes.position;
     if (!posAttr) return;
@@ -153,36 +400,52 @@ export async function export3dm(object: THREE.Object3D): Promise<Uint8Array> {
   return bytes;
 }
 
-// --- SVG (top-view edge projection) ---
-
-// Walks the scene graph and accumulates world-space line segments from
-// EdgesGeometry built per-mesh. Then projects (x, y) to 2D — viewer is Z-up
-// so XY is the architectural plan view. Outputs an SVG document scaled to
-// fit a 800x600 viewport with a thin uniform stroke.
-export function exportSvg(object: THREE.Object3D): string {
-  const segments: Array<[number, number, number, number]> = [];
+function collectWorldLineSegments(object: THREE.Object3D, options: CanonicalExportOptions = {}): Segment3[] {
+  const segments: Segment3[] = [];
   const tmpA = new THREE.Vector3();
   const tmpB = new THREE.Vector3();
   const matWorld = new THREE.Matrix4();
 
   object.updateMatrixWorld(true);
   object.traverse((child) => {
+    const canonical = options.getCanonicalGeometryForObject?.(child);
+    if (canonical?.kind === "curve") {
+      const pts = tessellateCurve(canonical.curve, 64);
+      for (let i = 1; i < pts.length; i++) {
+        tmpA.set(pts[i - 1].x, pts[i - 1].y, pts[i - 1].z).applyMatrix4(child.matrixWorld);
+        tmpB.set(pts[i].x, pts[i].y, pts[i].z).applyMatrix4(child.matrixWorld);
+        segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
+      }
+      return;
+    }
+
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh) return;
     const geom = mesh.geometry as THREE.BufferGeometry;
     if (!geom.attributes.position) return;
     matWorld.copy(mesh.matrixWorld);
-    // 25° threshold matches viewer.ts:124 for visual consistency.
     const edges = new THREE.EdgesGeometry(geom, 25);
     const pos = edges.attributes.position.array as Float32Array;
     for (let i = 0; i < pos.length; i += 6) {
       tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
       tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      // Drop Z (top-view); SVG y axis flipped (web convention).
-      segments.push([tmpA.x, -tmpA.y, tmpB.x, -tmpB.y]);
+      segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
     }
     edges.dispose();
   });
+
+  return segments;
+}
+
+// --- SVG (top-view edge projection) ---
+
+// Walks the scene graph and accumulates world-space line segments from
+// EdgesGeometry built per-mesh. Then projects (x, y) to 2D — viewer is Z-up
+// so XY is the architectural plan view. Outputs an SVG document scaled to
+// fit a 800x600 viewport with a thin uniform stroke.
+export function exportSvg(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
+  const segments = collectWorldLineSegments(object, options)
+    .map((s): [number, number, number, number] => [s[0], -s[1], s[3], -s[4]]);
 
   if (segments.length === 0) {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><text x="20" y="40" font-family="monospace" font-size="14" fill="#666">no geometry</text></svg>\n`;
@@ -230,28 +493,8 @@ export function exportSvg(object: THREE.Object3D): string {
 // Hand-rolled minimal AC1009 (R12) DXF emitter. AC1009 reads natively in
 // every Autodesk product since DOS, plus FreeCAD / LibreCAD / QCAD. Group-
 // code pairs follow the standard format: code on its own line, value next.
-export function exportDxf(object: THREE.Object3D): string {
-  const segments: Array<[number, number, number, number, number, number]> = [];
-  const tmpA = new THREE.Vector3();
-  const tmpB = new THREE.Vector3();
-  const matWorld = new THREE.Matrix4();
-
-  object.updateMatrixWorld(true);
-  object.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geom = mesh.geometry as THREE.BufferGeometry;
-    if (!geom.attributes.position) return;
-    matWorld.copy(mesh.matrixWorld);
-    const edges = new THREE.EdgesGeometry(geom, 25);
-    const pos = edges.attributes.position.array as Float32Array;
-    for (let i = 0; i < pos.length; i += 6) {
-      tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
-      tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      segments.push([tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z]);
-    }
-    edges.dispose();
-  });
+export function exportDxf(object: THREE.Object3D, options: CanonicalExportOptions = {}): string {
+  const segments = collectWorldLineSegments(object, options);
 
   const lines: string[] = [];
   // Header
@@ -284,29 +527,9 @@ export function exportDxf(object: THREE.Object3D): string {
 
 // Minimal hand-rolled PDF 1.4 with one page containing the same line set as
 // the SVG export. No external dep — adding pdf-lib is overkill for line art.
-export function exportPdf(object: THREE.Object3D): Uint8Array {
-  const segments: Array<[number, number, number, number]> = [];
-  const tmpA = new THREE.Vector3();
-  const tmpB = new THREE.Vector3();
-  const matWorld = new THREE.Matrix4();
-
-  object.updateMatrixWorld(true);
-  object.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const geom = mesh.geometry as THREE.BufferGeometry;
-    if (!geom.attributes.position) return;
-    matWorld.copy(mesh.matrixWorld);
-    const edges = new THREE.EdgesGeometry(geom, 25);
-    const pos = edges.attributes.position.array as Float32Array;
-    for (let i = 0; i < pos.length; i += 6) {
-      tmpA.set(pos[i + 0], pos[i + 1], pos[i + 2]).applyMatrix4(matWorld);
-      tmpB.set(pos[i + 3], pos[i + 4], pos[i + 5]).applyMatrix4(matWorld);
-      // PDF y axis is bottom-up — keep y as-is (no flip).
-      segments.push([tmpA.x, tmpA.y, tmpB.x, tmpB.y]);
-    }
-    edges.dispose();
-  });
+export function exportPdf(object: THREE.Object3D, options: CanonicalExportOptions = {}): Uint8Array {
+  const segments = collectWorldLineSegments(object, options)
+    .map((s): [number, number, number, number] => [s[0], s[1], s[3], s[4]]);
 
   // Bounds.
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

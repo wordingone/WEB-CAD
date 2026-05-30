@@ -19,7 +19,7 @@ function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElem
 
 type PaletteSection = { tools: { id: string; icon: string; label: string }[] };
 
-const PALETTE_SECTIONS: PaletteSection[] = [
+export const PALETTE_SECTIONS: PaletteSection[] = [
   { tools: [
     { id: "select",  icon: "select",  label: "Select" },
     { id: "move",    icon: "move",    label: "Move" },

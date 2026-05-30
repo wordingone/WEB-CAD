@@ -1,15 +1,25 @@
 import { registerHandler, registerRuntimeAlias } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
-import { buildPoint, buildLine, buildRect, buildCircle, buildPolyline, buildCurve } from "../tools/sketch";
-import { Point3 as Prim3, Plane as PrimPlane, type Arc as PrimArc } from "../nurbs/nurbs-primitives";
+import { buildPoint, buildLine, buildRect, buildCircle, buildPolygon, buildPolyline, buildCurve } from "../tools/sketch";
 import {
-  tessellate, createClampedUniformNurbs, type Curve,
+  Interval as PrimInterval,
+  Point3 as Prim3,
+  Plane as PrimPlane,
+  Vector3 as PrimVector3,
+  type Arc as PrimArc,
+  type Point3,
+} from "../nurbs/nurbs-primitives";
+import {
+  tessellate, createCatmullRomAsNurbs, createClampedUniformNurbs, type Curve,
   pointAt as curvePointAt, domain as curveDomain,
 } from "../nurbs/nurbs-curves";
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms";
 import { tessellateSurface, type Surface } from "../nurbs/nurbs-surfaces";
 import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../nurbs/nurbs-surface-algorithms";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import { BREP_DEFAULT_TOLERANCE, type Brep, type BrepEdge, type BrepFace, type BrepVertex } from "../nurbs/nurbs-brep";
+import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint, linkCanonicalSurface } from "./canonical-surface";
 
 // Suppress unused-import warnings for curve utilities used only via inference
 void curvePointAt; void curveDomain;
@@ -27,6 +37,135 @@ function polylineToGeom(pts: { x: number; y: number; z: number }[]): THREE.Buffe
 
 function curveMat(): THREE.LineBasicMaterial {
   return new THREE.LineBasicMaterial({ color: 0x000000 });
+}
+
+function curveParameters(points: Point3[]): number[] {
+  const params = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    params.push(params[i - 1] + Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2));
+  }
+  return params;
+}
+
+function lineNurbsCurveFromLocalEndpoints(a: Point3, b: Point3): Curve {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: 2,
+    cvCount: 2,
+    knots: [0, 1],
+    cvs: [a.x, a.y, a.z, b.x, b.y, b.z],
+    cvStride: 3,
+  };
+}
+
+function planeSurfaceFromThreePoints(origin: THREE.Vector3, xPoint: THREE.Vector3, yPoint: THREE.Vector3): Surface {
+  const uVec = xPoint.clone().sub(origin);
+  const vVec = yPoint.clone().sub(origin);
+  const uLen = uVec.length();
+  const vLen = vVec.length();
+  if (uLen < 1e-9 || vLen < 1e-9) {
+    throw new Error("SdPlane requires two non-zero plane axes");
+  }
+  const normalLen = uVec.clone().cross(vVec).length();
+  if (normalLen < 1e-9) {
+    throw new Error("SdPlane requires non-collinear xAxis and yAxis points");
+  }
+  const plane = PrimPlane.create(
+    Prim3.create(origin.x, origin.y, origin.z),
+    PrimVector3.create(uVec.x, uVec.y, uVec.z),
+    PrimVector3.create(vVec.x, vVec.y, vVec.z),
+  );
+  return {
+    kind: "plane",
+    plane,
+    uDomain: PrimInterval.create(0, uLen),
+    vDomain: PrimInterval.create(0, vLen),
+    uExtent: PrimInterval.create(0, uLen),
+    vExtent: PrimInterval.create(0, vLen),
+  };
+}
+
+function planarTrimmedBrepFromProfile(points: number[][]): Brep {
+  const parsed = points.map((p) => ({
+    x: p[0] ?? 0,
+    y: p[1] ?? 0,
+    z: p[2] ?? 0,
+  }));
+  const z0 = parsed[0]?.z ?? 0;
+  if (parsed.some((p) => Math.abs(p.z - z0) > 1e-6)) {
+    throw new Error("SdSurface requires a planar profile with constant z");
+  }
+  const minX = Math.min(...parsed.map((p) => p.x));
+  const maxX = Math.max(...parsed.map((p) => p.x));
+  const minY = Math.min(...parsed.map((p) => p.y));
+  const maxY = Math.max(...parsed.map((p) => p.y));
+  const width = maxX - minX;
+  const depth = maxY - minY;
+  if (width < 1e-9 || depth < 1e-9) {
+    throw new Error("SdSurface requires a profile with non-zero area");
+  }
+
+  const surface: Surface = {
+    kind: "plane",
+    plane: PrimPlane.create(
+      Prim3.create(minX, minY, z0),
+      PrimVector3.xAxis(),
+      PrimVector3.yAxis(),
+    ),
+    uDomain: PrimInterval.create(0, width),
+    vDomain: PrimInterval.create(0, depth),
+    uExtent: PrimInterval.create(0, width),
+    vExtent: PrimInterval.create(0, depth),
+  };
+  const uvPoints = parsed.map((p) => Prim3.create(p.x - minX, p.y - minY, 0));
+  const closedUvPoints = [...uvPoints];
+  const first = closedUvPoints[0];
+  const last = closedUvPoints[closedUvPoints.length - 1];
+  if (first && last && (Math.abs(first.x - last.x) > 1e-9 || Math.abs(first.y - last.y) > 1e-9)) {
+    closedUvPoints.push({ ...first });
+  }
+  const parameters = curveParameters(closedUvPoints);
+  const outerCurve: Curve = {
+    kind: "polyline",
+    points: closedUvPoints,
+    parameters,
+  };
+  const edges = parsed.map((p, i) => {
+    const q = parsed[(i + 1) % parsed.length];
+    return {
+      curve: {
+        kind: "line" as const,
+        from: Prim3.create(p.x, p.y, p.z),
+        to: Prim3.create(q.x, q.y, q.z),
+        domain: PrimInterval.create(0, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z)),
+      },
+      faceIndex1: 0,
+      faceIndex2: null,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    };
+  });
+  return {
+    shells: [{
+      faces: [{
+        surface,
+        outerLoop: { curves: [outerCurve], orientation: true },
+        innerLoops: [],
+        orientation: true,
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      }],
+      edges,
+      vertices: parsed.map((p, i) => ({
+        point: Prim3.create(p.x, p.y, p.z),
+        edgeIndices: [i, (i + parsed.length - 1) % parsed.length],
+        tolerance: BREP_DEFAULT_TOLERANCE,
+      })),
+      isClosed: false,
+    }],
+  };
 }
 
 function resolveCurve(arg: unknown): Curve {
@@ -63,19 +202,246 @@ function resolveCurve(arg: unknown): Curve {
   throw new Error(`resolveCurve: unrecognised curve description: ${JSON.stringify(arg)}`);
 }
 
-// §WEB-CAD#30 G6: preserve surface in userData so downstream boolean / IFC / refit can read it.
-function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>, surface?: Surface): THREE.Mesh {
+function surfaceToMesh(tess: ReturnType<typeof tessellateSurface>): THREE.Mesh {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(tess.positions, 3));
   geo.setAttribute("normal",   new THREE.BufferAttribute(tess.normals, 3));
   geo.setAttribute("uv",       new THREE.BufferAttribute(tess.uvs, 2));
   geo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
-  if (surface !== undefined) {
-    mesh.userData.nurbsSurface = surface;
-    mesh.userData.nurbsKind = "surface";
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, color: 0xe8e0d8 }));
+}
+
+function isFullCircle(start: number, end: number): boolean {
+  return Math.abs(Math.abs(end - start) - Math.PI * 2) < 1e-4;
+}
+
+function isWorldZAxis(axis: { from: Point3; to: Point3 }): boolean {
+  return Math.abs(axis.from.x) < 1e-9
+    && Math.abs(axis.from.y) < 1e-9
+    && Math.abs(axis.to.x) < 1e-9
+    && Math.abs(axis.to.y) < 1e-9
+    && Math.abs(axis.to.z - axis.from.z) > 1e-9;
+}
+
+function trimCircle(radius: number, samples = 64): Curve {
+  const points: Point3[] = [];
+  const parameters: number[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * Math.PI * 2;
+    points.push({ x: Math.cos(t) * radius, y: Math.sin(t) * radius, z: 0 });
+    parameters.push(t * radius);
   }
-  return mesh;
+  return { kind: "polyline", points, parameters };
+}
+
+function circularCapFace(z: number, radius: number, orientation: boolean): BrepFace {
+  return {
+    surface: {
+      kind: "plane",
+      plane: {
+        origin: { x: 0, y: 0, z },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      uDomain: { min: -radius, max: radius },
+      vDomain: { min: -radius, max: radius },
+      uExtent: { min: -radius, max: radius },
+      vExtent: { min: -radius, max: radius },
+    },
+    outerLoop: { curves: [trimCircle(radius)], orientation },
+    innerLoops: [],
+    orientation,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function circleEdge(z: number, radius: number, faceIndex1: number, faceIndex2: number): BrepEdge {
+  return {
+    curve: {
+      kind: "arc",
+      center: { x: 0, y: 0, z },
+      radius,
+      startAngle: 0,
+      endAngle: Math.PI * 2,
+      plane: {
+        origin: { x: 0, y: 0, z },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      domain: { min: 0, max: Math.PI * 2 * radius },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function circularSeamVertex(z: number, radius: number, edgeIndices: number[]): BrepVertex {
+  return {
+    point: { x: radius, y: 0, z },
+    edgeIndices,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function revolvedLineSolidBrep(surface: Surface, profile: Curve, axis: { from: Point3; to: Point3 }, start: number, end: number): Brep | null {
+  if (profile.kind !== "line" || !isWorldZAxis(axis) || !isFullCircle(start, end)) return null;
+  const r0 = Math.hypot(profile.from.x, profile.from.y);
+  const r1 = Math.hypot(profile.to.x, profile.to.y);
+  if (r0 < 1e-9 || Math.abs(r0 - r1) > 1e-6) return null;
+  const bottom = Math.min(profile.from.z, profile.to.z);
+  const top = Math.max(profile.from.z, profile.to.z);
+  if (Math.abs(top - bottom) < 1e-9) return null;
+  return {
+    shells: [{
+      faces: [
+        {
+          surface,
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        circularCapFace(bottom, r0, false),
+        circularCapFace(top, r0, true),
+      ],
+      edges: [
+        circleEdge(bottom, r0, 0, 1),
+        circleEdge(top, r0, 0, 2),
+      ],
+      vertices: [
+        circularSeamVertex(bottom, r0, [0]),
+        circularSeamVertex(top, r0, [1]),
+      ],
+      isClosed: true,
+    }],
+  };
+}
+
+function closedProfile(profile: Curve): boolean {
+  if (profile.kind === "polyline") {
+    if (profile.points.length < 4) return false;
+    const first = profile.points[0];
+    const last = profile.points[profile.points.length - 1];
+    return Math.hypot(first.x - last.x, first.y - last.y, first.z - last.z) < 1e-9;
+  }
+  if (profile.kind === "arc") {
+    return Math.abs(Math.abs(profile.endAngle - profile.startAngle) - Math.PI * 2) < 1e-4;
+  }
+  return false;
+}
+
+function translateCurve(curve: Curve, offset: Point3): Curve {
+  const translate = (p: Point3): Point3 => ({ x: p.x + offset.x, y: p.y + offset.y, z: p.z + offset.z });
+  if (curve.kind === "line") return { ...curve, from: translate(curve.from), to: translate(curve.to) };
+  if (curve.kind === "polyline") return { ...curve, points: curve.points.map(translate) };
+  if (curve.kind === "arc") return { ...curve, center: translate(curve.center), plane: { ...curve.plane, origin: translate(curve.plane.origin) } };
+  const cvs = [...curve.cvs];
+  for (let i = 0; i < curve.cvCount; i++) {
+    const base = i * curve.cvStride;
+    cvs[base] = (cvs[base] ?? 0) + offset.x;
+    cvs[base + 1] = (cvs[base + 1] ?? 0) + offset.y;
+    cvs[base + 2] = (cvs[base + 2] ?? 0) + offset.z;
+  }
+  return { ...curve, cvs };
+}
+
+function straightRailSolidSweepBrep(profile: Curve, rail: Curve): Brep | null {
+  if (rail.kind !== "line" || !closedProfile(profile)) return null;
+  const dx = rail.to.x - rail.from.x;
+  const dy = rail.to.y - rail.from.y;
+  const dz = rail.to.z - rail.from.z;
+  const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (distance < 1e-9) return null;
+  const placedProfile = translateCurve(profile, rail.from);
+  return extrudeBrep(placedProfile, { x: dx / distance, y: dy / distance, z: dz / distance }, distance);
+}
+
+function polylineSectionPoints(curve: Curve): number[][] | null {
+  if (curve.kind !== "polyline" || !closedProfile(curve)) return null;
+  const pts = [...curve.points];
+  const first = pts[0];
+  const last = pts[pts.length - 1];
+  if (first && last && Math.hypot(first.x - last.x, first.y - last.y, first.z - last.z) < 1e-9) pts.pop();
+  return pts.length >= 3 ? pts.map((p) => [p.x, p.y, p.z]) : null;
+}
+
+function pointFromArray(point: number[]): Point3 {
+  return { x: point[0] ?? 0, y: point[1] ?? 0, z: point[2] ?? 0 };
+}
+
+function lineEdge(from: Point3, to: Point3, faceIndex1: number, faceIndex2: number): BrepEdge {
+  return {
+    curve: {
+      kind: "line",
+      from,
+      to,
+      domain: { min: 0, max: Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) },
+    },
+    faceIndex1,
+    faceIndex2,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function loftLoopTopology(first: number[][], last: number[][]): { edges: BrepEdge[]; vertices: BrepVertex[] } {
+  const bottom = first.map(pointFromArray);
+  const top = last.map(pointFromArray);
+  const edges: BrepEdge[] = [];
+  for (let i = 0; i < bottom.length; i++) {
+    edges.push(lineEdge(bottom[i], bottom[(i + 1) % bottom.length], 0, 1));
+  }
+  for (let i = 0; i < top.length; i++) {
+    edges.push(lineEdge(top[i], top[(i + 1) % top.length], 0, 2));
+  }
+  const vertices: BrepVertex[] = [];
+  for (let i = 0; i < bottom.length; i++) {
+    vertices.push({
+      point: bottom[i],
+      edgeIndices: [(i + bottom.length - 1) % bottom.length, i],
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+  for (let i = 0; i < top.length; i++) {
+    const offset = bottom.length;
+    vertices.push({
+      point: top[i],
+      edgeIndices: [offset + ((i + top.length - 1) % top.length), offset + i],
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    });
+  }
+  return { edges, vertices };
+}
+
+function solidLoftBrep(surface: Surface, sections: Curve[]): Brep | null {
+  if (sections.length < 2 || !sections.every(closedProfile)) return null;
+  const first = polylineSectionPoints(sections[0]);
+  const last = polylineSectionPoints(sections[sections.length - 1]);
+  if (!first || !last) return null;
+  const bottomCap = planarTrimmedBrepFromProfile(first).shells[0]?.faces[0];
+  const topCap = planarTrimmedBrepFromProfile(last).shells[0]?.faces[0];
+  if (!bottomCap || !topCap) return null;
+  const topology = loftLoopTopology(first, last);
+  return {
+    shells: [{
+      faces: [
+        {
+          surface,
+          outerLoop: { curves: [], orientation: true },
+          innerLoops: [],
+          orientation: true,
+          tolerance: BREP_DEFAULT_TOLERANCE,
+        },
+        { ...bottomCap, orientation: false },
+        { ...topCap, orientation: true },
+      ],
+      edges: topology.edges,
+      vertices: topology.vertices,
+      isClosed: true,
+    }],
+  };
 }
 
 export function registerSketchHandlers(viewer: Viewer): void {
@@ -86,6 +452,9 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "point";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalPoint(viewer, mesh, { x: 0, y: 0, z: 0 }, "SdPoint", {
+      worldPoint: [p.x, p.y, 0],
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "point", position: [p.x, p.y, 0] };
   });
@@ -99,6 +468,12 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "line";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[])
+      .map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, lineNurbsCurveFromLocalEndpoints(localPoints[0], localPoints[1]), "SdLine", {
+      worldStart: [a.x, a.y, 0],
+      worldEnd: [b.x, b.y, 0],
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "line", start, end };
   });
@@ -124,6 +499,22 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "rect";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const localPoints = [
+      { x: -w / 2, y: -d / 2, z: 0 },
+      { x:  w / 2, y: -d / 2, z: 0 },
+      { x:  w / 2, y:  d / 2, z: 0 },
+      { x: -w / 2, y:  d / 2, z: 0 },
+      { x: -w / 2, y: -d / 2, z: 0 },
+    ];
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: localPoints,
+      parameters: curveParameters(localPoints),
+    }, "SdRectangle", {
+      worldCenter: [cx, cy, 0],
+      worldPoints: [[a.x, a.y, 0], [b.x, a.y, 0], [b.x, b.y, 0], [a.x, b.y, 0], [a.x, a.y, 0]],
+      closed: true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "rectangle", width: w, depth: d };
   });
@@ -136,6 +527,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "polyline";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[]).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: localPoints,
+      parameters: curveParameters(localPoints),
+    }, "SdPolyline", {
+      worldPoints: pts.map((p) => [p.x, p.y, 0]),
+      closed: mesh.userData.isClosed === true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "polyline", points };
   });
@@ -157,6 +557,15 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const obj = new THREE.Line(polylineToGeom(pts), curveMat());
     obj.userData.kind = "arc";
     obj.userData.creator = "arc";
+    linkCanonicalCurve(viewer, obj, {
+      kind: "arc",
+      center: arc.center,
+      radius,
+      startAngle,
+      endAngle,
+      plane: arc.plane,
+      domain: { min: 0, max: radius * Math.abs(endAngle - startAngle) },
+    }, "SdArc");
     viewer.addMesh(obj, "mesh");
     return { created: "arc", center: ptToArray(arc.center), radius, startAngle, endAngle };
   });
@@ -170,8 +579,49 @@ export function registerSketchHandlers(viewer: Viewer): void {
     mesh.userData.creator = "circle";
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "arc",
+      center: { x: 0, y: 0, z: 0 },
+      radius,
+      startAngle: 0,
+      endAngle: 2 * Math.PI,
+      plane: PrimPlane.worldXY(),
+      domain: { min: 0, max: 2 * Math.PI * radius },
+    }, "SdCircle", {
+      worldCenter: [center.x, center.y, 0],
+      radius,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "circle", center: [center.x, center.y, 0], radius };
+  });
+
+  registerHandler("SdPolygon", (args) => {
+    const c = (args.center as number[] | undefined) ?? [0, 0];
+    const radius = Math.max(0.05, (args.radius as number | undefined) ?? 1);
+    const sides = Math.max(3, Math.floor((args.sides as number | undefined) ?? 6));
+    const center = { x: c[0] ?? 0, y: c[1] ?? 0 };
+    const radial = { x: center.x + radius, y: center.y };
+    const { mesh, chain } = buildPolygon(center, radial, sides);
+    mesh.userData.creator = "polygon";
+    mesh.userData.dispatchArgs = args;
+    mesh.userData.chain = chain;
+    const localPoints = ((mesh.userData.controlPoints as THREE.Vector3[] | undefined) ?? [])
+      .map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    const closedPoints = localPoints.length > 0
+      ? [...localPoints, { ...localPoints[0] }]
+      : localPoints;
+    linkCanonicalCurve(viewer, mesh, {
+      kind: "polyline",
+      points: closedPoints,
+      parameters: curveParameters(closedPoints),
+    }, "SdPolygon", {
+      worldCenter: [center.x, center.y, 0],
+      radius,
+      sides,
+      closed: true,
+    });
+    viewer.addMesh(mesh, "mesh");
+    return { created: "polygon", center: [center.x, center.y, 0], radius, sides };
   });
 
   registerHandler("SdEllipse", (args) => {
@@ -203,6 +653,11 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const obj = new THREE.LineLoop(polylineToGeom(pts), curveMat());
     obj.userData.kind = "ellipse";
     obj.userData.creator = "ellipse";
+    linkCanonicalCurve(viewer, obj, ellipseNurbs, "SdEllipse", {
+      center: ptToArray(center),
+      rx,
+      ry,
+    });
     viewer.addMesh(obj, "mesh");
     return { created: "ellipse", center: ptToArray(center), rx, ry };
   });
@@ -219,6 +674,9 @@ export function registerSketchHandlers(viewer: Viewer): void {
     obj.userData.kind = "spline";
     obj.userData.creator = "spline";
     obj.userData.controlPoints = pts3.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    linkCanonicalCurve(viewer, obj, nurbs, "SdSpline", {
+      controlPoints: pts3.map((p) => ptToArray(p)),
+    });
     viewer.addMesh(obj, "mesh");
     return { created: "spline", points: pts3.map(p => ptToArray(p)) };
   });
@@ -231,6 +689,13 @@ export function registerSketchHandlers(viewer: Viewer): void {
     const pts = rawPts.map(p => ({ x: p[0] ?? 0, y: p[1] ?? 0 }));
     const { mesh } = buildCurve(pts);
     mesh.userData.creator = "curve";
+    const localPoints = (mesh.userData.controlPoints as THREE.Vector3[]).map((p) => ({ x: p.x, y: p.y, z: p.z }));
+    linkCanonicalCurve(viewer, mesh, createCatmullRomAsNurbs(localPoints, {
+      closed: mesh.userData.isClosed === true,
+    }), "SdCurve", {
+      worldPoints: pts.map((p) => [p.x, p.y, 0]),
+      closed: mesh.userData.isClosed === true,
+    });
     viewer.addMesh(mesh, "mesh");
     return { created: "curve", points: pts.length, nurbsKind: "catmull-rom" };
   });
@@ -245,11 +710,18 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const axis = { from: {x:ax,y:ay,z:az}, to: {x:bx,y:by,z:bz} };
       const surface = surfaceOfRevolution(profile, axis, start, end);
       const tess = tessellateSurface(surface, 32, 64);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "revolution";
       obj.userData.creator = "revolve";
+      const solidBrep = args.solid === true ? revolvedLineSolidBrep(surface, profile, axis, start, end) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdRevolve");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdRevolve", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end };
+      return { created: "revolution", axisFrom: args.axisFrom, axisTo: args.axisTo, angleStart: start, angleEnd: end, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
@@ -261,11 +733,18 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const rail    = resolveCurve((args.rail ?? args.path) as unknown);
       const surface = sweepSurface(profile, rail, { keepFrame: (args.keepFrame as boolean) ?? false });
       const tess = tessellateSurface(surface, 32, 32);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "sweep";
       obj.userData.creator = "sweep";
+      const solidBrep = args.solid === true ? straightRailSolidSweepBrep(profile, rail) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdSweep");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdSweep", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "sweep" };
+      return { created: "sweep", solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
@@ -281,11 +760,18 @@ export function registerSketchHandlers(viewer: Viewer): void {
         degreeV: (args.degreeV as number)  ?? Math.min(3, curves.length - 1),
       });
       const tess = tessellateSurface(surface, 32, 32);
-      const obj = surfaceToMesh(tess, surface);
+      const obj = surfaceToMesh(tess);
       obj.userData.kind = "loft";
       obj.userData.creator = "loft";
+      const solidBrep = args.solid === true ? solidLoftBrep(surface, curves) : null;
+      if (solidBrep) {
+        obj.userData.kind = "brep";
+        linkCanonicalBrep(viewer, obj, solidBrep, "SdLoft");
+      } else {
+        linkCanonicalSurface(viewer, obj, "SdLoft", surface);
+      }
       viewer.addMesh(obj, "mesh");
-      return { created: "loft", curveCount: curves.length };
+      return { created: "loft", curveCount: curves.length, solid: Boolean(solidBrep) };
     } catch (e) {
       return { error: String(e), created: null };
     }
@@ -317,6 +803,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData.kind = "plane";
       mesh.userData.creator = "plane";
+      linkCanonicalSurface(viewer, mesh, "SdPlane", planeSurfaceFromThreePoints(o, c1, c3));
       viewer.addMesh(mesh, "mesh");
       return { created: "plane" };
     } catch (e) {
@@ -347,6 +834,7 @@ export function registerSketchHandlers(viewer: Viewer): void {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData.kind = "surface";
       mesh.userData.creator = "surface";
+      linkCanonicalBrep(viewer, mesh, planarTrimmedBrepFromProfile(pts), "SdSurface");
       viewer.addMesh(mesh, "mesh");
       return { created: "surface" };
     } catch (e) {

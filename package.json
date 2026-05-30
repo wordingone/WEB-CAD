@@ -18,6 +18,7 @@
     "audit:stubs": "bun scripts/audit-stubs.ts",
     "audit:parity": "bun scripts/audit-zip-parity.ts",
     "audit:dispatch": "bun scripts/audit-dispatch-routing.ts",
+    "audit:brep-canonical": "bun scripts/audit-brep-canonical-readiness.ts",
     "audit:vite-spawn": "node scripts/audit-vite-spawn.mjs",
     "audit:brace": "node scripts/audit-brace-balance.mjs",
     "audit:undo": "bun scripts/audit-undo-coverage.ts",

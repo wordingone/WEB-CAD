@@ -44,8 +44,9 @@ if (typeof window === 'undefined') {
         const reloadedBySelf = window.sessionStorage.getItem("coiReloadedBySelf");
         window.sessionStorage.removeItem("coiReloadedBySelf");
         const coepDegrading = (reloadedBySelf == "coepdegrade");
+        const shouldRegisterAfterReload = !reloadedBySelf || reloadedBySelf === "scope-mismatch";
         const coi = {
-            shouldRegister: () => !reloadedBySelf,
+            shouldRegister: () => shouldRegisterAfterReload,
             shouldDeregister: () => false,
             coepCredentialless: () => true,
             coepDegrade: () => true,
@@ -55,6 +56,19 @@ if (typeof window === 'undefined') {
         };
         const n = navigator;
         const controlling = n.serviceWorker && n.serviceWorker.controller;
+        if (controlling && location.pathname.includes("/dev/")) {
+            const controllerUrl = n.serviceWorker.controller.scriptURL;
+            const currentUrl = new URL(window.document.currentScript.src, location.href).href;
+            if (controllerUrl && controllerUrl !== currentUrl) {
+                !coi.quiet && console.log("COOP/COEP Service Worker scope mismatch; reloading under dev scope.", {
+                    controller: controllerUrl,
+                    current: currentUrl,
+                });
+                window.sessionStorage.setItem("coiReloadedBySelf", "scope-mismatch");
+                n.serviceWorker.controller.postMessage({ type: "deregister" });
+                return;
+            }
+        }
         if (controlling && !window.crossOriginIsolated) {
             window.sessionStorage.setItem("coiCoepHasFailed", "true");
         }

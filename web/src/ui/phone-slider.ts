@@ -14,20 +14,24 @@ export function buildPhoneSlider(opts: PhoneSliderOpts): { root: HTMLElement; se
 
   const root = document.createElement("div");
   root.className = "yin-toggle";
-  root.setAttribute("role", "button");
-  root.setAttribute("aria-label", "Switch palette section");
+  root.setAttribute("role", "group");
+  root.setAttribute("aria-label", "Switch ARCH/CAD palette section");
   root.setAttribute("tabindex", "0");
 
   const disc = document.createElement("div");
   disc.className = "yin-disc";
   root.appendChild(disc);
 
-  function makeHalf(cls: string, text: string) {
+  function makeHalf(cls: string, tab: SliderTab) {
     const half = document.createElement("div");
     half.className = `yin-half ${cls}`;
+    half.dataset.tab = tab;
+    half.setAttribute("role", "button");
+    half.setAttribute("aria-label", `Show ${tab} model tools`);
+    half.setAttribute("aria-pressed", active === tab ? "true" : "false");
     const span = document.createElement("span");
     span.className = "yin-label";
-    span.textContent = text;
+    span.textContent = tab;
     half.appendChild(span);
     disc.appendChild(half);
     return half;
@@ -41,6 +45,14 @@ export function buildPhoneSlider(opts: PhoneSliderOpts): { root: HTMLElement; se
       disc.classList.toggle("is-comp", active === "CAD");
     }
   });
+
+  function syncSemanticState() {
+    root.dataset.activeTab = active;
+    root.setAttribute("aria-label", `Switch ARCH/CAD palette section, ${active} active`);
+    archHalf.setAttribute("aria-pressed", active === "ARCH" ? "true" : "false");
+    compHalf.setAttribute("aria-pressed", active === "CAD" ? "true" : "false");
+    disc.classList.toggle("is-comp", active === "CAD");
+  }
 
   function applyRotation(skipTransition = false) {
     if (skipTransition) {
@@ -60,24 +72,45 @@ export function buildPhoneSlider(opts: PhoneSliderOpts): { root: HTMLElement; se
     }
   }
 
-  function doSwitch() {
-    totalRot += 180;
-    active = active === "ARCH" ? "CAD" : "ARCH";
-    applyRotation();
+  function setActive(tab: SliderTab, skipTransition = false, forceNotify = false) {
+    if (active === tab) {
+      syncSemanticState();
+      if (forceNotify) opts.onChange(active);
+      return;
+    }
+    active = tab;
+    totalRot = tab === "CAD" ? 180 : 0;
+    syncSemanticState();
+    applyRotation(skipTransition);
     opts.onChange(active);
   }
 
-  root.addEventListener("click", doSwitch);
-  root.addEventListener("keydown", (e) => {
-    if (e.key === " " || e.key === "Enter") { e.preventDefault(); doSwitch(); }
+  function toggle() {
+    setActive(active === "ARCH" ? "CAD" : "ARCH");
+  }
+
+  archHalf.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setActive("ARCH", false, true);
+  });
+  compHalf.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setActive("CAD", false, true);
   });
 
-  disc.classList.toggle("is-comp", active === "CAD");
+  root.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".yin-half")) return;
+    toggle();
+  });
+  root.addEventListener("keydown", (e) => {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(); }
+  });
+
+  syncSemanticState();
   applyRotation(true);
 
   function setTab(t: SliderTab) {
-    if (active === t) return;
-    doSwitch();
+    setActive(t);
   }
 
   return { root, setTab };

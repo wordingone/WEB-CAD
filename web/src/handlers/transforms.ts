@@ -5,7 +5,517 @@ import { getSelected, setSelected, clearMultiSelected, addToMultiSelected, topol
 import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchAction } from "../history";
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
-import { csgUnion, csgDifference, csgIntersection, filletMesh, chamferEdge, getUniqueEdges } from "../viewer/csg";
+import { csgUnion, csgDifference, csgIntersection, getUniqueEdges } from "../viewer/csg";
+import { runPolySel, runRectSel } from "../viewer/selection-ops";
+import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
+import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
+import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
+import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
+
+type BooleanOp = "union" | "difference" | "intersection";
+
+function threeMatrixToXform(matrix: THREE.Matrix4): Xform {
+  const e = matrix.elements;
+  return {
+    m: [
+      e[0], e[4], e[8], e[12],
+      e[1], e[5], e[9], e[13],
+      e[2], e[6], e[10], e[14],
+      e[3], e[7], e[11], e[15],
+    ],
+  };
+}
+
+function linkCanonicalBooleanResult(
+  viewer: Viewer,
+  objA: THREE.Object3D,
+  objB: THREE.Object3D,
+  result: THREE.Object3D,
+  op: BooleanOp,
+  createdBy: string,
+): void {
+  objA.updateMatrixWorld(true);
+  objB.updateMatrixWorld(true);
+  const store = viewer.getCanonicalGeometryStore();
+  const canonicalA = store.resolveObjectOrAncestor(objA);
+  const canonicalB = store.resolveObjectOrAncestor(objB);
+  if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return;
+  const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
+  const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
+
+  const backend = new NurbsBooleanBackend();
+  const canonicalResult =
+    op === "difference" ? backend.difference(brepA, brepB)
+      : op === "intersection" ? backend.intersection(brepA, brepB)
+        : backend.union(brepA, brepB);
+  if (!canonicalResult.ok) return;
+
+  const record = store.create({
+    kind: "brep",
+    brep: canonicalResult.brep,
+    source: "edit",
+    createdBy,
+    metadata: {
+      operation: `boolean-${op}`,
+      operands: [canonicalA.id, canonicalB.id],
+    },
+  });
+  store.linkObject(result, record.id);
+}
+
+function canonicalBooleanDisplayResult(
+  viewer: Viewer,
+  objA: THREE.Object3D,
+  objB: THREE.Object3D,
+  op: BooleanOp,
+  createdBy: string,
+  args: Record<string, unknown>,
+): THREE.Mesh | { error: string } | null {
+  objA.updateMatrixWorld(true);
+  objB.updateMatrixWorld(true);
+  const store = viewer.getCanonicalGeometryStore();
+  const canonicalA = store.resolveObjectOrAncestor(objA);
+  const canonicalB = store.resolveObjectOrAncestor(objB);
+  if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return null;
+  const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
+  const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
+  const backend = new NurbsBooleanBackend();
+  const canonicalResult =
+    op === "difference" ? backend.difference(brepA, brepB)
+      : op === "intersection" ? backend.intersection(brepA, brepB)
+        : backend.union(brepA, brepB);
+  if (!canonicalResult.ok) {
+    return {
+      error: `boolean ${op} canonical BRep failed: ${canonicalResult.error.code} (${canonicalResult.error.message})`,
+    };
+  }
+  const record = store.create({
+    kind: "brep",
+    brep: canonicalResult.brep,
+    source: "edit",
+    createdBy,
+    metadata: {
+      operation: `boolean-${op}`,
+      operands: [canonicalA.id, canonicalB.id],
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return { error: `boolean ${op} canonical BRep display generation failed` };
+  }
+  const pos = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: pos?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (pos ? Math.floor(pos.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = createdBy;
+  display.userData.dispatchArgs = args;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+function linkedCanonicalCarrier(obj: THREE.Object3D): THREE.Object3D {
+  let current: THREE.Object3D | null = obj;
+  while (current) {
+    if (typeof current.userData.canonicalGeometryId === "string") return current;
+    current = current.parent;
+  }
+  return obj;
+}
+
+function pointFromVector(v: THREE.Vector3): Point3 {
+  return { x: v.x, y: v.y, z: v.z };
+}
+
+function linearNurbsSurface(
+  p00: Point3,
+  p01: Point3,
+  p10: Point3,
+  p11: Point3,
+  uDomain: [number, number] = [0, 1],
+  vDomain: [number, number] = [0, 1],
+): NurbsSurface {
+  return {
+    kind: "nurbs",
+    dim: 3,
+    isRational: false,
+    order: [2, 2],
+    cvCount: [2, 2],
+    knots: [uDomain, vDomain],
+    cvs: [
+      p00.x, p00.y, p00.z,
+      p01.x, p01.y, p01.z,
+      p10.x, p10.y, p10.z,
+      p11.x, p11.y, p11.z,
+    ],
+    cvStride: [6, 3],
+  };
+}
+
+function trimmedNurbsFace(points: THREE.Vector3[]): BrepFace | null {
+  if (points.length < 3) return null;
+  const origin = points[0];
+  let normal = new THREE.Vector3();
+  for (let i = 1; i + 1 < points.length; i++) {
+    normal = new THREE.Vector3()
+      .subVectors(points[i], origin)
+      .cross(new THREE.Vector3().subVectors(points[i + 1], origin));
+    if (normal.lengthSq() > 1e-12) break;
+  }
+  if (normal.lengthSq() <= 1e-12) return null;
+  normal.normalize();
+  const xAxis = new THREE.Vector3().subVectors(points[1], origin).normalize();
+  const yAxis = new THREE.Vector3().crossVectors(normal, xAxis).normalize();
+  const uv = points.map((p) => {
+    const d = new THREE.Vector3().subVectors(p, origin);
+    return { x: d.dot(xAxis), y: d.dot(yAxis), z: 0 };
+  });
+  const uMin = Math.min(...uv.map((p) => p.x));
+  const uMax = Math.max(...uv.map((p) => p.x));
+  const vMin = Math.min(...uv.map((p) => p.y));
+  const vMax = Math.max(...uv.map((p) => p.y));
+  const plane = Plane.create(pointFromVector(origin), pointFromVector(xAxis), pointFromVector(yAxis));
+  const surface = linearNurbsSurface(
+    Plane.pointAt(plane, uMin, vMin),
+    Plane.pointAt(plane, uMin, vMax),
+    Plane.pointAt(plane, uMax, vMin),
+    Plane.pointAt(plane, uMax, vMax),
+    [uMin, uMax],
+    [vMin, vMax],
+  );
+  const closed = [...uv, uv[0]];
+  return {
+    surface,
+    outerLoop: {
+      curves: [{
+        kind: "polyline",
+        points: closed,
+        parameters: closed.map((_, i) => i),
+      }],
+      orientation: true,
+    },
+    innerLoops: [],
+    orientation: true,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  };
+}
+
+function uniqueBrepPoints(brep: Brep): THREE.Vector3[] {
+  const byKey = new Map<string, THREE.Vector3>();
+  const add = (p: Point3): void => {
+    const key = `${p.x.toFixed(9)},${p.y.toFixed(9)},${p.z.toFixed(9)}`;
+    if (!byKey.has(key)) byKey.set(key, new THREE.Vector3(p.x, p.y, p.z));
+  };
+  for (const shell of brep.shells) {
+    for (const vertex of shell.vertices) add(vertex.point);
+    for (const edge of shell.edges) {
+      if (edge.curve.kind === "line") {
+        add(edge.curve.from);
+        add(edge.curve.to);
+      } else if (edge.curve.kind === "polyline") {
+        for (const point of edge.curve.points) add(point);
+      }
+    }
+    for (const face of shell.faces) {
+      if (face.surface.kind === "nurbs") {
+        for (let i = 0; i < face.surface.cvs.length; i += face.surface.cvStride[1]) {
+          add({ x: face.surface.cvs[i] ?? 0, y: face.surface.cvs[i + 1] ?? 0, z: face.surface.cvs[i + 2] ?? 0 });
+        }
+      } else if (face.surface.kind === "plane") {
+        add(face.surface.plane.origin);
+      }
+    }
+  }
+  return [...byKey.values()];
+}
+
+function axisBoxBoundsFromBrep(brep: Brep): { min: THREE.Vector3; max: THREE.Vector3 } | null {
+  const points = uniqueBrepPoints(brep);
+  if (points.length < 8) return null;
+  const box = new THREE.Box3().setFromPoints(points);
+  if (!Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) return null;
+  if (box.max.x - box.min.x <= 1e-9 || box.max.y - box.min.y <= 1e-9 || box.max.z - box.min.z <= 1e-9) return null;
+  return { min: box.min, max: box.max };
+}
+
+function brepFromNurbsPolygons(polygons: THREE.Vector3[][]): Brep | null {
+  const facePairs = polygons
+    .map((polygon) => ({ polygon, face: trimmedNurbsFace(polygon) }))
+    .filter((entry): entry is { polygon: THREE.Vector3[]; face: BrepFace } => Boolean(entry.face));
+  const faces = facePairs.map((entry) => entry.face);
+  if (faces.length === 0) return null;
+  const edgeMap = new Map<string, { from: Point3; to: Point3; faceIndex1: number; faceIndex2: number | null }>();
+  const vertexEdges = new Map<string, { point: Point3; edgeIndices: number[] }>();
+  const pointKey = (pt: Point3): string => `${pt.x.toFixed(9)},${pt.y.toFixed(9)},${pt.z.toFixed(9)}`;
+  const edgeKey = (aPt: Point3, bPt: Point3): string => {
+    const ka = pointKey(aPt);
+    const kb = pointKey(bPt);
+    return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+  };
+  facePairs.forEach(({ polygon }, faceIndex) => {
+    for (let i = 0; i < polygon.length; i++) {
+      const from = pointFromVector(polygon[i]);
+      const to = pointFromVector(polygon[(i + 1) % polygon.length]);
+      const key = edgeKey(from, to);
+      const existing = edgeMap.get(key);
+      if (existing) existing.faceIndex2 = faceIndex;
+      else edgeMap.set(key, { from, to, faceIndex1: faceIndex, faceIndex2: null });
+    }
+  });
+  const edges = [...edgeMap.values()].map((edge, edgeIndex) => {
+    for (const point of [edge.from, edge.to]) {
+      const key = pointKey(point);
+      const vertex = vertexEdges.get(key) ?? { point, edgeIndices: [] };
+      vertex.edgeIndices.push(edgeIndex);
+      vertexEdges.set(key, vertex);
+    }
+    return {
+      curve: {
+        kind: "line" as const,
+        from: edge.from,
+        to: edge.to,
+        domain: { min: 0, max: Math.hypot(edge.to.x - edge.from.x, edge.to.y - edge.from.y, edge.to.z - edge.from.z) },
+      },
+      faceIndex1: edge.faceIndex1,
+      faceIndex2: edge.faceIndex2,
+      tolerance: BREP_DEFAULT_TOLERANCE,
+    };
+  });
+  const vertices = [...vertexEdges.values()].map((vertex) => ({
+    point: vertex.point,
+    edgeIndices: vertex.edgeIndices,
+    tolerance: BREP_DEFAULT_TOLERANCE,
+  }));
+  return { shells: [{ faces, edges, vertices, isClosed: edges.every((edge) => edge.faceIndex2 !== null) }] };
+}
+
+function nativeBoxEdgeChamferBrep(source: Brep, edgeFrom: THREE.Vector3, edgeTo: THREE.Vector3, radius: number): Brep | null {
+  const bounds = axisBoxBoundsFromBrep(source);
+  if (!bounds) return null;
+  const mins = [bounds.min.x, bounds.min.y, bounds.min.z];
+  const maxs = [bounds.max.x, bounds.max.y, bounds.max.z];
+  const a = [edgeFrom.x, edgeFrom.y, edgeFrom.z];
+  const b = [edgeTo.x, edgeTo.y, edgeTo.z];
+  const axis = [0, 1, 2].find((i) => Math.abs(a[i] - b[i]) > 1e-6);
+  if (axis === undefined) return null;
+  const constAxes = [0, 1, 2].filter((i) => i !== axis);
+  const signs = new Map<number, number>();
+  for (const i of constAxes) {
+    const value = (a[i] + b[i]) / 2;
+    if (Math.abs(value - mins[i]) < 1e-5) signs.set(i, -1);
+    else if (Math.abs(value - maxs[i]) < 1e-5) signs.set(i, 1);
+    else return null;
+  }
+  const maxRadius = Math.min(...constAxes.map((i) => (maxs[i] - mins[i]) / 2));
+  if (radius >= maxRadius) return null;
+  const [u, v] = constAxes;
+  const su = signs.get(u)!;
+  const sv = signs.get(v)!;
+  const uEdge = su < 0 ? mins[u] : maxs[u];
+  const vEdge = sv < 0 ? mins[v] : maxs[v];
+  const uCut = uEdge - su * radius;
+  const vCut = vEdge - sv * radius;
+  const p = (axisValue: number, uValue: number, vValue: number): THREE.Vector3 => {
+    const coords = [0, 0, 0];
+    coords[axis] = axisValue;
+    coords[u] = uValue;
+    coords[v] = vValue;
+    return new THREE.Vector3(coords[0], coords[1], coords[2]);
+  };
+  const lo = mins[axis];
+  const hi = maxs[axis];
+  const uOpp = su < 0 ? maxs[u] : mins[u];
+  const vOpp = sv < 0 ? maxs[v] : mins[v];
+  const polygons = [
+    [p(lo, uCut, vEdge), p(lo, uOpp, vEdge), p(lo, uOpp, vOpp), p(lo, uEdge, vOpp), p(lo, uEdge, vCut)],
+    [p(hi, uCut, vEdge), p(hi, uEdge, vCut), p(hi, uEdge, vOpp), p(hi, uOpp, vOpp), p(hi, uOpp, vEdge)],
+    [p(lo, uOpp, vEdge), p(hi, uOpp, vEdge), p(hi, uOpp, vOpp), p(lo, uOpp, vOpp)],
+    [p(lo, uEdge, vOpp), p(hi, uEdge, vOpp), p(hi, uOpp, vOpp), p(lo, uOpp, vOpp)],
+    [p(lo, uCut, vEdge), p(hi, uCut, vEdge), p(hi, uOpp, vEdge), p(lo, uOpp, vEdge)],
+    [p(lo, uEdge, vCut), p(lo, uEdge, vOpp), p(hi, uEdge, vOpp), p(hi, uEdge, vCut)],
+    [p(lo, uCut, vEdge), p(lo, uEdge, vCut), p(hi, uEdge, vCut), p(hi, uCut, vEdge)],
+  ];
+  return brepFromNurbsPolygons(polygons);
+}
+
+function nativeBoxAllEdgeChamferBrep(source: Brep, radius: number): Brep | null {
+  const bounds = axisBoxBoundsFromBrep(source);
+  if (!bounds) return null;
+  const mins = [bounds.min.x, bounds.min.y, bounds.min.z];
+  const maxs = [bounds.max.x, bounds.max.y, bounds.max.z];
+  const maxRadius = Math.min(...[0, 1, 2].map((i) => (maxs[i] - mins[i]) / 2));
+  if (radius >= maxRadius) return null;
+  const p = (coords: number[]): THREE.Vector3 => new THREE.Vector3(coords[0], coords[1], coords[2]);
+  const at = (axis: number, value: number, b: number, bv: number, c: number, cv: number): THREE.Vector3 => {
+    const coords = [0, 0, 0];
+    coords[axis] = value;
+    coords[b] = bv;
+    coords[c] = cv;
+    return p(coords);
+  };
+  const polygons: THREE.Vector3[][] = [];
+  for (const axis of [0, 1, 2]) {
+    const [b, c] = [0, 1, 2].filter((i) => i !== axis);
+    for (const side of [-1, 1]) {
+      const value = side < 0 ? mins[axis] : maxs[axis];
+      const b0 = mins[b], b1 = maxs[b], c0 = mins[c], c1 = maxs[c];
+      polygons.push([
+        at(axis, value, b, b0 + radius, c, c0 + radius),
+        at(axis, value, b, b1 - radius, c, c0 + radius),
+        at(axis, value, b, b1 - radius, c, c1 - radius),
+        at(axis, value, b, b0 + radius, c, c1 - radius),
+      ]);
+    }
+  }
+  for (const axis of [0, 1, 2]) {
+    const [b, c] = [0, 1, 2].filter((i) => i !== axis);
+    const lo = mins[axis] + radius;
+    const hi = maxs[axis] - radius;
+    for (const sb of [-1, 1]) {
+      for (const sc of [-1, 1]) {
+        const bEdge = sb < 0 ? mins[b] : maxs[b];
+        const cEdge = sc < 0 ? mins[c] : maxs[c];
+        const bCut = bEdge - sb * radius;
+        const cCut = cEdge - sc * radius;
+        polygons.push([
+          at(axis, lo, b, bCut, c, cEdge),
+          at(axis, hi, b, bCut, c, cEdge),
+          at(axis, hi, b, bEdge, c, cCut),
+          at(axis, lo, b, bEdge, c, cCut),
+        ]);
+      }
+    }
+  }
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const xEdge = sx < 0 ? mins[0] : maxs[0];
+        const yEdge = sy < 0 ? mins[1] : maxs[1];
+        const zEdge = sz < 0 ? mins[2] : maxs[2];
+        const xCut = xEdge - sx * radius;
+        const yCut = yEdge - sy * radius;
+        const zCut = zEdge - sz * radius;
+        const a = new THREE.Vector3(xCut, yCut, zEdge);
+        const b = new THREE.Vector3(xCut, yEdge, zCut);
+        const c = new THREE.Vector3(xEdge, yCut, zCut);
+        polygons.push([a, b, c]);
+      }
+    }
+  }
+  return brepFromNurbsPolygons(polygons);
+}
+
+function canonicalEdgeChamferDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  worldA: THREE.Vector3,
+  worldB: THREE.Vector3,
+  radius: number,
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = nativeBoxEdgeChamferBrep(source, worldA, worldB, radius);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdFillet",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "canonical-brep-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+function canonicalAllEdgeChamferDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  radius: number,
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = nativeBoxAllEdgeChamferBrep(source, radius);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdFillet",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "canonical-brep-all-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+function unsupportedNativeFilletError(operation: string): { error: string } {
+  return {
+    error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
+  };
+}
 
 function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   const canvas = document.createElement("canvas");
@@ -25,9 +535,96 @@ function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   });
 }
 
+function resolveTransformTarget(viewer: Viewer, args: Record<string, unknown>): THREE.Object3D | null {
+  const byTarget = (args.target as string | undefined)
+    ? (viewer.getScene().getObjectByProperty("uuid", args.target as string) ?? null)
+    : null;
+  return byTarget ?? getSelected()?.transformTarget ?? viewer.getActiveObject();
+}
+
+function vectorArg(value: unknown, fallback: [number, number, number]): THREE.Vector3 {
+  if (!Array.isArray(value)) return new THREE.Vector3(...fallback);
+  return new THREE.Vector3(
+    typeof value[0] === "number" ? value[0] : fallback[0],
+    typeof value[1] === "number" ? value[1] : fallback[1],
+    typeof value[2] === "number" ? value[2] : fallback[2],
+  );
+}
+
+function dominantAxis(axis: THREE.Vector3): "x" | "y" | "z" {
+  const ax = Math.abs(axis.x);
+  const ay = Math.abs(axis.y);
+  const az = Math.abs(axis.z);
+  return ax >= ay && ax >= az ? "x" : ay >= az ? "y" : "z";
+}
+
+function axisStringVector(axis: string | null): THREE.Vector3 {
+  if (axis?.includes("y")) return new THREE.Vector3(0, 1, 0);
+  if (axis?.includes("z")) return new THREE.Vector3(0, 0, 1);
+  return new THREE.Vector3(1, 0, 0);
+}
+
+function vectorListArg(value: unknown): THREE.Vector3[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((point): point is number[] => Array.isArray(point) && point.length >= 2)
+    .map((point) => new THREE.Vector3(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0));
+}
+
+function selectionModeArg(value: unknown): "crossing" | "window" {
+  return value === "window" ? "window" : "crossing";
+}
+
+function rectArg(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length < 4) return null;
+  const nums = value.slice(0, 4).map((n) => Number(n));
+  return nums.every(Number.isFinite) ? nums as [number, number, number, number] : null;
+}
+
+function screenPolygonArg(value: unknown): Array<{ x: number; y: number }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((point) => {
+    if (Array.isArray(point) && point.length >= 2) {
+      const x = Number(point[0]);
+      const y = Number(point[1]);
+      return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : [];
+    }
+    if (point && typeof point === "object") {
+      const p = point as { x?: unknown; y?: unknown };
+      const x = Number(p.x);
+      const y = Number(p.y);
+      return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : [];
+    }
+    return [];
+  });
+}
+
+function curveLength(points: THREE.Vector3[]): number {
+  let length = 0;
+  for (let i = 1; i < points.length; i++) length += points[i].distanceTo(points[i - 1]);
+  return length;
+}
+
+function sampleAlongCurve(points: THREE.Vector3[], count: number): THREE.Vector3[] {
+  const distances: number[] = [0];
+  for (let i = 1; i < points.length; i++) distances.push(distances[i - 1] + points[i].distanceTo(points[i - 1]));
+  const total = distances[distances.length - 1] ?? 0;
+  const samples: THREE.Vector3[] = [];
+  const n = Math.max(2, count);
+  for (let i = 0; i < n; i++) {
+    const t = total === 0 ? 0 : (i / (n - 1)) * total;
+    let segment = 0;
+    while (segment < distances.length - 2 && distances[segment + 1] < t) segment++;
+    const span = distances[segment + 1] - distances[segment];
+    const alpha = span > 0 ? (t - distances[segment]) / span : 0;
+    samples.push(points[segment].clone().lerp(points[Math.min(segment + 1, points.length - 1)], Math.min(1, alpha)));
+  }
+  return samples;
+}
+
 export function registerTransformHandlers(viewer: Viewer): void {
   registerHandler("SdMove", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { moved: false, reason: "no selection" };
     const before = captureTransform(sel);
     const x = (args.x as number | undefined)
@@ -52,40 +649,73 @@ export function registerTransformHandlers(viewer: Viewer): void {
   });
 
   registerHandler("SdScale", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { scaled: false, reason: "no selection" };
     const before = captureTransform(sel);
     const f = (args.factor as number | undefined) ?? 1;
-    const axis = (args.axis as string | undefined) ?? null;
-    if (!axis) {
+    if (!Number.isFinite(f) || f <= 0) return { scaled: false, reason: "factor must be positive" };
+    const baseArg = Array.isArray(args.base) ? args.base : args.pivot;
+    const base = vectorArg(baseArg, [0, 0, 0]);
+    const hasBase = Array.isArray(baseArg);
+    const mode = (args.mode as string | undefined) ?? null;
+    const axisRaw = args.axis;
+    const axis = typeof axisRaw === "string" ? axisRaw.toLowerCase() : null;
+
+    if (hasBase) {
+      const offset = sel.position.clone().sub(base);
+      if (mode === "1d") {
+        const axisVec = Array.isArray(axisRaw)
+          ? vectorArg(axisRaw, [1, 0, 0])
+          : axisStringVector(axis);
+        const key = dominantAxis(axisVec);
+        offset[key] *= f;
+        sel.position.copy(base).add(offset);
+        sel.scale[key] *= f;
+      } else if (mode === "2d" || axis === "xy") {
+        offset.x *= f;
+        offset.y *= f;
+        sel.position.copy(base).add(offset);
+        sel.scale.x *= f;
+        sel.scale.y *= f;
+      } else {
+        offset.multiplyScalar(f);
+        sel.position.copy(base).add(offset);
+        sel.scale.multiplyScalar(f);
+      }
+    } else if (!axis) {
       sel.scale.multiplyScalar(f);
     } else {
-      const ax = axis.toLowerCase();
-      if (ax.includes("x")) sel.scale.x *= f;
-      if (ax.includes("y")) sel.scale.y *= f;
-      if (ax.includes("z")) sel.scale.z *= f;
+      if (axis.includes("x")) sel.scale.x *= f;
+      if (axis.includes("y")) sel.scale.y *= f;
+      if (axis.includes("z")) sel.scale.z *= f;
     }
     sel.updateMatrix();
     sel.updateMatrixWorld(true);
     pushTransformAction(sel, before);
-    return { scaled: true, factor: f, axis: axis ?? "uniform" };
+    return { scaled: true, factor: f, axis: axis ?? "uniform", mode: mode ?? "uniform", base: hasBase ? base.toArray() : undefined };
   });
 
   registerHandler("SdRotate", (args) => {
-    const sel = getSelected()?.transformTarget ?? viewer.getActiveObject();
+    const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { rotated: false, reason: "no selection" };
     const before = captureTransform(sel);
     const deg = (args.angle as number | undefined) ?? 0;
     const axis = (args.axis as number[] | undefined) ?? [0, 0, 1];
-    const q = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).normalize(),
-      (deg * Math.PI) / 180,
-    );
+    const axisVec = new THREE.Vector3(axis[0] ?? 0, axis[1] ?? 0, axis[2] ?? 1).normalize();
+    const rad = (deg * Math.PI) / 180;
+    const baseArg = Array.isArray(args.base) ? args.base : args.pivot;
+    const base = vectorArg(baseArg, [0, 0, 0]);
+    if (Array.isArray(baseArg)) {
+      sel.position.sub(base);
+      sel.position.applyAxisAngle(axisVec, rad);
+      sel.position.add(base);
+    }
+    const q = new THREE.Quaternion().setFromAxisAngle(axisVec, rad);
     sel.quaternion.premultiply(q);
     sel.updateMatrix();
     sel.updateMatrixWorld(true);
     pushTransformAction(sel, before);
-    return { rotated: true, angle: deg, axis };
+    return { rotated: true, angle: deg, axis, pivot: Array.isArray(baseArg) ? base.toArray() : undefined };
   });
 
   registerHandler("SdCopy", (args) => {
@@ -181,6 +811,31 @@ export function registerTransformHandlers(viewer: Viewer): void {
     return { created: ids.length, count };
   });
 
+  registerHandler("SdArrayAlongCurve", (args) => {
+    const sel = resolveTransformTarget(viewer, args);
+    if (!sel) return { created: false, reason: "no selection" };
+    const path = vectorListArg(args.path ?? args.curve ?? args.points);
+    if (path.length < 2) return { created: false, reason: "path requires at least two points" };
+    if (curveLength(path) <= 1e-9) return { created: false, reason: "path length must be positive" };
+    const count = Math.max(2, Math.round((args.count as number | undefined) ?? 3));
+    const sourceCenter = new THREE.Vector3();
+    new THREE.Box3().setFromObject(sel).getCenter(sourceCenter);
+    const samples = sampleAlongCurve(path, count);
+    const batchObjs: THREE.Object3D[] = [];
+    for (const sample of samples) {
+      const clone = sel.clone(true);
+      clone.position.x += sample.x - sourceCenter.x;
+      clone.position.y += sample.y - sourceCenter.y;
+      clone.position.z += sample.z - sourceCenter.z;
+      clone.userData = { ...sel.userData, creator: "array-along-curve" };
+      viewer.addMesh(clone, (clone.userData.kind as string | undefined) ?? "mesh", { noHistory: true });
+      replayCloneSideEffects(clone, viewer.getScene());
+      batchObjs.push(clone);
+    }
+    pushBatchAction(batchObjs, "SdArrayAlongCurve");
+    return { created: batchObjs.length, count, pathLength: curveLength(path) };
+  });
+
   registerHandler("SdAlignObjects", (args) => {
     const mode = (args.mode as string | undefined) ?? "left";
     execAlignTool(mode);
@@ -220,6 +875,27 @@ export function registerTransformHandlers(viewer: Viewer): void {
     window.dispatchEvent(new CustomEvent("viewer:selectAll", { detail: { count: selectable.length } }));
   });
 
+  registerHandler("SdSelectWindow", (args) => {
+    const rect = rectArg(args.rect);
+    if (!rect) return { error: "SdSelectWindow requires rect=[x1,y1,x2,y2]" };
+    const selected = runRectSel(viewer, rect[0], rect[1], rect[2], rect[3], selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
+  });
+
+  registerHandler("SdSelectLasso", (args) => {
+    const polygon = screenPolygonArg(args.polygon);
+    if (polygon.length < 3) return { error: "SdSelectLasso requires polygon with at least three screen points" };
+    const selected = runPolySel(viewer, polygon, selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
+  });
+
+  registerHandler("SdSelectBoundary", (args) => {
+    const polygon = screenPolygonArg(args.polygon);
+    if (polygon.length < 3) return { error: "SdSelectBoundary requires polygon with at least three screen points" };
+    const selected = runPolySel(viewer, polygon, selectionModeArg(args.mode));
+    return { selected, count: selected.length, mode: selectionModeArg(args.mode) };
+  });
+
   registerHandler("SdBoolean", (args) => {
     const opArg = (args.op as string | undefined) ?? "union";
     const aId = args.a as string | undefined;
@@ -231,6 +907,23 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!objA || !objB) return { error: `SdBoolean — object not found: ${!objA ? aId : bId}` };
     if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh))
       return { error: "SdBoolean — both targets must be solid meshes" };
+    const creator = opArg === "difference" ? "boolean-difference" : opArg === "intersection" ? "boolean-intersection" : "boolean-union";
+    const canonicalResult = canonicalBooleanDisplayResult(
+      viewer,
+      objA,
+      objB,
+      opArg === "difference" || opArg === "intersection" ? opArg : "union",
+      creator,
+      args,
+    );
+    if (canonicalResult && !(canonicalResult instanceof THREE.Mesh)) return { error: canonicalResult.error };
+    if (canonicalResult) {
+      scene.remove(objA); // audit-undo-ok - paired with pushReplaceAction below
+      scene.remove(objB); // audit-undo-ok - paired with pushReplaceAction below
+      viewer.addMesh(canonicalResult, "brep", { noHistory: true });
+      pushReplaceAction(canonicalResult, [objA, objB], creator);
+      return { created: canonicalResult.uuid, op: opArg, displaySource: "canonical-brep" };
+    }
     const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     let result: THREE.Mesh;
     try {
@@ -242,10 +935,10 @@ export function registerTransformHandlers(viewer: Viewer): void {
     }
     if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0)
       return { error: "SdBoolean — result is empty (objects may not overlap)" };
-    const creator = opArg === "difference" ? "boolean-difference" : opArg === "intersection" ? "boolean-intersection" : "boolean-union";
     result.userData.kind = "brep";
     result.userData.creator = creator;
     result.userData.dispatchArgs = args;
+    linkCanonicalBooleanResult(viewer, objA, objB, result, opArg === "difference" || opArg === "intersection" ? opArg : "union", creator);
     scene.remove(objA); // audit-undo-ok — paired with pushReplaceAction below
     scene.remove(objB); // audit-undo-ok — paired with pushReplaceAction below
     viewer.addMesh(result, "brep", { noHistory: true });
@@ -267,6 +960,16 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!objA || !objB) return { error: `boolean ${op} — object not found: ${!objA ? aId : bId}` };
     if (!(objA instanceof THREE.Mesh) || !(objB instanceof THREE.Mesh))
       return { error: `boolean ${op} — both targets must be solid meshes` };
+    const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
+    const canonicalResult = canonicalBooleanDisplayResult(viewer, objA, objB, op, creator, { a: aId, b: bId });
+    if (canonicalResult && !(canonicalResult instanceof THREE.Mesh)) return { error: canonicalResult.error };
+    if (canonicalResult) {
+      scene.remove(objA); // audit-undo-ok
+      scene.remove(objB); // audit-undo-ok
+      viewer.addMesh(canonicalResult, "brep", { noHistory: true });
+      pushReplaceAction(canonicalResult, [objA, objB], creator);
+      return { created: canonicalResult.uuid, op, displaySource: "canonical-brep" };
+    }
     const mat = new THREE.MeshStandardMaterial({ color: 0xc9c0a8, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
     let result: THREE.Mesh;
     try {
@@ -278,9 +981,9 @@ export function registerTransformHandlers(viewer: Viewer): void {
     }
     if (!result.geometry.getAttribute("position") || result.geometry.getAttribute("position").count === 0)
       return { error: `boolean ${op} — result is empty (objects may not overlap)` };
-    const creator = op === "difference" ? "boolean-difference" : op === "intersection" ? "boolean-intersection" : "boolean-union";
     result.userData.kind = "brep";
     result.userData.creator = creator;
+    linkCanonicalBooleanResult(viewer, objA, objB, result, op, creator);
     scene.remove(objA); // audit-undo-ok
     scene.remove(objB); // audit-undo-ok
     viewer.addMesh(result, "brep", { noHistory: true });
@@ -302,40 +1005,48 @@ export function registerTransformHandlers(viewer: Viewer): void {
 
   registerHandler("SdFillet", (args) => {
     const targetId = args.target as string | undefined;
-    if (!targetId) return { error: "SdFillet — target is required" };
+    if (!targetId) return { error: "SdFillet - target is required" };
     const radius = args.radius as number | undefined;
-    if (radius === undefined || radius === null) return { error: "SdFillet — radius is required" };
-    if (!Number.isFinite(radius) || radius <= 0) return { error: `SdFillet — radius must be a positive number, got: ${radius}` };
+    if (radius === undefined || radius === null) return { error: "SdFillet - radius is required" };
+    if (!Number.isFinite(radius) || radius <= 0) return { error: `SdFillet - radius must be a positive number, got: ${radius}` };
     const scene = viewer.getScene();
     const obj = scene.getObjectByProperty("uuid", targetId);
-    if (!obj) return { error: `SdFillet — target not found: ${targetId}` };
-    if (!(obj instanceof THREE.Mesh)) return { error: `SdFillet — target is not a Mesh` };
+    if (!obj) return { error: `SdFillet - target not found: ${targetId}` };
+    if (!(obj instanceof THREE.Mesh)) return { error: "SdFillet - target is not a Mesh" };
     const edgeId = args.edgeId as number | undefined;
+    const edgeFrom = args.edgeFrom as number[] | undefined;
+    const edgeTo = args.edgeTo as number[] | undefined;
     let filleted: THREE.Mesh;
     if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
       if (edgeId < 0 || edgeId >= edges.length) {
-        return { error: `SdFillet — edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
+        return { error: `SdFillet - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
       }
       const [localA, localB] = edges[edgeId];
       const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
       const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
-      filleted = chamferEdge(obj, worldA, worldB, radius);
-      if (filleted.userData._chamferError) {
-        return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-      }
+      const operation = { operation: "edge-chamfer", edgeId, radius };
+      const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
+      if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+      filleted = canonicalFillet;
+    } else if (edgeFrom && edgeTo) {
+      const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
+      const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
+      const operation = { operation: "edge-chamfer", edgeFrom, edgeTo, radius };
+      const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
+      if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+      filleted = canonicalFillet;
     } else {
-      filleted = filletMesh(obj, radius);
-      if (filleted.userData._chamferError) {
-        return { error: `SdFillet — ${filleted.userData._chamferError as string}` };
-      }
+      const operation = { operation: "all-edge-fillet", radius };
+      const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
+      if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
+      filleted = canonicalFillet;
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "fillet");
     return { modified: filleted.uuid, edgeCount: edgeId !== undefined ? 1 : "all" };
   });
-
   registerHandler("SdSelect", (args) => {
     const id = args.id as string | undefined;
     if (!id) return { error: "SdSelect requires id" };
@@ -443,7 +1154,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
             baseObj.position.y + dy,
             baseObj.position.z + dz,
           );
-          clone.userData.creator = "array";
+          clone.userData = { ...baseObj.userData, creator: "array" };
           viewer.addMesh(clone, (clone.userData.kind as string | undefined) ?? "mesh", { noHistory: true });
           batchObjs.push(clone);
         }

@@ -11,13 +11,13 @@ import { getSnapTarget, setSnapTarget, getLastSurfaceHit, HOST_TOOL_CREATORS, se
 import { pushAction, pushReplaceAction, beginTransaction, endTransaction, pushCustomAction, setOnActionPushed } from "../history";
 import { getActiveCommandSession, provideSessionPick, clearCommandSession, commitCommandSession } from "../commands/command-session";
 import { levelStore, getActiveLevelId } from "../geometry/levels";
-import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected } from "../viewer/selection-state";
+import { getSelected, setSelected, addToMultiSelected, clearMultiSelected, getMultiSelected, topologyForObject } from "../viewer/selection-state";
 import { projectToScreen, unprojectToXY, unprojectForClipTool, snapWorldForView, getGeometryZ, showLevelChip } from "../viewer/projection";
 import { initPickerHint, setPickerHint, setChooserHint, getChooserEl, readActiveTool, setSubToolOverride, opSetHover, OP_TOOL_IDS } from "../viewer/picker-hint";
 import { initPtOverlay, registerHideCursorDot, ptGetTarget, ptPrompt, ptShowCoordInput, ptStartTool, ptHandlePoint, ptHandleCoordSubmit as _ptHandleCoordSubmit, ptHandleEnter as _ptHandleEnter, ptCancel, ptPhaseIsObjectSelect, _ptPhase, _ptAxisLock, _ptCoordInputEl, ptGetAxisBase, ptEffectiveAxisDir, ptSetAxisLockLine, ptClearAxisLockLine, _ptViewer, _lastPtTool, unprojectToAxisLine, ptUpdateAnglePreview } from "../viewer/transforms";
 import { registerOpToolHooks, opStartTool, opHandleClick, opHandleEnter as _opHandleEnter, opHandleCoordSubmit as _opHandleCoordSubmit, opCancel, opFinish, opPhaseIsObjectSelect, opPhaseIsCurveSelect, opPhaseSupressesSnap, opRaycastObject, opUpdateExtrudePreview, opUpdateSelectHoverPreview, opUpdateDimPreview, opUpdateCopyPreview, opUpdateFilletEdge, getOpPhase, setSelDragging, _selDragging } from "../viewer/op-tool";
 import { registerSelectionOpsMarkers, getSelOverlay, clearSelOverlay, removeSelOverlay, clearMultiSelHighlights, applyMultiSelHL, runRectSel, runPolySel, isSelHLOwned } from "../viewer/selection-ops";
-import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_COLUMN_HEIGHT } from "./structural";
+import { setStructuralViewer, buildWall, buildSlab, buildColumn, buildStair, buildStairOnPolyline, buildStairOnCurve, buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints, buildBeam, buildRoof, buildSpace, buildFoundation, buildCeiling, buildCurtainWall, buildSkylight, buildGridLine, buildLevel, buildReferenceLine, buildSectionBox, buildClipPlanePlan, buildClipPlaneSection, buildBox, DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT } from "./structural";
 import { onElementCommitted, addVoidToWallObject } from "./join-groups";
 import { attemptWallCornerJoins } from "./wall-corners";
 import { buildRect, buildCircle, buildArc, buildLine, buildPolygon, buildPolyline, buildCurve, buildSpline, buildRamp, buildRailing, buildPoint } from "./sketch";
@@ -26,6 +26,12 @@ import { STAIR_STEP_RISE, STAIR_STEP_DEPTH, STAIR_WIDTH } from "./dimensions";
 import { drawingLayerStore, SKETCH_KINDS } from "../geometry/drawing-layers";
 import { clippingPlaneStore } from "../geometry/clipping-planes";
 import { setActiveClipPlaneEntity } from "../viewer/clip-plane-handles";
+import { linkPlanarizedMeshCommandBrep } from "../handlers/mesh-planar-brep";
+import { linkCanonicalBrep, linkCanonicalCurve, linkCanonicalPoint } from "../handlers/canonical-surface";
+import { extrude as extrudeBrep } from "../nurbs/brep-extrude";
+import type { Curve, PolylineCurve } from "../nurbs/nurbs-curves";
+import type { Surface } from "../nurbs/nurbs-surfaces";
+import { transformBrep } from "../nurbs/nurbs-brep";
 
 // ── Drawing layer assignment ──────────────────────────────────────────────────
 
@@ -361,6 +367,13 @@ type ToolHandler = {
   minPoints?: number; // minimum point count required to commit unlimited-click tools
 };
 
+export type CreateToolCausalSpec = {
+  route: "create";
+  clicks: number;
+  chain: boolean;
+  minPoints?: number;
+};
+
 // 9 ft above the active level — canonical offset for ceiling and roof placement.
 export const DEFAULT_CEILING_OFFSET = 2.7432;
 
@@ -423,7 +436,6 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   curve:       { clicks: -1, handler: atZ((pts) => buildCurve(pts)) },
   spline:      { clicks: -1, minPoints: 4, handler: atZ((pts) => buildSpline(pts) ?? buildSplinePreview(pts)) },
   point:       { clicks: 1, handler: atZ(([p]) => buildPoint(p)) },
-  extrude:     { clicks: 3, handler: atZ(([c1, c2, c3]) => buildBox(c1, c2, c3)) },
   beam:        { clicks: 2, handler: atZ(([a, b]) => buildBeam(a, b)) },
   roof:        { clicks: 2, handler: atTopOfLevel(([a, b]) => buildRoof(a, b), DEFAULT_CEILING_OFFSET) },
   space:       { clicks: 2, handler: atZ(([a, b]) => buildSpace(a, b)) },
@@ -442,9 +454,20 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   "clip-section": { clicks: 2, handler: ([a, b]) => buildClipPlaneSection(a, b) },
 };
 
+export function getCreateToolCausalSpecs(): Record<string, CreateToolCausalSpec> {
+  return Object.fromEntries(Object.entries(TOOL_HANDLERS).map(([id, handler]) => [
+    id,
+    {
+      route: "create" as const,
+      clicks: handler.clicks,
+      chain: handler.chain === true,
+      ...(handler.minPoints !== undefined ? { minPoints: handler.minPoints } : {}),
+    },
+  ]));
+}
+
 const TOOL_TODOS: Record<string, string> = {
   arc:     "draw(start).arcTo(end, [via]).sketchOnPlane('XY').extrude(thickness)",
-  revolve: "select profile then axis then angle — TODO 3-step gizmo flow",
   move:    "select then drag — already covered by transform gizmo",
   rotate:  "select then drag — already covered by transform gizmo",
   scale:   "select then drag — already covered by transform gizmo",
@@ -612,8 +635,681 @@ function buildCurveWall(pts: Array<{x: number; y: number; z?: number}>): SingleR
   return { mesh, chain };
 }
 
+function rectangleProfile(width: number, depth: number): PolylineCurve {
+  const x0 = -width / 2;
+  const x1 = width / 2;
+  const y0 = -depth / 2;
+  const y1 = depth / 2;
+  const points = [
+    { x: x0, y: y0, z: 0 },
+    { x: x1, y: y0, z: 0 },
+    { x: x1, y: y1, z: 0 },
+    { x: x0, y: y1, z: 0 },
+    { x: x0, y: y0, z: 0 },
+  ];
+  const parameters = [0];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points, parameters };
+}
+
+function lineCurve(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): Curve {
+  const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+  return { kind: "line", from, to, domain: { min: 0, max: length } };
+}
+
+function polylineCurve(points: Array<{ x: number; y: number; z: number }>, closed = false): PolylineCurve {
+  const pts = closed && points.length > 0
+    ? [...points, { ...points[0] }]
+    : points;
+  const parameters = [0];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    parameters.push(parameters[i - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+  }
+  return { kind: "polyline", points: pts, parameters };
+}
+
+function localGeometryPoints(obj: THREE.Object3D): Array<{ x: number; y: number; z: number }> {
+  const geometry = (obj as THREE.Line | THREE.Mesh | THREE.Points).geometry as THREE.BufferGeometry | undefined;
+  const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!pos) return [];
+  const pts: Array<{ x: number; y: number; z: number }> = [];
+  for (let i = 0; i < pos.count; i++) pts.push({ x: pos.getX(i), y: pos.getY(i), z: pos.getZ(i) });
+  return pts;
+}
+
+function controlPoints(obj: THREE.Object3D): Array<{ x: number; y: number; z: number }> {
+  const raw = obj.userData.controlPoints;
+  if (!Array.isArray(raw)) return localGeometryPoints(obj);
+  return raw.map((p) => ({ x: p.x ?? 0, y: p.y ?? 0, z: p.z ?? 0 }));
+}
+
+function linkCreateModeSketchCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  if (!["line", "rect", "circle", "polygon", "arc", "polyline", "curve", "spline", "point"].includes(tool)) return false;
+
+  if (tool === "point") {
+    linkCanonicalPoint(viewer, obj, { x: 0, y: 0, z: 0 }, "create-point", {
+      worldPoint: pts[0] ? [pts[0].x, pts[0].y, pts[0].z ?? 0] : undefined,
+    });
+    return true;
+  }
+
+  let curve: Curve | null = null;
+  if (tool === "line") {
+    const cp = controlPoints(obj);
+    if (cp.length >= 2) curve = lineCurve(cp[0], cp[1]);
+  } else if (tool === "arc") {
+    const nc = obj.userData.nurbsCurve as Curve | undefined;
+    if (nc) curve = nc;
+  } else if (tool === "circle") {
+    const local = localGeometryPoints(obj);
+    const first = local[0] ?? { x: 1, y: 0, z: 0 };
+    const radius = Math.max(0.05, Math.hypot(first.x, first.y));
+    curve = {
+      kind: "arc",
+      center: { x: 0, y: 0, z: 0 },
+      radius,
+      startAngle: 0,
+      endAngle: 2 * Math.PI,
+      plane: {
+        origin: { x: 0, y: 0, z: 0 },
+        xAxis: { x: 1, y: 0, z: 0 },
+        yAxis: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      domain: { min: 0, max: 2 * Math.PI * radius },
+    };
+  } else if (tool === "curve" || tool === "spline") {
+    const nc = obj.userData.nurbsCurve as Curve | undefined;
+    if (nc) curve = nc;
+  } else {
+    curve = polylineCurve(controlPoints(obj), true);
+  }
+
+  if (!curve) return false;
+  linkCanonicalCurve(viewer, obj, curve, `create-${tool}`, {
+    closed: obj.userData.isClosed === true || tool === "rect" || tool === "polygon" || tool === "circle",
+    worldPoints: pts.map((p) => [p.x, p.y, p.z ?? 0]),
+  });
+  return true;
+}
+
+const SD_CREATE_SKETCH_TOOLS = new Set(["line", "rect", "circle", "polygon", "arc", "polyline", "curve", "spline", "point"]);
+
+function round(n: number): number {
+  return Math.round(n * 1e4) / 1e4;
+}
+
+function commandCreatedObject(viewer: Viewer, before: Set<string>): THREE.Object3D | null {
+  const added = [...viewer.getScene().children].filter((child) => !before.has(child.uuid));
+  const store = viewer.getCanonicalGeometryStore();
+  const hasCanonical = (obj: THREE.Object3D): boolean => {
+    if (store.resolveObjectOrAncestor(obj)) return true;
+    let found = false;
+    obj.traverse((child) => {
+      if (!found && store.resolveObjectOrAncestor(child)) found = true;
+    });
+    return found;
+  };
+  return added.find(hasCanonical)
+    ?? added.find((child) => child.userData.dispatchArgs || child.userData.chain)
+    ?? added[0]
+    ?? null;
+}
+
+function sdSketchCommandForTool(
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): { verb: string; args: Record<string, unknown>; chain: string } | null {
+  const p2 = (p: { x: number; y: number }) => [round(p.x), round(p.y)];
+  if (tool === "line" && pts.length >= 2) {
+    return { verb: "SdLine", args: { start: p2(pts[0]), end: p2(pts[1]) }, chain: `SdLine({start:${JSON.stringify(p2(pts[0]))},end:${JSON.stringify(p2(pts[1]))}})` };
+  }
+  if (tool === "rect" && pts.length >= 2) {
+    const a = pts[0], b = pts[1];
+    const width = Math.max(0.01, Math.abs(b.x - a.x));
+    const length = Math.max(0.01, Math.abs(b.y - a.y));
+    const center = [round((a.x + b.x) / 2), round((a.y + b.y) / 2)];
+    const args = { width: round(width), length: round(length), center };
+    return { verb: "SdRectangle", args, chain: `SdRectangle(${JSON.stringify(args)})` };
+  }
+  if (tool === "circle" && pts.length >= 2) {
+    const c = pts[0], r = Math.max(0.05, Math.hypot(pts[1].x - c.x, pts[1].y - c.y));
+    const args = { center: p2(c), radius: round(r) };
+    return { verb: "SdCircle", args, chain: `SdCircle(${JSON.stringify(args)})` };
+  }
+  if (tool === "polygon" && pts.length >= 2) {
+    const c = pts[0], r = Math.max(0.05, Math.hypot(pts[1].x - c.x, pts[1].y - c.y));
+    const args = { center: p2(c), radius: round(r), sides: _polygonSides };
+    return { verb: "SdPolygon", args, chain: `SdPolygon(${JSON.stringify(args)})` };
+  }
+  if (tool === "arc" && pts.length >= 3) {
+    const [c, s, e] = pts;
+    const radius = Math.max(0.05, Math.hypot(s.x - c.x, s.y - c.y));
+    const startAngle = Math.atan2(s.y - c.y, s.x - c.x);
+    let endAngle = Math.atan2(e.y - c.y, e.x - c.x);
+    if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+    const args = { center: [round(c.x), round(c.y), round(c.z ?? 0)], radius: round(radius), startAngle: round(startAngle), endAngle: round(endAngle) };
+    return { verb: "SdArc", args, chain: `SdArc(${JSON.stringify(args)})` };
+  }
+  if ((tool === "polyline" || tool === "curve" || tool === "spline") && pts.length >= 2) {
+    const points = pts.map((p) => [round(p.x), round(p.y), round(p.z ?? 0)]);
+    const verb = tool === "polyline" ? "SdPolyline" : tool === "curve" ? "SdCurve" : "SdSpline";
+    const args = { points };
+    return { verb, args, chain: `${verb}(${JSON.stringify(args)})` };
+  }
+  if (tool === "point" && pts.length >= 1) {
+    const args = { position: [round(pts[0].x), round(pts[0].y), round(pts[0].z ?? 0)] };
+    return { verb: "SdPoint", args, chain: `SdPoint(${JSON.stringify(args)})` };
+  }
+  return null;
+}
+
+function commitSketchToolViaSd(
+  viewer: Viewer,
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): SingleResult | null {
+  if (!SD_CREATE_SKETCH_TOOLS.has(tool)) return null;
+  const command = sdSketchCommandForTool(tool, pts);
+  if (!command) return null;
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync(command.verb, command.args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  if (!created.userData.levelId) created.userData.levelId = getActiveLevelId();
+  applyDrawingLayer(created);
+  if (created instanceof THREE.Mesh) onElementCommitted(created, viewer.getScene());
+  _createSequence.push(command.chain);
+  pushAction(created, command.chain);
+  return { mesh: created, chain: command.chain };
+}
+
+const SD_ARCH_CREATE_TOOLS = new Set([
+  "wall", "slab", "column", "beam", "roof", "space", "foundation", "ceiling", "grid", "level", "datum",
+  "stair", "stair-polyline", "stair-curve", "door", "window", "ramp", "railing", "curtainwall", "skylight", "opening",
+]);
+
+function rectFootprint(a: { x: number; y: number }, b: { x: number; y: number }): number[][] {
+  return [[a.x, a.y], [b.x, a.y], [b.x, b.y], [a.x, b.y], [a.x, a.y]];
+}
+
+function p3(p: { x: number; y: number; z?: number }): number[] {
+  return [round(p.x), round(p.y), round(p.z ?? 0)];
+}
+
+function sdArchCommandForTool(
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): { verb: string; args: Record<string, unknown>; chain: string } | null {
+  const first = pts[0];
+  if (!first) return null;
+  const second = pts[1] ?? first;
+  const width = Math.max(0.01, Math.abs(second.x - first.x));
+  const depth = Math.max(0.01, Math.abs(second.y - first.y));
+  const center = [round((first.x + second.x) / 2), round((first.y + second.y) / 2), round(first.z ?? second.z ?? 0)];
+
+  const command = (verb: string, args: Record<string, unknown>) => ({ verb, args, chain: `${verb}(${JSON.stringify(args)})` });
+  switch (tool) {
+    case "wall":
+      if (pts.length < 2) return null;
+      return command("SdWall", { start: { x: round(first.x), y: round(first.y), z: round(first.z ?? 0) }, end: { x: round(second.x), y: round(second.y), z: round(second.z ?? 0) } });
+    case "slab":
+      if (pts.length < 2) return null;
+      return command("SdSlab", { profile: rectFootprint(first, second) });
+    case "column":
+      return command("SdColumn", { position: p3(first) });
+    case "beam":
+      if (pts.length < 2) return null;
+      return command("SdBeam", { start: p3(first), end: p3(second) });
+    case "roof":
+      if (pts.length < 2) return null;
+      return command("SdRoof", { footprint: rectFootprint(first, second), roofType: "pitched" });
+    case "space":
+      if (pts.length < 2) return null;
+      return command("SdSpace", { footprint: rectFootprint(first, second) });
+    case "foundation":
+      if (pts.length < 2) return null;
+      return command("SdFoundation", { position: center, width: round(width), depth: round(depth) });
+    case "ceiling":
+      if (pts.length < 2) return null;
+      return command("SdCeiling", { position: center, width: round(width), depth: round(depth) });
+    case "grid":
+      if (pts.length < 2) return null;
+      return command("SdRefGrid", { origin: [round(first.x), round(first.y)], spacing: Math.max(1, round(Math.hypot(second.x - first.x, second.y - first.y))), count: 2 });
+    case "level":
+      return command("SdLevel", { elevation: round(first.z ?? 0) });
+    case "datum":
+      if (pts.length >= 2) return command("SdDatum", { start: p3(first), end: p3(second) });
+      return command("SdDatum", { position: p3(first) });
+    case "stair":
+      if (pts.length < 2) return null;
+      return command("SdStair", { start: p3(first), end: p3(second) });
+    case "stair-polyline":
+      if (pts.length < 2) return null;
+      return command("SdStair", { type: "polyline", path: pts.map(p3) });
+    case "stair-curve":
+      if (pts.length < 2) return null;
+      return command("SdStair", { type: "curve", path: pts.map(p3) });
+    case "door":
+      return command("SdDoor", { position: p3(first) });
+    case "window":
+      return command("SdWindow", { position: p3(first) });
+    case "ramp":
+      if (pts.length < 2) return null;
+      return command("SdRamp", { start: p3(first), end: p3(second) });
+    case "railing":
+      if (pts.length < 2) return null;
+      return command("SdRailing", { start: p3(first), end: p3(second) });
+    case "curtainwall":
+      if (pts.length < 2) return null;
+      return command("SdCurtainWall", { start: p3(first), end: p3(second), length: round(Math.hypot(second.x - first.x, second.y - first.y)) });
+    case "skylight":
+      if (pts.length < 2) return null;
+      return command("SdSkylight", { position: center, width: round(width), depth: round(depth) });
+    case "opening":
+      return command("SdOpening", { position: p3(first) });
+    default:
+      return null;
+  }
+}
+
+function commitArchToolViaSd(
+  viewer: Viewer,
+  tool: string,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): SingleResult | null {
+  if (!SD_ARCH_CREATE_TOOLS.has(tool)) return null;
+  const command = sdArchCommandForTool(tool, pts);
+  if (!command) return null;
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync(command.verb, command.args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  if (!created.userData.levelId) created.userData.levelId = getActiveLevelId();
+  _createSequence.push(command.chain);
+  return { mesh: created, chain: command.chain };
+}
+
+function planeSurface(extent: number): Surface {
+  const half = extent / 2;
+  return {
+    kind: "plane",
+    plane: {
+      origin: { x: 0, y: 0, z: 0 },
+      xAxis: { x: 1, y: 0, z: 0 },
+      yAxis: { x: 0, y: 1, z: 0 },
+      normal: { x: 0, y: 0, z: 1 },
+    },
+    uDomain: { min: -half, max: half },
+    vDomain: { min: -half, max: half },
+    uExtent: { min: -half, max: half },
+    vExtent: { min: -half, max: half },
+  };
+}
+
+function geometryStats(obj: THREE.Object3D): { vertexCount?: number; triangleCount?: number } {
+  const geometry = (obj as THREE.Mesh | THREE.Line).geometry as THREE.BufferGeometry | undefined;
+  return {
+    vertexCount: geometry?.getAttribute("position")?.count,
+    triangleCount: geometry?.index ? Math.floor(geometry.index.count / 3) : undefined,
+  };
+}
+
+function linkCreateModeReferenceCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  const a = pts[0];
+  if (!a) return false;
+
+  if (tool === "level") {
+    const extent = 20;
+    const record = viewer.getCanonicalGeometryStore().create({
+      kind: "surface",
+      surface: planeSurface(extent),
+      source: "command",
+      createdBy: "create-level",
+      displayMesh: {
+        revision: 1,
+        generatedAt: Date.now(),
+        ...geometryStats(obj),
+        derivation: "tessellated-surface",
+      },
+      metadata: {
+        creator: obj.userData.creator,
+        levelId: obj.userData.levelId,
+        elevation: obj.position.z,
+        extent,
+      },
+    });
+    viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+    return true;
+  }
+
+  if (tool !== "grid" && tool !== "datum") return false;
+  const b = pts[1];
+  if (!b) return true;
+
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const curve = lineCurve({ x: 0, y: -length / 2, z: 0 }, { x: 0, y: length / 2, z: 0 });
+  const record = viewer.getCanonicalGeometryStore().create({
+    kind: "curve",
+    curve,
+    source: "command",
+    createdBy: tool === "grid" ? "create-grid-line" : "create-reference-line",
+    displayMesh: {
+      revision: 1,
+      generatedAt: Date.now(),
+      ...geometryStats(obj),
+      derivation: "tessellated-curve",
+    },
+    metadata: {
+      creator: obj.userData.creator,
+      label: obj.userData.label,
+      refLineId: obj.userData.refLineId,
+      worldStart: { x: a.x, y: a.y, z: a.z ?? 0 },
+      worldEnd: { x: b.x, y: b.y, z: b.z ?? 0 },
+    },
+  });
+  viewer.getCanonicalGeometryStore().linkObject(obj, record.id);
+  return true;
+}
+
+function linkCreateModeCompoundMeshBreps(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): boolean {
+  if (tool !== "stair" && tool !== "roof") return false;
+
+  let linked = 0;
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const alreadyCanonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+    if (alreadyCanonical) return;
+    const stairFlight = child.userData.stairFlightCanonical as {
+      n?: unknown;
+      riser?: unknown;
+      tread?: unknown;
+      stairW?: unknown;
+      zBase?: unknown;
+    } | undefined;
+    if (tool === "stair" && stairFlight && [stairFlight.n, stairFlight.riser, stairFlight.tread, stairFlight.stairW, stairFlight.zBase].every((value) => Number.isFinite(Number(value)))) {
+      linkCanonicalBrep(viewer, child, buildStairFlightBrep({
+        n: Number(stairFlight.n),
+        riser: Number(stairFlight.riser),
+        tread: Number(stairFlight.tread),
+        stairW: Number(stairFlight.stairW),
+        zBase: Number(stairFlight.zBase),
+      }), "create-stair-component");
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-stair-flight-profile",
+          conversion: "extruded-stair-flight-profile-brep",
+        };
+      }
+      linked++;
+      return;
+    }
+    const boxPrimitive = boxPrimitiveDimensions(child);
+    if (boxPrimitive) {
+      linkCanonicalBrep(viewer, child, buildBoxPrimitiveBrep(boxPrimitive), `create-${tool}-component`);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+            ? (obj.userData.roofParams as { type?: unknown }).type
+            : undefined,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-box-primitive",
+          conversion: "extruded-rectangular-solid-brep",
+          boxPrimitive,
+        };
+      }
+      linked++;
+      return;
+    }
+    const gableCap = child.userData.gableCapCanonical as {
+      landscape?: unknown;
+      sign?: unknown;
+      ridgeLenHalf?: unknown;
+      spanHalf?: unknown;
+      ridgeHeight?: unknown;
+      thickness?: unknown;
+    } | undefined;
+    if (
+      gableCap
+      && typeof gableCap.landscape === "boolean"
+      && Number.isFinite(Number(gableCap.sign))
+      && Number.isFinite(Number(gableCap.ridgeLenHalf))
+      && Number.isFinite(Number(gableCap.spanHalf))
+      && Number.isFinite(Number(gableCap.ridgeHeight))
+    ) {
+      const params = {
+        landscape: gableCap.landscape,
+        sign: Number(gableCap.sign),
+        ridgeLenHalf: Number(gableCap.ridgeLenHalf),
+        spanHalf: Number(gableCap.spanHalf),
+        ridgeHeight: Number(gableCap.ridgeHeight),
+        thickness: Number(gableCap.thickness ?? 0.02),
+      };
+      linkCanonicalBrep(viewer, child, buildGableCapSolidBrep(params), `create-${tool}-component`);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+            ? (obj.userData.roofParams as { type?: unknown }).type
+            : undefined,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-gable-cap-solid",
+          conversion: "extruded-triangular-nurbs-brep",
+          gableCap: params,
+        };
+      }
+      linked++;
+      return;
+    }
+    const panelPoints = planarPanelPoints(child);
+    if (panelPoints) {
+      linkCanonicalBrep(viewer, child, buildPlanarPanelBrep({ points: panelPoints }), `create-${tool}-component`);
+      const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(child);
+      if (canonical) {
+        canonical.metadata = {
+          ...canonical.metadata,
+          parentCreator: obj.userData.creator,
+          parentKind: obj.userData.kind,
+          ifcClass: child.userData.ifcClass,
+          name: child.userData.name,
+          stairId: obj.userData.stairId ?? child.userData.parentId,
+          roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+            ? (obj.userData.roofParams as { type?: unknown }).type
+            : undefined,
+          worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+          worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+          derivation: "parametric-planar-panel",
+          conversion: "trimmed-planar-nurbs-brep",
+          panelVertexCount: panelPoints.length,
+        };
+      }
+      linked++;
+      return;
+    }
+    const ok = linkPlanarizedMeshCommandBrep(viewer, child, `create-${tool}-component`, {
+      parentCreator: obj.userData.creator,
+      parentKind: obj.userData.kind,
+      ifcClass: child.userData.ifcClass,
+      name: child.userData.name,
+      stairId: obj.userData.stairId ?? child.userData.parentId,
+      roofType: obj.userData.roofParams && typeof obj.userData.roofParams === "object"
+        ? (obj.userData.roofParams as { type?: unknown }).type
+        : undefined,
+      worldStart: pts[0] ? { x: pts[0].x, y: pts[0].y, z: pts[0].z ?? 0 } : undefined,
+      worldEnd: pts[1] ? { x: pts[1].x, y: pts[1].y, z: pts[1].z ?? 0 } : undefined,
+    });
+    if (ok) linked++;
+  });
+
+  return linked > 0;
+}
+
+function linkCreateModeExtrudedRectangleBrep(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  width: number,
+  depth: number,
+  height: number,
+  createdBy: string,
+  zOffset = 0,
+): void {
+  const brep = extrudeBrep(rectangleProfile(width, depth), { x: 0, y: 0, z: 1 }, height);
+  const localBrep = zOffset === 0
+    ? brep
+    : transformBrep(brep, { m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, zOffset, 0, 0, 0, 1] });
+  linkCanonicalBrep(viewer, obj, localBrep, createdBy);
+}
+
+function linkCreateModeStructuralCanonical(
+  viewer: Viewer,
+  tool: string,
+  obj: THREE.Object3D,
+  pts: Array<{ x: number; y: number; z?: number }>,
+): void {
+  const a = pts[0];
+  if (!a) return;
+  if (linkCreateModeReferenceCanonical(viewer, tool, obj, pts)) return;
+
+  if (tool === "door") {
+    const width = (obj.userData.voidW as number | undefined) ?? FZK_DOOR_W;
+    const height = (obj.userData.voidH as number | undefined) ?? FZK_DOOR_H;
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, width, 0.2, height, "create-door");
+    return;
+  }
+
+  if (tool === "window") {
+    const width = (obj.userData.voidW as number | undefined) ?? FZK_WINDOW_W;
+    const height = (obj.userData.voidH as number | undefined) ?? FZK_WINDOW_H;
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, width, 0.2, height, "create-window");
+    return;
+  }
+
+  if (tool === "opening") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, 1, 0.25, 2, "create-opening");
+    return;
+  }
+
+  if (tool === "column") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, 0.3, 0.3, DEFAULT_COLUMN_HEIGHT, "create-column");
+    return;
+  }
+
+  const b = pts[1];
+  if (!b) return;
+  const run = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+
+  if (linkCreateModeCompoundMeshBreps(viewer, tool, obj, pts)) return;
+
+  if (tool === "wall" || tool === "wall-polyline") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.2, DEFAULT_WALL_HEIGHT, `create-${tool}`);
+    return;
+  }
+
+  if (tool === "slab") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, DEFAULT_SLAB_THICKNESS, "create-slab");
+    return;
+  }
+
+  if (tool === "beam") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.2, 0.2, "create-beam", -0.1);
+    return;
+  }
+
+  if (tool === "space") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 2.8, "create-space");
+    return;
+  }
+
+  if (tool === "foundation") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 0.5, "create-foundation", -0.5);
+    return;
+  }
+
+  if (tool === "ceiling") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 1, Math.abs(b.y - a.y) || 1, 0.05, "create-ceiling", -0.025);
+    return;
+  }
+
+  if (tool === "skylight") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, Math.abs(b.x - a.x) || 0.5, Math.abs(b.y - a.y) || 0.5, 0.04, "create-skylight", -0.02);
+    return;
+  }
+
+  if (tool === "ramp") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 1.2, 0.15, "create-ramp");
+    return;
+  }
+
+  if (tool === "railing") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.05, 1, "create-railing");
+    return;
+  }
+
+  if (tool === "curtainwall") {
+    linkCreateModeExtrudedRectangleBrep(viewer, obj, run, 0.1, DEFAULT_WALL_HEIGHT, "create-curtainwall");
+    const shell = obj.userData.joinableShell as THREE.Mesh | undefined;
+    const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj);
+    if (shell instanceof THREE.Mesh && canonical) {
+      viewer.getCanonicalGeometryStore().linkObject(shell, canonical.id);
+    }
+  }
+}
+
 function commitMultiWalls(viewer: Viewer, results: SingleResult[]): void {
   for (const r of results) {
+    if (r.mesh instanceof THREE.Mesh && r.mesh.userData.creator === "wall" && r.mesh.userData.isCurveWall) {
+      linkPlanarizedMeshCommandBrep(viewer, r.mesh, "wall-curve", {
+        operation: "curve-wall",
+        wallThickness: r.mesh.userData.wallThickness,
+        wallHeight: r.mesh.userData.wallHeight,
+      });
+    }
     viewer.addMesh(r.mesh, r.mesh.userData.kind ?? "brep", { noHistory: true });
     if (r.mesh instanceof THREE.Mesh && r.mesh.userData.creator === "wall" && !r.mesh.userData.isCurveWall) {
       attemptWallCornerJoins(r.mesh, viewer.getScene());
@@ -622,6 +1318,58 @@ function commitMultiWalls(viewer: Viewer, results: SingleResult[]): void {
     _createSequence.push(r.chain);
     pushAction(r.mesh, r.chain);
   }
+}
+
+function commitWallSegmentsViaSd(
+  viewer: Viewer,
+  pts: Array<{ x: number; y: number; z?: number }>,
+  closed = false,
+): SingleResult[] | null {
+  if (pts.length < 2) return null;
+  const n = pts.length;
+  const count = closed ? n : n - 1;
+  const results: SingleResult[] = [];
+  for (let i = 0; i < count; i++) {
+    const start = pts[i];
+    const end = pts[(i + 1) % n];
+    const args = {
+      start: { x: round(start.x), y: round(start.y), z: round(start.z ?? 0) },
+      end: { x: round(end.x), y: round(end.y), z: round(end.z ?? 0) },
+    };
+    const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+    const result = dispatchSync("SdWall", args);
+    if (!result.ok) return null;
+    const created = commandCreatedObject(viewer, before);
+    if (!created) return null;
+    const chain = `SdWall(${JSON.stringify(args)})`;
+    _createSequence.push(chain);
+    pushAction(created, chain);
+    results.push({ mesh: created, chain });
+  }
+  return results;
+}
+
+function commitCurveWallViaSd(
+  viewer: Viewer,
+  pts: Array<{ x: number; y: number; z?: number }>,
+  closed = false,
+): SingleResult | null {
+  if (pts.length < 2) return null;
+  const args = {
+    points: pts.map((p) => [round(p.x), round(p.y), round(p.z ?? 0)]),
+    thickness: 0.2,
+    height: 3,
+    closed,
+  };
+  const before = new Set(viewer.getScene().children.map((child) => child.uuid));
+  const result = dispatchSync("SdCurveWall", args);
+  if (!result.ok) return null;
+  const created = commandCreatedObject(viewer, before);
+  if (!created) return null;
+  const chain = `SdCurveWall(${JSON.stringify(args)})`;
+  _createSequence.push(chain);
+  pushAction(created, chain);
+  return { mesh: created, chain };
 }
 
 function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
@@ -641,8 +1389,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
       const ang = (i / N) * Math.PI * 2;
       arcPts.push({ x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang), z: z0 });
     }
-    const result = buildCurveWall(arcPts);
-    commitMultiWalls(viewer, [result]);
+    if (!commitCurveWallViaSd(viewer, arcPts, true)) {
+      setPickerHint("wall-pick â€” failed to create curve wall from circle");
+      return;
+    }
     hideCursorDot();
     setPickerHint(null);
     dispatchSync("setActiveTool", { toolId: "select" });
@@ -656,8 +1406,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
       const isClosed = obj.userData.isClosed as boolean ?? false;
       const worldPts = cps.map(p => ({ x: p.x + pos.x, y: p.y + pos.y, z: z0 }));
       if (isClosed) worldPts.push({ x: worldPts[0].x, y: worldPts[0].y, z: z0 });
-      const result = buildCurveWall(worldPts);
-      commitMultiWalls(viewer, [result]);
+      if (!commitCurveWallViaSd(viewer, worldPts, isClosed)) {
+        setPickerHint("wall-pick â€” failed to create curve wall from curve");
+        return;
+      }
       hideCursorDot();
       setPickerHint(null);
       dispatchSync("setActiveTool", { toolId: "select" });
@@ -685,14 +1437,10 @@ function commitWallPick(viewer: Viewer, obj: THREE.Object3D): void {
   }
   const closedKinds = new Set(["rectangle", "polygon", "circle", "slab"]);
   const closed = closedKinds.has(obj.userData.kind as string ?? "");
-  const n = pts.length;
-  const results: SingleResult[] = [];
-  for (let i = 0; i < (closed ? n : n - 1); i++) {
-    const r = buildWall(pts[i], pts[(i + 1) % n]);
-    r.mesh.position.z = z0;
-    results.push(r);
+  if (!commitWallSegmentsViaSd(viewer, pts, closed)) {
+    setPickerHint("wall-pick â€” failed to create walls from reference geometry");
+    return;
   }
-  commitMultiWalls(viewer, results);
   hideCursorDot();
   setPickerHint(null);
   dispatchSync("setActiveTool", { toolId: "select" });
@@ -712,6 +1460,18 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
   hideCursorDot();
   setPickerHint(null);
 
+  if (tool === "wall-polyline") {
+    const results = commitWallSegmentsViaSd(viewer, pts);
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return results?.[0] ?? null;
+  }
+
+  if (tool === "wall-curve") {
+    const result = commitCurveWallViaSd(viewer, pts);
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return result;
+  }
+
   if (handler.commitMulti) {
     const results = handler.commitMulti(pts);
     commitMultiWalls(viewer, results);
@@ -719,10 +1479,23 @@ function commitUnlimited(viewer: Viewer): { mesh: THREE.Object3D; chain: string 
     return results[0] ?? null;
   }
 
+  const archOut = commitArchToolViaSd(viewer, tool, pts);
+  if (archOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return archOut;
+  }
+
+  const sdOut = commitSketchToolViaSd(viewer, tool, pts);
+  if (sdOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return sdOut;
+  }
+
   const out = handler.handler(pts);
   if (!out) { dispatchSync("setActiveTool", { toolId: "select" }); return null; }
   if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   applyDrawingLayer(out.mesh);
+  linkCreateModeSketchCanonical(viewer, tool, out.mesh, pts);
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh", { noHistory: true });
   if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
   _createSequence.push(out.chain);
@@ -759,15 +1532,36 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
       _pending = [];
       hideCursorDot();
       setPickerHint(null);
+      if (tool === "wall-polyline") {
+        const results = commitWallSegmentsViaSd(viewer, pts);
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return results?.[0] ?? null;
+      }
+      if (tool === "wall-curve") {
+        const result = commitCurveWallViaSd(viewer, pts);
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return result;
+      }
       if (handler.commitMulti) {
         const results = handler.commitMulti(pts);
         commitMultiWalls(viewer, results);
         dispatchSync("setActiveTool", { toolId: "select" });
         return results[0] ?? null;
       }
+      const archOut = commitArchToolViaSd(viewer, tool, pts);
+      if (archOut) {
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return archOut;
+      }
+      const sdOut = commitSketchToolViaSd(viewer, tool, pts);
+      if (sdOut) {
+        dispatchSync("setActiveTool", { toolId: "select" });
+        return sdOut;
+      }
       const out = handler.handler(pts);
       if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
       applyDrawingLayer(out.mesh);
+      linkCreateModeSketchCanonical(viewer, tool, out.mesh, pts);
       viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "mesh", { noHistory: true });
       if (out.mesh instanceof THREE.Mesh) onElementCommitted(out.mesh, viewer.getScene());
       _createSequence.push(out.chain);
@@ -781,8 +1575,7 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
 
   clearTemporary(viewer);
   clearSmartTrack(viewer);
-  const out = handler.handler(_pending);
-  if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
+  const commitPts = [..._pending];
   if (handler.chain) {
     const newStart = { ..._pending[_pending.length - 1] };
     _pending = [newStart];
@@ -790,8 +1583,22 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   } else {
     _pending = [];
   }
+  const sdOut = commitSketchToolViaSd(viewer, tool, commitPts);
+  if (sdOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return sdOut;
+  }
+  const archOut = commitArchToolViaSd(viewer, tool, commitPts);
+  if (archOut) {
+    dispatchSync("setActiveTool", { toolId: "select" });
+    return archOut;
+  }
+  const out = handler.handler(commitPts);
+  if (!out.mesh.userData.levelId) out.mesh.userData.levelId = getActiveLevelId();
   // noHistory: true — undo managed via explicit push / transaction below.
   applyDrawingLayer(out.mesh);
+  linkCreateModeSketchCanonical(viewer, tool, out.mesh, commitPts);
+  linkCreateModeStructuralCanonical(viewer, tool, out.mesh, commitPts);
   viewer.addMesh(out.mesh, out.mesh.userData.kind ?? "brep", { noHistory: true });
   if (out.mesh instanceof THREE.Mesh && out.mesh.userData.creator === "wall") {
     attemptWallCornerJoins(out.mesh, viewer.getScene());
@@ -802,6 +1609,8 @@ export function emitClickWorld(viewer: Viewer, world: { x: number; y: number; z?
   const _cwJoinShell = out.mesh.userData.joinableShell as THREE.Mesh | undefined;
   if (_cwJoinShell instanceof THREE.Mesh) {
     _cwJoinShell.position.z = out.mesh.position.z;
+    _cwJoinShell.userData.levelId = out.mesh.userData.levelId;
+    _cwJoinShell.userData.layerId = out.mesh.userData.layerId;
     viewer.addMesh(_cwJoinShell, "brep", { noHistory: true });
     onElementCommitted(_cwJoinShell, viewer.getScene());
   }
@@ -934,7 +1743,29 @@ function screenYtoDz(viewer: Viewer, screenY: number, base: { x: number; y: numb
 
 // ── Align / Distribute ────────────────────────────────────────────────────────
 
+const ALIGN_TOOL_COMMAND_MODES: Record<string, string> = {
+  "align-left": "left",
+  "align-right": "right",
+  "align-top": "top",
+  "align-bottom": "bottom",
+  "align-center-h": "center-h",
+  "align-center-v": "center-v",
+  "dist-h": "dist-h",
+  "dist-v": "dist-v",
+  left: "left",
+  right: "right",
+  top: "top",
+  bottom: "bottom",
+  "center-h": "center-h",
+  "center-v": "center-v",
+};
+
+export function alignToolCommandMode(mode: string): string {
+  return ALIGN_TOOL_COMMAND_MODES[mode] ?? mode;
+}
+
 export function execAlignTool(mode: string): void {
+  const normalizedMode = alignToolCommandMode(mode);
   const multi = getMultiSelected();
   const single = getSelected();
   const objs: THREE.Object3D[] = multi.length > 1
@@ -945,25 +1776,25 @@ export function execAlignTool(mode: string): void {
   const boxes = objs.map((o) => new THREE.Box3().setFromObject(o));
   const centers = boxes.map((b) => b.getCenter(new THREE.Vector3()));
 
-  if (mode === "align-left") {
+  if (normalizedMode === "left") {
     const target = Math.min(...boxes.map((b) => b.min.x));
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - boxes[i].min.x;
-  } else if (mode === "align-right") {
+  } else if (normalizedMode === "right") {
     const target = Math.max(...boxes.map((b) => b.max.x));
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - boxes[i].max.x;
-  } else if (mode === "align-top") {
+  } else if (normalizedMode === "top") {
     const target = Math.max(...boxes.map((b) => b.max.y));
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - boxes[i].max.y;
-  } else if (mode === "align-bottom") {
+  } else if (normalizedMode === "bottom") {
     const target = Math.min(...boxes.map((b) => b.min.y));
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - boxes[i].min.y;
-  } else if (mode === "align-center-h") {
+  } else if (normalizedMode === "center-h") {
     const target = centers.reduce((s, c) => s + c.x, 0) / centers.length;
     for (let i = 0; i < objs.length; i++) objs[i].position.x += target - centers[i].x;
-  } else if (mode === "align-center-v") {
+  } else if (normalizedMode === "center-v") {
     const target = centers.reduce((s, c) => s + c.y, 0) / centers.length;
     for (let i = 0; i < objs.length; i++) objs[i].position.y += target - centers[i].y;
-  } else if (mode === "dist-h") {
+  } else if (normalizedMode === "dist-h") {
     if (objs.length < 3) return;
     const items = objs.map((o, i) => ({ o, minX: boxes[i].min.x, w: boxes[i].max.x - boxes[i].min.x }))
       .sort((a, b) => a.minX - b.minX);
@@ -975,7 +1806,7 @@ export function execAlignTool(mode: string): void {
       items[i].o.position.x += cursor - items[i].minX;
       cursor += items[i].w + gap;
     }
-  } else if (mode === "dist-v") {
+  } else if (normalizedMode === "dist-v") {
     if (objs.length < 3) return;
     const items = objs.map((o, i) => ({ o, minY: boxes[i].min.y, h: boxes[i].max.y - boxes[i].min.y }))
       .sort((a, b) => a.minY - b.minY);
@@ -1071,7 +1902,8 @@ export function initCreateMode(viewer: Viewer): void {
   const ALIGN_TOOLS = new Set(["align-left", "align-right", "align-top", "align-bottom", "align-center-h", "align-center-v", "dist-h", "dist-v"]);
 
   // Clear multi-select highlights when the viewer performs a normal single-object selection.
-  window.addEventListener("viewer:select", () => {
+  window.addEventListener("viewer:select", (ev) => {
+    if ((ev as CustomEvent).detail?.subObject) return;
     if (!isSelHLOwned()) { clearMultiSelHighlights(); clearMultiSelected(); }
   });
 
@@ -1093,7 +1925,7 @@ export function initCreateMode(viewer: Viewer): void {
     } else if (ALIGN_TOOLS.has(tool)) {
       if (_ptPhase) ptCancel(viewer, false);
       if (getOpPhase()) opCancel(viewer, false);
-      execAlignTool(tool);
+      dispatchSync("SdAlignObjects", { mode: alignToolCommandMode(tool) });
       dispatchSync("setActiveTool", { toolId: "select" });
     } else if (OP_TOOL_IDS.has(tool)) {
       if (_ptPhase) ptCancel(viewer, false);
@@ -1143,7 +1975,12 @@ export function initCreateMode(viewer: Viewer): void {
           if (hit) {
             ev.stopImmediatePropagation();
             viewer.selectObject(hit.obj);
-            setSelected({ topology: "mesh", uuid: hit.obj.uuid, object: hit.obj, transformTarget: hit.obj });
+            setSelected({
+              topology: topologyForObject(hit.obj, viewer.getCanonicalGeometryForObject(hit.obj)?.kind),
+              uuid: hit.obj.uuid,
+              object: hit.obj,
+              transformTarget: hit.obj,
+            });
             window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: hit.obj.uuid } }));
             opSetHover(null);
             const ptTool = (_ptPhase as { kind: "start"; tool: string }).tool;
@@ -1232,7 +2069,7 @@ export function initCreateMode(viewer: Viewer): void {
       }
 
       // Shift+click standard select: toggle object in multi-select.
-      if (ev.shiftKey && !_ptPhase && !getOpPhase()) {
+      if (ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !_ptPhase && !getOpPhase()) {
         const hit = opRaycastObject(viewer, ev.clientX, ev.clientY);
         if (hit) {
           ev.stopImmediatePropagation();
@@ -1379,9 +2216,12 @@ export function initCreateMode(viewer: Viewer): void {
       if (activeBtn?.dataset.tool === "select") {
         // Use viewer's pane-rect raycaster (same path as selection) so CSG display
         // meshes and regular structural elements are both detected correctly.
-        const hoverObj = viewer.raycastForHover(ev.clientX, ev.clientY);
+        if (ev.ctrlKey && ev.shiftKey) viewer.previewBrepSubObjectAt(ev.clientX, ev.clientY);
+        else viewer.clearSubSelectionHover();
+        const hoverObj = ev.ctrlKey && ev.shiftKey ? null : viewer.raycastForHover(ev.clientX, ev.clientY);
         opSetHover(hoverObj);
       } else {
+        viewer.clearSubSelectionHover();
         opSetHover(null);
       }
       hideCursorDot();
@@ -1702,13 +2542,13 @@ export function initCreateMode(viewer: Viewer): void {
       const x2 = Math.max(opPhase.startX, ev.clientX);
       const y2 = Math.max(opPhase.startY, ev.clientY);
       if (x2 - x1 > 4 || y2 - y1 > 4) {
-        runRectSel(viewer, x1, y1, x2, y2, opPhase.subMode);
+        dispatchSync("SdSelectWindow", { rect: [x1, y1, x2, y2], mode: opPhase.subMode });
         setTimeout(() => { removeSelOverlay(); opFinish(viewer); }, 600);
       } else {
         removeSelOverlay();
       }
     } else if (opPhase?.kind === "sel_lasso" && opPhase.points.length >= 3) {
-      runPolySel(viewer, opPhase.points, opPhase.subMode);
+      dispatchSync("SdSelectLasso", { polygon: opPhase.points, mode: opPhase.subMode });
       setTimeout(() => { removeSelOverlay(); opFinish(viewer); }, 600);
     } else {
       removeSelOverlay();

@@ -24,9 +24,10 @@ import {
   Point3 as Pt3, Vector3 as V3, Plane as Pl, Interval as Iv,
 } from "./nurbs-primitives";
 import {
-  type Curve, type LineCurve,
+  type Curve, type LineCurve, type PolylineCurve,
   domain as curveDomain, pointAt as curvePointAt,
   tessellate as curveTessellate,
+  transform as transformCurve,
 } from "./nurbs-curves";
 import {
   type PlaneSurface, type SumSurface,
@@ -98,11 +99,13 @@ export function extrude(
   // ── Assemble shell ─────────────────────────────────────────────────────────
 
   const allFaces: BrepFace[] = [...lateralFaces, bottomCap, topCap];
+  const edges = _buildShellEdges(profile, rail, allFaces.length, offset, tol);
+  const vertices = _buildShellVertices(profile, offset, edges.length, tol);
   const shell: BrepShell = {
     faces: allFaces,
-    edges: _buildShellEdges(profile, rail, allFaces.length, tol),
-    vertices: _buildShellVertices(profile, offset, tol),
-    isClosed: options.closed ?? true,
+    edges,
+    vertices,
+    isClosed: options.closed ?? (edges.length > 0 && edges.every((edge) => edge.faceIndex2 !== null)),
   };
 
   return { shells: [shell] };
@@ -195,13 +198,16 @@ function _buildCapFace(
   tol: number,
   isBottom: boolean,
 ): BrepFace {
-  const pts = curveTessellate(profile, 16);
+  const pts = profile.kind === "polyline" ? profile.points : curveTessellate(profile, 16);
   if (pts.length === 0) throw new Error("extrude: profile tessellates to empty");
+  const openPts = pts.length > 1 && Pt3.distance(pts[0], pts[pts.length - 1]) < 1e-10
+    ? pts.slice(0, -1)
+    : pts;
 
   // Centroid
-  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-  const cz = pts.reduce((s, p) => s + p.z, 0) / pts.length;
+  const cx = openPts.reduce((s, p) => s + p.x, 0) / openPts.length;
+  const cy = openPts.reduce((s, p) => s + p.y, 0) / openPts.length;
+  const cz = openPts.reduce((s, p) => s + p.z, 0) / openPts.length;
   const centroid: Point3 = {
     x: cx + dir.x * zOffset,
     y: cy + dir.y * zOffset,
@@ -212,27 +218,53 @@ function _buildCapFace(
   const outward = isBottom ? V3.negate(dir) : dir;
   const plane = Pl.fromPointNormal(centroid, outward);
 
-  // Extent: bounding radius in the plane's uv space
-  let maxR = 0;
-  for (const p of pts) {
-    const dx = p.x - cx, dy = p.y - cy, dz = p.z - cz;
-    const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (r > maxR) maxR = r;
+  const trimUv = [...openPts, openPts[0]].map((p) => {
+    const capPoint = {
+      x: p.x + dir.x * zOffset,
+      y: p.y + dir.y * zOffset,
+      z: p.z + dir.z * zOffset,
+    };
+    const d = Pt3.sub(capPoint, centroid);
+    return {
+      u: V3.dot(d, plane.xAxis),
+      v: V3.dot(d, plane.yAxis),
+    };
+  });
+  const uValues = trimUv.map((p) => p.u);
+  const vValues = trimUv.map((p) => p.v);
+  let uMin = Math.min(...uValues);
+  let uMax = Math.max(...uValues);
+  let vMin = Math.min(...vValues);
+  let vMax = Math.max(...vValues);
+  if (Math.abs(uMax - uMin) < 1e-9) {
+    uMin -= 0.005;
+    uMax += 0.005;
   }
-  maxR = Math.max(maxR, 0.01);
+  if (Math.abs(vMax - vMin) < 1e-9) {
+    vMin -= 0.005;
+    vMax += 0.005;
+  }
 
   const surface: PlaneSurface = {
     kind: "plane",
     plane,
-    uDomain: Iv.create(0, 1),
-    vDomain: Iv.create(0, 1),
-    uExtent: Iv.create(-maxR, maxR),
-    vExtent: Iv.create(-maxR, maxR),
+    uDomain: Iv.create(uMin, uMax),
+    vDomain: Iv.create(vMin, vMax),
+    uExtent: Iv.create(uMin, uMax),
+    vExtent: Iv.create(vMin, vMax),
   };
+  const trimPoints = trimUv.map((p) => ({ x: p.u, y: p.v, z: 0 }));
+  const parameters = [0];
+  for (let i = 1; i < trimPoints.length; i++) {
+    parameters.push(parameters[i - 1] + Math.hypot(
+      trimPoints[i].x - trimPoints[i - 1].x,
+      trimPoints[i].y - trimPoints[i - 1].y,
+    ));
+  }
 
   return {
     surface,
-    outerLoop: { curves: [], orientation: true },
+    outerLoop: { curves: [{ kind: "polyline", points: trimPoints, parameters }], orientation: true },
     innerLoops: [],
     orientation: isBottom,
     tolerance: tol,
@@ -243,25 +275,57 @@ function _buildCapFace(
 
 /**
  * Build edge topology for the extruded shell.
- * For now: registers the rail curve as a set of shared edges between lateral
- * faces and caps. Full half-edge wiring is deferred to brep-weld (future).
+ * Closed polyline profiles get explicit bottom, top, and vertical shared
+ * edges so `isClosed` is backed by topology instead of a placeholder flag.
  */
 function _buildShellEdges(
   profile: Curve,
   rail: LineCurve,
   faceCount: number,
+  offset: Point3,
   tol: number,
 ): BrepEdge[] {
   const capBottomIdx = faceCount - 2;
+  const capTopIdx = faceCount - 1;
   const lateralCount = faceCount - 2;
 
+  if (profile.kind === "polyline") {
+    const segments = _profileSegments(profile);
+    const points = _profileLoopPoints(profile);
+    if (segments.length >= 3 && points.length === segments.length) {
+      const edges: BrepEdge[] = [];
+      for (let i = 0; i < segments.length; i++) {
+        edges.push({ curve: segments[i], faceIndex1: i, faceIndex2: capBottomIdx, tolerance: tol });
+      }
+      for (let i = 0; i < segments.length; i++) {
+        edges.push({ curve: _translateCurve(segments[i], offset), faceIndex1: i, faceIndex2: capTopIdx, tolerance: tol });
+      }
+      for (let i = 0; i < points.length; i++) {
+        edges.push({
+          curve: _line(points[i], _offsetPoint(points[i], offset)),
+          faceIndex1: (i - 1 + segments.length) % segments.length,
+          faceIndex2: i,
+          tolerance: tol,
+        });
+      }
+      return edges;
+    }
+  }
+
+  if (_curveIsClosed(profile)) {
+    return [
+      { curve: profile, faceIndex1: 0, faceIndex2: capBottomIdx, tolerance: tol },
+      { curve: _translateCurve(profile, offset), faceIndex1: 0, faceIndex2: capTopIdx, tolerance: tol },
+    ];
+  }
+
   const edges: BrepEdge[] = [];
-  // One vertical edge per lateral face (profile start → extruded start)
+  // Open profiles stay surface-like: their side boundaries are naked edges.
   for (let i = 0; i < lateralCount; i++) {
     edges.push({
       curve: rail,
       faceIndex1: i,
-      faceIndex2: i === 0 ? capBottomIdx : null,
+      faceIndex2: null,
       tolerance: tol,
     });
   }
@@ -274,8 +338,35 @@ function _buildShellEdges(
 function _buildShellVertices(
   profile: Curve,
   offset: Point3,
+  edgeCount: number,
   tol: number,
 ): BrepVertex[] {
+  if (profile.kind === "polyline") {
+    const points = _profileLoopPoints(profile);
+    const segments = _profileSegments(profile);
+    if (segments.length >= 3 && points.length === segments.length && edgeCount >= segments.length * 3) {
+      const n = segments.length;
+      const verts: BrepVertex[] = [];
+      for (let i = 0; i < n; i++) {
+        verts.push({
+          point: points[i],
+          edgeIndices: [(i - 1 + n) % n, i, 2 * n + i],
+          tolerance: tol,
+        });
+      }
+      for (let i = 0; i < n; i++) {
+        verts.push({
+          point: _offsetPoint(points[i], offset),
+          edgeIndices: [n + ((i - 1 + n) % n), n + i, 2 * n + i],
+          tolerance: tol,
+        });
+      }
+      return verts;
+    }
+  }
+
+  if (_curveIsClosed(profile)) return [];
+
   const dom = curveDomain(profile);
   const start = curvePointAt(profile, dom.min);
   const end   = curvePointAt(profile, dom.max);
@@ -287,4 +378,35 @@ function _buildShellVertices(
     { point: { x: end.x   + offset.x, y: end.y   + offset.y, z: end.z   + offset.z }, edgeIndices: [0], tolerance: tol },
   ];
   return verts;
+}
+
+function _profileLoopPoints(profile: PolylineCurve): Point3[] {
+  if (profile.points.length > 1 && Pt3.distance(profile.points[0], profile.points[profile.points.length - 1]) <= 1e-10) {
+    return profile.points.slice(0, -1);
+  }
+  return profile.points;
+}
+
+function _curveIsClosed(profile: Curve): boolean {
+  const dom = curveDomain(profile);
+  return Pt3.distance(curvePointAt(profile, dom.min), curvePointAt(profile, dom.max)) <= 1e-10;
+}
+
+function _offsetPoint(point: Point3, offset: Point3): Point3 {
+  return { x: point.x + offset.x, y: point.y + offset.y, z: point.z + offset.z };
+}
+
+function _line(from: Point3, to: Point3): LineCurve {
+  return { kind: "line", from, to, domain: Iv.create(0, Pt3.distance(from, to)) };
+}
+
+function _translateCurve(curve: Curve, offset: Point3): Curve {
+  return transformCurve(curve, {
+    m: [
+      1, 0, 0, offset.x,
+      0, 1, 0, offset.y,
+      0, 0, 1, offset.z,
+      0, 0, 0, 1,
+    ],
+  });
 }

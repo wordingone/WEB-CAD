@@ -265,6 +265,7 @@ export function buildCurve(pts: Array<{ x: number; y: number }>): { mesh: THREE.
   mesh.userData.kind = "curve";
   mesh.userData.creator = "curve";
   mesh.userData.isClosed = isClosed;
+  mesh.userData.nurbsCurve = crNurbs;
   mesh.userData.nurbsKind = "catmull-rom";
   mesh.userData.controlPoints = localVecs;
   mesh.userData.nurbsCVs = crNurbs.cvs;
@@ -360,11 +361,12 @@ function makePointMaterial(sizePx = 14): THREE.PointsMaterial {
     ctx.lineWidth = 3;
     ctx.stroke();
   }
-  return new THREE.PointsMaterial({
+  const params: THREE.PointsMaterialParameters = {
     size: sizePx, sizeAttenuation: false,
-    map: ctx ? new THREE.CanvasTexture(canvas) : undefined,
     transparent: true, alphaTest: 0.1, depthTest: false,
-  });
+  };
+  if (ctx) params.map = new THREE.CanvasTexture(canvas);
+  return new THREE.PointsMaterial(params);
 }
 
 export function buildPoint(p: { x: number; y: number }): { mesh: THREE.Object3D; chain: string } {

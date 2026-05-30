@@ -13,11 +13,18 @@ import { getState } from "./app-state";
 import { getLayoutHost, activateMode } from "./shell/modes";
 import { exportLayoutAsSvg, exportLayoutAsPdf, exportLayoutAsDwgFallback, exportLayoutAsDxf, addPanel, getPanels } from "./shell/layout";
 import { buildIfc, buildIfcScene, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
+import { canonicalGeometryToIfcNurbsSurfaces } from "./ifc/canonical-ifc";
 import { detectFormat, loadMainThreadFormat, buildIfcMesh, buildStepMesh, WORKER_FORMATS, MAIN_THREAD_FORMATS, isSupported, type LoadedScene } from "./io/loader";
 import { exportObj, exportGltfJson, exportGlb, exportUsdz, exportStl, export3dm, exportSvg, exportDxf, exportPdf } from "./io/exporters";
 import { undo, redo, clearHistory } from "./history";
 import { dispatchSync, registerHandler, registerPostDispatch } from "./commands/dispatch";
-import { sceneStoreSave, sceneStoreLoad, sceneStoreClear } from "./io/scene-store";
+import {
+  createSceneAutosavePayload,
+  readSceneAutosavePayload,
+  sceneStoreSave,
+  sceneStoreLoad,
+  sceneStoreClear,
+} from "./io/scene-store";
 import type { RoofParams } from "./tools/structural";
 import { DEFAULT_WALL_HEIGHT, rebuildWallParams, rebuildGroupWallHeight } from "./tools/structural";
 import { DEFAULT_DOOR_W, DEFAULT_DOOR_H } from "./tools/dimensions";
@@ -68,6 +75,14 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     | { kind: "none" }
     | { kind: "prompt"; demoId: string }
     | { kind: "file"; format: string; filename: string };
+  type ProjectPayload = {
+    format?: string;
+    version?: number;
+    meta?: { units?: string; name?: string; sourceIfc?: string; conversion?: string };
+    canonicalGeometry?: unknown[];
+    objects?: unknown[];
+  };
+  const PROJECT_FORMATS = new Set(["webcad", "gemarch", "json"]);
 
   let worker: Worker;
   let nextId = 1;
@@ -238,6 +253,14 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     const fmt = detectFormat(file.name);
     fileNameLabel.textContent = file.name;
     fileNameLabel.classList.remove("muted");
+    if (PROJECT_FORMATS.has(fmt)) {
+      try {
+        loadProjectSnapshot(await file.text(), file.name, fmt);
+      } catch (e) {
+        setStatus(`Failed to load project ${file.name}: ${(e as Error).message}`, "err");
+      }
+      return;
+    }
     if (!isSupported(fmt)) {
       setStatus(`Unsupported format: .${fmt} — try .ifc / .glb / .gltf / .obj / .stl / .step`, "err");
       return;
@@ -291,7 +314,36 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     }
   }
 
+  function loadProjectSnapshot(data: string, filename: string, format = "webcad"): void {
+    const parsed = JSON.parse(data) as ProjectPayload;
+    viewer.clearScene();
+    if (Array.isArray(parsed.canonicalGeometry)) {
+      viewer.importCanonicalGeometry(parsed.canonicalGeometry);
+    }
+    if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
+      viewer.importScene(parsed.objects as Parameters<typeof viewer.importScene>[0]);
+    }
+    clearHistory();
+    pendingStl = null; pendingStep = null;
+    currentSource = { kind: "file", format, filename };
+    const canonicalCount = Array.isArray(parsed.canonicalGeometry) ? parsed.canonicalGeometry.length : 0;
+    const objectCount = Array.isArray(parsed.objects) ? parsed.objects.length : 0;
+    setStatus(`Loaded ${parsed.meta?.name ?? filename} (${canonicalCount} canonical records).`, "ok");
+    const summary: SceneSummary = {
+      format: "webcad",
+      triangles: 0,
+      filename,
+      entityCount: objectCount,
+      schema: parsed.meta?.conversion ?? "canonical-project",
+    };
+    scenePanel.update(summary);
+    dispatchSync("SdZoomExtents", {});
+    refreshExportButtons();
+  }
+
   function finalizeFileLoad(scene: LoadedScene, filename: string) {
+    scene.object.userData.importFormat = scene.format;
+    scene.object.userData.importFilename = filename;
     viewer.setObject(scene.object, scene.bounds);
     clearHistory();
     pendingStl = null; pendingStep = null;
@@ -423,7 +475,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
             const g = new THREE.Group(); for (const c of nodes) g.add(c.clone()); return g;
           })();
           if (!stlSrc) { setStatus("No geometry loaded.", "warn"); return; }
-          const buf = exportStl(stlSrc);
+          const buf = exportStl(stlSrc, {
+            getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+          });
           downloadBlob(new Blob([buf], { type: "model/stl" }), `${stem}.stl`);
           setStatus(`STL \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
         }
@@ -440,15 +494,22 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
       }
       setStatus(`Exporting ${fmt.toUpperCase()}...`, "info");
       if (fmt === "obj") {
-        const text = exportObj(obj); downloadBlob(new Blob([text], { type: "model/obj" }), `${stem}.obj`);
+        const text = exportObj(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        }); downloadBlob(new Blob([text], { type: "model/obj" }), `${stem}.obj`);
         setStatus(`OBJ \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "3dm") {
         setStatus("Exporting 3DM (loading Rhino runtime)…", "info");
-        const buf = await export3dm(obj);
+        const buf = await export3dm(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/octet-stream" }), `${stem}.3dm`);
         setStatus(`3DM \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "dwg") {
-        const text = exportDxf(obj); downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
+        const text = exportDxf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
         setStatus(`DXF (AutoCAD-compatible; true DWG binary not available in browser) \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "glb") {
         const buf = await exportGlb(obj); downloadBlob(new Blob([buf], { type: "model/gltf-binary" }), `${stem}.glb`);
@@ -461,13 +522,21 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "model/vnd.usdz+zip" }), `${stem}.usdz`);
         setStatus(`USDZ \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "svg") {
-        const text = exportSvg(obj); downloadBlob(new Blob([text], { type: "image/svg+xml" }), `${stem}.svg`);
+        const text = exportSvg(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/svg+xml" }), `${stem}.svg`);
         setStatus(`SVG \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "dxf") {
-        const text = exportDxf(obj); downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
+        const text = exportDxf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
+        downloadBlob(new Blob([text], { type: "image/vnd.dxf" }), `${stem}.dxf`);
         setStatus(`DXF \xb7 ${(text.length / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "pdf") {
-        const buf = exportPdf(obj);
+        const buf = exportPdf(obj, {
+          getCanonicalGeometryForObject: (target) => viewer.getCanonicalGeometryForObject(target),
+        });
         downloadBlob(new Blob([buf.buffer as ArrayBuffer], { type: "application/pdf" }), `${stem}.pdf`);
         setStatus(`PDF \xb7 ${(buf.byteLength / 1024).toFixed(1)} KB`, "ok");
       } else if (fmt === "step") {
@@ -497,8 +566,10 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
       if (!creator || IFC_SKIP_CREATORS.has(creator)) return;
       if (obj.parent && obj.parent.userData.creator) return;
       const verts: number[] = [], idx: number[] = [];
+      const canonicalSurfaces: ReturnType<typeof canonicalGeometryToIfcNurbsSurfaces> = [];
       obj.updateMatrixWorld(true);
       obj.traverse((child) => {
+        canonicalSurfaces.push(...canonicalGeometryToIfcNurbsSurfaces(viewer.getCanonicalGeometryForObject(child), child.matrixWorld));
         const mesh = child as THREE.Mesh;
         if (!mesh.isMesh) return;
         const g = mesh.geometry as THREE.BufferGeometry;
@@ -513,8 +584,13 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         if (indexAttr) { for (let j = 0; j < indexAttr.array.length; j++) idx.push(indexAttr.array[j] + baseIndex); }
         else { for (let j = 0; j < Math.floor(pos.length / 3); j++) idx.push(baseIndex + j); }
       });
+      const rootCanonical = viewer.getCanonicalGeometryForObject(obj);
+      const nurbsSurfaces = canonicalSurfaces.length > 0
+        ? canonicalSurfaces
+        : canonicalGeometryToIfcNurbsSurfaces(rootCanonical, obj.matrixWorld);
       if (verts.length > 0) elements.push({
         mesh: { vertices: new Float32Array(verts), indices: new Uint32Array(idx) },
+        nurbsSurfaces: nurbsSurfaces.length > 0 ? nurbsSurfaces : undefined,
         creator, label: creator,
         levelId: obj.userData.levelId as string | undefined,
         dispatchArgs: obj.userData.dispatchArgs as Record<string, unknown> | undefined,
@@ -822,8 +898,12 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     _autoSaveTimer = setTimeout(async () => {
       _autoSaveTimer = null;
       try {
-        const data = viewer.exportScene();
-        if (data.length > 0) await sceneStoreSave(data); else await sceneStoreClear();
+        const objects = viewer.exportScene();
+        if (objects.length > 0) {
+          await sceneStoreSave(createSceneAutosavePayload(objects, viewer.exportCanonicalGeometry()));
+        } else {
+          await sceneStoreClear();
+        }
         _idbDiag.saveCount++; _idbDiag.lastSaveOk = true; _idbDiag.lastErr = null;
         _setDirty(false, "autosave-ok");
       } catch (err) {
@@ -842,7 +922,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
   setInterval(async () => {
     if (_hasUserContent()) {
       try {
-        await sceneStoreSave(viewer.exportScene());
+        await sceneStoreSave(createSceneAutosavePayload(viewer.exportScene(), viewer.exportCanonicalGeometry()));
         _idbDiag.saveCount++; _idbDiag.lastSaveOk = true; _idbDiag.lastErr = null;
         _setDirty(false, "heartbeat-ok");
       } catch (err) { _idbDiag.failCount++; _idbDiag.lastErr = String(err); console.warn("[idb] heartbeat save failed:", err); }
@@ -852,13 +932,19 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
   async function initSceneRestore(): Promise<void> {
     try {
       const saved = await sceneStoreLoad();
-      if (!saved || !Array.isArray(saved) || saved.length === 0) return;
+      const payload = readSceneAutosavePayload(saved);
+      if (!payload || payload.objects.length === 0) return;
       if (_hasUserContent()) return;
       const prompt = document.getElementById("restore-prompt") as HTMLElement | null; if (!prompt) return;
       prompt.hidden = false;
       document.getElementById("restore-btn")?.addEventListener("click", async () => {
         prompt.hidden = true;
-        try { viewer.importScene(saved as Parameters<typeof viewer.importScene>[0]); await sceneStoreClear(); setStatus("Session restored.", "ok"); }
+        try {
+          viewer.importCanonicalGeometry(payload.canonicalGeometry);
+          viewer.importScene(payload.objects as Parameters<typeof viewer.importScene>[0]);
+          await sceneStoreClear();
+          setStatus("Session restored.", "ok");
+        }
         catch { setStatus("Restore failed.", "err"); }
       }, { once: true });
       document.getElementById("restore-discard-btn")?.addEventListener("click", async () => {
