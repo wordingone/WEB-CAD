@@ -115,7 +115,14 @@ const navigateAndBoot = async (url = DEV_URL) => {
   await send("Page.navigate", { url });
   await delay(2_000);
   await send("Runtime.enable");
-  // Click cad-only gate if present
+  // Dismiss model-consent overlay and boot-screen (blocks pointer events including yin-toggle clicks)
+  await evaluate(`
+    document.getElementById('consent-cancel')?.click();
+    const bs = document.getElementById('boot-screen');
+    if (bs) { bs.style.pointerEvents='none'; bs.style.display='none'; }
+  `);
+  await delay(300);
+  // Click cad-only gate if present (fast timeout — not all builds have it)
   try {
     await poll(async () => {
       const center = await evaluate(`
@@ -128,9 +135,12 @@ const navigateAndBoot = async (url = DEV_URL) => {
       if (!center) return false;
       await trustedClick(center.x, center.y);
       return true;
-    }, { timeout: 15_000, label: "cad-only gate" });
+    }, { timeout: 4_000, label: "cad-only gate" });
   } catch { /* no gate */ }
-  await delay(500);
+  // Wait for viewer + canonical geometry store to be initialized (migration build needs this)
+  await poll(async () => evaluate(`!!(window.__viewer?.scene && typeof window.__viewer?.getCanonicalGeometryStore === "function")`),
+    { timeout: 20_000, interval: 400, label: "viewer+canonStore ready" });
+  await delay(300);
 };
 
 // All tool interaction goes through palette buttons (no __dispatchSync).
@@ -420,29 +430,135 @@ async function scenarioD() {
   const VX = vp.x; const VY = vp.y;
   const out = { pass: false };
 
-  // Create a rect (solid profile)
+  // 1. Create rect profile
   try {
     await clickTool("rect");
     await trustedClick(VX - 70, VY - 50);
     await trustedClick(VX + 70, VY + 50);
     await delay(400);
-  } catch {}
+  } catch (e) { out.rect_error = e.message; }
 
-  // Select it
-  await clickTool("select").catch(() => {});
-  await delay(150);
-  await trustedClick(VX, VY);
-  await delay(200);
+  // 2. Get rect's projected screen center (for extrude_select click)
+  const rectPos = await evaluate(`
+    (() => {
+      const scene = window.__viewer?.scene;
+      if (!scene) return null;
+      for (const obj of scene.children) {
+        if (obj.userData?.creator === "rect") {
+          const px = window.__projectToScreen;
+          return px ? px(obj.position.x, obj.position.y, 0) : null;
+        }
+      }
+      return null;
+    })()`);
+  const RX = rectPos?.x != null ? Math.round(rectPos.x) : VX;
+  const RY = rectPos?.y != null ? Math.round(rectPos.y) : VY;
+  console.log(`  rect screen: (${RX}, ${RY})`);
 
-  // Apply Fillet — type radius + Enter
+  // 3. Extrude: extrude_select (click profile) → extrude_height (mousemove → click to commit)
+  try {
+    await clickTool("extrude");
+    await delay(300);
+    // extrude_select: click rect profile — transitions to extrude_height
+    await trustedClick(RX, RY);
+    await delay(400);
+    // extrude_height: move mouse 60px up to set height, then click to commit SdExtrude
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: RX, y: RY - 60, button: "none" });
+    await delay(200);
+    await trustedClick(RX, RY - 60);
+    await delay(800);
+  } catch (e) { out.extrude_error = e.message; }
+
+  // 4. Find extruded solid's screen bbox for fillet targeting
+  const solidInfo = await evaluate(`
+    (() => {
+      const scene = window.__viewer?.scene;
+      if (!scene) return null;
+      let solid = null;
+      for (const obj of scene.children) {
+        if (obj.userData?.creator === "extrude") { solid = obj; break; }
+      }
+      if (!solid || !solid.geometry) return null;
+      const px = window.__projectToScreen;
+      if (!px) return null;
+      const pos = solid.geometry.getAttribute("position");
+      if (!pos || !pos.count) return null;
+      const me = solid.matrixWorld.elements;
+      let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9,minZ=1e9,maxZ=-1e9;
+      for (let i=0;i<pos.count;i++) {
+        const lx=pos.getX(i),ly=pos.getY(i),lz=pos.getZ(i);
+        const wx=me[0]*lx+me[4]*ly+me[8]*lz+me[12];
+        const wy=me[1]*lx+me[5]*ly+me[9]*lz+me[13];
+        const wz=me[2]*lx+me[6]*ly+me[10]*lz+me[14];
+        if(wx<minX)minX=wx;if(wx>maxX)maxX=wx;
+        if(wy<minY)minY=wy;if(wy>maxY)maxY=wy;
+        if(wz<minZ)minZ=wz;if(wz>maxZ)maxZ=wz;
+      }
+      const cx=(minX+maxX)/2,cy=(minY+maxY)/2,topZ=maxZ;
+      return {
+        solidCenter: px(cx, cy, (minZ+maxZ)/2),
+        topMidpoints: [
+          px(cx, cy, topZ),
+          px((minX+cx)/2, cy, topZ),
+          px((maxX+cx)/2, cy, topZ),
+          px(cx, (minY+cy)/2, topZ),
+          px(cx, (maxY+cy)/2, topZ),
+        ],
+      };
+    })()`);
+
+  if (!solidInfo?.solidCenter) {
+    out.extrude_failed = true;
+    out.pass = false;
+    console.log("  D: FAIL — extrude did not create solid");
+    return out;
+  }
+
+  // 5. Fillet: fillet_select (click solid) → fillet_edge (hover+click edge) → fillet_edge_radius (type+Enter)
   const canonBefore = await getCanonRecordCount();
   const sceneBefore = await getSceneObjectCount();
+
   try {
     await clickTool("fillet");
+    await delay(300);
+
+    // fillet_select: click solid center — transitions to fillet_edge
+    const SC = solidInfo.solidCenter;
+    await trustedClick(Math.round(SC.x), Math.round(SC.y));
     await delay(400);
-    await typeString("0.3");
-    await trustedKey("Enter");
-    await delay(600);
+
+    // fillet_edge: sweep over top-face edge midpoints within 60px threshold
+    let inRadiusPhase = false;
+    for (const edgePt of solidInfo.topMidpoints) {
+      if (!edgePt) continue;
+      for (const [dx, dy] of [[0,0],[-5,0],[5,0],[0,-5],[0,5]]) {
+        await send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x: Math.round(edgePt.x + dx), y: Math.round(edgePt.y + dy),
+          button: "none",
+        });
+        await delay(60);
+      }
+      // Click — if hover detected _opHoverEdgePts, transitions to fillet_edge_radius
+      await trustedClick(Math.round(edgePt.x), Math.round(edgePt.y));
+      await delay(300);
+      // Detect coord input visible → we are in fillet_edge_radius
+      const coordVis = await evaluate(`
+        (() => {
+          const wrap = document.querySelector('.pt-coord-wrap');
+          return !!(wrap?.classList.contains('visible') || wrap?.style.display === 'block');
+        })()`);
+      if (coordVis) { inRadiusPhase = true; break; }
+    }
+    out.in_radius_phase = inRadiusPhase;
+
+    if (inRadiusPhase) {
+      // fillet_edge_radius: type radius + Enter → dispatches SdFillet
+      await typeString("0.3");
+      await delay(100);
+      await trustedKey("Enter");
+      await delay(600);
+    }
   } catch (e) { out.fillet_error = e.message; }
 
   const canonAfter  = await getCanonRecordCount();
@@ -474,10 +590,8 @@ async function scenarioD() {
   const overlayClean = await checkRuntimeOverlay();
   out.overlay_clean = !!overlayClean;
 
-  // D passes if: overlay clean + (fillet tool activated + something changed OR fillet canonical record appeared)
-  const toolActivated = await getActiveTool().then(t => t === null /* back to select */ || true);
   out.pass = overlayClean && (out.canonical_added > 0 || out.objects_after !== 0 || out.fillet_record !== null);
-  console.log(`  fillet_record: ${JSON.stringify(out.fillet_record)}  canonical_added: ${out.canonical_added}  overlay_clean: ${out.overlay_clean}`);
+  console.log(`  in_radius_phase: ${out.in_radius_phase}  fillet_record: ${JSON.stringify(out.fillet_record)}  canonical_added: ${out.canonical_added}  overlay_clean: ${out.overlay_clean}`);
   console.log(`  D: ${out.pass ? "PASS ✓" : "FAIL ✗"}`);
   return out;
 }
