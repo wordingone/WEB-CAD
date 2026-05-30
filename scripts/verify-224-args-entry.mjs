@@ -109,6 +109,14 @@ await send("Page.navigate", { url: MASTER_URL });
 await delay(2_000);
 await send("Runtime.enable");
 
+// Dismiss model-consent overlay (cancel = no model load) and/or boot screen overlay.
+await evaluate(`
+  document.getElementById('consent-cancel')?.click();
+  const bs = document.getElementById('boot-screen');
+  if (bs) { bs.style.pointerEvents='none'; bs.style.display='none'; }
+`);
+await delay(300);
+
 // Boot gate: click CAD ONLY if present
 try {
   await poll(async () => {
@@ -155,27 +163,39 @@ await delay(30);
 await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: VX, y: VY, button: "left", clickCount: 1 });
 await delay(200);
 
-// Helper: count scene objects matching kind
+// Helper: count scene objects matching kind or creator (wall uses kind="brep" but creator="wall").
 const countKind = (kind) => evaluate(`
   (() => {
     const scene = window.__viewer?.scene;
     if (!scene) return 0;
-    return scene.children.filter(c => c.userData?.kind === ${JSON.stringify(kind)}).length;
+    return scene.children.filter(c =>
+      c.userData?.kind === ${JSON.stringify(kind)} || c.userData?.creator === ${JSON.stringify(kind)}
+    ).length;
   })()`);
 
-// Helper: get bounding box of last-added object of given kind
+// Helper: get bounding box of last-added object of given kind or creator.
+// Uses geometry.computeBoundingBox() — window.THREE is not exported by the bundle.
 const getBBox = (kind) => evaluate(`
   (() => {
-    const THREE = window.__THREE ?? window.THREE;
     const scene = window.__viewer?.scene;
-    if (!scene || !THREE) return null;
-    const objs = scene.children.filter(c => c.userData?.kind === ${JSON.stringify(kind)});
+    if (!scene) return null;
+    const objs = scene.children.filter(c =>
+      c.userData?.kind === ${JSON.stringify(kind)} || c.userData?.creator === ${JSON.stringify(kind)}
+    );
     if (!objs.length) return null;
     const obj = objs[objs.length - 1];
     try {
-      const box = new THREE.Box3().setFromObject(obj);
-      const sz = new THREE.Vector3(); box.getSize(sz);
-      return { w: +sz.x.toFixed(4), h: +sz.y.toFixed(4), d: +sz.z.toFixed(4) };
+      let wx = 0, wy = 0, wz = 0;
+      obj.traverse(c => {
+        if (!c.geometry) return;
+        c.geometry.computeBoundingBox();
+        const b = c.geometry.boundingBox;
+        if (!b) return;
+        wx = Math.max(wx, b.max.x - b.min.x);
+        wy = Math.max(wy, b.max.y - b.min.y);
+        wz = Math.max(wz, b.max.z - b.min.z);
+      });
+      return { w: +wx.toFixed(4), h: +wy.toFixed(4), d: +wz.toFixed(4) };
     } catch { return null; }
   })()`);
 

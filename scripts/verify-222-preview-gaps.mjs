@@ -77,6 +77,14 @@ await send("Page.navigate", { url: MASTER_URL });
 await delay(2_000);
 await send("Runtime.enable");
 
+// Dismiss model-consent overlay (cancel = no model load) and/or boot screen overlay.
+await evaluate(`
+  document.getElementById('consent-cancel')?.click();
+  const bs = document.getElementById('boot-screen');
+  if (bs) { bs.style.pointerEvents='none'; bs.style.display='none'; }
+`);
+await delay(300);
+
 const trustedClick = async (x, y) => {
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
   await delay(30);
@@ -152,9 +160,8 @@ await delay(200);
 // isCurveWall flag is secondary; primary assertion is bbox min-dimension > 0.1 (wall t=0.2m).
 const wallCurvePreview = await evaluate(`
   (() => {
-    const THREE = window.__THREE ?? window.THREE;
     const scene = window.__viewer?.scene;
-    if (!scene || !THREE) return null;
+    if (!scene) return null;
     const candidates = [];
     for (const obj of scene.children) {
       const isPreview = obj.userData?.isPreview || obj.userData?.isPreviewMode;
@@ -164,10 +171,19 @@ const wallCurvePreview = await evaluate(`
       const isTransparent = mat?.transparent && mat?.opacity < 0.5;
       if (isPreview || isCW || (isWall && isTransparent)) {
         try {
-          const box = new THREE.Box3().setFromObject(obj);
-          const sz = new THREE.Vector3(); box.getSize(sz);
-          const minDim = Math.min(sz.x, sz.y);
-          candidates.push({ isCurveWall: !!isCW, minDim: +minDim.toFixed(4), w: +sz.x.toFixed(4), h: +sz.y.toFixed(4), d: +sz.z.toFixed(4) });
+          // Compute bbox without needing window.THREE (not exported by bundle).
+          let wx = 0, wy = 0, wz = 0;
+          obj.traverse(c => {
+            if (!c.geometry) return;
+            c.geometry.computeBoundingBox();
+            const b = c.geometry.boundingBox;
+            if (!b) return;
+            wx = Math.max(wx, b.max.x - b.min.x);
+            wy = Math.max(wy, b.max.y - b.min.y);
+            wz = Math.max(wz, b.max.z - b.min.z);
+          });
+          const minDim = Math.min(wx, wy);
+          candidates.push({ isCurveWall: !!isCW, minDim: +minDim.toFixed(4), w: +wx.toFixed(4), h: +wy.toFixed(4), d: +wz.toFixed(4) });
         } catch {}
       }
     }
