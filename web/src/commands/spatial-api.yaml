@@ -642,7 +642,12 @@
         unit: m
       edgeId:
         type: integer
-        description: "0-based index into the mesh's unique edge list; omit to round all edges"
+        description: "[optional] 0-based index into the mesh's unique edge list; omit to round all edges"
+      edges:
+        type: array
+        description: "[optional] Array of 0-based edge indices for multi-edge fillet in one operation"
+        items:
+          type: integer
     required: [target, radius]
   topology_role: edge
   kg_predicates: []
@@ -655,15 +660,24 @@
   parameters:
     type: object
     properties:
-      edges:
-        type: list_edge
+      target:
+        type: object_id
       distance:
         type: number
         unit: m
-    required: [edges, distance]
+        description: "[required] Chamfer distance (flat bevel size)"
+      edgeId:
+        type: integer
+        description: "[optional] 0-based edge index; omit to chamfer all edges"
+      edges:
+        type: array
+        description: "[optional] Array of 0-based edge indices for multi-edge chamfer"
+        items:
+          type: integer
+    required: [target, distance]
   topology_role: edge
   kg_predicates: []
-  synonyms: [chamfer, bevel]
+  synonyms: [chamfer, bevel, flat-fillet]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
