@@ -48,6 +48,7 @@ const TRANSITIONS: Record<RuntimeState, Partial<Record<RuntimeEvent["type"], Run
                 GENERATE_REQUESTED: "generating" }, // prompt submitted during post-recycle boot (#1526 H3)
   ready:      { GENERATE_REQUESTED: "generating", BOOT_REQUESTED: "booting",
                 PREFILL_DONE: "ready",        // warmup-done after recycle if noWarmup=false
+                MODEL_READY:  "ready",        // session-refresh sends model-ready before GENERATE_REQUESTED (idle-reinit race)
                 D3D12_OOM: "recycling",       // planned recycle dispatched before GENERATE_REQUESTED (#1750)
                 WORKER_RECYCLED: "recovering" }, // unplanned recycle while idle — no prior D3D12_OOM (#1526 H2)
   generating: {
