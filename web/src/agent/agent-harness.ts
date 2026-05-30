@@ -1796,15 +1796,13 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
 
   // Plain-text messages: worker splices image into last user message if imageUrl is set.
   // §C (#990): build once, reuse length for telemetry — avoids redundant 7K-char rebuild.
-  const MAX_HISTORY_MSGS = 20;
+  // §#281: OOM fix — WebGPU path OOMs at ~4 history messages on this GPU.
+  // Keep at most 1 prior turn (last user + last assistant = 2 messages).
+  // Char budget 1K caps runaway single messages.
+  const MAX_HISTORY_MSGS = 2;
   const _historyIn = req.history ?? [];
   let trimmedHistory = _historyIn.slice(-MAX_HISTORY_MSGS);
-  // Char-based safety trim: ~40K chars ≈ 10K tokens, leaves 6K headroom for sys+image+prompt
-  // within the 16384-token WEBGPU_CONTEXT_LIMIT. Drop oldest user+assistant pairs together.
-  // §#1505: never trim below the last 2 messages (most recent user+assistant pair).
-  // After a scene-VRAM recycle, the model needs at least the prior assistant turn so it
-  // knows what was built and can continue adding geometry rather than outputting NL-only.
-  const HISTORY_CHAR_BUDGET = 40_000;
+  const HISTORY_CHAR_BUDGET = 1_000;
   const HISTORY_MIN_TAIL = 2; // always preserve last user+assistant pair
   {
     let histChars = trimmedHistory.reduce(
