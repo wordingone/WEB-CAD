@@ -2350,17 +2350,21 @@
   alias_source: generic_cad_vocabulary
 
 - name: SdVolume
-  kernel_op: volume
+  kernel_op: measureVolume
   parameters:
     type: object
     properties:
       target:
-        type: solid
+        type: object_id
+        description: "[required] UUID of the closed BRep solid whose volume to compute"
+      shell:
+        type: integer
+        description: "[optional] shell index (default 0)"
+        default: 0
     required: [target]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [volume]
-  kernel: replicad
+  synonyms: [volume, solid volume, geometric volume, compute volume, measure volume, how much volume, what is the volume, volume of solid]
   alias_source: generic_cad_vocabulary
 
 - name: SdAlignedDim

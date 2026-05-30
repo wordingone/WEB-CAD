@@ -292,4 +292,55 @@ export function registerAnnotationHandlers(viewer: Viewer): void {
     opAddLabel(formatArea(area), centroid, viewer);
     return { measured: "face-area", area: parseFloat(area.toFixed(6)), face: faceIndex, shell: shellIndex, unit: unitSuffix, object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
   });
+
+  registerHandler("SdVolume", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdVolume requires target" };
+
+    const obj = viewer.getScene().getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdVolume — target not found: ${targetId}` };
+
+    const mesh = obj instanceof THREE.Mesh ? obj : null;
+    if (!mesh) return { error: "SdVolume — target is not a renderable solid mesh" };
+
+    const store = viewer.getCanonicalGeometryStore();
+    const canonical = store.resolveObjectOrAncestor(obj);
+    if (!canonical || canonical.kind !== "brep") {
+      return { error: "SdVolume — target has no canonical BRep" };
+    }
+
+    // Divergence theorem on display mesh: V = (1/6)|Σ v0·(v1×v2)| for the closed triangulated surface.
+    const geo = mesh.geometry;
+    const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+    const idx = geo.index;
+    let signedVol = 0;
+    let cx = 0, cy = 0, cz = 0;
+    const processTriangle = (ai: number, bi: number, ci: number) => {
+      const x0 = pos.getX(ai), y0 = pos.getY(ai), z0 = pos.getZ(ai);
+      const x1 = pos.getX(bi), y1 = pos.getY(bi), z1 = pos.getZ(bi);
+      const x2 = pos.getX(ci), y2 = pos.getY(ci), z2 = pos.getZ(ci);
+      signedVol += x0 * (y1 * z2 - y2 * z1) + y0 * (z1 * x2 - z2 * x1) + z0 * (x1 * y2 - x2 * y1);
+      cx += x0 + x1 + x2; cy += y0 + y1 + y2; cz += z0 + z1 + z2;
+    };
+    if (idx) {
+      for (let i = 0; i < idx.count; i += 3) processTriangle(idx.getX(i), idx.getX(i + 1), idx.getX(i + 2));
+    } else {
+      for (let i = 0; i < pos.count; i += 3) processTriangle(i, i + 1, i + 2);
+    }
+    const volume = Math.abs(signedVol) / 6;
+    const triCount = idx ? idx.count / 3 : pos.count / 3;
+    if (triCount > 0) { cx /= triCount * 3; cy /= triCount * 3; cz /= triCount * 3; }
+
+    const centroid = new THREE.Vector3(cx, cy, cz);
+    const group = new THREE.Group();
+    linkAnnotationCurve(viewer, group, [centroid], "SdVolume", {
+      measured: "volume",
+      target: targetId,
+      volume,
+    });
+    viewer.addMesh(group, "mesh");
+    const unitSuffix = unitLabel() === "ft" ? "ft³" : "m³";
+    opAddLabel(formatVolume(volume), centroid, viewer);
+    return { measured: "volume", volume: parseFloat(volume.toFixed(6)), unit: unitSuffix, object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
+  });
 }
