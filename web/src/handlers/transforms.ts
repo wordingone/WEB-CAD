@@ -877,6 +877,109 @@ export function registerTransformHandlers(viewer: Viewer): void {
     return { created: clone.uuid, delta: [x, y, z] };
   });
 
+  registerHandler("SdMirror", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdMirror requires target" };
+    const scene = viewer.getScene();
+    const obj = scene.getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdMirror — target not found: ${targetId}` };
+    if (!(obj instanceof THREE.Mesh)) return { error: "SdMirror — target is not a renderable mesh" };
+
+    const planeName = (args.plane_name as string | undefined)?.toUpperCase() ?? "XY";
+    const normalArg = Array.isArray(args.normal) ? (args.normal as number[]) : null;
+    const originArg = Array.isArray(args.origin) ? (args.origin as number[]) : null;
+
+    let nx: number, ny: number, nz: number;
+    if (normalArg && normalArg.length >= 3) {
+      const nv = new THREE.Vector3(normalArg[0] ?? 0, normalArg[1] ?? 0, normalArg[2] ?? 1).normalize();
+      nx = nv.x; ny = nv.y; nz = nv.z;
+    } else if (planeName === "YZ") {
+      nx = 1; ny = 0; nz = 0;
+    } else if (planeName === "XZ") {
+      nx = 0; ny = 1; nz = 0;
+    } else {
+      nx = 0; ny = 0; nz = 1;
+    }
+    const ox = originArg ? (originArg[0] ?? 0) : 0;
+    const oy = originArg ? (originArg[1] ?? 0) : 0;
+    const oz = originArg ? (originArg[2] ?? 0) : 0;
+
+    // Reflection matrix: R = I - 2*n*n^T, translation = 2*(n·o)*n
+    const r00 = 1 - 2*nx*nx, r01 = -2*nx*ny, r02 = -2*nx*nz;
+    const r10 = -2*ny*nx, r11 = 1 - 2*ny*ny, r12 = -2*ny*nz;
+    const r20 = -2*nz*nx, r21 = -2*nz*ny, r22 = 1 - 2*nz*nz;
+    const dot2 = 2 * (nx*ox + ny*oy + nz*oz);
+    const reflectMat = new THREE.Matrix4().set(
+      r00, r01, r02, nx*dot2,
+      r10, r11, r12, ny*dot2,
+      r20, r21, r22, nz*dot2,
+      0, 0, 0, 1,
+    );
+
+    // Build display mesh by reflecting source geometry vertices directly.
+    // objectFromCanonicalGeometry on a det=-1 BRep produces winding cancellation;
+    // vertex-level reflection is reliable and preserves correct divergence-theorem signs.
+    const geo = obj.geometry.clone();
+    const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < posAttr.count; i++) {
+      const v = new THREE.Vector3(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+      v.applyMatrix4(reflectMat);
+      posAttr.setXYZ(i, v.x, v.y, v.z);
+    }
+    posAttr.needsUpdate = true;
+    // Flip face winding so outward normals remain consistent after reflection (det=-1)
+    if (geo.index) {
+      const idx = geo.index;
+      for (let i = 0; i < idx.count; i += 3) {
+        const b = idx.getX(i + 1);
+        const c = idx.getX(i + 2);
+        idx.setX(i + 1, c);
+        idx.setX(i + 2, b);
+      }
+      idx.needsUpdate = true;
+    }
+    geo.computeVertexNormals();
+    const display = new THREE.Mesh(geo, obj.material);
+    display.userData.kind = "brep";
+    display.userData.creator = "SdMirror";
+    display.userData.dispatchArgs = args;
+
+    const store = viewer.getCanonicalGeometryStore();
+    const canonical = store.resolveObjectOrAncestor(obj);
+    if (canonical?.kind === "brep") {
+      obj.updateMatrixWorld(true);
+      const worldBrep = transformBrep(canonical.brep, threeMatrixToXform(obj.matrixWorld));
+      const mirroredBrep = transformBrep(worldBrep, threeMatrixToXform(reflectMat));
+      const record = store.create({
+        kind: "brep",
+        brep: mirroredBrep,
+        source: "edit",
+        createdBy: "SdMirror",
+        metadata: {
+          operation: "mirror",
+          source: canonical.id,
+          plane: normalArg ? "custom" : planeName,
+          normal: [nx, ny, nz],
+          origin: [ox, oy, oz],
+          derivation: "reflected-display-mesh",
+        },
+      });
+      record.displayMesh = {
+        revision: 1,
+        generatedAt: Date.now(),
+        vertexCount: posAttr.count,
+        triangleCount: geo.index
+          ? Math.floor(geo.index.count / 3)
+          : Math.floor(posAttr.count / 3),
+        derivation: "tessellated-brep",
+      };
+      store.linkObject(display, record.id);
+    }
+
+    viewer.addMesh(display, "brep");
+    return { created: display.uuid, plane: normalArg ? "custom" : planeName, normal: [nx, ny, nz], origin: [ox, oy, oz] };
+  });
+
   registerHandler("SdArrayLinear", (args) => {
     const byTarget = (args.target as string | undefined)
       ? (viewer.getScene().getObjectByProperty("uuid", args.target as string) ?? null)

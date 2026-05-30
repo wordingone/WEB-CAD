@@ -851,14 +851,21 @@
     type: object
     properties:
       target:
-        type: any
-      plane:
-        type: plane3
-    required: [target, plane]
+        type: object_id
+        description: "[required] UUID of the object to mirror"
+      plane_name:
+        type: string
+        description: "[optional] named mirror plane: XY, YZ, or XZ (default XY)"
+      normal:
+        type: vector3
+        description: "[optional] custom mirror plane normal [nx, ny, nz]"
+      origin:
+        type: point3
+        description: "[optional] custom mirror plane origin, default [0,0,0]"
+    required: [target]
   topology_role: transform
   kg_predicates: []
-  synonyms: [mirror, reflect, flip]
-  kernel: replicad
+  synonyms: [mirror, reflect, flip, mirror across XY, mirror across YZ, mirror across XZ, flip across plane, mirror object, flip object, reflect object]
   alias_source: generic_cad_vocabulary
 
 - name: SdArray
