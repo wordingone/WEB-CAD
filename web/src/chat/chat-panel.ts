@@ -159,8 +159,8 @@ export function _rotateSkillSteps(steps: SkillStep[], cx: number, cy: number, de
   }));
 }
 
-// Keys whose values are angles (degrees) — must not be divided by ft2m.
-const _ANGLE_KEYS = new Set(["pitchDeg", "angleDeg", "angle", "rotation", "tilt"]);
+// Keys whose values are angles or dimensionless ratios — must not be multiplied by ft2m.
+const _ANGLE_KEYS = new Set(["pitchDeg", "angleDeg", "angle", "rotation", "tilt", "factor", "scaleFactor"]);
 const _FT_TO_M = 1 / 3.28084;
 
 function _convertVal(key: string, val: unknown): unknown {
