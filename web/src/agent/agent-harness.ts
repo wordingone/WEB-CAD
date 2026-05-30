@@ -258,6 +258,10 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
   });
   _inferenceWorker!.terminate();
   _inferenceWorker = null;
+  // §#281: give the GPU driver 1.5s to process the device destruction and release VRAM
+  // before the new worker spawns. Without this cooldown, the new worker's model-load
+  // races against the OS GPU memory pool still being returned by the old device.
+  await new Promise(r => setTimeout(r, 1500));
   _arc.dispatch({ type: "D3D12_OOM", reason: "planned" });
   (window as unknown as Record<string, unknown>).__model_worker_recycle_count = _arc.recycleCount;
   window.dispatchEvent(new CustomEvent("agentmodel:worker-recycled", {
