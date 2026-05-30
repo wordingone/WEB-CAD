@@ -180,6 +180,140 @@ export function loftSurfaces(
   };
 }
 
+// ── Knot insertion (Boehm's algorithm, P&T §5.2, Algorithm A5.1) ─────────────
+//
+// Works on nurbs-surfaces.ts:NurbsSurface (OpenNURBS knot convention):
+//   knots[dir].length = cvCount[dir] + order[dir] - 2
+//
+// The full P&T clamped vector is reconstructed internally from the OpenNURBS
+// convention and stripped back after insertion.
+
+function _toFullKnotsNS(K: readonly number[], n: number, order: number): number[] {
+  const full = new Array<number>(order + n);
+  full[0] = K[0];
+  for (let i = 0; i < K.length; i++) full[i + 1] = K[i];
+  full[order + n - 1] = K[K.length - 1];
+  return full;
+}
+
+function _findSpanNS(n: number, degree: number, uBar: number, U: number[]): number {
+  if (uBar >= U[n]) return n - 1;
+  if (uBar <= U[degree]) return degree;
+  let lo = degree, hi = n;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (uBar < U[mid]) hi = mid; else lo = mid;
+  }
+  return lo;
+}
+
+/** Insert knot uBar once into the U-parameter direction. Shape is preserved exactly. */
+export function insertKnotU(ns: NurbsSurface, uBar: number): NurbsSurface {
+  const [nU, nV] = ns.cvCount;
+  const [oU] = ns.order;
+  const pU = oU - 1;
+  const cs = ns.dim + (ns.isRational ? 1 : 0);
+  const U = _toFullKnotsNS(ns.knots[0], nU, oU);
+  const k = _findSpanNS(nU, pU, uBar, U);
+
+  // alpha_i = (uBar - U[i]) / (U[i+p+1] - U[i])  (P&T A5.1 eq 5.5)
+  const alpha: number[] = new Array(nU).fill(0);
+  for (let i = k - pU + 1; i <= k; i++) {
+    const denom = U[i + pU + 1] - U[i];
+    alpha[i] = denom === 0 ? 0 : (uBar - U[i]) / denom;
+  }
+
+  const newNu = nU + 1;
+  const newCvs: number[] = new Array(newNu * nV * cs).fill(0);
+
+  const getP = (i: number, j: number): number[] => {
+    const b = (i * nV + j) * cs;
+    return Array.from({ length: cs }, (_, c) => ns.cvs[b + c]);
+  };
+  const setQ = (i: number, j: number, vals: number[]): void => {
+    const b = (i * nV + j) * cs;
+    for (let c = 0; c < cs; c++) newCvs[b + c] = vals[c];
+  };
+
+  for (let j = 0; j < nV; j++) {
+    for (let i = 0; i <= k - pU; i++) setQ(i, j, getP(i, j));
+    for (let i = k - pU + 1; i <= k; i++) {
+      const a = alpha[i];
+      const pi = getP(i, j), pm1 = getP(i - 1, j);
+      setQ(i, j, pi.map((v, c) => a * v + (1 - a) * pm1[c]));
+    }
+    for (let i = k + 1; i < newNu; i++) setQ(i, j, getP(i - 1, j));
+  }
+
+  const U_new = [...U.slice(0, k + 1), uBar, ...U.slice(k + 1)];
+  return {
+    ...ns,
+    cvCount: [newNu, nV],
+    knots: [U_new.slice(1, -1), ns.knots[1]],
+    cvs: newCvs,
+    cvStride: [nV * cs, cs],
+  };
+}
+
+/** Insert knot vBar once into the V-parameter direction. Shape is preserved exactly. */
+export function insertKnotV(ns: NurbsSurface, vBar: number): NurbsSurface {
+  const [nU, nV] = ns.cvCount;
+  const [, oV] = ns.order;
+  const pV = oV - 1;
+  const cs = ns.dim + (ns.isRational ? 1 : 0);
+  const V = _toFullKnotsNS(ns.knots[1], nV, oV);
+  const k = _findSpanNS(nV, pV, vBar, V);
+
+  const alpha: number[] = new Array(nV).fill(0);
+  for (let i = k - pV + 1; i <= k; i++) {
+    const denom = V[i + pV + 1] - V[i];
+    alpha[i] = denom === 0 ? 0 : (vBar - V[i]) / denom;
+  }
+
+  const newNv = nV + 1;
+  const newCvs: number[] = new Array(nU * newNv * cs).fill(0);
+
+  const getP = (i: number, j: number): number[] => {
+    const b = (i * nV + j) * cs;
+    return Array.from({ length: cs }, (_, c) => ns.cvs[b + c]);
+  };
+  const setQ = (i: number, j: number, vals: number[]): void => {
+    const b = (i * newNv + j) * cs;
+    for (let c = 0; c < cs; c++) newCvs[b + c] = vals[c];
+  };
+
+  for (let i = 0; i < nU; i++) {
+    for (let j = 0; j <= k - pV; j++) setQ(i, j, getP(i, j));
+    for (let j = k - pV + 1; j <= k; j++) {
+      const a = alpha[j];
+      const pj = getP(i, j), pm1 = getP(i, j - 1);
+      setQ(i, j, pj.map((v, c) => a * v + (1 - a) * pm1[c]));
+    }
+    for (let j = k + 1; j < newNv; j++) setQ(i, j, getP(i, j - 1));
+  }
+
+  const V_new = [...V.slice(0, k + 1), vBar, ...V.slice(k + 1)];
+  return {
+    ...ns,
+    cvCount: [nU, newNv],
+    knots: [ns.knots[0], V_new.slice(1, -1)],
+    cvs: newCvs,
+    cvStride: [newNv * cs, cs],
+  };
+}
+
+/** Midpoint of the U parameter domain — a sensible knot insertion location. */
+export function midParamU(ns: NurbsSurface): number {
+  const K = ns.knots[0];
+  return (K[0] + K[K.length - 1]) / 2;
+}
+
+/** Midpoint of the V parameter domain. */
+export function midParamV(ns: NurbsSurface): number {
+  const K = ns.knots[1];
+  return (K[0] + K[K.length - 1]) / 2;
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 function _perpendicular(v: Vector3): Vector3 {
