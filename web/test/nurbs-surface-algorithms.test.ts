@@ -1,8 +1,8 @@
 // nurbs-surface-algorithms.test.ts — Unit tests for Tier 3 algorithms (#78).
 
 import { describe, expect, test } from "bun:test";
-import { surfaceOfRevolution, sweepSurface, loftSurfaces } from "../src/nurbs/nurbs-surface-algorithms";
-import { pointAtUV, tessellateSurface } from "../src/nurbs/nurbs-surfaces";
+import { surfaceOfRevolution, sweepSurface, loftSurfaces, insertKnotU, insertKnotV, midParamU, midParamV } from "../src/nurbs/nurbs-surface-algorithms";
+import { pointAtUV, tessellateSurface, type NurbsSurface as NsNurbsSurface } from "../src/nurbs/nurbs-surfaces";
 import { type LineCurve, type ArcCurve } from "../src/nurbs/nurbs-curves";
 import { Plane, Point3 } from "../src/nurbs/nurbs-primitives";
 
@@ -190,5 +190,123 @@ describe("loftSurfaces — degreeV clamped to curves.length - 1", () => {
       makeHorizontalLine(2), makeHorizontalLine(3), makeHorizontalLine(4),
     ]);
     expect(surf.order[1]).toBe(4); // degreeV=3 → order=4
+  });
+});
+
+// ── insertKnotU / insertKnotV ─────────────────────────────────────────────────
+
+// Bilinear unit-square patch: pointAtUV(surf, u, v) = (u, v, 0) exactly.
+const makeUnitSquare = (): NsNurbsSurface => ({
+  kind: "nurbs",
+  dim: 3,
+  isRational: false,
+  order: [2, 2],
+  cvCount: [2, 2],
+  knots: [[0, 1], [0, 1]],
+  cvs: [
+    0, 0, 0,  // P(0,0)
+    0, 1, 0,  // P(0,1)
+    1, 0, 0,  // P(1,0)
+    1, 1, 0,  // P(1,1)
+  ],
+  cvStride: [6, 3],
+});
+
+describe("insertKnotU — bilinear unit square", () => {
+  const sq = makeUnitSquare();
+  const after = insertKnotU(sq, 0.5);
+
+  test("cvCount[0] increases by 1", () => {
+    expect(after.cvCount[0]).toBe(sq.cvCount[0] + 1);
+    expect(after.cvCount[1]).toBe(sq.cvCount[1]);
+  });
+
+  test("knots[0] contains new knot 0.5", () => {
+    expect(after.knots[0]).toContain(0.5);
+    expect(after.knots[0].length).toBe(sq.knots[0].length + 1);
+  });
+
+  test("shape preserved — (u,v) = (0.25, 0.5)", () => {
+    const before = pointAtUV(sq, 0.25, 0.5);
+    const result = pointAtUV(after, 0.25, 0.5);
+    expect(closePt(before, result, 1e-9)).toBe(true);
+    expect(closePt(result, { x: 0.25, y: 0.5, z: 0 }, 1e-9)).toBe(true);
+  });
+
+  test("shape preserved — multiple sample points", () => {
+    for (const [u, v] of [[0.1, 0.3], [0.5, 0.5], [0.7, 0.9], [0.0, 1.0]]) {
+      const expected = pointAtUV(sq, u, v);
+      const actual = pointAtUV(after, u, v);
+      expect(closePt(expected, actual, 1e-9)).toBe(true);
+    }
+  });
+
+  test("original surface unchanged (immutable)", () => {
+    expect(sq.cvCount[0]).toBe(2);
+    expect(sq.knots[0].length).toBe(2);
+  });
+});
+
+describe("insertKnotV — bilinear unit square", () => {
+  const sq = makeUnitSquare();
+  const after = insertKnotV(sq, 0.5);
+
+  test("cvCount[1] increases by 1", () => {
+    expect(after.cvCount[1]).toBe(sq.cvCount[1] + 1);
+    expect(after.cvCount[0]).toBe(sq.cvCount[0]);
+  });
+
+  test("knots[1] contains new knot 0.5", () => {
+    expect(after.knots[1]).toContain(0.5);
+    expect(after.knots[1].length).toBe(sq.knots[1].length + 1);
+  });
+
+  test("shape preserved — multiple sample points", () => {
+    for (const [u, v] of [[0.3, 0.1], [0.5, 0.5], [0.9, 0.7], [1.0, 0.0]]) {
+      const expected = pointAtUV(sq, u, v);
+      const actual = pointAtUV(after, u, v);
+      expect(closePt(expected, actual, 1e-9)).toBe(true);
+    }
+  });
+});
+
+describe("insertKnotU + insertKnotV — chained insertions", () => {
+  const sq = makeUnitSquare();
+
+  test("two U insertions produce cvCount[0]=4", () => {
+    const a = insertKnotU(sq, 0.25);
+    const b = insertKnotU(a, 0.75);
+    expect(b.cvCount[0]).toBe(4);
+    expect(b.cvCount[1]).toBe(2);
+  });
+
+  test("U then V insertion — shape preserved at grid of points", () => {
+    const a = insertKnotU(sq, 0.5);
+    const b = insertKnotV(a, 0.5);
+    expect(b.cvCount).toEqual([3, 3]);
+    for (const [u, v] of [[0.1, 0.1], [0.4, 0.6], [0.8, 0.3]]) {
+      const expected = pointAtUV(sq, u, v);
+      const actual = pointAtUV(b, u, v);
+      expect(closePt(expected, actual, 1e-9)).toBe(true);
+    }
+  });
+});
+
+describe("midParamU / midParamV", () => {
+  const sq = makeUnitSquare();
+
+  test("midParamU = 0.5 for unit domain", () => {
+    expect(midParamU(sq)).toBe(0.5);
+  });
+
+  test("midParamV = 0.5 for unit domain", () => {
+    expect(midParamV(sq)).toBe(0.5);
+  });
+
+  test("midParamU after insertion still in domain", () => {
+    const after = insertKnotU(sq, 0.5);
+    const mid = midParamU(after);
+    expect(mid).toBeGreaterThanOrEqual(after.knots[0][0]);
+    expect(mid).toBeLessThanOrEqual(after.knots[0][after.knots[0].length - 1]);
   });
 });
