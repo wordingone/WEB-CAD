@@ -572,6 +572,60 @@
   note: "Unified boolean verb; delegates to viewer/csg.ts CSG functions. Returns created object UUID."
   alias_source: agent_dispatch
 
+- name: SdBoolUnion
+  kernel_op: boolunion
+  parameters:
+    type: object
+    properties:
+      a:
+        description: "[required] UUID of first solid"
+        type: object_id
+      b:
+        description: "[required] UUID of second solid"
+        type: object_id
+    required: [a, b]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [boolunion]
+  note: "Short-form union verb from #246. Delegates to CSG union; removes both inputs, returns created UUID."
+  alias_source: agent_dispatch
+
+- name: SdBoolSubtract
+  kernel_op: boolsubtract
+  parameters:
+    type: object
+    properties:
+      outer:
+        description: "[required] UUID of the solid to cut from"
+        type: object_id
+      inner:
+        description: "[required] UUID of the solid used as cutter"
+        type: object_id
+    required: [outer, inner]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [bool-subtract, boolsubtract, subtract-solid]
+  note: "Short-form subtract verb from #246. outer − inner; removes both, returns created UUID."
+  alias_source: agent_dispatch
+
+- name: SdBoolIntersect
+  kernel_op: boolintersect
+  parameters:
+    type: object
+    properties:
+      a:
+        description: "[required] UUID of first solid"
+        type: object_id
+      b:
+        description: "[required] UUID of second solid"
+        type: object_id
+    required: [a, b]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [boolintersect]
+  note: "Short-form intersect verb from #246. Keeps shared volume; removes both inputs, returns created UUID."
+  alias_source: agent_dispatch
+
 # ============================================================
 # §5 Edge / surface ops
 # ============================================================

@@ -1003,6 +1003,19 @@ export function registerTransformHandlers(viewer: Viewer): void {
     _doBoolOp(args.a as string | undefined, args.b as string | undefined, "intersection")
   );
 
+  // §WEB-CAD#246: short-form boolean verbs
+  registerHandler("SdBoolUnion", (args) =>
+    _doBoolOp(args.a as string | undefined, args.b as string | undefined, "union")
+  );
+
+  registerHandler("SdBoolSubtract", (args) =>
+    _doBoolOp(args.outer as string | undefined, args.inner as string | undefined, "difference")
+  );
+
+  registerHandler("SdBoolIntersect", (args) =>
+    _doBoolOp(args.a as string | undefined, args.b as string | undefined, "intersection")
+  );
+
   registerHandler("SdFillet", (args) => {
     const targetId = args.target as string | undefined;
     if (!targetId) return { error: "SdFillet - target is required" };

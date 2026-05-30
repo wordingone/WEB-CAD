@@ -31,7 +31,8 @@ function makeEnv(): { viewer: Viewer; scene: THREE.Scene; addBox: (name?: string
 }
 
 beforeEach(() => {
-  ["SdBooleanUnion", "SdBooleanDifference", "SdBooleanIntersection"].forEach(v => unregisterHandler(v));
+  ["SdBooleanUnion", "SdBooleanDifference", "SdBooleanIntersection",
+   "SdBoolUnion", "SdBoolSubtract", "SdBoolIntersect"].forEach(v => unregisterHandler(v));
 });
 
 describe("G8 — SdBooleanUnion handler", () => {
@@ -97,5 +98,52 @@ describe("G8 — verb resolution for boolean synonyms", () => {
   test("'intersection' resolves to SdBooleanIntersection", () => {
     const { resolveVerb } = require("../src/commands/dispatch");
     expect(resolveVerb("intersection")).toBe("SdBooleanIntersection");
+  });
+});
+
+// §WEB-CAD#246 — short-form verbs
+describe("#246 — SdBoolUnion handler", () => {
+  test("registered after registerTransformHandlers", () => {
+    const { viewer } = makeEnv();
+    registerTransformHandlers(viewer);
+    const dr = dispatchSync("SdBoolUnion", { a: "missing-uuid", b: "missing-uuid" });
+    expect(dr.ok).toBe(true);
+    expect((dr as any).result.error).toContain("not found");
+  });
+
+  test("missing b is caught by schema validation", () => {
+    const { viewer } = makeEnv();
+    registerTransformHandlers(viewer);
+    const dr = dispatchSync("SdBoolUnion", { a: "x" });
+    expect(dr.ok).toBe(false);
+    expect((dr as any).error).toBe("ArgValidationError");
+  });
+});
+
+describe("#246 — SdBoolSubtract handler", () => {
+  test("registered after registerTransformHandlers", () => {
+    const { viewer } = makeEnv();
+    registerTransformHandlers(viewer);
+    const dr = dispatchSync("SdBoolSubtract", { outer: "x", inner: "y" });
+    expect(dr.ok).toBe(true);
+    expect((dr as any).result.error).toContain("not found");
+  });
+
+  test("missing outer/inner caught by schema", () => {
+    const { viewer } = makeEnv();
+    registerTransformHandlers(viewer);
+    const dr = dispatchSync("SdBoolSubtract", {});
+    expect(dr.ok).toBe(false);
+    expect((dr as any).error).toBe("ArgValidationError");
+  });
+});
+
+describe("#246 — SdBoolIntersect handler", () => {
+  test("registered after registerTransformHandlers", () => {
+    const { viewer } = makeEnv();
+    registerTransformHandlers(viewer);
+    const dr = dispatchSync("SdBoolIntersect", { a: "x", b: "y" });
+    expect(dr.ok).toBe(true);
+    expect((dr as any).result.error).toContain("not found");
   });
 });
