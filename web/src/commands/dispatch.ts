@@ -277,7 +277,10 @@ function normalizeArgSynonyms(canonical: string, args: DispatchArgs): DispatchAr
   if (!map) return args;
   let normalized: DispatchArgs | null = null;
   for (const [old, neo] of Object.entries(map)) {
-    if (old in args && !(neo in args)) {
+    // Apply synonym whenever the old name is present — this overrides schema defaults
+    // that normalizeArgs may have pre-populated (e.g. x=0, factor=1) so that NL dispatch
+    // synonym args (translation→vector, scaleFactor→factor) always win.
+    if (old in args) {
       if (!normalized) normalized = { ...args };
       normalized[neo] = normalized[old];
       delete normalized[old];

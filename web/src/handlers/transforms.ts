@@ -775,18 +775,20 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const sel = resolveTransformTarget(viewer, args);
     if (!sel) return { moved: false, reason: "no selection" };
     const before = captureTransform(sel);
-    const x = (args.x as number | undefined)
-      ?? (Array.isArray(args.delta) ? (args.delta as number[])[0] : undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[0] : undefined)
-      ?? 0;
-    const y = (args.y as number | undefined)
-      ?? (Array.isArray(args.delta) ? (args.delta as number[])[1] : undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[1] : undefined)
-      ?? 0;
-    const z = (args.z as number | undefined)
-      ?? (Array.isArray(args.delta) ? (args.delta as number[])[2] : undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[2] : undefined)
-      ?? 0;
+    // Prioritize vector/delta (explicit move intent) over scalar defaults.
+    // normalizeArgs pre-populates x=0/y=0/z=0 from schema defaults, so reading
+    // args.x first would mask a valid vector provided via synonym (translation→vector).
+    const vec = Array.isArray(args.vector) ? (args.vector as number[]) : null;
+    const dlt = Array.isArray(args.delta) ? (args.delta as number[]) : null;
+    const x = vec ? (typeof vec[0] === "number" ? vec[0] : 0)
+      : dlt ? (typeof dlt[0] === "number" ? dlt[0] : 0)
+      : (args.x as number | undefined) ?? 0;
+    const y = vec ? (typeof vec[1] === "number" ? vec[1] : 0)
+      : dlt ? (typeof dlt[1] === "number" ? dlt[1] : 0)
+      : (args.y as number | undefined) ?? 0;
+    const z = vec ? (typeof vec[2] === "number" ? vec[2] : 0)
+      : dlt ? (typeof dlt[2] === "number" ? dlt[2] : 0)
+      : (args.z as number | undefined) ?? 0;
     sel.position.x += x;
     sel.position.y += y;
     sel.position.z += z;
@@ -872,12 +874,10 @@ export function registerTransformHandlers(viewer: Viewer): void {
       : null;
     const sel = byTarget ?? getSelected()?.transformTarget ?? viewer.getActiveObject();
     if (!sel) return { copied: false, reason: "no selection" };
-    const x = (args.x as number | undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[0] : undefined) ?? 0;
-    const y = (args.y as number | undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[1] : undefined) ?? 0;
-    const z = (args.z as number | undefined)
-      ?? (Array.isArray(args.vector) ? (args.vector as number[])[2] : undefined) ?? 0;
+    const cvec = Array.isArray(args.vector) ? (args.vector as number[]) : null;
+    const x = cvec ? (typeof cvec[0] === "number" ? cvec[0] : 0) : (args.x as number | undefined) ?? 0;
+    const y = cvec ? (typeof cvec[1] === "number" ? cvec[1] : 0) : (args.y as number | undefined) ?? 0;
+    const z = cvec ? (typeof cvec[2] === "number" ? cvec[2] : 0) : (args.z as number | undefined) ?? 0;
     const clone = sel.clone();
     clone.position.x += x; clone.position.y += y; clone.position.z += z;
     clone.userData = { ...sel.userData };
