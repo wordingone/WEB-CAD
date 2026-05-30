@@ -30,7 +30,7 @@ beforeEach(() => {
   ["SdRevolve", "SdSweep", "SdLoft", "SdPlane", "SdSurface"].forEach(v => unregisterHandler(v));
 });
 
-type OkResult = { ok: true; canonical: string; result: { created: string; solid?: boolean } };
+type OkResult = { ok: true; canonical: string; result: { created: string; object_id?: string; canonical_id?: string; primitive?: string; solid?: boolean; [k: string]: unknown } };
 
 function testPlaneSurface(offsetX: number): Surface {
   return {
@@ -83,9 +83,14 @@ describe("G6 - SdRevolve stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("revolution");
+    const r0 = (dr as OkResult).result;
+    expect(typeof r0.created).toBe("string");
+    expect(r0.object_id).toBe(r0.created);
+    expect(typeof r0.canonical_id).toBe("string");
+    expect(r0.primitive).toBe("revolution");
     const mesh = lastMesh()!;
     expect(mesh).not.toBeNull();
+    expect(mesh.uuid).toBe(r0.created);
     expect(mesh.userData.nurbsSurface).toBeUndefined();
     expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
@@ -110,9 +115,14 @@ describe("G6 - SdRevolve stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("revolution");
-    expect((dr as OkResult).result.solid).toBe(true);
+    const r1 = (dr as OkResult).result;
+    expect(typeof r1.created).toBe("string");
+    expect(r1.object_id).toBe(r1.created);
+    expect(typeof r1.canonical_id).toBe("string");
+    expect(r1.primitive).toBe("revolution");
+    expect(r1.solid).toBe(true);
     const mesh = lastMesh()!;
+    expect(mesh.uuid).toBe(r1.created);
     expect(mesh.userData.kind).toBe("brep");
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
@@ -140,8 +150,13 @@ describe("G6 - SdSweep stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("sweep");
+    const r2 = (dr as OkResult).result;
+    expect(typeof r2.created).toBe("string");
+    expect(r2.object_id).toBe(r2.created);
+    expect(typeof r2.canonical_id).toBe("string");
+    expect(r2.primitive).toBe("sweep");
     const mesh = lastMesh()!;
+    expect(mesh.uuid).toBe(r2.created);
     expect(mesh.userData.nurbsSurface).toBeUndefined();
     expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
@@ -163,9 +178,14 @@ describe("G6 - SdSweep stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("sweep");
-    expect((dr as OkResult).result.solid).toBe(true);
+    const r3 = (dr as OkResult).result;
+    expect(typeof r3.created).toBe("string");
+    expect(r3.object_id).toBe(r3.created);
+    expect(typeof r3.canonical_id).toBe("string");
+    expect(r3.primitive).toBe("sweep");
+    expect(r3.solid).toBe(true);
     const mesh = lastMesh()!;
+    expect(mesh.uuid).toBe(r3.created);
     expect(mesh.userData.kind).toBe("brep");
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
@@ -192,8 +212,13 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("loft");
+    const r4 = (dr as OkResult).result;
+    expect(typeof r4.created).toBe("string");
+    expect(r4.object_id).toBe(r4.created);
+    expect(typeof r4.canonical_id).toBe("string");
+    expect(r4.primitive).toBe("loft");
     const mesh = lastMesh()!;
+    expect(mesh.uuid).toBe(r4.created);
     expect(mesh.userData.nurbsSurface).toBeUndefined();
     expect(mesh.userData.nurbsKind).toBeUndefined();
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
@@ -217,9 +242,14 @@ describe("G6 - SdLoft stores exact surface canonically", () => {
     });
 
     expect(dr.ok).toBe(true);
-    expect((dr as OkResult).result.created).toBe("loft");
-    expect((dr as OkResult).result.solid).toBe(true);
+    const r5 = (dr as OkResult).result;
+    expect(typeof r5.created).toBe("string");
+    expect(r5.object_id).toBe(r5.created);
+    expect(typeof r5.canonical_id).toBe("string");
+    expect(r5.primitive).toBe("loft");
+    expect(r5.solid).toBe(true);
     const mesh = lastMesh()!;
+    expect(mesh.uuid).toBe(r5.created);
     expect(mesh.userData.kind).toBe("brep");
     const canonicalId = mesh.userData[CANONICAL_GEOMETRY_USERDATA_KEY];
     expect(typeof canonicalId).toBe("string");
