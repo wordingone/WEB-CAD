@@ -50,6 +50,8 @@ const TRANSITIONS: Record<RuntimeState, Partial<Record<RuntimeEvent["type"], Run
                 PREFILL_DONE: "ready",        // warmup-done after recycle if noWarmup=false
                 MODEL_READY:  "ready",        // session-refresh sends model-ready before GENERATE_REQUESTED (idle-reinit race)
                 BOOT_COMPLETE: "ready",       // boot-complete fires after booting→generating→FAILED→ready early-exit; sets bootComplete=true
+                FATAL_ERROR:  "failed",       // worker crash while idle — must transition to failed so user sees error
+                WATCHDOG_TIMEOUT: "ready",    // stale watchdog timer fires after generate already completed (self-loop)
                 D3D12_OOM: "recycling",       // planned recycle dispatched before GENERATE_REQUESTED (#1750)
                 WORKER_RECYCLED: "recovering" }, // unplanned recycle while idle — no prior D3D12_OOM (#1526 H2)
   generating: {
@@ -176,19 +178,28 @@ export class AgentRuntimeController {
         this.activeTurnId = null;
         break;
       case "D3D12_OOM":
-      case "WATCHDOG_TIMEOUT":
         this.workerReady  = false;
         this.bootComplete = false;
         this.prefillDone  = false;
         this.turnCount    = 0;
         this.nextInitNoWarmup = true;
         this.recycleCount++;
-        // §#1505: only count unplanned crashes toward the FATAL_ERROR limit.
-        // Planned recycles (reason="planned") flush the KV buffer pool intentionally
-        // and do not indicate GPU adapter corruption.
-        if (ev.type !== "D3D12_OOM" || (ev as { reason?: string }).reason !== "planned") {
+        // §#1505: planned recycles (reason="planned") do not indicate GPU adapter corruption.
+        if ((ev as { reason?: string }).reason !== "planned") {
           this.unplannedOomCount++;
         }
+        break;
+      case "WATCHDOG_TIMEOUT":
+        // Stale watchdog timer may fire after generate already completed (state=ready).
+        // In that case it is a self-loop — skip reset to avoid wiping bootComplete.
+        if (this.state === "ready") break;
+        this.workerReady  = false;
+        this.bootComplete = false;
+        this.prefillDone  = false;
+        this.turnCount    = 0;
+        this.nextInitNoWarmup = true;
+        this.recycleCount++;
+        this.unplannedOomCount++;
         break;
       case "WORKER_RECYCLED":
         if (this.state === "ready") {
