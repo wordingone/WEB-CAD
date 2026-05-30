@@ -2354,6 +2354,26 @@
   returns: {measured: length, distance: number, unit: m}
   alias_source: generic_cad_vocabulary
 
+- name: SdChainedDim
+  kernel_op: chainedDim
+  parameters:
+    type: object
+    properties:
+      points:
+        description: "[required] Array of 3+ [x,y,z] points defining adjacent dimension segments"
+        type: array
+        items:
+          type: point3
+      withOverall:
+        description: "[optional default=true] Include an overall total span from first to last point"
+        type: boolean
+    required: [points]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [chained dim, chained dimension, string of dims, continuous dim, running dimension, chain dims]
+  returns: {segments: number, totalDist: number, unit: m}
+  alias_source: generic_cad_vocabulary
+
 - name: SdAngularDim
   kernel_op: angularDim
   parameters:
