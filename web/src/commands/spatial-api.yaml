@@ -2099,6 +2099,27 @@
   note: "Filter-based multi-select. Returns array of UUIDs matching all supplied criteria."
   alias_source: agent_dispatch
 
+- name: SdQuery
+  kernel_op: query
+  parameters:
+    type: object
+    properties:
+      kind:
+        type: string
+        description: "[optional] Filter by object kind / creator (e.g. 'box', 'wall', 'SdBox'). Case-insensitive substring match."
+      visible:
+        type: boolean
+        description: "[optional] If true, return only visible objects; if false, return only hidden objects; omit for all."
+      layer:
+        type: string
+        description: "[optional] Filter by layer name or layer id."
+    required: []
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [query, "count objects", "how many", "what objects", "what's in the scene", "what is in the scene", "list scene", inspect]
+  note: "Read-only scene query — returns count + list of matching objects without changing selection."
+  alias_source: agent_dispatch
+
 - name: SdSelectAll
   kernel_op: selectAll
   parameters:
@@ -2377,6 +2398,24 @@
   synonyms: [measure, distance]
   kernel: replicad
   alias_source: generic_cad_vocabulary
+
+- name: SdMeasureBetween
+  kernel_op: measureBetween
+  parameters:
+    type: object
+    properties:
+      from:
+        type: string
+        description: "[required] UUID of the first object."
+      to:
+        type: string
+        description: "[required] UUID of the second object."
+    required: [from, to]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: ["measure between", "distance between objects", "distance between", "how far apart"]
+  note: "Measure centroid-to-centroid distance between two scene objects. Returns distance in model units."
+  alias_source: agent_dispatch
 
 - name: SdArea
   kernel_op: area
