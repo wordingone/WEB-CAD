@@ -751,18 +751,17 @@
   parameters:
     type: object
     properties:
-      source:
-        type: solid
+      target:
+        type: object_id
       thickness:
         type: number
         unit: m
-      openFaces:
-        type: list_face
-    required: [source, thickness]
+        description: "[required] Wall thickness of the hollow shell"
+    required: [target, thickness]
   topology_role: solid
   kg_predicates: []
-  synonyms: [shell, hollow, thicken]
-  kernel: replicad
+  synonyms: [shell, hollow, hollowout, shell solid, thin wall, offset surface, shell command]
+  returns: {modified: object_id, thickness: number}
   alias_source: generic_cad_vocabulary
 
 # ============================================================

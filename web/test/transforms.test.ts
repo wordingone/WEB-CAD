@@ -55,6 +55,8 @@ beforeEach(() => {
     "SdBooleanDifference",
     "SdBooleanIntersection",
     "SdFillet",
+    "SdChamfer",
+    "SdShell",
     "SdSectionBox",
     "SdClippingPlane",
     "SdPoint",
@@ -1523,5 +1525,96 @@ describe("canonical geometry transform instances", () => {
     expect(added).toHaveLength(0);
     expect(scene.children).toContain(mesh);
     expect(store.exportRecords().filter((record) => record.createdBy === "SdFillet")).toHaveLength(0);
+  });
+});
+
+describe("SdShell — hollow a solid to a thin-walled shell (#254)", () => {
+  function makeShellViewer() {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const added: THREE.Object3D[] = [];
+    const viewer = {
+      getScene() { return scene; },
+      getActiveObject() { return null; },
+      addMesh(obj: THREE.Object3D, kind?: string) {
+        if (kind) obj.userData.kind = kind;
+        scene.add(obj);
+        added.push(obj);
+      },
+      getCanonicalGeometryStore() { return store; },
+    };
+    return { scene, store, added, viewer };
+  }
+
+  test("shells a canonical axis-aligned box — 2-shell BRep with 12 total faces", () => {
+    const { scene, store, added, viewer } = makeShellViewer();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    scene.add(mesh);
+    const record = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+    store.linkObject(mesh, record.id);
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdShell", { target: mesh.uuid, thickness: 0.1 });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("SdShell failed");
+    const r = result.result as { modified: string; thickness: number };
+    expect(typeof r.modified).toBe("string");
+    expect(r.thickness).toBeCloseTo(0.1, 5);
+
+    expect(added).toHaveLength(1);
+    const output = added[0];
+    expect(scene.children).not.toContain(mesh); // original removed
+
+    const canonical = store.resolveObject(output);
+    expect(canonical?.kind).toBe("brep");
+    if (canonical?.kind !== "brep") throw new Error("expected BRep");
+    expect(canonical.createdBy).toBe("SdShell");
+    expect(canonical.metadata).toMatchObject({
+      operation: "shell",
+      source: record.id,
+      derivation: "canonical-brep-shell",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    });
+    expect(canonical.brep.shells.length).toBe(2); // outer + inner
+    const totalFaces = canonical.brep.shells.reduce((n, s) => n + s.faces.length, 0);
+    expect(totalFaces).toBe(12); // 6 outer + 6 inner
+    expect(canonical.displayMesh?.derivation).toBe("tessellated-brep");
+  });
+
+  test("rejects thickness equal to half the smallest dimension", () => {
+    const { scene, store, viewer } = makeShellViewer();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.userData.kind = "brep";
+    scene.add(mesh);
+    const record = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+    store.linkObject(mesh, record.id);
+    registerTransformHandlers(viewer as never);
+
+    // thickness = 0.5 = exactly half of 1.0 smallest dim → must fail
+    const result = dispatchSync("SdShell", { target: mesh.uuid, thickness: 0.5 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected dispatch ok");
+    expect((result.result as { error?: string }).error).toBeTruthy();
+  });
+
+  test("rejects non-positive thickness before touching scene", () => {
+    const { viewer } = makeShellViewer();
+    registerTransformHandlers(viewer as never);
+    const result = dispatchSync("SdShell", { target: "fake-uuid", thickness: -0.1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected dispatch ok");
+    expect((result.result as { error?: string }).error).toMatch(/positive/);
+  });
+
+  test("rejects missing target at schema level (ArgValidationError)", () => {
+    const { viewer } = makeShellViewer();
+    registerTransformHandlers(viewer as never);
+    const result = dispatchSync("SdShell", { thickness: 0.1 });
+    // target is required in schema — validation rejects before handler runs
+    expect(result.ok).toBe(false);
+    expect((result as { error?: string }).error).toBe("ArgValidationError");
   });
 });
