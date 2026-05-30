@@ -204,10 +204,13 @@ const SCENE_VRAM_RECYCLE_THRESHOLD = 12;
 // user sees no permanent scene loss — just a blank viewport during the ~90s generation window.
 const _disposedCreatorMeshes: unknown[] = [];
 
-// §#88-C: transparent ORT session refresh before high-VRAM turns.
-// Fires once per worker lifetime when turnCount reaches this threshold, before the next generate.
-// Re-creates ORT buffer pool from Cache API (no network fetch) without touching the ARC machine.
-const ORT_SESSION_REFRESH_THRESHOLD = 2; // refresh before T3 (after T1 heavy build + T2 NL)
+// §#88-C: periodic ORT session refresh to clear WGPU allocator fragmentation.
+// WGPU buffer pool fragmentation builds monotonically: session-refresh at T3 buys 2 turns
+// but fragmentation rebuilds by T6, causing OOM. Periodic refresh every 2 turns prevents
+// accumulation from reaching the OOM threshold.
+// §#281: changed from one-shot (ORT_SESSION_REFRESH_THRESHOLD) to periodic (ORT_SESSION_REFRESH_INTERVAL).
+const ORT_SESSION_REFRESH_INTERVAL = 2; // fire session-refresh every N turns
+let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T3)
 
 // §#156 Layer 3: visibility-based ORT session disposal.
 // When tab is hidden for VRAM_DISPOSE_DELAY_MS, dispose ORT sessions to release VRAM.
@@ -380,13 +383,14 @@ export function isAgentSessionSuspended(): boolean { return _sessionSuspended; }
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
 
-  // §#88-C: ORT session refresh — dispose accumulated WGPU buffer pool from prior turns
-  // and re-load from Cache API before the first high-pressure turn (T3+). This eliminates
-  // the buffer_manager.cc:553 mapAsync race that causes unplanned D3D12 OOM at T3.
-  // ARC state is NOT changed; recycleCount stays 0. ~60s overhead from cache load.
-  if (!_ortSessionRefreshDone && _arc.turnCount >= ORT_SESSION_REFRESH_THRESHOLD) {
-    _ortSessionRefreshDone = true; // set before await to prevent double-fire on concurrent calls
-    console.info(`[VRAM-REFRESH] ORT session refresh triggered: turnCount=${_arc.turnCount} threshold=${ORT_SESSION_REFRESH_THRESHOLD}`);
+  // §#88-C §#281: periodic ORT session refresh every ORT_SESSION_REFRESH_INTERVAL turns.
+  // Disposes the WGPU buffer pool (fragmentation builds per-turn) and re-loads from Cache API.
+  // Fires before T3, T5, T7, T9... — clears fragmentation every 2 turns so it never reaches
+  // the OOM threshold. ARC state is NOT changed; recycleCount stays 0.
+  // Post-recycle workers (_ortSessionRefreshDone=true) skip all refreshes — they start clean.
+  if (!_ortSessionRefreshDone && (_arc.turnCount - _lastRefreshTurnCount) >= ORT_SESSION_REFRESH_INTERVAL) {
+    _lastRefreshTurnCount = _arc.turnCount; // update before await to prevent double-fire on concurrent calls
+    console.info(`[VRAM-REFRESH] ORT session refresh triggered: turnCount=${_arc.turnCount} interval=${ORT_SESSION_REFRESH_INTERVAL} lastRefresh=${_lastRefreshTurnCount}`);
     await Promise.race([
       new Promise<void>(resolve => {
         _sessionRefreshResolve = resolve;
@@ -475,11 +479,11 @@ function initWorkerIfNeeded(): Worker {
   // §#156 Layer 4: reset per-worker-lifetime flags on each new spawn.
   // _ortSessionRefreshDone was never reset on recycle — T3 refresh only fired once per session.
   // _sessionSuspended must not carry over from a prior worker's dispose-session.
-  // §#281: post-recycle workers start with a fresh ORT session; skip T2 session-refresh.
-  // The warmup probe in session-refresh OOMs on VRAM-tight hardware when the GPU driver
-  // hasn't fully returned memory from the prior device. First-boot (recycleCount=0) still
-  // gets the T2 refresh — it clears the initial buffer-pool fragmentation before T3+.
+  // §#281: post-recycle workers start with a fresh ORT session; skip ALL periodic refreshes.
+  // The warmup probe in session-refresh OOMs when the GPU driver hasn't fully returned memory
+  // from the prior device. First-boot (recycleCount=0) gets periodic refresh.
   _ortSessionRefreshDone = _arc.recycleCount > 0;
+  _lastRefreshTurnCount = 0; // reset periodic counter; first refresh fires before T3
   _sessionSuspended = false;
   // §#156 Layer 5: new worker = loading state until warmup-done confirms GPU healthy.
   setGpuHealthTier("yellow", "GPU loading");
