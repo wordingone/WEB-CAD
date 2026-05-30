@@ -553,7 +553,13 @@ export function registerSketchHandlers(viewer: Viewer): void {
       endAngle,
       plane: PrimPlane.worldXY(),
     };
-    const nurbs = nurbsCurveFromArc(arc);
+    // nurbsCurveFromArc requires startAngle < endAngle (non-decreasing knots).
+    // For CW arcs (endAngle < startAngle), swap so NURBS stays CCW — same geometry, reversed parameterisation.
+    const nurbs = nurbsCurveFromArc({
+      ...arc,
+      startAngle: endAngle < startAngle ? endAngle : startAngle,
+      endAngle:   endAngle < startAngle ? startAngle : endAngle,
+    });
     const pts = tessellate(nurbs, 64);
     const obj = new THREE.Line(polylineToGeom(pts), curveMat());
     obj.userData.kind = "arc";

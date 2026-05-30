@@ -795,10 +795,17 @@ function sdSketchCommandForTool(
   }
   if (tool === "arc" && pts.length >= 3) {
     const [c, s, e] = pts;
-    const radius = Math.max(0.05, Math.hypot(s.x - c.x, s.y - c.y));
-    const startAngle = Math.atan2(s.y - c.y, s.x - c.x);
-    let endAngle = Math.atan2(e.y - c.y, e.x - c.x);
-    if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+    const sdx = s.x - c.x, sdy = s.y - c.y;
+    const edx = e.x - c.x, edy = e.y - c.y;
+    const radius = Math.max(0.05, Math.hypot(sdx, sdy));
+    const startAngle = Math.atan2(sdy, sdx);
+    let endAngle = Math.atan2(edy, edx);
+    const cross = sdx * edy - sdy * edx;
+    if (cross >= 0) {
+      if (endAngle <= startAngle) endAngle += 2 * Math.PI;
+    } else {
+      if (endAngle >= startAngle) endAngle -= 2 * Math.PI;
+    }
     const args = { center: [round(c.x), round(c.y), round(c.z ?? 0)], radius: round(radius), startAngle: round(startAngle), endAngle: round(endAngle) };
     return { verb: "SdArc", args, chain: `SdArc(${JSON.stringify(args)})` };
   }

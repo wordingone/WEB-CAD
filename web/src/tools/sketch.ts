@@ -98,8 +98,14 @@ export function buildArc(
   const ex = endPt.x - center.x;
   const ey = endPt.y - center.y;
   let endAng = Math.atan2(ey, ex);
-  // Normalize so the arc sweeps CCW from startAng.
-  if (endAng <= startAng) endAng += 2 * Math.PI;
+  // Cross product z-component: positive → endPt is CCW from radiusPt → short arc is CCW.
+  //                             negative → endPt is CW from radiusPt → short arc is CW.
+  const cross = dx * ey - dy * ex;
+  if (cross >= 0) {
+    if (endAng <= startAng) endAng += 2 * Math.PI;
+  } else {
+    if (endAng >= startAng) endAng -= 2 * Math.PI;
+  }
   const segs = 64;
   const span = endAng - startAng;
   const pts: number[] = [];
@@ -132,11 +138,13 @@ export function buildArc(
     { x: endX, y: endY, z: 0, id: makeSnapId(endX, endY, 0) },
   ] as SnapVertex[];
   // §WEB-CAD#30 G1: rational quadratic NurbsCurve in local coords (center at origin).
+  // nurbsCurveFromArc requires startAngle < endAngle; for CW arcs swap angles so the
+  // NURBS knot vector stays non-decreasing (reversed parameterisation, same geometry).
   const arcSpec: NurbsArc = {
     center: { x: 0, y: 0, z: 0 },
     radius: r,
-    startAngle: startAng,
-    endAngle: endAng,
+    startAngle: span < 0 ? endAng : startAng,
+    endAngle:   span < 0 ? startAng : endAng,
     plane: NurbsPlane.worldXY(),
   };
   mesh.userData.nurbsCurve = nurbsCurveFromArc(arcSpec);
