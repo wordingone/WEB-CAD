@@ -14,6 +14,11 @@ import { rebuildWallParams, rebuildGroupWallHeight } from "../tools/structural";
 import { attemptWallCornerJoins } from "../tools/wall-corners";
 import { showWallHeightHandle, hideWallHeightHandle } from "../viewer/wall-height-handle";
 import { Viewer } from "../viewer/viewer";
+import { getNurbsForm, type NurbsSurface as NsNurbsSurface } from "../nurbs/nurbs-surfaces";
+import { insertKnotU, insertKnotV, midParamU, midParamV } from "../nurbs/nurbs-surface-algorithms";
+import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
+import type { CanonicalBrepGeometry } from "../geometry/canonical-geometry";
+import type { Brep } from "../nurbs/nurbs-brep";
 
 function el(tag: string, cls?: string, attrs?: Record<string, string>): HTMLElement {
   const e = document.createElement(tag);
@@ -89,7 +94,7 @@ function buildInspectTab(): HTMLElement {
       <div class="prop-row"><span class="k">Storey</span><span class="v" data-field="storey">—</span></div>
       <div class="prop-row"><span class="k">Layer</span><span class="v" data-field="layer">—</span></div>
     </div>
-    <div class="prop-section">
+    <div class="prop-section" id="transform-section">
       <div class="prop-section-title">TRANSFORM</div>
       <div class="prop-vec3">
         <span class="k">Position</span>
@@ -104,13 +109,35 @@ function buildInspectTab(): HTMLElement {
         <span class="axis" data-axis="Rz">—</span>
       </div>
     </div>
-    <div class="prop-section">
+    <div class="prop-section" id="bounds-section">
       <div class="prop-section-title">BOUNDS</div>
       <div class="prop-vec3">
         <span class="k">Size</span>
         <span class="axis" data-axis="dX">—</span>
         <span class="axis" data-axis="dY">—</span>
         <span class="axis" data-axis="dZ">—</span>
+      </div>
+    </div>
+    <div class="prop-section" id="nurbs-surface-section" style="display:none">
+      <div class="prop-section-title">NURBS SURFACE</div>
+      <div class="prop-row">
+        <span class="k">Kind</span><span class="v" id="nurbs-kind">—</span>
+      </div>
+      <div class="prop-row">
+        <span class="k">DegU</span><span class="v" id="nurbs-deg-u" style="width:20px;text-align:right">—</span>
+        <span class="k" style="margin-left:10px">DegV</span><span class="v" id="nurbs-deg-v" style="width:20px;text-align:right">—</span>
+      </div>
+      <div class="prop-row">
+        <span class="k">CntU</span>
+        <span class="v" style="display:flex;align-items:center;gap:3px">
+          <span id="nurbs-cnt-u" style="width:24px;text-align:right">—</span>
+          <button id="nurbs-add-u" style="padding:0 5px;font-size:11px;background:var(--paper-2);border:1px solid var(--hairline);border-radius:var(--r-sm);cursor:pointer;color:var(--ink)">+</button>
+        </span>
+        <span class="k" style="margin-left:10px">CntV</span>
+        <span class="v" style="display:flex;align-items:center;gap:3px">
+          <span id="nurbs-cnt-v" style="width:24px;text-align:right">—</span>
+          <button id="nurbs-add-v" style="padding:0 5px;font-size:11px;background:var(--paper-2);border:1px solid var(--hairline);border-radius:var(--r-sm);cursor:pointer;color:var(--ink)">+</button>
+        </span>
       </div>
     </div>
     <div class="prop-section" id="wall-params-section" style="display:none">
@@ -190,6 +217,7 @@ function buildInspectTab(): HTMLElement {
         .map((s) => s.object as THREE.Object3D)
         .filter((o) => o.userData?.creator === "wall");
       updateWallSection(wallMeshes);
+      updateNurbsSection(null);
       if (wallMeshes.length === 1) showWallHeightHandle(wallMeshes[0] as THREE.Mesh | THREE.Group);
       else hideWallHeightHandle();
       return;
@@ -201,6 +229,7 @@ function buildInspectTab(): HTMLElement {
       wrap.querySelectorAll<HTMLElement>("[data-field]").forEach((v) => (v.textContent = "—"));
       wrap.querySelectorAll<HTMLElement>(".axis").forEach((a) => (a.textContent = "—"));
       updateWallSection([]);
+      updateNurbsSection(null);
       hideWallHeightHandle();
       return;
     }
@@ -247,6 +276,15 @@ function buildInspectTab(): HTMLElement {
       if (posAxes[1]) posAxes[1].textContent = formatLength(pos.y);
       if (posAxes[2]) posAxes[2].textContent = formatLength(pos.z);
     }
+    const rotAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(2) .axis');
+    {
+      const refObj = sel.parent ?? obj;
+      const r = refObj.rotation;
+      const toDeg = (rad: number) => (rad * 180 / Math.PI).toFixed(1) + "°";
+      if (rotAxes[0]) rotAxes[0].textContent = toDeg(r.x);
+      if (rotAxes[1]) rotAxes[1].textContent = toDeg(r.y);
+      if (rotAxes[2]) rotAxes[2].textContent = toDeg(r.z);
+    }
     const sizeAxes = wrap.querySelectorAll<HTMLElement>('.prop-vec3:nth-of-type(3) .axis');
     if (isFinite(box.min.x)) {
       const sz = new THREE.Vector3();
@@ -265,6 +303,7 @@ function buildInspectTab(): HTMLElement {
       updateWallSection([]);
       hideWallHeightHandle();
     }
+    updateNurbsSection(sel);
   }
 
   // ── Wall parameters section ────────────────────────────────────────────────
@@ -343,6 +382,132 @@ function buildInspectTab(): HTMLElement {
     }
     updateWallSection(_activeWalls);
   }
+
+  // ── NURBS surface section ──────────────────────────────────────────────────
+
+  // Global face index → {shell, face} lookup (mirrors deformCanonicalBrep convention).
+  function _getBrepFace(brep: Brep, globalIdx: number) {
+    let count = 0;
+    for (let si = 0; si < brep.shells.length; si++) {
+      const shell = brep.shells[si];
+      for (let fi = 0; fi < shell.faces.length; fi++) {
+        if (count === globalIdx) return { face: shell.faces[fi], shellIdx: si, faceIdx: fi };
+        count++;
+      }
+    }
+    return null;
+  }
+
+  // Current selection state used by + buttons.
+  let _nurbsSel: { sel: Selection; record: CanonicalBrepGeometry } | null = null;
+
+  function updateNurbsSection(sel: Selection | null): void {
+    const sec = wrap.querySelector<HTMLElement>("#nurbs-surface-section");
+    const transformSec = wrap.querySelector<HTMLElement>("#transform-section");
+    const boundsSec = wrap.querySelector<HTMLElement>("#bounds-section");
+    if (!sec) return;
+
+    const isFaceSub = sel?.topology === "face" && typeof sel.faceIndex === "number" && !!sel.parent;
+    if (!isFaceSub || !sel) {
+      sec.style.display = "none";
+      _nurbsSel = null;
+      if (transformSec) transformSec.style.display = "";
+      if (boundsSec) boundsSec.style.display = "";
+      return;
+    }
+
+    const runtimeViewer = (window as unknown as { __viewer?: Viewer }).__viewer;
+    const parentObj = sel.parent!;
+    const record = runtimeViewer?.getCanonicalGeometryForObject(parentObj);
+    if (record?.kind !== "brep") {
+      sec.style.display = "none";
+      _nurbsSel = null;
+      return;
+    }
+
+    const hit = _getBrepFace(record.brep, sel.faceIndex!);
+    if (!hit) { sec.style.display = "none"; _nurbsSel = null; return; }
+
+    const { form, surface: ns } = getNurbsForm(hit.face.surface);
+    _nurbsSel = { sel, record: record as CanonicalBrepGeometry };
+
+    const kindEl = wrap.querySelector<HTMLElement>("#nurbs-kind");
+    const degUEl = wrap.querySelector<HTMLElement>("#nurbs-deg-u");
+    const degVEl = wrap.querySelector<HTMLElement>("#nurbs-deg-v");
+    const cntUEl = wrap.querySelector<HTMLElement>("#nurbs-cnt-u");
+    const cntVEl = wrap.querySelector<HTMLElement>("#nurbs-cnt-v");
+    const addU = wrap.querySelector<HTMLButtonElement>("#nurbs-add-u");
+    const addV = wrap.querySelector<HTMLButtonElement>("#nurbs-add-v");
+
+    if (kindEl) kindEl.textContent = `${hit.face.surface.kind}${form === 2 ? " (approx)" : ""}`;
+    if (degUEl) degUEl.textContent = String(ns.order[0] - 1);
+    if (degVEl) degVEl.textContent = String(ns.order[1] - 1);
+    if (cntUEl) cntUEl.textContent = String(ns.cvCount[0]);
+    if (cntVEl) cntVEl.textContent = String(ns.cvCount[1]);
+    if (addU) addU.disabled = false;
+    if (addV) addV.disabled = false;
+
+    sec.style.display = "";
+    // Hide Transform + Bounds sections for face sub-object — they show bbox of the tiny overlay.
+    if (transformSec) transformSec.style.display = "none";
+    if (boundsSec) boundsSec.style.display = "none";
+  }
+
+  function _applyNurbsKnotInsert(dir: "u" | "v"): void {
+    if (!_nurbsSel) return;
+    const { sel, record } = _nurbsSel;
+    const runtimeViewer = (window as unknown as { __viewer?: Viewer }).__viewer;
+    if (!runtimeViewer) return;
+
+    const hit = _getBrepFace(record.brep, sel.faceIndex!);
+    if (!hit) return;
+
+    let surface = getNurbsForm(hit.face.surface).surface;
+    const newSurface: NsNurbsSurface = dir === "u"
+      ? insertKnotU(surface, midParamU(surface))
+      : insertKnotV(surface, midParamV(surface));
+
+    // Rebuild the BRep with the updated face surface.
+    let globalCount = 0;
+    const newBrep: Brep = {
+      shells: record.brep.shells.map((shell, si) => {
+        const localIdx = sel.faceIndex! - globalCount;
+        globalCount += shell.faces.length;
+        if (si !== hit.shellIdx) return shell;
+        return {
+          ...shell,
+          faces: shell.faces.map((f, fi) =>
+            fi === hit.faceIdx ? { ...f, surface: newSurface } : f
+          ),
+        };
+      }),
+    };
+
+    const newRecord: CanonicalBrepGeometry = { ...record, brep: newBrep, source: "edit" };
+    const store = runtimeViewer.getCanonicalGeometryStore();
+    store.upsert(newRecord);
+    _nurbsSel = { sel, record: newRecord };
+
+    // Re-tessellate and swap geometry on the parent mesh.
+    const parentMesh = sel.parent as THREE.Mesh | undefined;
+    if (parentMesh) {
+      const newObj = objectFromCanonicalGeometry(newRecord);
+      if (newObj instanceof THREE.Mesh) {
+        parentMesh.geometry.dispose();
+        parentMesh.geometry = newObj.geometry;
+        (newObj as THREE.Mesh).geometry = new THREE.BufferGeometry();
+      }
+    }
+
+    // Refresh the display.
+    updateNurbsSection(sel);
+  }
+
+  const nurbsSec = wrap.querySelector<HTMLElement>("#nurbs-surface-section");
+  nurbsSec?.querySelector<HTMLButtonElement>("#nurbs-add-u")
+    ?.addEventListener("click", () => _applyNurbsKnotInsert("u"));
+  nurbsSec?.querySelector<HTMLButtonElement>("#nurbs-add-v")
+    ?.addEventListener("click", () => _applyNurbsKnotInsert("v"));
 
   const wallSec = wrap.querySelector<HTMLElement>("#wall-params-section");
   if (wallSec) {
