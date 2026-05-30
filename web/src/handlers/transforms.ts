@@ -678,7 +678,16 @@ function resolveTransformTarget(viewer: Viewer, args: Record<string, unknown>): 
   const byTarget = (args.target as string | undefined)
     ? (viewer.getScene().getObjectByProperty("uuid", args.target as string) ?? null)
     : null;
-  return byTarget ?? getSelected()?.transformTarget ?? viewer.getActiveObject();
+  const explicit = byTarget ?? getSelected()?.transformTarget ?? viewer.getActiveObject();
+  if (explicit) return explicit;
+  // Single-object fallback: when nothing is selected, auto-target the only
+  // dispatch-created object in the scene to avoid "no selection" no-ops.
+  const transformable: THREE.Object3D[] = [];
+  viewer.getScene().traverse((obj) => {
+    const ud = obj.userData as Record<string, unknown>;
+    if (ud.kind && typeof ud.kind === "string") transformable.push(obj);
+  });
+  return transformable.length === 1 ? transformable[0] : null;
 }
 
 function vectorArg(value: unknown, fallback: [number, number, number]): THREE.Vector3 {

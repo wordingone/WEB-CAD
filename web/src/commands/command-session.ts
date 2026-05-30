@@ -75,7 +75,7 @@ function parsePointLike(v: unknown): number[] | null {
     return out as number[];
   }
   if (typeof v === "string") {
-    const raw = v.trim().replace(/^\(/, "").replace(/\)$/, "");
+    const raw = v.trim().replace(/^\[/, "").replace(/\]$/, "").replace(/^\(/, "").replace(/\)$/, "");
     const parts = raw.split(/[\s,]+/).filter(Boolean).map((p) => parseNumberLike(p));
     if (parts.length < 2 || parts.some((x) => x === null)) return null;
     return parts as number[];
@@ -95,6 +95,12 @@ function coerceArg(spec: SdArg, value: unknown): unknown {
     case "point2":
     case "point3":
     case "vector3": {
+      if (spec.type === "vector3" && typeof value === "string" && /^[xyz]$/i.test(value.trim())) {
+        const lo = value.trim().toLowerCase();
+        if (lo === "x") return [1, 0, 0];
+        if (lo === "y") return [0, 1, 0];
+        return [0, 0, 1];
+      }
       const p = parsePointLike(value);
       if (!p) return value;
       return spec.type === "point2" ? [p[0] ?? 0, p[1] ?? 0] : [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0];

@@ -267,6 +267,9 @@ function findMissingEnumChoice(
 // Applied before validation so both old and new names reach handlers as the canonical name.
 const ARG_SYNONYMS: Partial<Record<string, Record<string, string>>> = {
   SdRectangle: { depth: "length" },
+  SdMove: { translation: "vector", object: "target" },
+  SdRotate: { center: "pivot" },
+  SdScale: { scaleFactor: "factor" },
 };
 
 function normalizeArgSynonyms(canonical: string, args: DispatchArgs): DispatchArgs {
