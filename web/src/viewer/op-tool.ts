@@ -131,6 +131,7 @@ let _opPreview: THREE.Object3D | null = null;
 let _opHoverEdgePts: [THREE.Vector3, THREE.Vector3] | null = null;
 let _opHoverCornerPts: [THREE.Vector3, THREE.Vector3, THREE.Vector3] | null = null; // [prev, corner, next] for 2D fillet
 let _opLabels: HTMLElement[] = [];
+const _labelWorldPts = new WeakMap<HTMLElement, THREE.Vector3>();
 let _selectHoverProfile: THREE.Object3D | null = null; // profile hovered during extrude_select
 let _rawChooserDefault: (() => void) | null = null;
 export let _selDragging = false;
@@ -254,9 +255,26 @@ export function opAddLabel(text: string, worldPt: THREE.Vector3, viewer: Viewer)
   el.textContent = text;
   document.body.appendChild(el);
   _opLabels.push(el);
+  _labelWorldPts.set(el, worldPt.clone());
   const sc = projectToScreen(viewer, worldPt.x, worldPt.y, worldPt.z);
   if (sc) { el.style.left = (sc.x + 8) + "px"; el.style.top = (sc.y - 14) + "px"; }
   return el;
+}
+
+/** Reproject all annotation labels to current screen positions. Called each RAF tick. */
+export function repositionAnnotLabels(viewer: Viewer): void {
+  for (const el of _opLabels) {
+    const wp = _labelWorldPts.get(el);
+    if (!wp) continue;
+    const sc = projectToScreen(viewer, wp.x, wp.y, wp.z);
+    if (sc) {
+      el.style.left = (sc.x + 8) + "px";
+      el.style.top = (sc.y - 14) + "px";
+      el.style.display = "";
+    } else {
+      el.style.display = "none";
+    }
+  }
 }
 
 export function opBuildAnnotLine(pts: THREE.Vector3[], color = 0x4488ff): THREE.Object3D {

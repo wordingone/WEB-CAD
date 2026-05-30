@@ -16,6 +16,7 @@ import type { PolylineCurve } from "../nurbs/nurbs-curves";
 import type { PlaneSurface } from "../nurbs/nurbs-surfaces";
 import { getNurbsForm } from "../nurbs/nurbs-surfaces";
 import { Interval as Iv, Plane as Pl, Point3 as Pt3, Vector3 as V3, type Point3, type Vector3 } from "../nurbs/nurbs-primitives";
+import { makeGridBubble } from "../viewer/dimension-style";
 
 // Module-level viewer reference (set during initCreateMode).
 let _viewer: Viewer | null = null;
@@ -1613,24 +1614,35 @@ export function buildGridLine(a: { x: number; y: number }, b: { x: number; y: nu
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
   const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
   const angRad = Math.atan2(dy, dx) - Math.PI / 2;
+  const existingCount = _viewer
+    ? _viewer.getScene().children.filter((o) => o.userData.creator === "IfcGridLine").length
+    : 0;
+  const label = String.fromCharCode(65 + existingCount % 26);
+
+  // Build in local space (centered at group origin), group carries world transform.
   const points = [new THREE.Vector3(0, -len / 2, 0), new THREE.Vector3(0, len / 2, 0)];
   const geom = new THREE.BufferGeometry().setFromPoints(points);
   const mat = new THREE.LineDashedMaterial({ color: 0x1a56cc, dashSize: 0.5, gapSize: 0.15 });
   const line = new THREE.Line(geom, mat);
   line.computeLineDistances();
-  line.position.set(cx, cy, 0.001);
-  line.rotation.z = angRad;
-  const existingCount = _viewer
-    ? _viewer.getScene().children.filter((o) => o.userData.creator === "IfcGridLine").length
-    : 0;
-  const label = String.fromCharCode(65 + existingCount % 26);
-  line.userData.kind = "grid-line";
-  line.userData.creator = "IfcGridLine";
-  line.userData.label = label;
-  line.userData.controlPoints = [new THREE.Vector3(a.x, a.y, 0), new THREE.Vector3(b.x, b.y, 0)];
-  line.userData._snapCreationPos = { x: cx, y: cy, z: 0.001 };
+  line.userData.noSnap = true;
+
+  const bubble = makeGridBubble(label);
+  bubble.position.set(0, len / 2 + 0.25, 0); // at the far endpoint in local space
+
+  const grp = new THREE.Group();
+  grp.position.set(cx, cy, 0.001);
+  grp.rotation.z = angRad;
+  grp.userData.kind = "grid-line";
+  grp.userData.creator = "IfcGridLine";
+  grp.userData.label = label;
+  grp.userData.controlPoints = [new THREE.Vector3(a.x, a.y, 0), new THREE.Vector3(b.x, b.y, 0)];
+  grp.userData._snapCreationPos = { x: cx, y: cy, z: 0.001 };
+  grp.add(line);
+  grp.add(bubble);
+
   const chain = `IfcGridLine({origin:[${round(a.x)},${round(a.y)}],end:[${round(b.x)},${round(b.y)}]})`;
-  return { mesh: line, chain };
+  return { mesh: grp, chain };
 }
 
 function _drawLevelCanvas(name: string): HTMLCanvasElement {

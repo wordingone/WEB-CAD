@@ -54,6 +54,7 @@ import * as Rendering from "./viewer-rendering.js";
 import * as Gizmos from "./viewer-gizmos.js";
 import * as GizmoInput from "./viewer-gizmo-input.js";
 import * as Scene from "./viewer-scene.js";
+import { repositionAnnotLabels } from "./op-tool.js";
 
 export type ViewName = "top" | "persp" | "front" | "right";
 
@@ -1005,6 +1006,7 @@ export class Viewer {
   private animate = (): void => {
     requestAnimationFrame(this.animate);
     Rendering.renderFrame(this);
+    repositionAnnotLabels(this);
   };
 
   clearScene(): void { Scene.clearScene(this); }
