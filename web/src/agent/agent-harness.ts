@@ -262,10 +262,6 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
   // before the new worker spawns. Without this cooldown, the new worker's model-load
   // races against the OS GPU memory pool still being returned by the old device.
   await new Promise(r => setTimeout(r, 1500));
-  // §#281: new worker from a planned recycle starts with a fresh ORT session — no
-  // accumulated buffer pool to flush. Skip the T2 session-refresh (its warmup probe
-  // OOMs on VRAM-tight hardware when a fresh session tries to prime the pool).
-  _ortSessionRefreshDone = true;
   _arc.dispatch({ type: "D3D12_OOM", reason: "planned" });
   (window as unknown as Record<string, unknown>).__model_worker_recycle_count = _arc.recycleCount;
   window.dispatchEvent(new CustomEvent("agentmodel:worker-recycled", {
@@ -472,7 +468,11 @@ function initWorkerIfNeeded(): Worker {
   // §#156 Layer 4: reset per-worker-lifetime flags on each new spawn.
   // _ortSessionRefreshDone was never reset on recycle — T3 refresh only fired once per session.
   // _sessionSuspended must not carry over from a prior worker's dispose-session.
-  _ortSessionRefreshDone = false;
+  // §#281: post-recycle workers start with a fresh ORT session; skip T2 session-refresh.
+  // The warmup probe in session-refresh OOMs on VRAM-tight hardware when the GPU driver
+  // hasn't fully returned memory from the prior device. First-boot (recycleCount=0) still
+  // gets the T2 refresh — it clears the initial buffer-pool fragmentation before T3+.
+  _ortSessionRefreshDone = _arc.recycleCount > 0;
   _sessionSuspended = false;
   // §#156 Layer 5: new worker = loading state until warmup-done confirms GPU healthy.
   setGpuHealthTier("yellow", "GPU loading");
