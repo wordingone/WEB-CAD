@@ -771,6 +771,10 @@ function initWorkerIfNeeded(): Worker {
           break;
         }
         // Non-OOM worker error: fatal path
+        // §C-wasm-align (#1632): if a session-refresh is in flight, resolve it so
+        // recycleModelWorkerIfNeeded() doesn't block on the 3-min safety timeout.
+        _sessionRefreshResolve?.();
+        _sessionRefreshResolve = null;
         _arc.dispatch({ type: "FATAL_ERROR", error: _errMsg }); // #1036 — sets webgpuFallbackEngaged, bootComplete, modelLoadError
         console.error("[gemma] model load failed:", _errMsg); // #1036 DevTools AC1
         setGpuHealthTier("red", "GPU error — model load failed");

@@ -863,7 +863,17 @@ async function handleDisposeSession(): Promise<void> {
 // Cache API (no re-download) to eliminate accumulated WGPU buffer pool state that causes
 // buffer_manager.cc:553 mapAsync race. Invisible to the ARC machine (no D3D12_OOM event,
 // no recycleCount increment). Called by agent-harness before high-pressure turns (T3+).
+// §C-wasm-align (#1632): outer guard catches any unhandled WASM alignment error that
+// escapes the inner try/catches (e.g., deferred GPU destructions from model.dispose()).
+// Posts session-refresh-complete with a skip so the harness doesn't escalate to FATAL_ERROR.
 async function handleSessionRefresh(): Promise<void> {
+  try { await _handleSessionRefreshInner(); } catch (e) {
+    const _msg = (e as Error)?.message ?? String(e);
+    console.warn("[session-refresh] outer guard caught:", _msg.slice(0, 120));
+    post({ type: "session-refresh-complete", skipped: true, reason: "guard-caught" });
+  }
+}
+async function _handleSessionRefreshInner(): Promise<void> {
   if (!_lastInitData) {
     post({ type: "session-refresh-complete", skipped: true, reason: "no-init-data" });
     return;
@@ -884,6 +894,11 @@ async function handleSessionRefresh(): Promise<void> {
   // the allocator before reallocation. _flushWgpuQueue uses ort.env.webgpu.device
   // (same device, module-scope path) so _preAcquiredGpuDevice locality is irrelevant.
   await _flushWgpuQueue("session-refresh-pre-reload");
+  // §C-wasm-align (#1632): extra 200ms hold after flush — GPU driver needs a render tick
+  // to fully retire freed buffer pages before re-allocating ORT WebGPU session storage.
+  // Without this delay, from_pretrained triggers "operation does not support unaligned accesses"
+  // when the prior ORT session's WASM buffer offsets haven't been fully returned to the allocator.
+  await new Promise(r => setTimeout(r, 200));
 
   // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
   // holds the shards so from_pretrained serves from cache without any network fetch.
