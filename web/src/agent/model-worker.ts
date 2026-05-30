@@ -918,17 +918,33 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
   let refreshed = false;
   for (const { device, dtype } of refreshBackends) {
-    try {
-      const model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, { dtype, device });
-      const processor = await AutoProcessor.from_pretrained(modelId);
-      _model = model;
-      _processor = processor;
-      refreshed = true;
-      break;
-    } catch (e) {
-      post({ type: "session-refresh-complete", skipped: false, error: (e as Error).message?.slice(0, 100) });
+    let _fpErr: Error | null = null;
+    for (let _attempt = 0; _attempt < 3; _attempt++) {
+      if (_attempt > 0) {
+        // §C-wasm-align (#1632): from_pretrained alignment retry — deferred destructions from
+        // dispose() fire during model weight loading; flush + longer wait each attempt.
+        await _flushWgpuQueue("session-refresh-fp-retry-" + _attempt);
+        await new Promise(r => setTimeout(r, 2000 * _attempt)); // 2s, 4s
+        console.warn("[session-refresh] from_pretrained retry", _attempt, "after alignment error");
+      }
+      try {
+        const model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, { dtype, device });
+        const processor = await AutoProcessor.from_pretrained(modelId);
+        _model = model;
+        _processor = processor;
+        refreshed = true;
+        _fpErr = null;
+        break;
+      } catch (e) {
+        _fpErr = e as Error;
+        if (!/unaligned accesses/i.test(_fpErr.message ?? "")) break; // don't retry non-align errors
+      }
+    }
+    if (_fpErr) {
+      post({ type: "session-refresh-complete", skipped: false, error: _fpErr.message?.slice(0, 100) });
       return;
     }
+    if (refreshed) break;
   }
 
   // §#196: warmup probe — pre-sizes GPU buffer pool after re-load to close the
@@ -1168,16 +1184,22 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
         // §C-decode-retry (#1362-C, updated #1410, #83, #1632): buffer_manager race OR WASM
         // alignment error — deferred GPU destructions from session-refresh dispose() fire during
         // inference. Flush + delay lets destructions complete; retry with clean buffer state.
-        const _delay1 = _coldCacheBoot ? 2000 : 500;
+        // §C-wasm-align (#1632): unaligned accesses needs 2000ms (not 500ms) — deferred
+        // destructions from from_pretrained's internal allocs outlast the post-warmup settle.
+        const _isAlignErr = /unaligned accesses/i.test(_msg);
+        const _delay1 = (_coldCacheBoot || _isAlignErr) ? 2000 : 500;
         console.warn("[model-worker] buffer_manager race — flushing+retrying after " + _delay1 + "ms", _msg.slice(0, 120));
         await new Promise(r => setTimeout(r, _delay1));
         await _flushWgpuQueue("retry-1"); // §#83: flush failed-attempt destructions
         try {
           outputs = await _doGenerate();
         } catch (retryErr) {
-          // §#1410: second retry for cold-cache (larger race window after 2.5GB download).
-          if (_coldCacheBoot && /buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(String(retryErr))) {
-            console.warn("[model-worker] buffer_manager retry-2 — cold-cache, flushing+waiting 3000ms");
+          // §#1410 + §C-wasm-align (#1632): second retry for cold-cache OR alignment errors.
+          // Alignment errors need the same long retry budget as cold-cache — both have large
+          // deferred-destruction windows that 500ms doesn't cover.
+          if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(String(retryErr)) &&
+              (_coldCacheBoot || /unaligned accesses/i.test(String(retryErr)))) {
+            console.warn("[model-worker] buffer_manager retry-2 — flushing+waiting 3000ms");
             await new Promise(r => setTimeout(r, 3000));
             await _flushWgpuQueue("retry-2"); // §#83
             outputs = await _doGenerate(); // final attempt — throws to outer catch if still failing

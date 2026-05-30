@@ -775,6 +775,9 @@ function initWorkerIfNeeded(): Worker {
         // recycleModelWorkerIfNeeded() doesn't block on the 3-min safety timeout.
         _sessionRefreshResolve?.();
         _sessionRefreshResolve = null;
+        // §B-device-destroy (#1313) + #303(b): destroy WebGPU device before FATAL so a dead
+        // model cannot hold VRAM. D3D12_OOM path already does this; non-OOM path must too.
+        if (_inferenceWorker) _inferenceWorker.postMessage({ type: "destroy-device" });
         _arc.dispatch({ type: "FATAL_ERROR", error: _errMsg }); // #1036 — sets webgpuFallbackEngaged, bootComplete, modelLoadError
         console.error("[gemma] model load failed:", _errMsg); // #1036 DevTools AC1
         setGpuHealthTier("red", "GPU error — model load failed");
