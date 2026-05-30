@@ -168,6 +168,16 @@ describe("AgentRuntimeController", () => {
     expect(ctrl.prefillDone).toBe(true);
   });
 
+  // Scenario 12: idle-reinit race — session-refresh sends model-ready while already ready
+  it("MODEL_READY in ready state is a self-loop (idle-reinit race)", () => {
+    boot(ctrl);
+    expect(ctrl.state).toBe("ready");
+    // session-refresh path sends model-ready before GENERATE_REQUESTED is dispatched
+    expect(() => ctrl.dispatch({ type: "MODEL_READY", device: "GPU" })).not.toThrow();
+    expect(ctrl.state).toBe("ready");
+    expect(ctrl.workerReady).toBe(true);
+  });
+
   // Bonus: invalid transition throws in strict mode
   it("invalid transition throws in strict mode", () => {
     expect(() => ctrl.dispatch({ type: "GENERATE_REQUESTED", turnId: "t1" })).toThrow(
