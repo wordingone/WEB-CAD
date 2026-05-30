@@ -5,7 +5,7 @@ import { formatLength, formatArea, formatVolume, unitLabel } from "../units";
 import { opAddLabel } from "../viewer/op-tool";
 import { linkCanonicalCurve } from "./canonical-surface";
 import type { Point3 } from "../nurbs/nurbs-primitives";
-import type { PolylineCurve } from "../nurbs/nurbs-curves";
+import { tessellate, type PolylineCurve } from "../nurbs/nurbs-curves";
 import { buildAlignedDim, buildAngularDim, buildVolumeDimBox } from "../viewer/dimension-style";
 
 function point3(v: THREE.Vector3): Point3 {
@@ -195,5 +195,48 @@ export function registerAnnotationHandlers(viewer: Viewer): void {
     viewer.getScene().add(group); // audit-undo-ok — transient measurement line, no undo entry intentional
     opAddLabel(formatLength(dist), dimLineMid, viewer);
     return { measured: "length", distance: parseFloat(dist.toFixed(4)), unit: unitLabel() };
+  });
+
+  registerHandler("SdEdgeLength", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdEdgeLength requires target" };
+    const edgeIndex = args.edge as number | undefined;
+    if (edgeIndex === undefined || edgeIndex === null) return { error: "SdEdgeLength requires edge index" };
+    const shellIndex = (args.shell as number | undefined) ?? 0;
+
+    const obj = viewer.getScene().getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdEdgeLength — target not found: ${targetId}` };
+
+    const store = viewer.getCanonicalGeometryStore();
+    const canonical = store.resolveObjectOrAncestor(obj);
+    if (!canonical || canonical.kind !== "brep") {
+      return { error: "SdEdgeLength — target has no canonical BRep" };
+    }
+
+    const shell = canonical.brep.shells[shellIndex];
+    if (!shell) return { error: `SdEdgeLength — shell ${shellIndex} not found` };
+    const edge = shell.edges[edgeIndex];
+    if (!edge) return { error: `SdEdgeLength — edge ${edgeIndex} not found in shell ${shellIndex}` };
+
+    const pts3 = tessellate(edge.curve, 512);
+    let length = 0;
+    for (let i = 1; i < pts3.length; i++) {
+      const a = pts3[i - 1]!, b = pts3[i]!;
+      length += Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2);
+    }
+
+    const threePts = pts3.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+    const mid = threePts[Math.floor(threePts.length / 2)]!;
+    const group = new THREE.Group();
+    linkAnnotationCurve(viewer, group, threePts, "SdEdgeLength", {
+      measured: "edge-length",
+      target: targetId,
+      edge: edgeIndex,
+      shell: shellIndex,
+      length,
+    });
+    viewer.addMesh(group, "mesh");
+    opAddLabel(formatLength(length), mid, viewer);
+    return { measured: "edge-length", length: parseFloat(length.toFixed(6)), edge: edgeIndex, shell: shellIndex, unit: unitLabel(), object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
   });
 }
