@@ -20,6 +20,7 @@ import { registerCPlaneHandlers } from "./handlers/cplane";
 import { registerAnnotationHandlers } from "./handlers/annotations";
 import { registerSkillHandlers } from "./handlers/skills";
 import { registerBrepOpHandlers } from "./handlers/brep-ops";
+import { registerVisibilityHandlers } from "./handlers/visibility";
 
 const ORTHO_VIEWS = ["top", "bottom", "front", "back", "left", "right", "iso"] as const;
 type OrthoView = typeof ORTHO_VIEWS[number];
@@ -125,6 +126,8 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
     document.dispatchEvent(new CustomEvent("viewer:isolate-changed", { detail: { uuid: null } }));
     return { ok: true };
   });
+
+  registerVisibilityHandlers(viewer);
 
   registerHandler("SdFitToObject", (args) => {
     const uuid = args.uuid as string;
