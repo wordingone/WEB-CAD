@@ -178,6 +178,24 @@ describe("AgentRuntimeController", () => {
     expect(ctrl.workerReady).toBe(true);
   });
 
+  // Scenario 13: premature-generate boot race — GENERATE_REQUESTED cuts booting→generating→ready
+  // before BOOT_COMPLETE fires; late BOOT_COMPLETE must set bootComplete=true so chat-input unblocks.
+  it("BOOT_COMPLETE in ready state is a self-loop that sets bootComplete (premature-generate race)", () => {
+    ctrl.dispatch({ type: "BOOT_REQUESTED" });
+    ctrl.dispatch({ type: "MODEL_READY", device: "GPU" });
+    // Prompt fires before boot completes (e.g. from CDP or fast user)
+    ctrl.dispatch({ type: "GENERATE_REQUESTED", turnId: "t1" });
+    ctrl.dispatch({ type: "GENERATE_FAILED" }); // → ready, bootComplete still false
+    expect(ctrl.state).toBe("ready");
+    expect(ctrl.bootComplete).toBe(false);
+    expect(ctrl.chatInputEnabled).toBe(false); // gate blocked
+    // Original boot sequence finishes: late BOOT_COMPLETE self-loop
+    expect(() => ctrl.dispatch({ type: "BOOT_COMPLETE" })).not.toThrow();
+    expect(ctrl.state).toBe("ready");
+    expect(ctrl.bootComplete).toBe(true); // unblocked
+    expect(ctrl.chatInputEnabled).toBe(true);
+  });
+
   // Bonus: invalid transition throws in strict mode
   it("invalid transition throws in strict mode", () => {
     expect(() => ctrl.dispatch({ type: "GENERATE_REQUESTED", turnId: "t1" })).toThrow(
