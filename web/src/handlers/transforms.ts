@@ -8,7 +8,7 @@ import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, getUniqueEdges } from "../viewer/csg";
 import { runPolySel, runRectSel } from "../viewer/selection-ops";
 import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
-import { BREP_DEFAULT_TOLERANCE, transformBrep, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
+import { BREP_DEFAULT_TOLERANCE, transformBrep, brepConcat, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
 import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
 import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
@@ -413,6 +413,41 @@ function nativeBoxAllEdgeChamferBrep(source: Brep, radius: number): Brep | null 
   return brepFromNurbsPolygons(polygons);
 }
 
+function nativeBoxShellBrep(source: Brep, thickness: number): Brep | null {
+  const bounds = axisBoxBoundsFromBrep(source);
+  if (!bounds) return null;
+  const { min: mn, max: mx } = bounds;
+  const minDim = Math.min(mx.x - mn.x, mx.y - mn.y, mx.z - mn.z);
+  if (thickness <= 0 || thickness >= minDim / 2) return null;
+  const t = thickness;
+  const xi0 = mn.x + t, xi1 = mx.x - t;
+  const yi0 = mn.y + t, yi1 = mx.y - t;
+  const zi0 = mn.z + t, zi1 = mx.z - t;
+  const v = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
+  // Outer polygons — normals point outward from the solid
+  const outerPolygons: THREE.Vector3[][] = [
+    [v(mn.x, mn.y, mx.z), v(mx.x, mn.y, mx.z), v(mx.x, mx.y, mx.z), v(mn.x, mx.y, mx.z)], // +Z top
+    [v(mn.x, mn.y, mn.z), v(mn.x, mx.y, mn.z), v(mx.x, mx.y, mn.z), v(mx.x, mn.y, mn.z)], // -Z bottom
+    [v(mn.x, mx.y, mn.z), v(mn.x, mx.y, mx.z), v(mx.x, mx.y, mx.z), v(mx.x, mx.y, mn.z)], // +Y back
+    [v(mn.x, mn.y, mn.z), v(mx.x, mn.y, mn.z), v(mx.x, mn.y, mx.z), v(mn.x, mn.y, mx.z)], // -Y front
+    [v(mx.x, mn.y, mn.z), v(mx.x, mx.y, mn.z), v(mx.x, mx.y, mx.z), v(mx.x, mn.y, mx.z)], // +X right
+    [v(mn.x, mn.y, mn.z), v(mn.x, mn.y, mx.z), v(mn.x, mx.y, mx.z), v(mn.x, mx.y, mn.z)], // -X left
+  ];
+  // Inner polygons — reversed winding so normals point into the hollow cavity
+  const innerPolygons: THREE.Vector3[][] = [
+    [v(xi0, yi1, zi1), v(xi1, yi1, zi1), v(xi1, yi0, zi1), v(xi0, yi0, zi1)], // inner top (normal -Z)
+    [v(xi1, yi0, zi0), v(xi1, yi1, zi0), v(xi0, yi1, zi0), v(xi0, yi0, zi0)], // inner bottom (normal +Z)
+    [v(xi1, yi1, zi0), v(xi1, yi1, zi1), v(xi0, yi1, zi1), v(xi0, yi1, zi0)], // inner +Y (normal -Y)
+    [v(xi0, yi0, zi0), v(xi0, yi0, zi1), v(xi1, yi0, zi1), v(xi1, yi0, zi0)], // inner -Y (normal +Y)
+    [v(xi1, yi1, zi0), v(xi1, yi0, zi0), v(xi1, yi0, zi1), v(xi1, yi1, zi1)], // inner +X (normal -X)
+    [v(xi0, yi1, zi0), v(xi0, yi1, zi1), v(xi0, yi0, zi1), v(xi0, yi0, zi0)], // inner -X (normal +X)
+  ];
+  const outerBrep = brepFromNurbsPolygons(outerPolygons);
+  const innerBrep = brepFromNurbsPolygons(innerPolygons);
+  if (!outerBrep || !innerBrep) return null;
+  return brepConcat(outerBrep, innerBrep);
+}
+
 function canonicalEdgeChamferDisplayResult(
   viewer: Viewer,
   obj: THREE.Object3D,
@@ -565,6 +600,56 @@ function canonicalMultiEdgeChamferDisplayResult(
   };
   display.userData.kind = "brep";
   display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+function canonicalShellDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  thickness: number,
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = nativeBoxShellBrep(source, thickness);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdShell",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "canonical-brep-shell",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index
+      ? Math.floor(display.geometry.index.count / 3)
+      : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdShell";
   display.userData.dispatchArgs = metadata;
   display.userData.booleanDisplaySource = "canonical-brep";
   store.linkObject(display, record.id);
@@ -1192,6 +1277,25 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "chamfer");
     return { modified: filleted.uuid, edgeCount };
+  });
+
+  registerHandler("SdShell", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdShell - target is required" };
+    const thickness = args.thickness as number | undefined;
+    if (thickness === undefined || thickness === null) return { error: "SdShell - thickness is required" };
+    if (!Number.isFinite(thickness) || thickness <= 0) return { error: `SdShell - thickness must be positive, got: ${thickness}` };
+    const scene = viewer.getScene();
+    const obj = scene.getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdShell - target not found: ${targetId}` };
+    if (!(obj instanceof THREE.Mesh)) return { error: "SdShell - target is not a Mesh" };
+    const operation = { operation: "shell", thickness };
+    const shelled = canonicalShellDisplayResult(viewer, obj, thickness, operation);
+    if (!shelled) return { error: "SdShell - requires a supported canonical box-like BRep. Thickness must be less than half the smallest dimension." };
+    viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
+    viewer.addMesh(shelled, "brep", { noHistory: true });
+    pushReplaceAction(shelled, [obj], "shell");
+    return { modified: shelled.uuid, thickness };
   });
 
   registerHandler("SdSelect", (args) => {
