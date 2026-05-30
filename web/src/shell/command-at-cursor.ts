@@ -150,7 +150,10 @@ function openArgsMode(toolId: string, spec: ArgDef[]): void {
     hintEl.textContent = "feet (5′) · inches (36″) · meters (1.5)";
     list!.appendChild(hintEl);
 
-    argInput.addEventListener("blur", () => setTimeout(close, 150));
+    argInput.addEventListener("blur", () => setTimeout(() => {
+      if (_overlay?.contains(document.activeElement)) return;
+      close();
+    }, 150));
 
     argInput.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { e.preventDefault(); close(); return; }
