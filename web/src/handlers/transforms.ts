@@ -1,7 +1,7 @@
 import { registerHandler } from "../commands/dispatch";
 import { Viewer } from "../viewer/viewer";
 import * as THREE from "three";
-import { getSelected, setSelected, clearMultiSelected, addToMultiSelected, topologyAllowed, getFilters } from "../viewer/selection-state";
+import { getSelected, setSelected, clearSelected, clearMultiSelected, addToMultiSelected, topologyAllowed, getFilters } from "../viewer/selection-state";
 import { captureTransform, pushTransformAction, pushReplaceAction, pushBatchAction } from "../history";
 import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
@@ -1451,6 +1451,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.selectObject(proxy);
     window.dispatchEvent(new CustomEvent("viewer:selectAll", { detail: { count: matches.length } }));
     return { selected: matches.map((o) => o.uuid), count: matches.length };
+  });
+
+  registerHandler("SdDeselect", () => {
+    clearSelected();
+    clearMultiSelected();
+    viewer.selectObject(null);
+    window.dispatchEvent(new CustomEvent("viewer:select", { detail: { uuid: null } }));
+    return { deselected: true };
   });
 
   registerHandler("SdArray", (args) => {

@@ -21,6 +21,7 @@ import { registerAnnotationHandlers } from "./handlers/annotations";
 import { registerSkillHandlers } from "./handlers/skills";
 import { registerBrepOpHandlers } from "./handlers/brep-ops";
 import { registerVisibilityHandlers } from "./handlers/visibility";
+import { registerSelectionQueryHandlers } from "./handlers/selection-query";
 
 const ORTHO_VIEWS = ["top", "bottom", "front", "back", "left", "right", "iso"] as const;
 type OrthoView = typeof ORTHO_VIEWS[number];
@@ -128,6 +129,7 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
   });
 
   registerVisibilityHandlers(viewer);
+  registerSelectionQueryHandlers(viewer);
 
   registerHandler("SdFitToObject", (args) => {
     const uuid = args.uuid as string;
