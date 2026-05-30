@@ -165,17 +165,11 @@ async function run() {
   log("[2] Setting scene (one box)…");
   await evaluate(ws, `window.__dispatchSync("SdClearScene", {})`);
   await sleep(300);
-  await evaluate(ws, `window.__dispatchSync("SdBox", { width: 2, height: 1, depth: 1 })`);
+  const sdBoxJson = await evaluate(ws, `JSON.stringify(window.__dispatchSync("SdBox", { width: 2, height: 1, depth: 1 }))`);
   await sleep(300);
-
-  const boxUuid = await evaluate(ws, `(() => {
-    let uuid = null;
-    window.__viewer?.getScene?.()?.traverse((obj) => {
-      if (!uuid && obj.userData?.kind === "box") uuid = obj.uuid;
-    });
-    return uuid;
-  })()`);
-  if (!boxUuid) fail("Could not find box UUID after SdBox");
+  const sdBoxResult = sdBoxJson ? JSON.parse(sdBoxJson) : null;
+  const boxUuid = sdBoxResult?.result?.created ?? sdBoxResult?.result?.object_id ?? null;
+  if (!boxUuid) fail(`SdBox dispatch failed or returned no UUID: ${sdBoxJson}`);
   log("[2] Box UUID:", boxUuid);
 
   await evaluate(ws, `window.__dispatchLedger = []`);
