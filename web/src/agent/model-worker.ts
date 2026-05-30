@@ -894,11 +894,10 @@ async function _handleSessionRefreshInner(): Promise<void> {
   // the allocator before reallocation. _flushWgpuQueue uses ort.env.webgpu.device
   // (same device, module-scope path) so _preAcquiredGpuDevice locality is irrelevant.
   await _flushWgpuQueue("session-refresh-pre-reload");
-  // §C-wasm-align (#1632): extra 200ms hold after flush — GPU driver needs a render tick
-  // to fully retire freed buffer pages before re-allocating ORT WebGPU session storage.
-  // Without this delay, from_pretrained triggers "operation does not support unaligned accesses"
-  // when the prior ORT session's WASM buffer offsets haven't been fully returned to the allocator.
-  await new Promise(r => setTimeout(r, 200));
+  // §C-wasm-align (#1632): 500ms hold after flush — GPU driver needs time to fully retire
+  // freed WASM buffer pages from dispose() before re-allocating ORT WebGPU session storage.
+  // 200ms was insufficient for SdScale T3; 500ms covers the longer deferred-destruction tail.
+  await new Promise(r => setTimeout(r, 500));
 
   // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
   // holds the shards so from_pretrained serves from cache without any network fetch.
@@ -950,6 +949,9 @@ async function _handleSessionRefreshInner(): Promise<void> {
           new Promise<void>(r => setTimeout(r, 30_000)),
         ]);
         await _flushWgpuQueue("session-refresh-warmup");
+        // §C-wasm-align (#1632): post-warmup settle — warmup generate creates/destroys GPU
+        // buffers asynchronously; 200ms lets deferred destructions complete before T3 inference.
+        await new Promise(r => setTimeout(r, 200));
       }
     } catch (e) {
       console.warn("[#196] warmup probe failed (non-fatal):", (e as Error).message?.slice(0, 100));
@@ -1162,10 +1164,10 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       outputs = await _doGenerate();
     } catch (genErr) {
       const _msg = String(genErr);
-      if (/buffer_manager|BufferManager|unmapped before mapping/i.test(_msg)) {
-        // §C-decode-retry (#1362-C, updated #1410, #83): cold-cache boot accumulates more
-        // pending GPU work (2.5GB upload pipeline). GPU queue flush + delay before each retry
-        // ensures the failed attempt's pending buffer destructions commit before the next attempt.
+      if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_msg)) {
+        // §C-decode-retry (#1362-C, updated #1410, #83, #1632): buffer_manager race OR WASM
+        // alignment error — deferred GPU destructions from session-refresh dispose() fire during
+        // inference. Flush + delay lets destructions complete; retry with clean buffer state.
         const _delay1 = _coldCacheBoot ? 2000 : 500;
         console.warn("[model-worker] buffer_manager race — flushing+retrying after " + _delay1 + "ms", _msg.slice(0, 120));
         await new Promise(r => setTimeout(r, _delay1));
@@ -1174,7 +1176,7 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
           outputs = await _doGenerate();
         } catch (retryErr) {
           // §#1410: second retry for cold-cache (larger race window after 2.5GB download).
-          if (_coldCacheBoot && /buffer_manager|BufferManager|unmapped before mapping/i.test(String(retryErr))) {
+          if (_coldCacheBoot && /buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(String(retryErr))) {
             console.warn("[model-worker] buffer_manager retry-2 — cold-cache, flushing+waiting 3000ms");
             await new Promise(r => setTimeout(r, 3000));
             await _flushWgpuQueue("retry-2"); // §#83
