@@ -2348,12 +2348,12 @@
     type: object
     properties:
       target:
-        type: surface_or_face
+        type: object_id
+        description: "[required] UUID of the BRep solid whose total surface area to compute"
     required: [target]
   topology_role: annotation
   kg_predicates: []
-  synonyms: [area]
-  kernel: replicad
+  synonyms: [area, total area, surface area of solid, total surface area, compute area, area of object]
   alias_source: generic_cad_vocabulary
 
 - name: SdVolume

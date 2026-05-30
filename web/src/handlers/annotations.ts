@@ -343,4 +343,52 @@ export function registerAnnotationHandlers(viewer: Viewer): void {
     opAddLabel(formatVolume(volume), centroid, viewer);
     return { measured: "volume", volume: parseFloat(volume.toFixed(6)), unit: unitSuffix, object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
   });
+
+  registerHandler("SdArea", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdArea requires target" };
+    const obj = viewer.getScene().getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdArea — target not found: ${targetId}` };
+    const mesh = obj instanceof THREE.Mesh ? obj : null;
+    if (!mesh) return { error: "SdArea — target is not a renderable solid mesh" };
+    const store = viewer.getCanonicalGeometryStore();
+    const canonical = store.resolveObjectOrAncestor(obj);
+    if (!canonical || canonical.kind !== "brep") {
+      return { error: "SdArea — target has no canonical BRep" };
+    }
+
+    // Surface area: Σ ||(v1-v0)×(v2-v0)|| / 2 over all display mesh triangles.
+    const geo = mesh.geometry;
+    const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+    const idx = geo.index;
+    let totalArea = 0;
+    let cx = 0, cy = 0, cz = 0;
+    const processTriangle = (ai: number, bi: number, ci: number) => {
+      const x0 = pos.getX(ai), y0 = pos.getY(ai), z0 = pos.getZ(ai);
+      const x1 = pos.getX(bi), y1 = pos.getY(bi), z1 = pos.getZ(bi);
+      const x2 = pos.getX(ci), y2 = pos.getY(ci), z2 = pos.getZ(ci);
+      const ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
+      const fx = x2 - x0, fy = y2 - y0, fz = z2 - z0;
+      const crossX = ey * fz - ez * fy;
+      const crossY = ez * fx - ex * fz;
+      const crossZ = ex * fy - ey * fx;
+      totalArea += Math.sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ) / 2;
+      cx += x0 + x1 + x2; cy += y0 + y1 + y2; cz += z0 + z1 + z2;
+    };
+    if (idx) {
+      for (let i = 0; i < idx.count; i += 3) processTriangle(idx.getX(i), idx.getX(i + 1), idx.getX(i + 2));
+    } else {
+      for (let i = 0; i < pos.count; i += 3) processTriangle(i, i + 1, i + 2);
+    }
+    const triCount = idx ? idx.count / 3 : pos.count / 3;
+    if (triCount > 0) { cx /= triCount * 3; cy /= triCount * 3; cz /= triCount * 3; }
+
+    const centroid = new THREE.Vector3(cx, cy, cz);
+    const group = new THREE.Group();
+    linkAnnotationCurve(viewer, group, [centroid], "SdArea", { measured: "surface-area", target: targetId, area: totalArea });
+    viewer.addMesh(group, "mesh");
+    const unitSuffix2 = unitLabel() === "ft" ? "ft²" : "m²";
+    opAddLabel(formatArea(totalArea), centroid, viewer);
+    return { measured: "surface-area", area: parseFloat(totalArea.toFixed(6)), unit: unitSuffix2, object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
+  });
 }
