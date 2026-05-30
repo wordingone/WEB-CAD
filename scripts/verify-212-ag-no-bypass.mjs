@@ -108,8 +108,10 @@ const typeString = async (str) => {
   }
 };
 
+let _lastBootMs = 0;
 const navigateAndBoot = async (url = DEV_URL) => {
   consoleErrors = [];
+  const t0 = Date.now();
   await send("Runtime.enable");
   await send("Page.enable");
   await send("Page.navigate", { url });
@@ -141,6 +143,7 @@ const navigateAndBoot = async (url = DEV_URL) => {
   await poll(async () => evaluate(`!!(window.__viewer?.scene && typeof window.__viewer?.getCanonicalGeometryStore === "function")`),
     { timeout: 20_000, interval: 400, label: "viewer+canonStore ready" });
   await delay(300);
+  _lastBootMs = Date.now() - t0;
 };
 
 // All tool interaction goes through palette buttons (no __dispatchSync).
@@ -717,9 +720,14 @@ async function scenarioG() {
   await navigateAndBoot();
   const vp = await getViewportCenter();
   const VX = vp.x; const VY = vp.y;
-  const out = { pass: false };
+  const out = { pass: false, boot_ms: _lastBootMs };
 
-  // Wait for model download prompt or proceed directly
+  // Capture scene state at T1 (just after boot, before any geometry)
+  const sceneChildrenT1 = await evaluate(`window.__viewer?.scene?.children?.length ?? -1`);
+  out.scene_children_before = sceneChildrenT1;
+  console.log(`  boot_ms: ${_lastBootMs}  scene_children[T1]: ${sceneChildrenT1}`);
+
+  // Check for model download prompt — navigateAndBoot cancels consent, so this is typically absent
   const modelPromptBtn = await evaluate(`
     (() => {
       const btns = Array.from(document.querySelectorAll('button'));
@@ -728,13 +736,14 @@ async function scenarioG() {
       const r = dl.getBoundingClientRect();
       return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
     })()`);
+  out.model_prompt_found = !!modelPromptBtn;
 
   if (modelPromptBtn) {
     console.log("  model download prompt found — clicking");
     await trustedClick(modelPromptBtn.x, modelPromptBtn.y);
     await delay(2_000);
   } else {
-    console.log("  no model download prompt (cache warm or not yet triggered)");
+    console.log("  no model download prompt (consent cancelled at boot — model not loading)");
   }
 
   // Create a rect, select it, try fillet (unsupported path should give clean product error, not crash)
