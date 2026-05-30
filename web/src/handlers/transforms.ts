@@ -517,6 +517,60 @@ function unsupportedNativeFilletError(operation: string): { error: string } {
   };
 }
 
+function canonicalMultiEdgeChamferDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  edgeCoords: Array<[THREE.Vector3, THREE.Vector3]>,
+  radius: number,
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  let brep = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  for (const [worldA, worldB] of edgeCoords) {
+    const next = nativeBoxEdgeChamferBrep(brep, worldA, worldB, radius);
+    if (!next) return null;
+    brep = next;
+  }
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdFillet",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "canonical-brep-multi-edge-chamfer",
+      conversion: "native-trimmed-nurbs-brep",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index
+      ? Math.floor(display.geometry.index.count / 3)
+      : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "canonical-brep";
+  store.linkObject(display, record.id);
+  return display;
+}
+
 function buildPointMaterial(sizePx = 14): THREE.PointsMaterial {
   const canvas = document.createElement("canvas");
   canvas.width = 32; canvas.height = 32;
@@ -1027,10 +1081,30 @@ export function registerTransformHandlers(viewer: Viewer): void {
     if (!obj) return { error: `SdFillet - target not found: ${targetId}` };
     if (!(obj instanceof THREE.Mesh)) return { error: "SdFillet - target is not a Mesh" };
     const edgeId = args.edgeId as number | undefined;
+    const edgesArr = (args.edges as number[] | undefined) ?? [];
     const edgeFrom = args.edgeFrom as number[] | undefined;
     const edgeTo = args.edgeTo as number[] | undefined;
     let filleted: THREE.Mesh;
-    if (edgeId !== undefined && edgeId !== null) {
+    let edgeCount: number | "all" = "all";
+    if (edgesArr.length > 0) {
+      const uniqueEdges = getUniqueEdges(obj);
+      const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
+      for (const eid of edgesArr) {
+        if (eid < 0 || eid >= uniqueEdges.length) {
+          return { error: `SdFillet - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
+        }
+        const [localA, localB] = uniqueEdges[eid];
+        edgeCoords.push([
+          localA.clone().applyMatrix4(obj.matrixWorld),
+          localB.clone().applyMatrix4(obj.matrixWorld),
+        ]);
+      }
+      const operation = { operation: "multi-edge-chamfer", edges: edgesArr, radius };
+      const canonicalFillet = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, radius, operation);
+      if (!canonicalFillet) return unsupportedNativeFilletError("multi-edge chamfer");
+      filleted = canonicalFillet;
+      edgeCount = edgesArr.length;
+    } else if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
       if (edgeId < 0 || edgeId >= edges.length) {
         return { error: `SdFillet - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
@@ -1042,6 +1116,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
       const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
       if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
       filleted = canonicalFillet;
+      edgeCount = 1;
     } else if (edgeFrom && edgeTo) {
       const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
       const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
@@ -1049,6 +1124,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
       const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
       if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
       filleted = canonicalFillet;
+      edgeCount = 1;
     } else {
       const operation = { operation: "all-edge-fillet", radius };
       const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
@@ -1058,8 +1134,66 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "fillet");
-    return { modified: filleted.uuid, edgeCount: edgeId !== undefined ? 1 : "all" };
+    return { modified: filleted.uuid, edgeCount };
   });
+
+  registerHandler("SdChamfer", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdChamfer - target is required" };
+    const distance = (args.distance as number | undefined) ?? (args.radius as number | undefined);
+    if (distance === undefined || distance === null) return { error: "SdChamfer - distance is required" };
+    if (!Number.isFinite(distance) || distance <= 0) return { error: `SdChamfer - distance must be a positive number, got: ${distance}` };
+    const scene = viewer.getScene();
+    const obj = scene.getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdChamfer - target not found: ${targetId}` };
+    if (!(obj instanceof THREE.Mesh)) return { error: "SdChamfer - target is not a Mesh" };
+    const edgeId = args.edgeId as number | undefined;
+    const edgesArr = (args.edges as number[] | undefined) ?? [];
+    let filleted: THREE.Mesh;
+    let edgeCount: number | "all" = "all";
+    if (edgesArr.length > 0) {
+      const uniqueEdges = getUniqueEdges(obj);
+      const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
+      for (const eid of edgesArr) {
+        if (eid < 0 || eid >= uniqueEdges.length) {
+          return { error: `SdChamfer - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
+        }
+        const [localA, localB] = uniqueEdges[eid];
+        edgeCoords.push([
+          localA.clone().applyMatrix4(obj.matrixWorld),
+          localB.clone().applyMatrix4(obj.matrixWorld),
+        ]);
+      }
+      const operation = { operation: "chamfer-multi-edge", edges: edgesArr, distance };
+      const result = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, distance, operation);
+      if (!result) return { error: `SdChamfer - multi-edge chamfer requires a supported canonical box-like BRep` };
+      filleted = result;
+      edgeCount = edgesArr.length;
+    } else if (edgeId !== undefined && edgeId !== null) {
+      const edges = getUniqueEdges(obj);
+      if (edgeId < 0 || edgeId >= edges.length) {
+        return { error: `SdChamfer - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
+      }
+      const [localA, localB] = edges[edgeId];
+      const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
+      const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
+      const operation = { operation: "chamfer-edge", edgeId, distance };
+      const result = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, distance, operation);
+      if (!result) return { error: `SdChamfer - edge chamfer requires a supported canonical box-like BRep` };
+      filleted = result;
+      edgeCount = 1;
+    } else {
+      const operation = { operation: "chamfer-all", distance };
+      const result = canonicalAllEdgeChamferDisplayResult(viewer, obj, distance, operation);
+      if (!result) return { error: `SdChamfer - all-edge chamfer requires a supported canonical box-like BRep` };
+      filleted = result;
+    }
+    viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
+    viewer.addMesh(filleted, "brep", { noHistory: true });
+    pushReplaceAction(filleted, [obj], "chamfer");
+    return { modified: filleted.uuid, edgeCount };
+  });
+
   registerHandler("SdSelect", (args) => {
     const id = args.id as string | undefined;
     if (!id) return { error: "SdSelect requires id" };

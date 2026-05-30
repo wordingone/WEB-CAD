@@ -73,8 +73,8 @@ export type OpPhase =
   | { kind: "bool_b"; objA: THREE.Object3D; presetOp?: "union" | "difference" | "intersection" }
   | { kind: "bool_op"; objA: THREE.Object3D; objB: THREE.Object3D }
   | { kind: "fillet_select" }
-  | { kind: "fillet_edge";        target: THREE.Mesh | THREE.Line }
-  | { kind: "fillet_edge_radius"; target: THREE.Mesh | THREE.Line; edgeA: THREE.Vector3; edgeB: THREE.Vector3; cornerV?: THREE.Vector3 }
+  | { kind: "fillet_edge";        target: THREE.Mesh | THREE.Line; pendingEdges: Array<{ edgeA: THREE.Vector3; edgeB: THREE.Vector3; cornerV?: THREE.Vector3 }> }
+  | { kind: "fillet_edge_radius"; target: THREE.Mesh | THREE.Line; pendingEdges: Array<{ edgeA: THREE.Vector3; edgeB: THREE.Vector3; cornerV?: THREE.Vector3 }> }
   | { kind: "fillet_radius"; target: THREE.Object3D }
   | { kind: "sel_window_sub" }
   | { kind: "sel_window"; subMode: "crossing" | "window"; startX: number; startY: number }
@@ -1099,11 +1099,11 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     }
     opSetHover(null);
     if (hit.obj instanceof THREE.Mesh) {
-      _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Mesh };
-      ptPrompt("Fillet — hover an edge to highlight it, click to select");
+      _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Mesh, pendingEdges: [] };
+      ptPrompt("Fillet — hover an edge to highlight it, click to select  [Enter = apply to selected]");
     } else {
-      _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Line };
-      ptPrompt("Fillet — hover a corner vertex to highlight it, click to select");
+      _opPhase = { kind: "fillet_edge", target: hit.obj as THREE.Line, pendingEdges: [] };
+      ptPrompt("Fillet — hover a corner vertex to highlight it, click to select  [Enter = apply to selected]");
     }
     return true;
   }
@@ -1121,11 +1121,10 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
     _opHoverEdgePts = null;
     _opHoverCornerPts = null;
     opSetHover(null);
-    _opPhase = { kind: "fillet_edge_radius", target: phase.target, edgeA, edgeB, cornerV };
-    ptPrompt("Fillet radius — type a value and press Enter");
-    ptShowCoordInput("radius");
-    // Sync focus so keypresses (e.g. "1") go to the input immediately, not to nav shortcuts.
-    _ptCoordInputEl?.focus({ preventScroll: true });
+    const updatedEdges = [...phase.pendingEdges, { edgeA, edgeB, cornerV }];
+    _opPhase = { kind: "fillet_edge", target: phase.target, pendingEdges: updatedEdges };
+    const n = updatedEdges.length;
+    ptPrompt(`Fillet — ${n} edge${n > 1 ? "s" : ""} selected. Click more or press Enter to set radius`);
     return true;
   }
 
@@ -1410,6 +1409,14 @@ export function opHandleEnter(viewer: Viewer): void {
     return;
   }
 
+  if (phase.kind === "fillet_edge" && phase.pendingEdges.length > 0) {
+    _opPhase = { kind: "fillet_edge_radius", target: phase.target, pendingEdges: phase.pendingEdges };
+    ptPrompt("Fillet radius — type a value and press Enter");
+    ptShowCoordInput("radius");
+    _ptCoordInputEl?.focus({ preventScroll: true });
+    return;
+  }
+
   if (phase.kind === "fillet_radius" || phase.kind === "fillet_edge_radius") {
     ptPrompt("Fillet radius — type a value and press Enter");
     return;
@@ -1450,48 +1457,66 @@ export function opHandleCoordSubmit(viewer: Viewer, raw: string): void {
     const r = parseFloat(raw);
     if (!Number.isFinite(r) || r <= 0) { ptPrompt("Fillet radius — enter a positive number"); return; }
 
-    if (phase.target instanceof THREE.Line && phase.cornerV) {
+    const firstEdge = phase.pendingEdges[0];
+    if (phase.target instanceof THREE.Line && firstEdge?.cornerV) {
       // 2D polyline corner fillet
-      opApply2DFillet(viewer, phase.target, phase.edgeA, phase.cornerV, phase.edgeB, r);
+      opApply2DFillet(viewer, phase.target, firstEdge.edgeA, firstEdge.cornerV, firstEdge.edgeB, r);
       ptPrompt(`Fillet r=${formatLength(r)} applied`);
       setTimeout(() => opFinish(viewer), 400);
       return;
     }
 
-    // 3D solid edge fillet — resolve edgeId from world-space endpoints.
+    // 3D solid edge fillet — resolve edgeIds from world-space endpoints.
     const meshTarget = phase.target as THREE.Mesh;
+    const allEdges = getUniqueEdges(meshTarget);
     const invMat = meshTarget.matrixWorld.clone().invert();
-    const localA = phase.edgeA.clone().applyMatrix4(invMat);
-    const localB = phase.edgeB.clone().applyMatrix4(invMat);
-    const edges = getUniqueEdges(meshTarget);
     const EPS_ID = 1e-3;
-    const edgeId = edges.findIndex(([ea, eb]) =>
-      (ea.distanceTo(localA) < EPS_ID && eb.distanceTo(localB) < EPS_ID) ||
-      (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
-    );
-    if (edgeId >= 0) {
-      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edgeId, radius: r });
+
+    if (phase.pendingEdges.length === 1) {
+      // Single edge: use edgeId or edgeFrom/edgeTo fallback
+      const { edgeA, edgeB } = firstEdge;
+      const localA = edgeA.clone().applyMatrix4(invMat);
+      const localB = edgeB.clone().applyMatrix4(invMat);
+      const edgeId = allEdges.findIndex(([ea, eb]) =>
+        (ea.distanceTo(localA) < EPS_ID && eb.distanceTo(localB) < EPS_ID) ||
+        (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
+      );
+      const dispatchArgs = edgeId >= 0
+        ? { target: meshTarget.uuid, edgeId, radius: r }
+        : { target: meshTarget.uuid, edgeFrom: vecArgs(edgeA), edgeTo: vecArgs(edgeB), radius: r };
+      const res = dispatchSync("SdFillet", dispatchArgs);
+      const failure = dispatchFailure(res);
+      if (failure) {
+        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
+        setTimeout(() => opFinish(viewer), edgeId >= 0 ? 1400 : 1600);
+        return;
+      }
+    } else {
+      // Multi-edge: resolve all edgeIds and dispatch once
+      const edgeIds: number[] = [];
+      for (const { edgeA, edgeB } of phase.pendingEdges) {
+        const localA = edgeA.clone().applyMatrix4(invMat);
+        const localB = edgeB.clone().applyMatrix4(invMat);
+        const eid = allEdges.findIndex(([ea, eb]) =>
+          (ea.distanceTo(localA) < EPS_ID && eb.distanceTo(localB) < EPS_ID) ||
+          (ea.distanceTo(localB) < EPS_ID && eb.distanceTo(localA) < EPS_ID),
+        );
+        if (eid >= 0) edgeIds.push(eid);
+      }
+      if (edgeIds.length === 0) {
+        ptPrompt("Fillet — could not resolve edge indices");
+        setTimeout(() => opFinish(viewer), 1400);
+        return;
+      }
+      const res = dispatchSync("SdFillet", { target: meshTarget.uuid, edges: edgeIds, radius: r });
       const failure = dispatchFailure(res);
       if (failure) {
         ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
         setTimeout(() => opFinish(viewer), 1400);
         return;
       }
-    } else {
-      const res = dispatchSync("SdFillet", {
-        target: meshTarget.uuid,
-        edgeFrom: vecArgs(phase.edgeA),
-        edgeTo: vecArgs(phase.edgeB),
-        radius: r,
-      });
-      const failure = dispatchFailure(res);
-      if (failure) {
-        ptPrompt(`Fillet — ${failure.replace(/^SdFillet — /, "")}`);
-        setTimeout(() => opFinish(viewer), 1600);
-        return;
-      }
     }
-    ptPrompt(`Fillet r=${formatLength(r)} applied`);
+    ptPrompt(`Fillet r=${formatLength(r)} applied to ${phase.pendingEdges.length} edge${phase.pendingEdges.length > 1 ? "s" : ""}`);
     setTimeout(() => opFinish(viewer), 400);
   }
 
