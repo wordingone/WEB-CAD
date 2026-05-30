@@ -2477,6 +2477,27 @@
   synonyms: [transient measure, transient-measure, quick measure, measure distance, measure]
   alias_source: generic_cad_vocabulary
 
+- name: SdEdgeLength
+  kernel_op: measureEdgeLength
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the BRep mesh whose edge to measure"
+      edge:
+        type: integer
+        description: "[required] 0-based edge index within the shell"
+      shell:
+        type: integer
+        description: "[optional] shell index (default 0)"
+        default: 0
+    required: [target, edge]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [edge length, measure edge, edge measure, arc length, curve length, how long is this edge]
+  alias_source: generic_cad_vocabulary
+
 # ============================================================
 # §13 IO
 # ============================================================
