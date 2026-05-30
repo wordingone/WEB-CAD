@@ -837,7 +837,12 @@ export class ChatPanel {
     this._pushMsg({ role: "assistant", content: userSummary, dispatches: resp.dispatches });
     this._history.push({ role: "assistant", content: summary });
     this._enforceHistoryBudget(); // §C-hist (#990)
-    if (resp.dispatches.length > 0) {
+    // §#308: suppress auto-reframe for transform-only turns so the viewport shows
+    // the moved/rotated/scaled object in its new screen position.
+    // Auto-frame is still useful for creation verbs (brings new geometry into view).
+    const _TRANSFORM_VERBS = new Set(["SdMove", "SdRotate", "SdScale"]);
+    const _hasNonTransform = resp.dispatches.some(d => !_TRANSFORM_VERBS.has(d.name));
+    if (resp.dispatches.length > 0 && _hasNonTransform) {
       (window as unknown as { __viewer?: { frameAllVisible?(): void } }).__viewer?.frameAllVisible?.();
     }
     // A6 (#980): update goal token usage from last turn telemetry (atomic, transition if exhausted).
