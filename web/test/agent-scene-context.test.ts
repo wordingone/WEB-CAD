@@ -2,7 +2,7 @@
 // that reads window.__viewer.scene.children for non-IFC scenes.
 // Isolated from agent-harness.ts to avoid @huggingface/transformers import.
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { buildSceneContext } from "../src/agent/agent-scene-context";
 
 type SceneChild = {
@@ -20,7 +20,11 @@ function setViewerScene(children: SceneChild[]): void {
 }
 
 beforeEach(() => {
-  // Clear viewer so KG fallback path is reached (KG will be empty in test env)
+  delete (window as unknown as Record<string, unknown>).__viewer;
+});
+
+afterEach(() => {
+  // Always clean up so other test files (layout.ts reads window.__viewer) don't see our partial mock.
   delete (window as unknown as Record<string, unknown>).__viewer;
 });
 
