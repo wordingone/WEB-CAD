@@ -2005,11 +2005,29 @@
     type: object
     properties:
       target:
-        type: any
+        type: string
+        description: "[required] Layer name or layer id to lock. All objects on the layer become non-selectable and non-editable."
     required: [target]
   topology_role: system
   kg_predicates: []
   synonyms: [lock, freeze]
+  note: "Lock a drawing layer. target = layer name (e.g. 'Layer 1') or layer id. Returns {ok, layer_id, layer_name}."
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdUnlock
+  kernel_op: unlock
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[required] Layer name or layer id to unlock."
+    required: [target]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [unlock, unfreeze]
+  note: "Unlock a drawing layer. target = layer name or layer id. Returns {ok, layer_id, layer_name}."
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
@@ -2019,11 +2037,29 @@
     type: object
     properties:
       target:
-        type: any
+        type: string
+        description: "[required] UUID of the object to hide."
     required: [target]
   topology_role: system
   kg_predicates: []
   synonyms: [hide, conceal]
+  note: "Hide a scene object by UUID. Sets obj.visible=false and userData.hidden=true. Returns {ok, uuid}."
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdShow
+  kernel_op: show
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[required] UUID of the object to show, or 'all' to reveal all hidden objects."
+    required: [target]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [show, unhide, reveal, display]
+  note: "Show a previously hidden scene object. target = UUID or 'all'. Returns {ok, uuid} or {ok, revealed: N}."
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
