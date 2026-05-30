@@ -181,7 +181,14 @@ let _activeWatchdogReset: (() => void) | null = null;
 // Terminate + reinitialize the inference worker every N turns to release
 // accumulated ONNX WebGPU buffer pool (KV cache residuals). Model weights
 // reload from browser cache — no network download after first load.
-const MODEL_WORKER_RECYCLE_AFTER = 5; // turns before forced recycle (#1313: was 10; Phase J data shows stall at turn 6 with threshold=10 — recycle after 5 turns prevents accumulated GPU state from reaching the stall point)
+// §#281: raised from 5 → 100. MAX_HISTORY_MSGS=2 (fix #282) bounds KV-cache per turn, so the
+// Phase J "stall at turn 6 with threshold=10" pattern no longer applies — that stall was caused
+// by unbounded history accumulation, which #282 eliminates. Planned recycle at threshold=5 was
+// net-negative: it caused T1 OOM on the new worker (GPU driver hasn't released VRAM in time)
+// while providing no benefit vs. bounded-history + T3 session-refresh + idle-dispose.
+// Setting to 100 effectively disables mid-session recycle for typical sessions (≤50 turns).
+// Session-refresh at T3 clears WGPU buffer pool; idle-dispose (#197) handles long-term VRAM.
+const MODEL_WORKER_RECYCLE_AFTER = 100;
 if (typeof window !== "undefined") {
   (window as unknown as Record<string, unknown>).__model_worker_recycle_count = 0;
 }
