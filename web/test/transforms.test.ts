@@ -1104,6 +1104,87 @@ describe("canonical geometry transform instances", () => {
     ]);
   });
 
+  test("SdArrayLinear creates N-1 copies with pushBatchAction for undo", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdArrayLinear", {
+      target: mesh.uuid,
+      count: 4,
+      dx: 2,
+      dy: 0,
+      dz: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("SdArrayLinear failed");
+    const r = result.result as { created: number; ids: string[] };
+    expect(r.created).toBe(3); // count-1 copies
+    expect(r.ids).toHaveLength(3);
+    expect(added).toHaveLength(3);
+
+    // Original still in scene
+    expect(scene.getObjectByProperty("uuid", mesh.uuid)).toBeDefined();
+
+    // Each copy is in scene at the right X position
+    for (let i = 0; i < 3; i++) {
+      const copy = scene.getObjectByProperty("uuid", r.ids[i]);
+      expect(copy).toBeDefined();
+      expect((copy as THREE.Object3D).position.x).toBeCloseTo(2 * (i + 1), 5);
+    }
+
+    // Each copy propagates canonical link from source
+    for (const id of r.ids) {
+      const copyObj = scene.getObjectByProperty("uuid", id);
+      const canonical = store.resolveObject(copyObj!);
+      expect(canonical).toBe(record);
+    }
+  });
+
+  test("SdArrayGrid creates (rows×cols − 1) copies with pushBatchAction", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdArrayGrid", {
+      target: mesh.uuid,
+      rows: 2,
+      cols: 3,
+      dx: 2,
+      dy: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("SdArrayGrid failed");
+    const r = result.result as { created: number; rows: number; cols: number };
+    expect(r.created).toBe(5); // 2×3 − 1 = 5
+    expect(added).toHaveLength(5);
+
+    // Original still in scene
+    expect(scene.getObjectByProperty("uuid", mesh.uuid)).toBeDefined();
+  });
+
+  test("SdArrayPolar creates count-1 copies with pushBatchAction", () => {
+    const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
+    registerTransformHandlers(viewer as never);
+
+    const result = dispatchSync("SdArrayPolar", {
+      target: mesh.uuid,
+      count: 4,
+      cx: 0,
+      cy: 0,
+      angle: 360,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("SdArrayPolar failed");
+    const r = result.result as { created: number; count: number };
+    expect(r.created).toBe(3); // count-1
+    expect(added).toHaveLength(3);
+
+    // Original still in scene
+    expect(scene.getObjectByProperty("uuid", mesh.uuid)).toBeDefined();
+  });
+
   test("SdArrayAlongCurve creates one command-level path array while preserving canonical links", () => {
     const { viewer, scene, store, mesh, record, added } = makeCanonicalTransformViewer();
     registerTransformHandlers(viewer as never);

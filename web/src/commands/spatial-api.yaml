@@ -922,27 +922,31 @@
     type: object
     properties:
       target:
-        type: any
+        type: object_id
       count:
         type: integer
         default: 3
+        description: "[optional default=3] Total number of items including the original"
       dx:
         type: number
         unit: m
         default: 1
+        description: "[optional default=1] Spacing in X per step"
       dy:
         type: number
         unit: m
         default: 0
+        description: "[optional default=0] Spacing in Y per step"
       dz:
         type: number
         unit: m
         default: 0
+        description: "[optional default=0] Spacing in Z per step"
     required: []
   topology_role: transform
   kg_predicates: [groupedWith]
   synonyms: [linear array, linear pattern, repeat along axis]
-  kernel: replicad
+  returns: {created: number, ids: object_id[]}
   alias_source: generic_cad_vocabulary
 
 - name: SdArrayGrid
@@ -951,26 +955,30 @@
     type: object
     properties:
       target:
-        type: any
+        type: object_id
       rows:
         type: integer
         default: 3
+        description: "[optional default=3] Number of rows (Y direction)"
       cols:
         type: integer
         default: 3
+        description: "[optional default=3] Number of columns (X direction)"
       dx:
         type: number
         unit: m
         default: 1
+        description: "[optional default=1] Column spacing in X"
       dy:
         type: number
         unit: m
         default: 1
+        description: "[optional default=1] Row spacing in Y"
     required: []
   topology_role: transform
   kg_predicates: [groupedWith]
   synonyms: [grid array, rectangular array, grid pattern]
-  kernel: replicad
+  returns: {created: number, rows: number, cols: number}
   alias_source: generic_cad_vocabulary
 
 - name: SdArrayPolar
@@ -979,27 +987,31 @@
     type: object
     properties:
       target:
-        type: any
+        type: object_id
       count:
         type: integer
         default: 6
+        description: "[optional default=6] Total number of items including the original"
       cx:
         type: number
         unit: m
         default: 0
+        description: "[optional default=0] X coordinate of rotation center"
       cy:
         type: number
         unit: m
         default: 0
+        description: "[optional default=0] Y coordinate of rotation center"
       angle:
         type: number
         unit: deg
         default: 360
+        description: "[optional default=360] Total sweep angle in degrees"
     required: []
   topology_role: transform
   kg_predicates: [groupedWith]
   synonyms: [polar array, circular array, radial pattern]
-  kernel: replicad
+  returns: {created: number, count: number}
   alias_source: generic_cad_vocabulary
 
 - name: SdArrayAlongCurve

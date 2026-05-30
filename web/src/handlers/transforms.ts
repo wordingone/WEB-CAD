@@ -887,15 +887,18 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const dx = (args.dx as number | undefined) ?? 1;
     const dy = (args.dy as number | undefined) ?? 0;
     const dz = (args.dz as number | undefined) ?? 0;
+    const batchObjs: THREE.Object3D[] = [];
     const ids: string[] = [];
     for (let i = 1; i < count; i++) {
       const clone = sel.clone();
       clone.position.x += dx * i; clone.position.y += dy * i; clone.position.z += dz * i;
       clone.userData = { ...sel.userData };
-      viewer.addMesh(clone as THREE.Mesh, "brep");
+      viewer.addMesh(clone as THREE.Mesh, "brep", { noHistory: true });
       replayCloneSideEffects(clone, viewer.getScene());
+      batchObjs.push(clone);
       ids.push(clone.uuid);
     }
+    if (batchObjs.length > 0) pushBatchAction(batchObjs, "SdArrayLinear");
     return { created: ids.length, ids };
   });
 
@@ -909,6 +912,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const cols = Math.max(1, Math.round((args.cols as number | undefined) ?? 3));
     const dx = (args.dx as number | undefined) ?? 1;
     const dy = (args.dy as number | undefined) ?? 1;
+    const batchObjs: THREE.Object3D[] = [];
     const ids: string[] = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -916,11 +920,13 @@ export function registerTransformHandlers(viewer: Viewer): void {
         const clone = sel.clone();
         clone.position.x += dx * c; clone.position.y += dy * r;
         clone.userData = { ...sel.userData };
-        viewer.addMesh(clone as THREE.Mesh, "brep");
+        viewer.addMesh(clone as THREE.Mesh, "brep", { noHistory: true });
         replayCloneSideEffects(clone, viewer.getScene());
+        batchObjs.push(clone);
         ids.push(clone.uuid);
       }
     }
+    if (batchObjs.length > 0) pushBatchAction(batchObjs, "SdArrayGrid");
     return { created: ids.length, rows, cols };
   });
 
@@ -936,6 +942,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const totalAngle = ((args.angle as number | undefined) ?? 360) * Math.PI / 180;
     const ox = sel.position.x - cx;
     const oy = sel.position.y - cy;
+    const batchObjs: THREE.Object3D[] = [];
     const ids: string[] = [];
     for (let i = 1; i < count; i++) {
       const a = (totalAngle / count) * i;
@@ -943,10 +950,12 @@ export function registerTransformHandlers(viewer: Viewer): void {
       clone.position.x = cx + ox * Math.cos(a) - oy * Math.sin(a);
       clone.position.y = cy + ox * Math.sin(a) + oy * Math.cos(a);
       clone.userData = { ...sel.userData };
-      viewer.addMesh(clone as THREE.Mesh, "brep");
+      viewer.addMesh(clone as THREE.Mesh, "brep", { noHistory: true });
       replayCloneSideEffects(clone, viewer.getScene());
+      batchObjs.push(clone);
       ids.push(clone.uuid);
     }
+    if (batchObjs.length > 0) pushBatchAction(batchObjs, "SdArrayPolar");
     return { created: ids.length, count };
   });
 
