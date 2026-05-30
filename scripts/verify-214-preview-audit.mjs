@@ -148,6 +148,15 @@ await send("Page.navigate", { url: TARGET_URL });
 await delay(2_000);
 await send("Runtime.enable");
 
+// Dismiss model-consent overlay (cancel = no model load) and/or boot screen overlay.
+// Both cover the full viewport and block pointer events on the palette.
+await evaluate(`
+  document.getElementById('consent-cancel')?.click();
+  const bs = document.getElementById('boot-screen');
+  if (bs) { bs.style.pointerEvents='none'; bs.style.display='none'; }
+`);
+await delay(300);
+
 // Boot cad-only (memory-light)
 let cadOnlyClicked = false;
 try {
@@ -244,8 +253,18 @@ await evaluate(`window.dispatchEvent(new CustomEvent("ribbon:section-tab", { det
 await delay(300);
 console.log("  switched to CAD tab via ribbon:section-tab");
 
-// Click the Spline palette button
-const splineBtn = await getCenter('[data-tool="spline"]');
+// Wait for spline button to have non-zero dimensions (palette-section--hidden uses display:none)
+const splineBtn = await poll(async () => {
+  const r = await evaluate(`
+    (() => {
+      const el = document.querySelector('[data-tool="spline"]');
+      if (!el) return null;
+      const rc = el.getBoundingClientRect();
+      if (rc.width === 0) return null;
+      return { x: Math.round(rc.left + rc.width/2), y: Math.round(rc.top + rc.height/2) };
+    })()`);
+  return r ?? false;
+}, { timeout: 8_000, label: "spline btn visible" }).catch(() => null);
 results.B1_spline_btn_found = !!splineBtn;
 if (splineBtn) {
   await trustedClick(splineBtn.x, splineBtn.y);
