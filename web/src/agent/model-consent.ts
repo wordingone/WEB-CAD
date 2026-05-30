@@ -274,9 +274,27 @@ export function checkConsentAndLoad(modelId: string, onProceed: () => void): voi
     return;
   }
 
-  // If model files are already cached, skip the dialog — no download will happen.
-  hasCachedModel(modelId).then((cached) => {
-    if (cached) {
+  // If the model is already loaded in this session (worker recycled, warm OPFS boot,
+  // or prior prefetch completed), grant consent silently and proceed.
+  // This prevents the dialog from appearing on top of a running app.
+  const arcState = (window as unknown as Record<string, unknown>).__arc;
+  const arcLoaded = arcState && typeof arcState === "object" &&
+    ((arcState as Record<string, unknown>).state === "ready" ||
+     (arcState as Record<string, unknown>).state === "idle");
+  if (arcLoaded) {
+    grantConsent();
+    onProceed();
+    return;
+  }
+
+  // If model files are already cached (Cache API hit OR warm OPFS storage ≥500 MB),
+  // skip the dialog — no download will happen.
+  const warmStorageP = (navigator.storage?.estimate?.() ?? Promise.resolve({ usage: 0 }))
+    .then(est => (est.usage ?? 0) >= 500_000_000)
+    .catch(() => false);
+
+  Promise.all([hasCachedModel(modelId), warmStorageP]).then(([cached, warmStorage]) => {
+    if (cached || warmStorage) {
       grantConsent();
       onProceed();
       return;

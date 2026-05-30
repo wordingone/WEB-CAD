@@ -264,6 +264,11 @@ export function buildDock(
   `;
   tabsHost.appendChild(actions);
 
+  // One-shot flag: model loading should start exactly once per page load, not on every
+  // tab switch back to "prompt". Without this guard, every re-activation calls
+  // checkConsentAndLoad again, which can re-show the consent dialog even after the
+  // model is already running (e.g. warm OPFS boot completes before the async cache check).
+  let _modelLoadStarted = false;
   function activate(id: string) {
     tabsHost.querySelectorAll(".dock-tab").forEach((t) => {
       const isActive = (t as HTMLElement).dataset.tab === id;
@@ -271,7 +276,8 @@ export function buildDock(
     });
     bodyHost.innerHTML = "";
     if (panes[id]) bodyHost.appendChild(panes[id]);
-    if (id === "prompt") {
+    if (id === "prompt" && !_modelLoadStarted) {
+      _modelLoadStarted = true;
       void getCapabilityGatePromiseFn().then((path) => {
         if (path === "cad-only" || path === "flags") return;
         const remoteUrl = (import.meta.env as Record<string, string>).VITE_GEMMA_AGENT_URL ?? "";
