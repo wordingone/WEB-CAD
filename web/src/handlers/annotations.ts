@@ -6,6 +6,7 @@ import { opAddLabel } from "../viewer/op-tool";
 import { linkCanonicalCurve } from "./canonical-surface";
 import type { Point3 } from "../nurbs/nurbs-primitives";
 import { tessellate, type PolylineCurve } from "../nurbs/nurbs-curves";
+import { tessellateSurface } from "../nurbs/nurbs-surfaces";
 import { buildAlignedDim, buildAngularDim, buildVolumeDimBox } from "../viewer/dimension-style";
 
 function point3(v: THREE.Vector3): Point3 {
@@ -238,5 +239,57 @@ export function registerAnnotationHandlers(viewer: Viewer): void {
     viewer.addMesh(group, "mesh");
     opAddLabel(formatLength(length), mid, viewer);
     return { measured: "edge-length", length: parseFloat(length.toFixed(6)), edge: edgeIndex, shell: shellIndex, unit: unitLabel(), object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
+  });
+
+  registerHandler("SdFaceArea", (args) => {
+    const targetId = args.target as string | undefined;
+    if (!targetId) return { error: "SdFaceArea requires target" };
+    const faceIndex = args.face as number | undefined;
+    if (faceIndex === undefined || faceIndex === null) return { error: "SdFaceArea requires face index" };
+    const shellIndex = (args.shell as number | undefined) ?? 0;
+
+    const obj = viewer.getScene().getObjectByProperty("uuid", targetId);
+    if (!obj) return { error: `SdFaceArea — target not found: ${targetId}` };
+
+    const store = viewer.getCanonicalGeometryStore();
+    const canonical = store.resolveObjectOrAncestor(obj);
+    if (!canonical || canonical.kind !== "brep") {
+      return { error: "SdFaceArea — target has no canonical BRep" };
+    }
+
+    const shell = canonical.brep.shells[shellIndex];
+    if (!shell) return { error: `SdFaceArea — shell ${shellIndex} not found` };
+    const face = shell.faces[faceIndex];
+    if (!face) return { error: `SdFaceArea — face ${faceIndex} not found in shell ${shellIndex}` };
+
+    const mesh = tessellateSurface(face.surface, 64, 64);
+    const { positions, indices } = mesh;
+    let area = 0;
+    let cx = 0, cy = 0, cz = 0;
+    const vertCount = positions.length / 3;
+    for (let i = 0; i < vertCount; i++) {
+      cx += positions[i * 3]!; cy += positions[i * 3 + 1]!; cz += positions[i * 3 + 2]!;
+    }
+    if (vertCount > 0) { cx /= vertCount; cy /= vertCount; cz /= vertCount; }
+    for (let t = 0; t < indices.length; t += 3) {
+      const ai = indices[t]! * 3, bi = indices[t + 1]! * 3, ci = indices[t + 2]! * 3;
+      const ax = positions[ai]! - positions[ci]!, ay = positions[ai + 1]! - positions[ci + 1]!, az = positions[ai + 2]! - positions[ci + 2]!;
+      const bx = positions[bi]! - positions[ci]!, by = positions[bi + 1]! - positions[ci + 1]!, bz = positions[bi + 2]! - positions[ci + 2]!;
+      area += 0.5 * Math.sqrt((ay * bz - az * by) ** 2 + (az * bx - ax * bz) ** 2 + (ax * by - ay * bx) ** 2);
+    }
+
+    const centroid = new THREE.Vector3(cx, cy, cz);
+    const group = new THREE.Group();
+    linkAnnotationCurve(viewer, group, [centroid], "SdFaceArea", {
+      measured: "face-area",
+      target: targetId,
+      face: faceIndex,
+      shell: shellIndex,
+      area,
+    });
+    viewer.addMesh(group, "mesh");
+    const unitSuffix = unitLabel() === "ft" ? "ft²" : "m²";
+    opAddLabel(formatArea(area), centroid, viewer);
+    return { measured: "face-area", area: parseFloat(area.toFixed(6)), face: faceIndex, shell: shellIndex, unit: unitSuffix, object_id: group.uuid, canonical_id: group.userData["canonicalGeometryId"] };
   });
 }

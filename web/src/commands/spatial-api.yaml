@@ -2498,6 +2498,27 @@
   synonyms: [edge length, measure edge, edge measure, arc length, curve length, how long is this edge]
   alias_source: generic_cad_vocabulary
 
+- name: SdFaceArea
+  kernel_op: measureFaceArea
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the BRep mesh whose face to measure"
+      face:
+        type: integer
+        description: "[required] 0-based face index within the shell"
+      shell:
+        type: integer
+        description: "[optional] shell index (default 0)"
+        default: 0
+    required: [target, face]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms: [face area, surface area, measure face, face measure, area of face, how big is this face]
+  alias_source: generic_cad_vocabulary
+
 # ============================================================
 # §13 IO
 # ============================================================
