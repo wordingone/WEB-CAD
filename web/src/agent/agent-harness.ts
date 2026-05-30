@@ -209,7 +209,10 @@ const _disposedCreatorMeshes: unknown[] = [];
 // but fragmentation rebuilds by T6, causing OOM. Periodic refresh every 2 turns prevents
 // accumulation from reaching the OOM threshold.
 // §#281: changed from one-shot (ORT_SESSION_REFRESH_THRESHOLD) to periodic (ORT_SESSION_REFRESH_INTERVAL).
-const ORT_SESSION_REFRESH_INTERVAL = 2; // fire session-refresh every N turns
+// §C-wasm-align (#1632) VRAM-FLATNESS TEST: Infinity disables every-2-turn refresh.
+// Hypothesis: ORT WebGPU best-fit allocator stabilizes at high-water mark after T1-T2.
+// Decision: flat T5→T20 → rip out permanently; climbs → keep dispose+reload path.
+const ORT_SESSION_REFRESH_INTERVAL = Infinity; // fire session-refresh every N turns
 let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T3)
 
 // §#156 Layer 3: visibility-based ORT session disposal.
