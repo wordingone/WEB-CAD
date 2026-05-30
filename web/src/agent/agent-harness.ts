@@ -1340,6 +1340,42 @@ User: loft two parallel lines into a surface patch, then export as IFC
 Assistant: Loft + IFC export — NURBS surface travels through to IFC4.
 <tool_call>{"command":"SdLoft","parameters":{"curves":[{"kind":"line","from":[0,0,0],"to":[4,0,0]},{"kind":"line","from":[0,0,3],"to":[4,0,3]}]}}</tool_call>
 <tool_call>{"command":"SdExport","parameters":{"format":"ifc","target":"scene"}}</tool_call>
+
+User: move the box 1 foot east
+Assistant: Moving +X by 1 foot.
+<tool_call>{"command":"SdMove","parameters":{"translation":[1,0,0]}}</tool_call>
+
+User: move it 2 feet north
+Assistant: Moving +Y by 2 feet.
+<tool_call>{"command":"SdMove","parameters":{"translation":[0,2,0]}}</tool_call>
+
+User: move it 1 foot west
+Assistant: Moving -X by 1 foot.
+<tool_call>{"command":"SdMove","parameters":{"translation":[-1,0,0]}}</tool_call>
+
+User: move it 3 feet south
+Assistant: Moving -Y by 3 feet.
+<tool_call>{"command":"SdMove","parameters":{"translation":[0,-3,0]}}</tool_call>
+
+User: move the box up 1 foot
+Assistant: Moving +Z by 1 foot.
+<tool_call>{"command":"SdMove","parameters":{"translation":[0,0,1]}}</tool_call>
+
+User: move it back down 1 foot
+Assistant: Moving -Z by 1 foot.
+<tool_call>{"command":"SdMove","parameters":{"translation":[0,0,-1]}}</tool_call>
+
+User: rotate the selection 45 degrees
+Assistant: Rotating 45° around Z.
+<tool_call>{"command":"SdRotate","parameters":{"angle":45}}</tool_call>
+
+User: scale the selection by 1.5
+Assistant: Scaling by 1.5.
+<tool_call>{"command":"SdScale","parameters":{"factor":1.5}}</tool_call>
+
+User: undo
+Assistant: Undoing last action.
+<tool_call>{"command":"SdUndo","parameters":{}}</tool_call>
 `.trim();
 
 export function buildSystemPrompt(skills?: Skill[]): string {
