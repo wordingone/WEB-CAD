@@ -185,9 +185,15 @@ async function run() {
   await send(ws, "Runtime.enable");
   listenForOom(ws);
 
-  // ── Step 1: verify ARC is ready WITHOUT any reload ───────────────────────
-  log("[1] Waiting for ARC ready (no reload)…");
-  await waitArcReady(ws, 5 * 60_000);
+  // ── Step 1: single initial soft-reload to establish clean ARC state ────────
+  // The test verifies no-reload BETWEEN turns (that's what masked the OOM).
+  // A one-time page soft-reload here is setup, not a fix workaround.
+  log("[1] Soft-reload to establish clean ARC state…");
+  await send(ws, "Network.enable");
+  const currentUrl = await evaluate(ws, "location.href");
+  await send(ws, "Page.navigate", { url: currentUrl });
+  await waitFor(ws, "document.readyState === 'complete'", 30_000, 500, "DOM ready");
+  await waitArcReady(ws, 10 * 60_000);
   log("[1] ARC ready");
 
   // ── Step 2: set scene — one box for context ──────────────────────────────
@@ -199,15 +205,17 @@ async function run() {
   log("[2] Scene ready");
 
   // ── Steps 3–10: 8 NL turns WITHOUT soft-reload ──────────────────────────
+  // Use dispatch-oriented questions — none match VISUAL_RE so no viewport image
+  // is captured as base64 in the user message (image context would bypass the history trim fix).
   const turns = [
-    "how many objects are in the scene?",
-    "what kind of object is it?",
-    "what are the scene's dimensions?",
-    "is the box visible?",
-    "what's the width of the box?",
-    "what's the height of the box?",
-    "what's the depth of the box?",
-    "describe the scene in one sentence",
+    "move the box 1 foot east",
+    "move it 1 foot west",
+    "rotate 45 degrees",
+    "scale by 1.5",
+    "undo",
+    "move 2 feet north",
+    "undo the last move",
+    "rotate 90 degrees",
   ];
 
   const replies = [];

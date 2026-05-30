@@ -230,6 +230,20 @@ let _gpuHealthTier: GpuHealthTier = "yellow"; // yellow until first LIVE·READY 
 // §#1505: Shared graceful-shutdown + planned-recycle sequence.
 // Used by the turn-count gate (every MODEL_WORKER_RECYCLE_AFTER turns).
 async function _doPlannedRecycle(reason: string): Promise<void> {
+  // §#281: destroy WebGPU device BEFORE shutdown so VRAM is released before new worker starts.
+  // Without this, the old device stays alive past terminate(), and the new worker OOMs on T1.
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 2000);
+    const onMsg = (ev: MessageEvent<Record<string, unknown>>) => {
+      if (ev.data.type === "device-destroyed") {
+        clearTimeout(timeout);
+        _inferenceWorker?.removeEventListener("message", onMsg);
+        resolve();
+      }
+    };
+    _inferenceWorker!.addEventListener("message", onMsg);
+    _inferenceWorker!.postMessage({ type: "destroy-device" });
+  });
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(resolve, 5000);
     const onMsg = (ev: MessageEvent<Record<string, unknown>>) => {
