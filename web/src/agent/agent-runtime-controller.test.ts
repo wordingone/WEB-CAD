@@ -196,6 +196,27 @@ describe("AgentRuntimeController", () => {
     expect(ctrl.chatInputEnabled).toBe(true);
   });
 
+  // Scenario 14: stale watchdog self-loop in ready state — no state reset
+  it("WATCHDOG_TIMEOUT in ready state is a self-loop that does NOT reset bootComplete", () => {
+    boot(ctrl);
+    expect(ctrl.bootComplete).toBe(true);
+    expect(() => ctrl.dispatch({ type: "WATCHDOG_TIMEOUT", turnId: "t-stale" })).not.toThrow();
+    expect(ctrl.state).toBe("ready");
+    expect(ctrl.bootComplete).toBe(true); // must not be wiped
+    expect(ctrl.chatInputEnabled).toBe(true);
+    expect(ctrl.recycleCount).toBe(0); // stale timer: no recycle counted
+  });
+
+  // Scenario 15: FATAL_ERROR in ready state (worker crash while idle) → failed
+  it("FATAL_ERROR in ready state transitions to failed", () => {
+    boot(ctrl);
+    expect(ctrl.state).toBe("ready");
+    ctrl.dispatch({ type: "FATAL_ERROR", error: "worker crash while idle" });
+    expect(ctrl.state).toBe("failed");
+    expect(ctrl.modelLoadError).toBe("worker crash while idle");
+    expect(ctrl.webgpuFallbackEngaged).toBe(true);
+  });
+
   // Bonus: invalid transition throws in strict mode
   it("invalid transition throws in strict mode", () => {
     expect(() => ctrl.dispatch({ type: "GENERATE_REQUESTED", turnId: "t1" })).toThrow(
