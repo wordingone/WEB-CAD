@@ -262,6 +262,10 @@ async function _doPlannedRecycle(reason: string): Promise<void> {
   // before the new worker spawns. Without this cooldown, the new worker's model-load
   // races against the OS GPU memory pool still being returned by the old device.
   await new Promise(r => setTimeout(r, 1500));
+  // §#281: new worker from a planned recycle starts with a fresh ORT session — no
+  // accumulated buffer pool to flush. Skip the T2 session-refresh (its warmup probe
+  // OOMs on VRAM-tight hardware when a fresh session tries to prime the pool).
+  _ortSessionRefreshDone = true;
   _arc.dispatch({ type: "D3D12_OOM", reason: "planned" });
   (window as unknown as Record<string, unknown>).__model_worker_recycle_count = _arc.recycleCount;
   window.dispatchEvent(new CustomEvent("agentmodel:worker-recycled", {
