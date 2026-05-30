@@ -159,6 +159,9 @@ export function _rotateSkillSteps(steps: SkillStep[], cx: number, cy: number, de
   }));
 }
 
+// Verbs that transform existing objects — camera should NOT re-frame after these (#308, #314).
+const _TRANSFORM_VERBS = new Set(["SdMove", "SdRotate", "SdScale"]);
+
 // Keys whose values are angles or dimensionless ratios — must not be multiplied by ft2m.
 const _ANGLE_KEYS = new Set(["pitchDeg", "angleDeg", "angle", "rotation", "tilt", "factor", "scaleFactor"]);
 const _FT_TO_M = 1 / 3.28084;
@@ -820,7 +823,9 @@ export class ChatPanel {
       (window as unknown as _GemmaW).__gemmaSession.dispatchCount++;
     }
     // #500: fit before next runAgentTurn screenshot; sketch tools never hit this path.
-    if (resp.dispatches.length > 0) {
+    // #314: skip re-fit for transform-only turns so objects visibly relocate in the viewport.
+    const _hasNonTransformRD = resp.dispatches.some(d => !_TRANSFORM_VERBS.has(d.name));
+    if (resp.dispatches.length > 0 && _hasNonTransformRD) {
       await invokeCommand({ command: "SdZoomExtents", parameters: {}, metadata: { source: "agent" } });
     }
     const agentSummary = resp.dispatches.length === 0
@@ -837,10 +842,9 @@ export class ChatPanel {
     this._pushMsg({ role: "assistant", content: userSummary, dispatches: resp.dispatches });
     this._history.push({ role: "assistant", content: summary });
     this._enforceHistoryBudget(); // §C-hist (#990)
-    // §#308: suppress auto-reframe for transform-only turns so the viewport shows
+    // §#308/#314: suppress auto-reframe for transform-only turns so the viewport shows
     // the moved/rotated/scaled object in its new screen position.
     // Auto-frame is still useful for creation verbs (brings new geometry into view).
-    const _TRANSFORM_VERBS = new Set(["SdMove", "SdRotate", "SdScale"]);
     const _hasNonTransform = resp.dispatches.some(d => !_TRANSFORM_VERBS.has(d.name));
     if (resp.dispatches.length > 0 && _hasNonTransform) {
       (window as unknown as { __viewer?: { frameAllVisible?(): void } }).__viewer?.frameAllVisible?.();
