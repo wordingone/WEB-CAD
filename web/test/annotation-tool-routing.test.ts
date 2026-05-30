@@ -38,7 +38,7 @@ function makeAnnotationViewer() {
 }
 
 beforeEach(() => {
-  for (const name of ["SdAlignedDim", "SdAngularDim", "SdAreaDim", "SdVolumeDim", "SdLabel", "SdTransientMeasure"]) {
+  for (const name of ["SdAlignedDim", "SdAngularDim", "SdAreaDim", "SdVolumeDim", "SdLabel", "SdTransientMeasure", "SdChainedDim"]) {
     unregisterHandler(name);
   }
   for (const name of ["SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude"]) {
@@ -108,6 +108,68 @@ describe("annotation and measurement palette command parity", () => {
     }
     const area = records.find((record) => record.createdBy === "SdAreaDim");
     expect(area?.metadata?.closed).toBe(true);
+  });
+
+  test("SdChainedDim produces N-1 segment dims plus overall total", () => {
+    const { viewer, added } = makeAnnotationViewer();
+    registerAnnotationHandlers(viewer as never);
+
+    const result = dispatchSync("SdChainedDim", {
+      points: [[0, 0, 0], [2, 0, 0], [5, 0, 0]],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected SdChainedDim to succeed");
+    const r = result.result as { segments: number; totalDist: number; unit: string };
+    expect(r.segments).toBe(2);
+    expect(r.totalDist).toBeCloseTo(5, 4);
+
+    // 2 segment groups + 1 overall group = 3 objects added
+    expect(added.length).toBe(3);
+
+    // Total label should appear
+    expect(document.body.textContent).toMatch(/Total:/);
+  });
+
+  test("SdChainedDim withOverall:false omits overall span", () => {
+    const { viewer, added } = makeAnnotationViewer();
+    registerAnnotationHandlers(viewer as never);
+
+    const result = dispatchSync("SdChainedDim", {
+      points: [[0, 0, 0], [1, 0, 0], [3, 0, 0]],
+      withOverall: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(added.length).toBe(2); // only the 2 segments, no overall
+    expect(document.body.textContent).not.toMatch(/Total:/);
+  });
+
+  test("SdChainedDim records canonical annotation curves for each segment and overall", () => {
+    const { viewer } = makeAnnotationViewer();
+    registerAnnotationHandlers(viewer as never);
+
+    dispatchSync("SdChainedDim", { points: [[0, 0, 0], [3, 0, 0], [7, 0, 0]] });
+
+    const records = viewer.getCanonicalGeometryStore().list().filter((r) => r.createdBy === "SdChainedDim");
+    // 2 segments + 1 overall = 3 records
+    expect(records.length).toBe(3);
+    for (const rec of records) {
+      expect(rec.metadata?.annotation).toBe(true);
+      if (rec.kind !== "curve") throw new Error("expected curve");
+      expect(rec.curve.kind).toBe("polyline");
+    }
+    const overall = records.find((r) => r.metadata?.isOverall === true);
+    expect(overall).toBeDefined();
+  });
+
+  test("SdChainedDim rejects fewer than 3 points", () => {
+    const { viewer } = makeAnnotationViewer();
+    registerAnnotationHandlers(viewer as never);
+
+    const result = dispatchSync("SdChainedDim", { points: [[0, 0, 0], [1, 0, 0]] });
+    expect(result.ok).toBe(true); // dispatch ok but returns error payload
+    if (!result.ok) throw new Error("expected dispatch to succeed");
+    const r = result.result as { error?: string };
+    expect(r.error).toBeTruthy();
   });
 
   test("solid primitive results expose chainable UUIDs for downstream measurement commands", () => {

@@ -54,6 +54,46 @@ export function registerAnnotationHandlers(viewer: Viewer): void {
     return { measured: "length", distance: parseFloat(dist.toFixed(4)), unit: unitLabel(), annotationUuid: group.uuid };
   });
 
+  registerHandler("SdChainedDim", (args) => {
+    const rawPts = (args.points as number[][] | undefined) ?? [];
+    if (rawPts.length < 3) return { error: "SdChainedDim requires at least 3 points (2 segments)", segments: 0 };
+    const withOverall = (args.withOverall as boolean | undefined) ?? true;
+    const pts = rawPts.map((p) => new THREE.Vector3(p[0] ?? 0, p[1] ?? 0, p[2] ?? 0));
+
+    let totalDist = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ptA = pts[i], ptB = pts[i + 1];
+      const dist = ptA.distanceTo(ptB);
+      totalDist += dist;
+      const { group, dimLineMid } = buildAlignedDim(ptA, ptB);
+      linkAnnotationCurve(viewer, group, [ptA, ptB], "SdChainedDim", {
+        measured: "length",
+        distance: dist,
+        chainIndex: i,
+      });
+      viewer.addMesh(group, "mesh");
+      opAddLabel(formatLength(dist), dimLineMid, viewer);
+    }
+
+    if (withOverall) {
+      const ptFirst = pts[0], ptLast = pts[pts.length - 1];
+      const { group: og, dimLineMid: om } = buildAlignedDim(ptFirst, ptLast, undefined, { offsetDist: 0.9 });
+      linkAnnotationCurve(viewer, og, [ptFirst, ptLast], "SdChainedDim", {
+        measured: "length",
+        distance: totalDist,
+        isOverall: true,
+      });
+      viewer.addMesh(og, "mesh");
+      opAddLabel(`Total: ${formatLength(totalDist)}`, om, viewer);
+    }
+
+    return {
+      segments: pts.length - 1,
+      totalDist: parseFloat(totalDist.toFixed(4)),
+      unit: unitLabel(),
+    };
+  });
+
   registerHandler("SdAngularDim", (args) => {
     const vArr  = (args.vertex as number[] | undefined) ?? [0, 0, 0];
     const r1Arr = (args.ray1   as number[] | undefined) ?? [1, 0, 0];
