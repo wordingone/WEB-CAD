@@ -51,16 +51,14 @@ if(EMSCRIPTEN)
     set_target_properties(kern PROPERTIES SUFFIX ".mjs")
 
     target_link_options(kern PRIVATE
+        --bind
         -sEXPORT_ES6=1
         -sMODULARIZE=1
         -sSINGLE_FILE=0
-        -sEXPORTED_FUNCTIONS=["_kern_boolean","_kern_ssi","_kern_fillet","_kern_chamfer","_kern_loft"]
-        -sEXPORTED_RUNTIME_METHODS=["UTF8ToString","stringToUTF8","lengthBytesUTF8"]
         -sALLOW_MEMORY_GROWTH=1
         -sMAXIMUM_MEMORY=1gb
         -O3
-        -msimd128
-        --closure 1)
+        -msimd128)
 
 # ---------------------------------------------------------------------------
 # Native target — unit tests via Google Test

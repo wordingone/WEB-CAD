@@ -23,30 +23,57 @@ namespace {
 
 // ---------------------------------------------------------------------------
 // [2] Point-in-solid: +Z ray from pt; odd crossings = inside.
+//
+// Uses Newton iteration to invert S(u,v) → find (u,v) s.t. S.x=pt.x,
+// S.y=pt.y, then checks S.z > pt.z. The prior coarse-grid/exact-match
+// approach failed whenever pt.(x|y) did not land on a 1/N grid sample.
 // ---------------------------------------------------------------------------
 bool _pointInBrep(const Vec3& pt, const Brep& b, double tol)
 {
+    const double xyTol = tol > 0 ? tol : 1e-6;
     int crossings = 0;
     for (const auto& shell : b.shells) {
         for (const auto& face : shell.faces) {
             const NurbsSurface& s = face.surface;
-            const int N = 6;
             const double uMin = s.knotsU.front(), uMax = s.knotsU.back();
             const double vMin = s.knotsV.front(), vMax = s.knotsV.back();
-            for (int i = 0; i < N; ++i) {
-                for (int j = 0; j < N; ++j) {
-                    double u = uMin + (uMax - uMin) * (i + 0.5) / N;
-                    double v = vMin + (vMax - vMin) * (j + 0.5) / N;
+
+            // Multi-start Newton: try 9 seed points spread over the parametric domain.
+            // This avoids missing the root when the face has large extent.
+            const int NS = 3;
+            bool hit = false;
+            for (int si = 0; si < NS && !hit; ++si) {
+              for (int sj = 0; sj < NS && !hit; ++sj) {
+                double u = uMin + (uMax - uMin) * (si + 0.5) / NS;
+                double v = vMin + (vMax - vMin) * (sj + 0.5) / NS;
+
+                for (int iter = 0; iter < 30; ++iter) {
+                    u = std::max(uMin, std::min(uMax, u));
+                    v = std::max(vMin, std::min(vMax, v));
                     Vec3 sp = s.evaluate(u, v);
-                    if (std::abs(sp.x() - pt.x()) < tol * 2.0 &&
-                        std::abs(sp.y() - pt.y()) < tol * 2.0 &&
-                        sp.z() - pt.z() > tol) {
-                        ++crossings;
-                        goto next_face;
+                    double rx = sp.x() - pt.x();
+                    double ry = sp.y() - pt.y();
+                    if (std::abs(rx) < xyTol && std::abs(ry) < xyTol) {
+                        // Converged — check z.
+                        if (sp.z() - pt.z() > xyTol) { ++crossings; hit = true; }
+                        break;
                     }
+                    // Finite-difference Jacobian.
+                    const double hu = 1e-5 * (uMax - uMin + 1e-9);
+                    const double hv = 1e-5 * (vMax - vMin + 1e-9);
+                    Vec3 su = s.evaluate(std::min(u + hu, uMax), v);
+                    Vec3 sv = s.evaluate(u, std::min(v + hv, vMax));
+                    double dxdu = (su.x() - sp.x()) / hu;
+                    double dydu = (su.y() - sp.y()) / hu;
+                    double dxdv = (sv.x() - sp.x()) / hv;
+                    double dydv = (sv.y() - sp.y()) / hv;
+                    double det = dxdu * dydv - dxdv * dydu;
+                    if (std::abs(det) < 1e-12) break; // face parallel to +Z ray
+                    u -= ( dydv * rx - dxdv * ry) / det;
+                    v -= (-dydu * rx + dxdu * ry) / det;
                 }
+              }
             }
-            next_face:;
         }
     }
     return (crossings % 2) == 1;
@@ -57,6 +84,16 @@ Vec3 _faceCentroid(const BrepFace& f)
     const NurbsSurface& s = f.surface;
     return s.evaluate((s.knotsU.front() + s.knotsU.back()) * 0.5,
                       (s.knotsV.front() + s.knotsV.back()) * 0.5);
+}
+
+// Average of all face centroids — a reliable interior probe for convex solids.
+// Avoids using a single face centroid that may lie on a shared boundary.
+Vec3 _brepCenter(const std::vector<const BrepFace*>& faces)
+{
+    if (faces.empty()) return Vec3::Zero();
+    Vec3 sum = Vec3::Zero();
+    for (const auto* f : faces) sum += _faceCentroid(*f);
+    return sum / static_cast<double>(faces.size());
 }
 
 // Build a degree-1 polyline NurbsCurve over n points with uniform open knots.
@@ -186,7 +223,40 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
     const int nA = static_cast<int>(facesA.size());
     const int nB = static_cast<int>(facesB.size());
 
-    // [1] SSI grid.
+    // [0] Early containment check — skip SSI when B's centroid is inside A.
+    // Using B's centroid (average of face centroids) reliably detects B-inside-A for
+    // convex solids. We do NOT probe A's centroid against B here: when B is strictly
+    // interior to A the two centroids coincide (symmetric case), giving a false
+    // "A inside B" reading that would wrongly return an empty difference.
+    {
+        bool bInA = !facesB.empty() && _pointInBrep(_brepCenter(facesB), a, tol);
+        if (bInA) {
+            switch (op) {
+                case BooleanOp::UNION:
+                    result.brep = a; result.ok = true; return result;
+                case BooleanOp::DIFFERENCE:
+                    // B fully enclosed in A: A outer shell + reversed B shells as inner voids.
+                    result.brep = a;
+                    for (const auto& sh : b.shells) {
+                        BrepShell bVoid;
+                        for (const auto& f : sh.faces) {
+                            BrepFace rev = f;
+                            rev.orientation = !rev.orientation;
+                            bVoid.faces.push_back(rev);
+                        }
+                        bVoid.edges    = sh.edges;
+                        bVoid.vertices = sh.vertices;
+                        bVoid.isClosed = sh.isClosed;
+                        result.brep.shells.push_back(bVoid);
+                    }
+                    result.ok = true; return result;
+                case BooleanOp::INTERSECTION:
+                    result.brep = b; result.ok = true; return result;
+            }
+        }
+    }
+
+    // [1] SSI grid — only reached for partial-overlap or disjoint inputs.
     std::vector<std::vector<SsiResult>> ssiGrid(nA, std::vector<SsiResult>(nB));
     bool anySsi = false;
     SsiOptions opts; opts.tolerance = tol;
@@ -196,7 +266,7 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
             if (ssiGrid[ia][ib].ok && !ssiGrid[ia][ib].curves.empty()) anySsi = true;
         }
 
-    // [4-fallback] No intersection.
+    // [4-fallback] No face-face intersection and no containment: disjoint solids.
     if (!anySsi) {
         switch (op) {
             case BooleanOp::UNION:
@@ -243,7 +313,7 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
                 if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
                 continue;
             }
-            if (sc->pts3d.size() > 32) { result.error = "complex split not yet implemented"; return result; }
+            if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
             // A faces: UNION/DIFFERENCE → keep outer; INTERSECTION → keep inner.
             bool keepOuter = (op != BooleanOp::INTERSECTION);
             _applyFaceSplit(*facesA[ia], *sc, /*useParamsA=*/true, keepOuter, false, outFaces);
@@ -266,7 +336,7 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
                 if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
                 continue;
             }
-            if (sc->pts3d.size() > 32) { result.error = "complex split not yet implemented"; return result; }
+            if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
             // B faces: UNION → keep outer; DIFFERENCE → keep inner reversed; INTERSECTION → keep inner.
             bool keepOuter = (op == BooleanOp::UNION);
             bool reverse   = (op == BooleanOp::DIFFERENCE);

@@ -12,6 +12,23 @@
 #include "fillet.h"
 #include "chamfer.h"
 #include "loft.h"
+#include "ssi.h"
+
+// ── Local helper: deserialise NurbsSurface from nlohmann JSON object ──────────
+static kern::NurbsSurface surfFromJson(const nlohmann::json& j) {
+    kern::NurbsSurface s;
+    s.degreeU  = j.at("degreeU").get<int>();
+    s.degreeV  = j.at("degreeV").get<int>();
+    s.cvCountU = j.at("cvCountU").get<int>();
+    s.cvCountV = j.at("cvCountV").get<int>();
+    s.knotsU   = j.at("knotsU").get<std::vector<double>>();
+    s.knotsV   = j.at("knotsV").get<std::vector<double>>();
+    const auto& cvsArr = j.at("cvs");
+    for (size_t i = 0; i + 3 < cvsArr.size(); i += 4)
+        s.cvs.emplace_back(cvsArr[i].get<double>(), cvsArr[i+1].get<double>(),
+                           cvsArr[i+2].get<double>(), cvsArr[i+3].get<double>());
+    return s;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -60,16 +77,19 @@ static std::string exceptionEnvelope(const char* what) {
 //   { "ok": false, "error": { "code": string, "message": string } }
 static std::string kern_boolean(const std::string& jsonRequest) noexcept {
     try {
-        auto req  = kern::parseJsonRequest(jsonRequest);  // throws on malformed JSON
-        auto a    = kern::brepFromJson(req.aJson);
-        auto b    = kern::brepFromJson(req.bJson);
+        auto j  = nlohmann::json::parse(jsonRequest);
+        std::string op = j.at("op").get<std::string>();
+        kern::Brep a = kern::brepFromJson(j.at("a").dump());
+        kern::Brep b = kern::brepFromJson(j.at("b").dump());
 
         kern::BooleanResult r;
-        if      (req.op == "union")        r = kern::boolUnion(a, b);
-        else if (req.op == "difference")   r = kern::boolDifference(a, b);
-        else if (req.op == "intersection") r = kern::boolIntersection(a, b);
-        else if (req.op == "section")      r = kern::boolSection(a, b);
-        else return R"({"ok":false,"error":{"code":"UNKNOWN_OP","message":"unknown op: )" + req.op + R"("}})";
+        if      (op == "union")        r = kern::boolUnion(a, b);
+        else if (op == "difference")   r = kern::boolDifference(a, b);
+        else if (op == "intersection") r = kern::boolIntersection(a, b);
+        else if (op == "section")
+            return R"({"ok":false,"error":{"code":"NOT_IMPLEMENTED","message":"section not implemented"}})";
+        else
+            return R"({"ok":false,"error":{"code":"UNKNOWN_OP","message":"unknown op"}})";
 
         return boolResultToJson(r);
     } catch (const std::exception& e) {
@@ -155,10 +175,10 @@ static std::string kern_chamfer(const std::string& jsonRequest) noexcept {
         if (j.contains("edges")) {
             for (auto& idx : j["edges"]) edgeIndices.push_back(idx.get<int>());
         }
-        kern::ChamferOptions opts;
+        ChamferOptions opts;
         opts.distance = distance;
         opts.edgeIndices = std::move(edgeIndices);
-        auto r = kern::chamfer(b, opts);
+        auto r = chamfer(b, opts);
         if (!r.ok)
             return R"({"ok":false,"error":{"code":"CHAMFER_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
         return R"({"ok":true,"result":)" + kern::brepToJson(r.brep) + "}";
@@ -184,9 +204,7 @@ static std::string kern_loft(const std::string& jsonRequest) noexcept {
             }
             profiles.push_back(std::move(c));
         }
-        int degree = j.value("degree", 3);
         kern::LoftOptions opts;
-        opts.degree = degree;
         auto r = kern::loft(profiles, opts);
         if (!r.ok)
             return R"({"ok":false,"error":{"code":"LOFT_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
@@ -200,11 +218,37 @@ static std::string kern_loft(const std::string& jsonRequest) noexcept {
 // ---------------------------------------------------------------------------
 
 // jsonRequest: { "surfA": <NurbsSurfaceJson>, "surfB": <NurbsSurfaceJson>,
-//                "options": { "tolerance": number } }
+//                "options": { "tolerance": number, "maxIter": int, "marchStep": number, "maxSteps": int } }
 static std::string kern_ssi(const std::string& jsonRequest) noexcept {
     try {
-        auto result = kern::ssi(jsonRequest);  // ssi() accepts raw JSON request
-        return result;
+        auto j = nlohmann::json::parse(jsonRequest);
+        kern::NurbsSurface a = surfFromJson(j.at("surfA"));
+        kern::NurbsSurface b = surfFromJson(j.at("surfB"));
+        kern::SsiOptions opts;
+        if (j.contains("options")) {
+            const auto& o = j["options"];
+            if (o.contains("tolerance")) opts.tolerance = o["tolerance"].get<double>();
+            if (o.contains("maxIter"))   opts.maxIter   = o["maxIter"].get<int>();
+            if (o.contains("maxDepth"))  opts.maxDepth  = o["maxDepth"].get<int>();
+            if (o.contains("marchStep")) opts.marchStep = o["marchStep"].get<double>();
+            if (o.contains("maxSteps"))  opts.maxSteps  = o["maxSteps"].get<int>();
+        }
+        kern::SsiResult r = kern::ssi(a, b, opts);
+        if (!r.ok)
+            return R"({"ok":false,"error":{"code":"SSI_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
+        nlohmann::json out;
+        out["ok"]     = true;
+        out["curves"] = nlohmann::json::array();
+        for (const auto& c : r.curves) {
+            nlohmann::json jc;
+            jc["pts3d"] = nlohmann::json::array();
+            for (const auto& p : c.pts3d)
+                jc["pts3d"].push_back({p.x(), p.y(), p.z()});
+            jc["closed"]     = c.closed;
+            jc["degenerate"] = c.degenerate;
+            out["curves"].push_back(jc);
+        }
+        return out.dump();
     } catch (const std::exception& e) { return exceptionEnvelope(e.what()); }
     catch (...) { return R"({"ok":false,"error":{"code":"UNKNOWN","message":"unknown exception"}})"; }
 }

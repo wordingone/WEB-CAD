@@ -31,6 +31,8 @@ import { updateLevelSprite } from "./tools/structural";
 import * as THREE from "three";
 import { registerAllHandlers } from "./register-handlers";
 import { initDomEvents } from "./dom-events";
+import { initWasmKernel, wasmBooleanBackend } from "./nurbs/wasm-boolean-backend";
+import { registerBackend } from "./nurbs/brep-boolean";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -131,6 +133,12 @@ drawingLayerStore.subscribe(() => {
 
 registerAllHandlers(viewer, scenePanel);
 installDefaultHandlers();
+
+// Boot WASM geometry kernel (async, non-blocking). Once loaded, wasmBooleanBackend
+// (priority 20) supersedes NurbsBooleanBackend (priority 10) for SdBoolean* ops.
+initWasmKernel().then(() => registerBackend(wasmBooleanBackend)).catch(() => {
+  // kern.wasm absent or failed — NurbsBooleanBackend remains active.
+});
 
 const { dispose: disposeWorker } = initDomEvents(viewer, scenePanel);
 

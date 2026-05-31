@@ -52,14 +52,14 @@ static Eigen::Vector4d deBoor(const std::vector<double>& knots,
 // Evaluate tensor-product NURBS surface at (u, v). Returns Cartesian Vec3.
 static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
     // Build isoparametric curve in v-direction at parameter u, then evaluate at v.
-    int spanU = knotSpan(s.knotsU, s.degreeU, s.nu, u);
+    int spanU = knotSpan(s.knotsU, s.degreeU, s.cvCountU, u);
     // Basis functions in U: compute temporary control points along V
-    std::vector<Eigen::Vector4d> tempCtrl(s.nv);
-    for (int j = 0; j < s.nv; ++j) {
-        // Collect nu control points at column j
+    std::vector<Eigen::Vector4d> tempCtrl(s.cvCountV);
+    for (int j = 0; j < s.cvCountV; ++j) {
+        // Collect cvCountU control points at column j
         std::vector<Eigen::Vector4d> col(s.degreeU + 1);
         for (int i = 0; i <= s.degreeU; ++i)
-            col[i] = s.ctrlPts[(spanU - s.degreeU + i) * s.nv + j];
+            col[i] = s.cvs[(spanU - s.degreeU + i) * s.cvCountV + j];
         // De Boor in U direction for this column
         std::vector<Eigen::Vector4d> d(s.degreeU + 1);
         for (int i = 0; i <= s.degreeU; ++i) d[i] = col[i];
@@ -73,7 +73,7 @@ static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
         }
         tempCtrl[j] = d[s.degreeU];
     }
-    Eigen::Vector4d hw = deBoor(s.knotsV, tempCtrl, s.degreeV, s.nv, v);
+    Eigen::Vector4d hw = deBoor(s.knotsV, tempCtrl, s.degreeV, s.cvCountV, v);
     double w = (std::abs(hw[3]) < 1e-14) ? 1.0 : hw[3];
     return Eigen::Vector3d(hw[0] / w, hw[1] / w, hw[2] / w);
 }
@@ -81,15 +81,15 @@ static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
 // Partial derivatives via central finite difference (h = 1e-6).
 static Eigen::Vector3d partialU(const NurbsSurface& s, double u, double v) {
     constexpr double h = 1e-6;
-    double u0 = std::max(s.domainU[0], u - h);
-    double u1 = std::min(s.domainU[1], u + h);
+    double u0 = std::max(s.knotsU.front(), u - h);
+    double u1 = std::min(s.knotsU.back(),  u + h);
     return (evalSurf(s, u1, v) - evalSurf(s, u0, v)) / (u1 - u0);
 }
 
 static Eigen::Vector3d partialV(const NurbsSurface& s, double u, double v) {
     constexpr double h = 1e-6;
-    double v0 = std::max(s.domainV[0], v - h);
-    double v1 = std::min(s.domainV[1], v + h);
+    double v0 = std::max(s.knotsV.front(), v - h);
+    double v1 = std::min(s.knotsV.back(),  v + h);
     return (evalSurf(s, u, v1) - evalSurf(s, u, v0)) / (v1 - v0);
 }
 
@@ -164,10 +164,10 @@ static RefineResult newtonRefine(const NurbsSurface& A, const NurbsSurface& B,
         p -= J.transpose() * z;
 
         // Clamp to domain
-        p[0] = std::clamp(p[0], A.domainU[0], A.domainU[1]);
-        p[1] = std::clamp(p[1], A.domainV[0], A.domainV[1]);
-        p[2] = std::clamp(p[2], B.domainU[0], B.domainU[1]);
-        p[3] = std::clamp(p[3], B.domainV[0], B.domainV[1]);
+        p[0] = std::clamp(p[0], A.knotsU.front(), A.knotsU.back());
+        p[1] = std::clamp(p[1], A.knotsV.front(), A.knotsV.back());
+        p[2] = std::clamp(p[2], B.knotsU.front(), B.knotsU.back());
+        p[3] = std::clamp(p[3], B.knotsV.front(), B.knotsV.back());
     }
 
     // Final loose check (tol * 2) to accept marginally-converged seeds
@@ -264,8 +264,8 @@ static std::vector<Seed> findSeeds(const NurbsSurface& A, const NurbsSurface& B,
                                     const SsiOptions& opts) {
     std::vector<Seed> raw;
     findSeedsRec(A, B,
-                 A.domainU[0], A.domainU[1], A.domainV[0], A.domainV[1],
-                 B.domainU[0], B.domainU[1], B.domainV[0], B.domainV[1],
+                 A.knotsU.front(), A.knotsU.back(), A.knotsV.front(), A.knotsV.back(),
+                 B.knotsU.front(), B.knotsU.back(), B.knotsV.front(), B.knotsV.back(),
                  0, 0, opts, raw);
 
     // Deduplicate: discard seeds within tol*5 of an already-accepted seed
@@ -343,10 +343,10 @@ static void marchHalf(const NurbsSurface& A, const NurbsSurface& B,
         }
 
         // Clamp initial guesses to domain
-        u0n = std::clamp(u0n, A.domainU[0], A.domainU[1]);
-        v0n = std::clamp(v0n, A.domainV[0], A.domainV[1]);
-        u1n = std::clamp(u1n, B.domainU[0], B.domainU[1]);
-        v1n = std::clamp(v1n, B.domainV[0], B.domainV[1]);
+        u0n = std::clamp(u0n, A.knotsU.front(), A.knotsU.back());
+        v0n = std::clamp(v0n, A.knotsV.front(), A.knotsV.back());
+        u1n = std::clamp(u1n, B.knotsU.front(), B.knotsU.back());
+        v1n = std::clamp(v1n, B.knotsV.front(), B.knotsV.back());
 
         auto r = newtonRefine(A, B, u0n, v0n, u1n, v1n, opts);
 

@@ -53,7 +53,7 @@ interface KernModule {
 
 // ── Kernel response shape (parsed from JSON) ──────────────────────────────────
 
-type KernOk  = { ok: true;  brep: unknown };
+type KernOk  = { ok: true;  result: unknown }; // kern JSON uses "result", not "brep"
 type KernErr = { ok: false; error: string };
 type KernResponse = KernOk | KernErr;
 
@@ -159,7 +159,7 @@ function callBinaryOp(
 
   return {
     ok:        true,
-    brep:      (resp as KernOk).brep as Brep,
+    brep:      (resp as KernOk).result as Brep,
     changeMap: emptyChangeMap(),
   };
 }
@@ -235,4 +235,14 @@ export const wasmBooleanBackend = new WasmBooleanBackend();
  */
 export async function initWasmKernel(): Promise<void> {
   await getKern();
+}
+
+/**
+ * Return the raw KernModule for direct JSON-string calls.
+ * Only valid after `await initWasmKernel()`. Used by parity-gate tests to
+ * bypass TypeScript Brep serialization and call the kern with kern-format JSON.
+ * Throws if the module is not yet loaded.
+ */
+export function rawKernModule(): KernModule {
+  return assertLoaded();
 }
