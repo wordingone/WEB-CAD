@@ -201,6 +201,10 @@ export class ChatPanel {
   // §#1666-AC3: true during worker-recycle window (worker-recycled → boot-complete).
   // Promoted from constructor local so _send() can guard the finally re-enable path.
   private _recyclePending = false;
+  // §#362: eaten turn payload saved on align-recycle; auto-resumed on next boot-complete.
+  private _alignRetryPayload: { text: string; image: string | undefined } | null = null;
+  // §#362: true on the auto-resume _send() call — skips pushing user bubble a second time.
+  private _skipUserBubble = false;
   private _contextChipEl!: HTMLDivElement;
 
   constructor(private _root: HTMLElement) {
@@ -367,6 +371,15 @@ export class ChatPanel {
       if (this._sendBtn.textContent === "WAIT") {
         this._sendBtn.disabled = false;
         this._sendBtn.textContent = "SEND";
+      }
+      // §#362: auto-resume eaten turn from align recycle.
+      if (this._alignRetryPayload) {
+        const { text: retryText, image: retryImage } = this._alignRetryPayload;
+        this._alignRetryPayload = null;
+        this._inputEl.value = retryText;
+        if (retryImage) this._pendingImage = retryImage;
+        this._skipUserBubble = true;
+        void this._send();
       }
     });
 
@@ -567,8 +580,13 @@ export class ChatPanel {
     const userImage = this._pendingImage;
     if (userImage) this._clearPreview();
 
-    this._pushMsg({ role: "user", content: text });
-    this._history.push({ role: "user", content: text });
+    // §#362: skip re-pushing user bubble on align-recycle auto-retry (already in history).
+    if (!this._skipUserBubble) {
+      this._pushMsg({ role: "user", content: text });
+      this._history.push({ role: "user", content: text });
+    } else {
+      this._skipUserBubble = false;
+    }
     this._enforceHistoryBudget(); // §C-hist (#990)
 
     // §D-pre (#988): compact before calling the model if history is large.
@@ -702,9 +720,14 @@ export class ChatPanel {
       this._removeThinking(thinking);
       const err = e as Error;
       const isGpuFatal = err.message.includes("GPU memory exhausted");
-      // §#307: WASM-align recycle is silent recovery — new worker already spawning, badge shows ⟳.
-      // No error bubble — user retries naturally when boot-complete re-enables the input.
-      if ((e as Error & { isAlignRecycle?: boolean }).isAlignRecycle) return;
+      // §#307/#362: wasm-align recycle — worker respawning with a fresh WASM heap.
+      // Save the eaten turn for auto-resume on boot-complete; push an informational bubble
+      // so the user knows their message wasn't lost.
+      if ((e as Error & { isAlignRecycle?: boolean }).isAlignRecycle) {
+        this._alignRetryPayload = { text, image: userImage ?? undefined };
+        this._pushMsg({ role: "assistant", content: "Model memory reset — resending your last message…" });
+        return;
+      }
       // agentmodel:fatal listener already pushed the bubble synchronously before this catch
       // runs (callback rejection is a microtask; fatal fires synchronously). Skip to avoid
       // a duplicate bubble, but still track error count.
