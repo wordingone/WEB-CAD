@@ -37,9 +37,13 @@ export function kernFillet(
     const req = JSON.stringify({ brep: brepJson, radius, edges });
     const raw = rawKernModule().kern_fillet(req);
     const resp = JSON.parse(raw) as KernResp;
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__kernLastFilletErr = (resp as KernErrResp).error;
+      return null;
+    }
     return kernResultToBrep((resp as KernOkResp).result);
-  } catch {
+  } catch (e) {
+    if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__kernLastFilletErr = String(e);
     return null;
   }
 }

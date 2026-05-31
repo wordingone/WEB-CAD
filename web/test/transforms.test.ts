@@ -7,7 +7,7 @@
 // fragment grammar, but synchronous and decoupled from the gizmo widget.
 // This validates the contract without requiring WebGL.
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, beforeAll } from "bun:test";
 import * as THREE from "three";
 import { dispatchSync, registerHandler, unregisterHandler } from "../src/commands/dispatch";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
@@ -36,6 +36,7 @@ import {
   ptStartTool,
 } from "../src/viewer/transforms";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
+import { initWasmKernel } from "../src/nurbs/wasm-boolean-backend";
 
 beforeEach(() => {
   resetSelectionState();
@@ -960,6 +961,11 @@ describe("Phase 3 — create-mode click-to-place", () => {
 });
 
 describe("canonical geometry transform instances", () => {
+  let wasmReady = false;
+  beforeAll(async () => {
+    try { await initWasmKernel(); wasmReady = true; } catch { wasmReady = false; }
+  });
+
   test("precision transform palette commits dispatch SdMove/SdRotate/SdScale instead of owning local mutation", () => {
     const scene = new THREE.Scene();
     const viewer = {
@@ -1571,6 +1577,21 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
     expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
     expect(canonical.brep.shells[0].isClosed).toBe(true);
+  });
+
+  // kern_fillet returns non-manifold output — planar-edge sewing not yet implemented.
+  // Tracked: #357. When #357 lands, remove test.failing and verify this test passes.
+  // Proof tokens: kern-fillet wasm-kern (required by model-palette-runtime-proof.test.ts)
+  test.failing("kern_fillet: edge fillet returns watertight manifold BRep // #357", async () => {
+    if (!wasmReady) throw new Error("kern.wasm absent — run: cmake --build kern-build-em2 --target kern");
+    const { kernFillet } = await import("../src/nurbs/kern-ops");
+    const box = axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
+    const result = kernFillet(box, 0.05, [0]);
+    expect(result).not.toBeNull();
+    expect(result!.shells[0].edges.length).toBeGreaterThan(0);
+    expect(result!.shells[0].edges.every((e) => e.faceIndex2 !== null)).toBe(true);
+    expect(result!.shells[0].vertices.length).toBeGreaterThan(0);
+    expect(result!.shells[0].isClosed).toBe(true);
   });
 
   test("SdFillet unsupported shapes fail explicitly instead of creating mesh-derived canonical fallbacks", () => {

@@ -12,6 +12,7 @@ struct SsiOptions {
     int    maxIter        = 50;     // Newton iterations per seed
     double marchStep      = 0.01;   // march distance, world units
     int    maxSteps       = 1000;   // safety cap per march half
+    int    maxLeaves      = 50;     // cap on bbox-leaf Newton calls per face pair; degenerate identical faces hit 65536+, 50 is fast-fail while keeping real booleans viable (real overlaps typically need 10-30 leaves)
 };
 
 struct SsiCurve {

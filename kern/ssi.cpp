@@ -50,19 +50,18 @@ static Eigen::Vector4d deBoor(const std::vector<double>& knots,
 }
 
 // Evaluate tensor-product NURBS surface at (u, v). Returns Cartesian Vec3.
+// Inner d[] arrays are stack-allocated (max degree 7) to avoid per-call heap
+// allocations in the hot findSeedsRec path.
 static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
-    // Build isoparametric curve in v-direction at parameter u, then evaluate at v.
+    constexpr int kMaxDeg = 7;
     int spanU = knotSpan(s.knotsU, s.degreeU, s.cvCountU, u);
-    // Basis functions in U: compute temporary control points along V
+    // tempCtrl size = cvCountV; for typical box faces (cvCountV=2) this is tiny.
     std::vector<Eigen::Vector4d> tempCtrl(s.cvCountV);
     for (int j = 0; j < s.cvCountV; ++j) {
-        // Collect cvCountU control points at column j
-        std::vector<Eigen::Vector4d> col(s.degreeU + 1);
+        // Stack-allocate inner de Boor array — eliminates hot heap allocation
+        Eigen::Vector4d d[kMaxDeg + 1];
         for (int i = 0; i <= s.degreeU; ++i)
-            col[i] = s.cvs[(spanU - s.degreeU + i) * s.cvCountV + j];
-        // De Boor in U direction for this column
-        std::vector<Eigen::Vector4d> d(s.degreeU + 1);
-        for (int i = 0; i <= s.degreeU; ++i) d[i] = col[i];
+            d[i] = s.cvs[(spanU - s.degreeU + i) * s.cvCountV + j];
         for (int r = 1; r <= s.degreeU; ++r) {
             for (int jj = s.degreeU; jj >= r; --jj) {
                 double denom = s.knotsU[spanU + jj - r + 1] - s.knotsU[spanU + jj - s.degreeU];
@@ -73,9 +72,20 @@ static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
         }
         tempCtrl[j] = d[s.degreeU];
     }
-    Eigen::Vector4d hw = deBoor(s.knotsV, tempCtrl, s.degreeV, s.cvCountV, v);
-    double w = (std::abs(hw[3]) < 1e-14) ? 1.0 : hw[3];
-    return Eigen::Vector3d(hw[0] / w, hw[1] / w, hw[2] / w);
+    // V de Boor — stack-allocated, eliminates deBoor() helper vector alloc
+    int spanV = knotSpan(s.knotsV, s.degreeV, s.cvCountV, v);
+    Eigen::Vector4d dv[kMaxDeg + 1];
+    for (int i = 0; i <= s.degreeV; ++i) dv[i] = tempCtrl[spanV - s.degreeV + i];
+    for (int r = 1; r <= s.degreeV; ++r) {
+        for (int jj = s.degreeV; jj >= r; --jj) {
+            double denom = s.knotsV[spanV + jj - r + 1] - s.knotsV[spanV + jj - s.degreeV];
+            double alpha = (std::abs(denom) < 1e-14) ? 0.0
+                         : (v - s.knotsV[spanV + jj - s.degreeV]) / denom;
+            dv[jj] = (1.0 - alpha) * dv[jj - 1] + alpha * dv[jj];
+        }
+    }
+    double w = (std::abs(dv[s.degreeV][3]) < 1e-14) ? 1.0 : dv[s.degreeV][3];
+    return Eigen::Vector3d(dv[s.degreeV][0] / w, dv[s.degreeV][1] / w, dv[s.degreeV][2] / w);
 }
 
 // Partial derivatives via central finite difference (h = 1e-6).
@@ -205,7 +215,11 @@ static void findSeedsRec(const NurbsSurface& A, const NurbsSurface& B,
                           double uB0, double uB1, double vB0, double vB1,
                           int depthA, int depthB,
                           const SsiOptions& opts,
-                          std::vector<Seed>& seeds) {
+                          std::vector<Seed>& seeds,
+                          int& leafCount,
+                          bool& capHit) {
+    if (leafCount >= opts.maxLeaves) { capHit = true; return; } // fail-loud cap
+
     // Compute bounding boxes via 5×5 sampling
     Eigen::AlignedBox3d boxA = patchBounds(A, uA0, uA1, vA0, vA1);
     Eigen::AlignedBox3d boxB = patchBounds(B, uB0, uB1, vB0, vB1);
@@ -220,6 +234,7 @@ static void findSeedsRec(const NurbsSurface& A, const NurbsSurface& B,
 
     if (depthA >= opts.maxDepth && depthB >= opts.maxDepth) {
         // Leaf: attempt Newton refinement from midpoint
+        ++leafCount;
         double mu0 = 0.5 * (uA0 + uA1);
         double mv0 = 0.5 * (vA0 + vA1);
         double mu1 = 0.5 * (uB0 + uB1);
@@ -239,11 +254,11 @@ static void findSeedsRec(const NurbsSurface& A, const NurbsSurface& B,
         double midV = 0.5 * (vA0 + vA1);
         bool splitU = ((uA1 - uA0) >= (vA1 - vA0));
         if (splitU) {
-            findSeedsRec(A, B, uA0, midU, vA0, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds);
-            findSeedsRec(A, B, midU, uA1, vA0, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds);
+            findSeedsRec(A, B, uA0, midU, vA0, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds, leafCount, capHit);
+            findSeedsRec(A, B, midU, uA1, vA0, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds, leafCount, capHit);
         } else {
-            findSeedsRec(A, B, uA0, uA1, vA0, midV, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds);
-            findSeedsRec(A, B, uA0, uA1, midV, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds);
+            findSeedsRec(A, B, uA0, uA1, vA0, midV, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds, leafCount, capHit);
+            findSeedsRec(A, B, uA0, uA1, midV, vA1, uB0, uB1, vB0, vB1, depthA + 1, depthB, opts, seeds, leafCount, capHit);
         }
     } else {
         // Split B
@@ -251,22 +266,24 @@ static void findSeedsRec(const NurbsSurface& A, const NurbsSurface& B,
         double midV = 0.5 * (vB0 + vB1);
         bool splitU = ((uB1 - uB0) >= (vB1 - vB0));
         if (splitU) {
-            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, midU, vB0, vB1, depthA, depthB + 1, opts, seeds);
-            findSeedsRec(A, B, uA0, uA1, vA0, vA1, midU, uB1, vB0, vB1, depthA, depthB + 1, opts, seeds);
+            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, midU, vB0, vB1, depthA, depthB + 1, opts, seeds, leafCount, capHit);
+            findSeedsRec(A, B, uA0, uA1, vA0, vA1, midU, uB1, vB0, vB1, depthA, depthB + 1, opts, seeds, leafCount, capHit);
         } else {
-            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, uB1, vB0, midV, depthA, depthB + 1, opts, seeds);
-            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, uB1, midV, vB1, depthA, depthB + 1, opts, seeds);
+            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, uB1, vB0, midV, depthA, depthB + 1, opts, seeds, leafCount, capHit);
+            findSeedsRec(A, B, uA0, uA1, vA0, vA1, uB0, uB1, midV, vB1, depthA, depthB + 1, opts, seeds, leafCount, capHit);
         }
     }
 }
 
 static std::vector<Seed> findSeeds(const NurbsSurface& A, const NurbsSurface& B,
-                                    const SsiOptions& opts) {
+                                    const SsiOptions& opts, bool& capHit) {
     std::vector<Seed> raw;
+    int leafCount = 0;
+    capHit = false;
     findSeedsRec(A, B,
                  A.knotsU.front(), A.knotsU.back(), A.knotsV.front(), A.knotsV.back(),
                  B.knotsU.front(), B.knotsU.back(), B.knotsV.front(), B.knotsV.back(),
-                 0, 0, opts, raw);
+                 0, 0, opts, raw, leafCount, capHit);
 
     // Deduplicate: discard seeds within tol*5 of an already-accepted seed
     std::vector<Seed> deduped;
@@ -357,9 +374,13 @@ static void marchHalf(const NurbsSurface& A, const NurbsSurface& B,
             if ((pA - pB).norm() > opts.tolerance * 100.0) break;
         }
 
+        Eigen::Vector3d prevPt = pt;
         u0 = r.seed.u0; v0 = r.seed.v0;
         u1 = r.seed.u1; v1 = r.seed.v1;
         pt = r.seed.pt;
+
+        // Stall guard: if 3D position barely moved, the march is stuck
+        if ((pt - prevPt).norm() < opts.marchStep * 0.05) break;
 
         // Closed-curve detection: within step*1.5 of start after enough steps
         if (step > 10 && (pt - startPt).norm() < opts.marchStep * 1.5) {
@@ -425,11 +446,18 @@ SsiResult ssi(const NurbsSurface& a, const NurbsSurface& b, const SsiOptions& op
 
     // Stage 1: find seeds
     std::vector<Seed> seeds;
+    bool capHit = false;
     try {
-        seeds = findSeeds(a, b, opts);
+        seeds = findSeeds(a, b, opts, capHit);
     } catch (const std::exception& e) {
         result.ok    = false;
         result.error = std::string("seed finding failed: ") + e.what();
+        return result;
+    }
+    if (capHit) {
+        result.ok    = false;
+        result.error = "SSI aborted: maxLeaves=" + std::to_string(opts.maxLeaves)
+                     + " exceeded — degenerate or coincident face pair (axis-aligned overlap). Not truncating silently.";
         return result;
     }
 
