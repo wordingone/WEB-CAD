@@ -10,18 +10,37 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 # Eigen 3.4.0 — linear algebra
-FetchContent_Declare(eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG        3.4.0
-    GIT_SHALLOW    TRUE)
-FetchContent_MakeAvailable(eigen)
+# Short-circuit when vendored sources are present (avoids emcc compiler-feature
+# test overhead in FetchContent_MakeAvailable which runs Eigen's CMakeLists.txt).
+set(_eigen_vendor "${CMAKE_CURRENT_SOURCE_DIR}/kern/third_party/eigen-src")
+if(EXISTS "${_eigen_vendor}/Eigen/Core")
+    set(eigen_SOURCE_DIR "${_eigen_vendor}")
+    message(STATUS "Eigen: using vendored sources at ${eigen_SOURCE_DIR}")
+else()
+    FetchContent_Declare(eigen
+        GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+        GIT_TAG        3.4.0
+        GIT_SHALLOW    TRUE)
+    set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(eigen)
+endif()
 
 # nlohmann/json 3.11.3 — WASM boundary serialization
-FetchContent_Declare(json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE)
-FetchContent_MakeAvailable(json)
+set(_json_vendor "${CMAKE_CURRENT_SOURCE_DIR}/kern/third_party/json-src")
+if(EXISTS "${_json_vendor}/include/nlohmann/json.hpp")
+    set(json_SOURCE_DIR "${_json_vendor}")
+    message(STATUS "nlohmann/json: using vendored sources at ${json_SOURCE_DIR}")
+else()
+    FetchContent_Declare(json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG        v3.11.3
+        GIT_SHALLOW    TRUE)
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    set(JSON_Install OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(json)
+endif()
 
 # ---------------------------------------------------------------------------
 # kern_lib — compiles cleanly under GCC/Clang AND Emscripten.
