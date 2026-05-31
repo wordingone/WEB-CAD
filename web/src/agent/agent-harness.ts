@@ -670,6 +670,15 @@ function initWorkerIfNeeded(): Worker {
         }
         break;
       }
+      case "align-diag-307": {
+        // §#307: diagnostic payload from model-worker final-retry fail. Store on window for
+        // CDP retrieval, and emit a CustomEvent so any listener can forward it.
+        const _diag307 = msg.data as Record<string, unknown>;
+        (window as unknown as Record<string, unknown>).__alignDiag307 = _diag307;
+        window.dispatchEvent(new CustomEvent("agentmodel:align-diag-307", { detail: _diag307 }));
+        console.warn("[align-diag-307] captured", JSON.stringify(_diag307));
+        break;
+      }
       case "error": {
         const _errMsg = (msg.error as string) ?? "Unknown model load error";
         // #1313: D3D12 silent OOM — OrtRun throws buffer_manager/CreateCommittedResource
