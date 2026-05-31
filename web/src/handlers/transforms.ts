@@ -13,6 +13,7 @@ import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
 import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
 import { kernFillet, kernChamfer } from "../nurbs/kern-ops";
+import { isKernLoaded } from "../nurbs/wasm-boolean-backend";
 
 type BooleanOp = "union" | "difference" | "intersection";
 
@@ -1405,13 +1406,16 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const edgeTo = args.edgeTo as number[] | undefined;
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
+    let filletBackend: 'kern-fillet' | 'ts-approx' = 'ts-approx';
     if (edgesArr.length > 0) {
       // Try C++ kern first (kern_fillet with explicit edge indices); fall back to TS chamfer.
       const kernResult = kernFilletDisplayResult(viewer, obj, radius, edgesArr, { operation: "multi-edge-fillet", edges: edgesArr, radius });
       if (kernResult) {
         filleted = kernResult;
         edgeCount = edgesArr.length;
+        filletBackend = 'kern-fillet';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         const uniqueEdges = getUniqueEdges(obj);
         const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
         for (const eid of edgesArr) {
@@ -1439,7 +1443,9 @@ export function registerTransformHandlers(viewer: Viewer): void {
       if (kernResult) {
         filleted = kernResult;
         edgeCount = 1;
+        filletBackend = 'kern-fillet';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         const [localA, localB] = edges[edgeId];
         const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
         const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
@@ -1462,7 +1468,9 @@ export function registerTransformHandlers(viewer: Viewer): void {
       const kernResult = kernFilletDisplayResult(viewer, obj, radius, [], operation);
       if (kernResult) {
         filleted = kernResult;
+        filletBackend = 'kern-fillet';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
         if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
         filleted = canonicalFillet;
@@ -1471,7 +1479,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "fillet");
-    return { modified: filleted.uuid, edgeCount };
+    return { modified: filleted.uuid, edgeCount, backend: filletBackend };
   });
 
   registerHandler("SdChamfer", (args) => {
@@ -1488,13 +1496,16 @@ export function registerTransformHandlers(viewer: Viewer): void {
     const edgesArr = (args.edges as number[] | undefined) ?? [];
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
+    let chamferBackend: 'kern-chamfer' | 'ts-approx' = 'ts-approx';
     if (edgesArr.length > 0) {
       const operation = { operation: "chamfer-multi-edge", edges: edgesArr, distance };
       const kernResult = kernChamferDisplayResult(viewer, obj, distance, edgesArr, operation);
       if (kernResult) {
         filleted = kernResult;
         edgeCount = edgesArr.length;
+        chamferBackend = 'kern-chamfer';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         const uniqueEdges = getUniqueEdges(obj);
         const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
         for (const eid of edgesArr) {
@@ -1522,7 +1533,9 @@ export function registerTransformHandlers(viewer: Viewer): void {
       if (kernResult) {
         filleted = kernResult;
         edgeCount = 1;
+        chamferBackend = 'kern-chamfer';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         const [localA, localB] = edges[edgeId];
         const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
         const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
@@ -1536,7 +1549,9 @@ export function registerTransformHandlers(viewer: Viewer): void {
       const kernResult = kernChamferDisplayResult(viewer, obj, distance, [], operation);
       if (kernResult) {
         filleted = kernResult;
+        chamferBackend = 'kern-chamfer';
       } else {
+        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         const result = canonicalAllEdgeChamferDisplayResult(viewer, obj, distance, operation);
         if (!result) return { error: `SdChamfer - all-edge chamfer requires a supported canonical box-like BRep` };
         filleted = result;
@@ -1545,7 +1560,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "chamfer");
-    return { modified: filleted.uuid, edgeCount };
+    return { modified: filleted.uuid, edgeCount, backend: chamferBackend };
   });
 
   registerHandler("SdShell", (args) => {

@@ -214,6 +214,21 @@ await evaluate(`(window.__gemmaTest = { events: {}, surfaceResults: [] }, true)`
 await evaluate(`(window.__testMode = true, true)`);
 await delay(1000);
 
+// ── kern-ready gate (non-blocking) ────────────────────────────────────────────
+// Call waitForKernReady() before any surface that requires kern.wasm (SdFillet,
+// SdChamfer, SdBoolean*). Polls window.__kernWasmReady — set by main.ts after
+// initWasmKernel() + registerBackend(wasmBooleanBackend). Max wait: 60 s.
+async function waitForKernReady(timeoutMs = 60_000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ready = await evaluate(`(typeof window.__kernWasmReady === 'boolean' ? window.__kernWasmReady : null)`, true, 5_000);
+    if (ready === true) return true;
+    if (ready === false) return false; // kern.wasm failed to load
+    await delay(500);
+  }
+  return false;
+}
+
 // ── Surface recording ─────────────────────────────────────────────────────────
 function record(name, passed, evidence) {
   surfaces.push({ name, passed, evidence });

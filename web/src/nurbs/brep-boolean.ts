@@ -186,6 +186,9 @@ export function resolveBackend(opts?: BooleanCallOptions): IBooleanBackend | Ker
   if (!best) {
     return { code: "BACKEND_UNAVAILABLE", message: "no backends registered", backend: "none" };
   }
+  if (best.id !== 'wasm-kern') {
+    console.warn(`[brep-boolean] resolveBackend: using '${best.id}' (priority ${best.priority}) — wasm-kern not registered (kern.wasm not loaded yet)`);
+  }
   return best;
 }
 
