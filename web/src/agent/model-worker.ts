@@ -1218,7 +1218,7 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
                   inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
                   // byteOffset of the typed-array backing buffer — alignment indicator
                   inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
-                  ortBackend:     String(_ortEnv.wasm?.proxy ?? _ortEnv.webgpu?.device ? 'webgpu' : 'unknown'),
+                  ortBackend:     _ortEnv.webgpu?.device ? 'webgpu' : 'wasm',
                   ortVersion:     String((ort as any).version ?? 'unknown'),
                   errMsg:         String(finalErr).slice(0, 200),
                   errStack:       ((finalErr as Error).stack ?? '').slice(0, 400),

@@ -674,7 +674,9 @@ function initWorkerIfNeeded(): Worker {
         // §#307: diagnostic payload from model-worker final-retry fail. Store on window for
         // CDP retrieval, and emit a CustomEvent so any listener can forward it.
         const _diag307 = msg.data as Record<string, unknown>;
-        (window as unknown as Record<string, unknown>).__alignDiag307 = _diag307;
+        const _win307 = window as unknown as Record<string, unknown>;
+        if (!Array.isArray(_win307.__alignDiag307)) _win307.__alignDiag307 = [];
+        (_win307.__alignDiag307 as unknown[]).push(_diag307);
         window.dispatchEvent(new CustomEvent("agentmodel:align-diag-307", { detail: _diag307 }));
         console.warn("[align-diag-307] captured", JSON.stringify(_diag307));
         break;
