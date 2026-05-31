@@ -36,6 +36,8 @@ const _kernWasmPath = import.meta.env.PROD ? '../kern.wasm' : '../../kern.wasm';
 import type { Brep } from './nurbs-brep';
 import type { Surface, NurbsSurface } from './nurbs-surfaces';
 import { getNurbsForm } from './nurbs-surfaces';
+import type { Curve } from './nurbs-curves';
+import { getNurbsForm as getCurveNurbsForm } from './nurbs-curves';
 import type {
   IBooleanBackend,
   BrepResult,
@@ -84,6 +86,21 @@ type KernResponse = KernOk | KernErr;
 // The C++ kern expects standard full knot vectors (length = cvCount + order) and
 // xyzw homogeneous CVs.  Non-NURBS surfaces are tessellated via getNurbsForm.
 
+function _curveToKernCurve(c: Curve): {
+  degree: number; cvCount: number; knots: number[]; cvs: number[];
+} {
+  const nc = c.kind === 'nurbs' ? c : getCurveNurbsForm(c).curve;
+  const degree = nc.order - 1;
+  const knots = [nc.knots[0], ...nc.knots, nc.knots[nc.knots.length - 1]];
+  const cvs: number[] = [];
+  for (let i = 0; i < nc.cvCount; i++) {
+    const base = i * nc.cvStride;
+    cvs.push(nc.cvs[base], nc.cvs[base + 1], nc.cvs[base + 2]);
+    cvs.push(nc.isRational ? (nc.cvs[base + nc.dim] ?? 1) : 1);
+  }
+  return { degree, cvCount: nc.cvCount, knots, cvs };
+}
+
 function _surfaceToKernSurf(s: Surface): {
   degreeU: number; degreeV: number;
   cvCountU: number; cvCountV: number;
@@ -112,13 +129,22 @@ export function brepToKernJson(brep: Brep): string {
     shells: brep.shells.map(shell => ({
       faces: shell.faces.map(face => ({
         surface: _surfaceToKernSurf(face.surface),
-        outerLoop: { edges: [], orientation: face.outerLoop.orientation },
+        outerLoop: { edges: [], isOuter: true },
         innerLoops: [],
         orientation: face.orientation,
         tolerance: face.tolerance,
       })),
-      edges: [],
-      vertices: [],
+      edges: shell.edges.map(edge => ({
+        curve: _curveToKernCurve(edge.curve),
+        faceIndex1: edge.faceIndex1,
+        faceIndex2: edge.faceIndex2 ?? -1,
+        tolerance: edge.tolerance,
+      })),
+      vertices: shell.vertices.map(vertex => ({
+        point: [vertex.point.x, vertex.point.y, vertex.point.z],
+        edgeIndices: vertex.edgeIndices,
+        tolerance: vertex.tolerance,
+      })),
       isClosed: shell.isClosed,
     })),
   });

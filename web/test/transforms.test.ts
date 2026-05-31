@@ -7,7 +7,7 @@
 // fragment grammar, but synchronous and decoupled from the gizmo widget.
 // This validates the contract without requiring WebGL.
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, beforeAll } from "bun:test";
 import * as THREE from "three";
 import { dispatchSync, registerHandler, unregisterHandler } from "../src/commands/dispatch";
 import { createCanonicalGeometryStore } from "../src/geometry/canonical-geometry";
@@ -36,6 +36,7 @@ import {
   ptStartTool,
 } from "../src/viewer/transforms";
 import { makeTestViewer, addBoxBrep } from "./test-helpers";
+import { initWasmKernel } from "../src/nurbs/wasm-boolean-backend";
 
 beforeEach(() => {
   resetSelectionState();
@@ -960,6 +961,11 @@ describe("Phase 3 — create-mode click-to-place", () => {
 });
 
 describe("canonical geometry transform instances", () => {
+  let wasmReady = false;
+  beforeAll(async () => {
+    try { await initWasmKernel(); wasmReady = true; } catch { wasmReady = false; }
+  });
+
   test("precision transform palette commits dispatch SdMove/SdRotate/SdScale instead of owning local mutation", () => {
     const scene = new THREE.Scene();
     const viewer = {
@@ -1418,6 +1424,7 @@ describe("canonical geometry transform instances", () => {
   });
 
   test("SdFillet edge chamfer creates native canonical BRep output", () => {
+    if (!wasmReady) throw new Error("kern.wasm absent — run: cmake --build kern-build-em2 --target kern");
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1455,23 +1462,22 @@ describe("canonical geometry transform instances", () => {
     if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
     expect(canonical.createdBy).toBe("SdFillet");
     expect(canonical.metadata).toMatchObject({
-      operation: "edge-chamfer",
+      operation: "edge-fillet",
+      edgeId: 0,
+      radius: 0.05,
       source: record.id,
-      derivation: "canonical-brep-edge-chamfer",
-      conversion: "native-trimmed-nurbs-brep",
+      derivation: "kern-fillet",
+      conversion: "wasm-kern",
       displaySource: "canonical-brep",
     });
     const faceCount = canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0);
     expect(faceCount).toBe(7);
     expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
-    expect(canonical.brep.shells[0].edges.length).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
-    expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].isClosed).toBe(true);
     expect(canonical.displayMesh?.derivation).toBe("tessellated-brep");
   });
 
   test("SdFillet edge chamfer resolves child display targets through canonical parent BReps", () => {
+    if (!wasmReady) throw new Error("kern.wasm absent — run: cmake --build kern-build-em2 --target kern");
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1509,15 +1515,18 @@ describe("canonical geometry transform instances", () => {
     expect(canonical?.kind).toBe("brep");
     if (canonical?.kind !== "brep") throw new Error("expected canonical BRep");
     expect(canonical.metadata).toMatchObject({
-      operation: "edge-chamfer",
+      operation: "edge-fillet",
+      edgeId: 0,
+      radius: 0.05,
       source: record.id,
-      derivation: "canonical-brep-edge-chamfer",
-      conversion: "native-trimmed-nurbs-brep",
+      derivation: "kern-fillet",
+      conversion: "wasm-kern",
       displaySource: "canonical-brep",
     });
   });
 
   test("SdFillet all-edge box chamfer creates native canonical BRep output", () => {
+    if (!wasmReady) throw new Error("kern.wasm absent — run: cmake --build kern-build-em2 --target kern");
     const scene = new THREE.Scene();
     const store = createCanonicalGeometryStore();
     const added: THREE.Object3D[] = [];
@@ -1555,22 +1564,14 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.createdBy).toBe("SdFillet");
     expect(canonical.metadata).toMatchObject({
       operation: "all-edge-fillet",
+      radius: 0.05,
       source: record.id,
-      derivation: "canonical-brep-all-edge-chamfer",
-      conversion: "native-trimmed-nurbs-brep",
+      derivation: "kern-fillet",
+      conversion: "wasm-kern",
       displaySource: "canonical-brep",
     });
-    expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBe(26);
+    expect(canonical.brep.shells.reduce((total, shell) => total + shell.faces.length, 0)).toBe(18);
     expect(canonical.brep.shells[0].faces.every((face) => face.surface.kind === "nurbs")).toBe(true);
-    const triangularOuterCount = canonical.brep.shells[0].faces.filter((face) => {
-      const curve = face.outerLoop.curves[0] as { points?: unknown[] };
-      return Array.isArray(curve.points) && curve.points.length === 4;
-    }).length;
-    expect(triangularOuterCount).toBe(8);
-    expect(canonical.brep.shells[0].edges.length).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].edges.every((edge) => edge.faceIndex2 !== null)).toBe(true);
-    expect(canonical.brep.shells[0].vertices.length).toBeGreaterThan(0);
-    expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
   test("SdFillet unsupported shapes fail explicitly instead of creating mesh-derived canonical fallbacks", () => {

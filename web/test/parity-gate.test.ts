@@ -490,6 +490,8 @@ describe('parity-gate — boolean (WASM-gated)', () => {
 // ── Fuzz suite ────────────────────────────────────────────────────────────────
 
 describe('parity-gate — fuzz', () => {
+  // Timeout 60 s: JSC WASM march-phase runs ~10-15 s for identical-box pairs;
+  // same Bun/JSC JIT gap as the 20-pair test above.
   test('fuzz: no crash/NaN on box pairs', async () => {
     if (!wasmReady) {
       // Without WASM, just assert buildBoxBrep doesn't throw across the range
@@ -519,5 +521,5 @@ describe('parity-gate — fuzz', () => {
         }
       }
     }
-  })
+  }, 60_000)
 })

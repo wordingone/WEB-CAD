@@ -364,6 +364,11 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
             }
             ssiGrid[ia][ib] = ssi(sa, sb, opts);
             if (ssiGrid[ia][ib].ok && !ssiGrid[ia][ib].curves.empty()) anySsi = true;
+            // Fail loud: cap-hit SSI must not silently truncate (would produce wrong geometry)
+            if (!ssiGrid[ia][ib].ok && !ssiGrid[ia][ib].error.empty()) {
+                result.error = ssiGrid[ia][ib].error;
+                return result;
+            }
         }
     }
 

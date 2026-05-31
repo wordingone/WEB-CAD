@@ -54,7 +54,7 @@ const PROOF_BY_COMMAND: Record<string, ProofCase> = {
   SdBooleanIntersection: { file: "brep-boolean.test.ts", tokens: ["SdBooleanIntersection", "schema"] },
   SdFillet: {
     file: "transforms.test.ts",
-    tokens: ["SdFillet", "canonical-brep-edge-chamfer", "canonical-brep-all-edge-chamfer"],
+    tokens: ["SdFillet", "kern-fillet", "wasm-kern"],
   },
   SdExplode: { file: "brep-canonical-characterization.test.ts", tokens: ["SdExplode", "expected exploded canonical brep"] },
   SdJoin: { file: "brep-canonical-characterization.test.ts", tokens: ["SdJoin", "expected joined canonical brep"] },
