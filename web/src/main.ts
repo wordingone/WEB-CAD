@@ -32,7 +32,11 @@ import * as THREE from "three";
 import { registerAllHandlers } from "./register-handlers";
 import { initDomEvents } from "./dom-events";
 import { initWasmKernel, wasmBooleanBackend } from "./nurbs/wasm-boolean-backend";
-import { registerBackend } from "./nurbs/brep-boolean";
+import { registerBackend, resolveBackend } from "./nurbs/brep-boolean";
+(window as unknown as { __booleanBackendId: () => string | null }).__booleanBackendId = () => {
+  const b = resolveBackend();
+  return "code" in b ? null : b.id;
+};
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);

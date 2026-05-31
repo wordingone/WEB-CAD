@@ -27,6 +27,8 @@ const _kernJsPath = '../../kern.js';
 const _kernWasmPath = '../../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
+import type { Surface } from './nurbs-surfaces';
+import { getNurbsForm } from './nurbs-surfaces';
 import type {
   IBooleanBackend,
   BrepResult,
@@ -56,6 +58,53 @@ interface KernModule {
 type KernOk  = { ok: true;  result: unknown }; // kern JSON uses "result", not "brep"
 type KernErr = { ok: false; error: string };
 type KernResponse = KernOk | KernErr;
+
+// ── JS-Brep → kern JSON conversion ───────────────────────────────────────────
+//
+// The JS Brep type uses OpenNURBS knot convention (length = cvCount + order - 2,
+// first/last repeated clamping knots omitted) and xyz CVs without homogeneous w.
+// The C++ kern expects standard full knot vectors (length = cvCount + order) and
+// xyzw homogeneous CVs.  Non-NURBS surfaces are tessellated via getNurbsForm.
+
+function _surfaceToKernSurf(s: Surface): {
+  degreeU: number; degreeV: number;
+  cvCountU: number; cvCountV: number;
+  knotsU: number[]; knotsV: number[];
+  cvs: number[];
+} {
+  const ns = s.kind === 'nurbs' ? s : getNurbsForm(s).surface;
+  const [nU, nV] = ns.cvCount;
+  // OpenNURBS → standard: prepend first knot value, append last knot value
+  const knotsU = [ns.knots[0][0], ...ns.knots[0], ns.knots[0][ns.knots[0].length - 1]];
+  const knotsV = [ns.knots[1][0], ...ns.knots[1], ns.knots[1][ns.knots[1].length - 1]];
+  // CVs: JS xyz (or xyzw rational) → kern xyzw, row-major (U outer, V inner)
+  const cvs: number[] = [];
+  for (let i = 0; i < nU; i++) {
+    for (let j = 0; j < nV; j++) {
+      const base = i * ns.cvStride[0] + j * ns.cvStride[1];
+      cvs.push(ns.cvs[base], ns.cvs[base + 1], ns.cvs[base + 2]);
+      cvs.push(ns.isRational ? (ns.cvs[base + ns.dim] ?? 1) : 1);
+    }
+  }
+  return { degreeU: ns.order[0] - 1, degreeV: ns.order[1] - 1, cvCountU: nU, cvCountV: nV, knotsU, knotsV, cvs };
+}
+
+function brepToKernJson(brep: Brep): string {
+  return JSON.stringify({
+    shells: brep.shells.map(shell => ({
+      faces: shell.faces.map(face => ({
+        surface: _surfaceToKernSurf(face.surface),
+        outerLoop: { edges: [], orientation: face.outerLoop.orientation },
+        innerLoops: [],
+        orientation: face.orientation,
+        tolerance: face.tolerance,
+      })),
+      edges: [],
+      vertices: [],
+      isClosed: shell.isClosed,
+    })),
+  });
+}
 
 // ── Singleton loader ──────────────────────────────────────────────────────────
 
@@ -115,8 +164,8 @@ function callBinaryOp(
 ): BrepResult {
   const mod = assertLoaded();
 
-  const aJson = JSON.stringify(a);
-  const bJson = JSON.stringify(b);
+  const aJson = brepToKernJson(a);
+  const bJson = brepToKernJson(b);
 
   let raw: string;
   try {
