@@ -271,6 +271,36 @@ const cases = [
     oracleVolume: null,
     mathVolume: 8.0,  // B inside A → result = A = 2³
   },
+  // ── G1: partial-overlap SSI path ──────────────────────────────────────────
+  // A = [0,1]³, B = [0.25,1.25]³ — B shifted [0.25,0.25,0.25], same size as A.
+  // Neither solid contains the other; no faces are coplanar.
+  // Overlap region = [0.25,1]³ = 0.75³ = 0.421875.
+  // These cases force the SSI trim/classify path (early containment does NOT fire
+  // because B's +X/+Y/+Z face centroids lie outside A).
+  {
+    label: 'G1-union: 1×1×1 fuse 1×1×1 offset [0.25,0.25,0.25] (partial overlap, SSI path)',
+    op: 'union',
+    aW: 1, aH: 1, aD: 1, aOx: 0, aOy: 0, aOz: 0,
+    bW: 1, bH: 1, bD: 1, bOx: 0.25, bOy: 0.25, bOz: 0.25,
+    oracleVolume: null,
+    mathVolume: 1.578125,  // 1 + 1 - 0.75³ = 2 - 0.421875
+  },
+  {
+    label: 'G1-difference: 1×1×1 cut 1×1×1 offset [0.25,0.25,0.25] (partial overlap, SSI path)',
+    op: 'difference',
+    aW: 1, aH: 1, aD: 1, aOx: 0, aOy: 0, aOz: 0,
+    bW: 1, bH: 1, bD: 1, bOx: 0.25, bOy: 0.25, bOz: 0.25,
+    oracleVolume: null,
+    mathVolume: 0.578125,  // 1 - 0.75³ = 1 - 0.421875
+  },
+  {
+    label: 'G1-intersection: 1×1×1 ∩ 1×1×1 offset [0.25,0.25,0.25] (partial overlap, SSI path)',
+    op: 'intersection',
+    aW: 1, aH: 1, aD: 1, aOx: 0, aOy: 0, aOz: 0,
+    bW: 1, bH: 1, bD: 1, bOx: 0.25, bOy: 0.25, bOz: 0.25,
+    oracleVolume: null,
+    mathVolume: 0.421875,  // 0.75³
+  },
 ];
 
 // ── Volume self-check ─────────────────────────────────────────────────────────

@@ -206,6 +206,78 @@ void _applyFaceSplit(const BrepFace& face, const SsiCurve& sc,
     }
 }
 
+// Rebuild a degree-1 bilinear face covering sub-rectangle [u0,u1]×[v0,v1].
+// Evaluates the 4 corner points on the original surface; inherits orientation.
+BrepFace _makeSubFace(const BrepFace& orig, double u0, double u1, double v0, double v1)
+{
+    BrepFace f = orig;
+    f.innerLoops.clear();
+    f.surface.knotsU = {u0, u0, u1, u1};
+    f.surface.knotsV = {v0, v0, v1, v1};
+    Vec3 c00 = orig.surface.evaluate(u0, v0);
+    Vec3 c01 = orig.surface.evaluate(u0, v1);
+    Vec3 c10 = orig.surface.evaluate(u1, v0);
+    Vec3 c11 = orig.surface.evaluate(u1, v1);
+    f.surface.cvs = {
+        Vec4(c00.x(), c00.y(), c00.z(), 1.0),
+        Vec4(c01.x(), c01.y(), c01.z(), 1.0),
+        Vec4(c10.x(), c10.y(), c10.z(), 1.0),
+        Vec4(c11.x(), c11.y(), c11.z(), 1.0),
+    };
+    return f;
+}
+
+// Extract axis-aligned clip lines from SSI curves on a bilinear face.
+// Inserts interior u-break and v-break values (boundary values already included).
+void _extractClipLines(
+    const std::vector<const SsiCurve*>& hits, bool useParamsA,
+    double uMin, double uMax, double vMin, double vMax,
+    std::vector<double>& uBreaks, std::vector<double>& vBreaks, double tol)
+{
+    const double uExt = uMax - uMin;
+    const double vExt = vMax - vMin;
+    const double relThr = 0.02; // 2% of extent → "constant" parameter
+    const double guardTol = tol * 10.0;
+
+    for (const SsiCurve* sc : hits) {
+        const auto& params = useParamsA ? sc->paramsA : sc->paramsB;
+        if (params.size() < 2) continue;
+
+        double uLo = params[0].first, uHi = params[0].first;
+        double vLo = params[0].second, vHi = params[0].second;
+        for (const auto& [u, v] : params) {
+            if (u < uLo) uLo = u; if (u > uHi) uHi = u;
+            if (v < vLo) vLo = v; if (v > vHi) vHi = v;
+        }
+        const double uRange = uHi - uLo;
+        const double vRange = vHi - vLo;
+        const double uMean = 0.5 * (uLo + uHi);
+        const double vMean = 0.5 * (vLo + vHi);
+
+        if (uExt > 0.0 && vExt > 0.0) {
+            if (uRange < uExt * relThr && vRange > vExt * relThr) {
+                if (uMean > uMin + guardTol && uMean < uMax - guardTol)
+                    uBreaks.push_back(uMean);
+            } else if (vRange < vExt * relThr && uRange > uExt * relThr) {
+                if (vMean > vMin + guardTol && vMean < vMax - guardTol)
+                    vBreaks.push_back(vMean);
+            }
+        }
+    }
+
+    // Sort and merge close values (within tol*100)
+    const double mergeGap = tol * 100.0;
+    auto mergeClose = [&](std::vector<double>& v) {
+        std::sort(v.begin(), v.end());
+        std::vector<double> out;
+        for (double x : v)
+            if (out.empty() || x - out.back() > mergeGap) out.push_back(x);
+        v = out;
+    };
+    mergeClose(uBreaks);
+    mergeClose(vBreaks);
+}
+
 } // anonymous namespace
 
 // ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -223,14 +295,16 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
     const int nA = static_cast<int>(facesA.size());
     const int nB = static_cast<int>(facesB.size());
 
-    // [0] Early containment check — skip SSI when B's centroid is inside A.
-    // Using B's centroid (average of face centroids) reliably detects B-inside-A for
-    // convex solids. We do NOT probe A's centroid against B here: when B is strictly
-    // interior to A the two centroids coincide (symmetric case), giving a false
-    // "A inside B" reading that would wrongly return an empty difference.
+    // [0] Early containment check — skip SSI when ALL face centroids of B are inside A.
+    // Checking every face centroid (not just the average) prevents false-positive
+    // containment for partial-overlap: the face centroid on B's protruding side lands
+    // outside A, correctly disabling the early exit so SSI can handle the overlap.
     {
-        bool bInA = !facesB.empty() && _pointInBrep(_brepCenter(facesB), a, tol);
-        if (bInA) {
+        bool allBInA = !facesB.empty();
+        for (const auto* f : facesB) {
+            if (!_pointInBrep(_faceCentroid(*f), a, tol)) { allBInA = false; break; }
+        }
+        if (allBInA) {
             switch (op) {
                 case BooleanOp::UNION:
                     result.brep = a; result.ok = true; return result;
@@ -257,14 +331,41 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
     }
 
     // [1] SSI grid — only reached for partial-overlap or disjoint inputs.
+    // Coplanar face pairs (same plane, anti-parallel normals) never produce intersection
+    // curves — skip them to avoid the indefinite convergence loop in Newton SSI.
     std::vector<std::vector<SsiResult>> ssiGrid(nA, std::vector<SsiResult>(nB));
     bool anySsi = false;
     SsiOptions opts; opts.tolerance = tol;
-    for (int ia = 0; ia < nA; ++ia)
+    for (int ia = 0; ia < nA; ++ia) {
         for (int ib = 0; ib < nB; ++ib) {
-            ssiGrid[ia][ib] = ssi(facesA[ia]->surface, facesB[ib]->surface, opts);
+            const NurbsSurface& sa = facesA[ia]->surface;
+            const NurbsSurface& sb = facesB[ib]->surface;
+            // Coplanar check: only for bilinear (degree=1) surfaces.
+            if (sa.degreeU == 1 && sa.degreeV == 1 && sb.degreeU == 1 && sb.degreeV == 1) {
+                double uaMid = (sa.knotsU.front() + sa.knotsU.back()) * 0.5;
+                double vaMid = (sa.knotsV.front() + sa.knotsV.back()) * 0.5;
+                double ubMid = (sb.knotsU.front() + sb.knotsU.back()) * 0.5;
+                double vbMid = (sb.knotsV.front() + sb.knotsV.back()) * 0.5;
+                Vec3 na = sa.normalAt(uaMid, vaMid);
+                Vec3 nb = sb.normalAt(ubMid, vbMid);
+                double naLen = na.norm(), nbLen = nb.norm();
+                if (naLen > 1e-14 && nbLen > 1e-14) {
+                    double sinAng = na.cross(nb).norm() / (naLen * nbLen);
+                    if (sinAng < 1e-4) { // normals nearly (anti-)parallel
+                        Vec3 ca = sa.evaluate(uaMid, vaMid);
+                        Vec3 cb = sb.evaluate(ubMid, vbMid);
+                        double planeDist = std::abs((nb / nbLen).dot(ca - cb));
+                        if (planeDist < 10.0 * tol) {
+                            ssiGrid[ia][ib].ok = false; // coplanar — no intersection
+                            continue;
+                        }
+                    }
+                }
+            }
+            ssiGrid[ia][ib] = ssi(sa, sb, opts);
             if (ssiGrid[ia][ib].ok && !ssiGrid[ia][ib].curves.empty()) anySsi = true;
         }
+    }
 
     // [4-fallback] No face-face intersection and no containment: disjoint solids.
     if (!anySsi) {
@@ -307,16 +408,42 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
             auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesA[ia]), b, tol), false);
             if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
         } else {
-            const SsiCurve* sc = hits[0];
-            if (sc->pts3d.size() < 2) {
-                auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesA[ia]), b, tol), false);
-                if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
-                continue;
+            const NurbsSurface& surf = facesA[ia]->surface;
+            if (surf.degreeU == 1 && surf.degreeV == 1) {
+                // Degree-1 face: sub-rectangle decomposition at SSI clip lines.
+                // Each sub-face is a proper bilinear NURBS — brepVolume integrates
+                // over its actual domain, giving correct divergence-theorem volumes.
+                double uMin = surf.knotsU.front(), uMax = surf.knotsU.back();
+                double vMin = surf.knotsV.front(), vMax = surf.knotsV.back();
+                std::vector<double> uBreaks = {uMin, uMax};
+                std::vector<double> vBreaks = {vMin, vMax};
+                _extractClipLines(hits, /*useParamsA=*/true,
+                                   uMin, uMax, vMin, vMax,
+                                   uBreaks, vBreaks, tol);
+                for (int ui = 0; ui + 1 < static_cast<int>(uBreaks.size()); ++ui) {
+                    for (int vi = 0; vi + 1 < static_cast<int>(vBreaks.size()); ++vi) {
+                        double u0 = uBreaks[ui], u1 = uBreaks[ui+1];
+                        double v0 = vBreaks[vi], v1 = vBreaks[vi+1];
+                        Vec3 cen = surf.evaluate(0.5*(u0+u1), 0.5*(v0+v1));
+                        auto [keep, rev] = classify(_pointInBrep(cen, b, tol), false);
+                        if (!keep) continue;
+                        BrepFace sub = _makeSubFace(*facesA[ia], u0, u1, v0, v1);
+                        if (rev) sub.orientation = !sub.orientation;
+                        outFaces.push_back(sub);
+                    }
+                }
+            } else {
+                // Higher-degree face: fall back to single-trim approach.
+                const SsiCurve* sc = hits[0];
+                if (sc->pts3d.size() < 2) {
+                    auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesA[ia]), b, tol), false);
+                    if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
+                } else {
+                    if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
+                    bool keepOuter = (op != BooleanOp::INTERSECTION);
+                    _applyFaceSplit(*facesA[ia], *sc, /*useParamsA=*/true, keepOuter, false, outFaces);
+                }
             }
-            if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
-            // A faces: UNION/DIFFERENCE → keep outer; INTERSECTION → keep inner.
-            bool keepOuter = (op != BooleanOp::INTERSECTION);
-            _applyFaceSplit(*facesA[ia], *sc, /*useParamsA=*/true, keepOuter, false, outFaces);
         }
     }
 
@@ -330,17 +457,39 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
             auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesB[ib]), a, tol), true);
             if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
         } else {
-            const SsiCurve* sc = hits[0];
-            if (sc->pts3d.size() < 2) {
-                auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesB[ib]), a, tol), true);
-                if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
-                continue;
+            const NurbsSurface& surf = facesB[ib]->surface;
+            if (surf.degreeU == 1 && surf.degreeV == 1) {
+                double uMin = surf.knotsU.front(), uMax = surf.knotsU.back();
+                double vMin = surf.knotsV.front(), vMax = surf.knotsV.back();
+                std::vector<double> uBreaks = {uMin, uMax};
+                std::vector<double> vBreaks = {vMin, vMax};
+                _extractClipLines(hits, /*useParamsA=*/false,
+                                   uMin, uMax, vMin, vMax,
+                                   uBreaks, vBreaks, tol);
+                for (int ui = 0; ui + 1 < static_cast<int>(uBreaks.size()); ++ui) {
+                    for (int vi = 0; vi + 1 < static_cast<int>(vBreaks.size()); ++vi) {
+                        double u0 = uBreaks[ui], u1 = uBreaks[ui+1];
+                        double v0 = vBreaks[vi], v1 = vBreaks[vi+1];
+                        Vec3 cen = surf.evaluate(0.5*(u0+u1), 0.5*(v0+v1));
+                        auto [keep, rev] = classify(_pointInBrep(cen, a, tol), true);
+                        if (!keep) continue;
+                        BrepFace sub = _makeSubFace(*facesB[ib], u0, u1, v0, v1);
+                        if (rev) sub.orientation = !sub.orientation;
+                        outFaces.push_back(sub);
+                    }
+                }
+            } else {
+                const SsiCurve* sc = hits[0];
+                if (sc->pts3d.size() < 2) {
+                    auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesB[ib]), a, tol), true);
+                    if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
+                } else {
+                    if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
+                    bool keepOuter = (op == BooleanOp::UNION);
+                    bool reverse   = (op == BooleanOp::DIFFERENCE);
+                    _applyFaceSplit(*facesB[ib], *sc, /*useParamsA=*/false, keepOuter, reverse, outFaces);
+                }
             }
-            if (sc->pts3d.size() > 10000) { result.error = "SSI curve exceeds 10000 points"; return result; }
-            // B faces: UNION → keep outer; DIFFERENCE → keep inner reversed; INTERSECTION → keep inner.
-            bool keepOuter = (op == BooleanOp::UNION);
-            bool reverse   = (op == BooleanOp::DIFFERENCE);
-            _applyFaceSplit(*facesB[ib], *sc, /*useParamsA=*/false, keepOuter, reverse, outFaces);
         }
     }
 

@@ -467,6 +467,8 @@ describe('parity-gate — boolean (WASM-gated)', () => {
     expect(Math.abs(vol - 0.125) / 0.125, `volume ${vol} vs expected 0.125`).toBeLessThan(0.005)
   })
 
+  // Timeout 60 s: SSI sub-face path is ~17× slower in Bun/JSC WASM than Node/V8.
+  // All 60 ops produce correct finite volumes; gap is JSC JIT, not correctness.
   test('fuzz: no crash/NaN on 20 box pairs × 3 ops', () => {
     if (!wasmReady) { throw new Error('#617: kern.wasm absent — build with emcmake cmake + make') }
     const kern = rawKernModule()
@@ -482,7 +484,7 @@ describe('parity-gate — boolean (WASM-gated)', () => {
         }
       }
     }
-  })
+  }, 60_000)
 })
 
 // ── Fuzz suite ────────────────────────────────────────────────────────────────
