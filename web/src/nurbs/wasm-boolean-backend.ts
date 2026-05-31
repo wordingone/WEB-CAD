@@ -46,16 +46,27 @@ import type { BooleanOptions } from './nurbs-brep';
 /**
  * Methods exported from the C++ geometry kernel via Emscripten embind.
  * Each method accepts/returns JSON strings (Brep serialised with JSON.stringify).
- * The kernel returns `{ ok: true, brep: <BrepJson> }` on success and
+ * The kernel returns `{ ok: true, result: <BrepJson> }` on success and
  * `{ ok: false, error: <string> }` on failure — never throws.
+ *
+ * Single-dispatch ops (kern_*) take a single JSON request string.
+ * Two-arg ops (boolUnion/boolDifference/boolIntersection) take two Brep JSON strings.
  */
 interface KernModule {
+  // Two-arg boolean ops (convenience wrappers, retained from initial API)
   boolUnion(aJson: string, bJson: string): string;
   boolDifference(aJson: string, bJson: string): string;
   boolIntersection(aJson: string, bJson: string): string;
-  fillet(brepJson: string, radius: number): string;
-  chamfer(brepJson: string, distance: number): string;
-  loft(profilesJson: string): string;
+  // Single-dispatch boolean: { op, a, b } → { ok, result? | error? }
+  kern_boolean(jsonRequest: string): string;
+  // Surface-surface intersection: { surfA, surfB, options? } → { ok, curves? | error? }
+  kern_ssi(jsonRequest: string): string;
+  // Fillet: { brep, radius, edges? } → { ok, result? | error? }
+  kern_fillet(jsonRequest: string): string;
+  // Chamfer: { brep, distance, edges? } → { ok, result? | error? }
+  kern_chamfer(jsonRequest: string): string;
+  // Loft: { profiles: NurbsCurve[], degree? } → { ok, result? | error? }
+  kern_loft(jsonRequest: string): string;
 }
 
 // ── Kernel response shape (parsed from JSON) ──────────────────────────────────
@@ -94,7 +105,7 @@ function _surfaceToKernSurf(s: Surface): {
   return { degreeU: ns.order[0] - 1, degreeV: ns.order[1] - 1, cvCountU: nU, cvCountV: nV, knotsU, knotsV, cvs };
 }
 
-function brepToKernJson(brep: Brep): string {
+export function brepToKernJson(brep: Brep): string {
   return JSON.stringify({
     shells: brep.shells.map(shell => ({
       faces: shell.faces.map(face => ({
@@ -126,7 +137,7 @@ type KernFace = { surface: KernSurface; outerLoop?: { orientation?: boolean }; o
 type KernShell = { faces: KernFace[]; isClosed?: boolean };
 type KernBrepRaw = { shells: KernShell[] };
 
-function kernResultToBrep(raw: unknown): Brep {
+export function kernResultToBrep(raw: unknown): Brep {
   const k = raw as KernBrepRaw;
   return {
     shells: k.shells.map(shell => ({
@@ -348,6 +359,11 @@ class WasmBooleanBackend implements IBooleanBackend {
 
 /** Singleton backend instance. Register after `await initWasmKernel()`. */
 export const wasmBooleanBackend = new WasmBooleanBackend();
+
+/** True once the WASM module has been loaded via `initWasmKernel()`. */
+export function isKernLoaded(): boolean {
+  return _mod !== null;
+}
 
 /**
  * Load the C++/WASM kernel. Must be awaited once at application startup

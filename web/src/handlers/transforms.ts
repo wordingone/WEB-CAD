@@ -12,6 +12,7 @@ import { BREP_DEFAULT_TOLERANCE, transformBrep, brepConcat, type Brep, type Brep
 import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
 import { objectFromCanonicalGeometry } from "../geometry/canonical-display";
+import { kernFillet, kernChamfer } from "../nurbs/kern-ops";
 
 type BooleanOp = "union" | "difference" | "intersection";
 
@@ -548,6 +549,113 @@ function unsupportedNativeFilletError(operation: string): { error: string } {
   return {
     error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
   };
+}
+
+/**
+ * Fillet a canonical BRep via the C++ kern (kern_fillet).
+ * Returns the display Mesh on success, null if kern not loaded or fails.
+ * Falls back to the TS chamfer path when this returns null.
+ */
+function kernFilletDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  radius: number,
+  edges: number[],
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = kernFillet(source, radius, edges);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdFillet",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "kern-fillet",
+      conversion: "wasm-kern",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdFillet";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "kern-fillet";
+  store.linkObject(display, record.id);
+  return display;
+}
+
+/**
+ * Chamfer a canonical BRep via the C++ kern (kern_chamfer).
+ * Returns the display Mesh on success, null if kern not loaded or fails.
+ */
+function kernChamferDisplayResult(
+  viewer: Viewer,
+  obj: THREE.Object3D,
+  distance: number,
+  edges: number[],
+  metadata: Record<string, unknown>,
+): THREE.Mesh | null {
+  const store = viewer.getCanonicalGeometryStore();
+  const canonical = store.resolveObjectOrAncestor(obj);
+  if (canonical?.kind !== "brep") return null;
+  const carrier = linkedCanonicalCarrier(obj);
+  carrier.updateMatrixWorld(true);
+  const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
+  const brep = kernChamfer(source, distance, edges);
+  if (!brep) return null;
+  const record = store.create({
+    kind: "brep",
+    brep,
+    source: "edit",
+    createdBy: "SdChamfer",
+    metadata: {
+      ...metadata,
+      source: canonical.id,
+      derivation: "kern-chamfer",
+      conversion: "wasm-kern",
+      displaySource: "canonical-brep",
+    },
+  });
+  const display = objectFromCanonicalGeometry(record);
+  if (!(display instanceof THREE.Mesh)) {
+    store.delete(record.id);
+    return null;
+  }
+  const position = display.geometry.getAttribute("position");
+  record.displayMesh = {
+    revision: 1,
+    generatedAt: Date.now(),
+    vertexCount: position?.count,
+    triangleCount: display.geometry.index ? Math.floor(display.geometry.index.count / 3) : (position ? Math.floor(position.count / 3) : undefined),
+    derivation: "tessellated-brep",
+  };
+  display.userData.kind = "brep";
+  display.userData.creator = "SdChamfer";
+  display.userData.dispatchArgs = metadata;
+  display.userData.booleanDisplaySource = "kern-chamfer";
+  store.linkObject(display, record.id);
+  return display;
 }
 
 function canonicalMultiEdgeChamferDisplayResult(
@@ -1291,36 +1399,48 @@ export function registerTransformHandlers(viewer: Viewer): void {
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
     if (edgesArr.length > 0) {
-      const uniqueEdges = getUniqueEdges(obj);
-      const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
-      for (const eid of edgesArr) {
-        if (eid < 0 || eid >= uniqueEdges.length) {
-          return { error: `SdFillet - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
+      // Try C++ kern first (kern_fillet with explicit edge indices); fall back to TS chamfer.
+      const kernResult = kernFilletDisplayResult(viewer, obj, radius, edgesArr, { operation: "multi-edge-fillet", edges: edgesArr, radius });
+      if (kernResult) {
+        filleted = kernResult;
+        edgeCount = edgesArr.length;
+      } else {
+        const uniqueEdges = getUniqueEdges(obj);
+        const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
+        for (const eid of edgesArr) {
+          if (eid < 0 || eid >= uniqueEdges.length) {
+            return { error: `SdFillet - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
+          }
+          const [localA, localB] = uniqueEdges[eid];
+          edgeCoords.push([
+            localA.clone().applyMatrix4(obj.matrixWorld),
+            localB.clone().applyMatrix4(obj.matrixWorld),
+          ]);
         }
-        const [localA, localB] = uniqueEdges[eid];
-        edgeCoords.push([
-          localA.clone().applyMatrix4(obj.matrixWorld),
-          localB.clone().applyMatrix4(obj.matrixWorld),
-        ]);
+        const canonicalFillet = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, radius, { operation: "multi-edge-chamfer", edges: edgesArr, radius });
+        if (!canonicalFillet) return unsupportedNativeFilletError("multi-edge chamfer");
+        filleted = canonicalFillet;
+        edgeCount = edgesArr.length;
       }
-      const operation = { operation: "multi-edge-chamfer", edges: edgesArr, radius };
-      const canonicalFillet = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, radius, operation);
-      if (!canonicalFillet) return unsupportedNativeFilletError("multi-edge chamfer");
-      filleted = canonicalFillet;
-      edgeCount = edgesArr.length;
     } else if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
       if (edgeId < 0 || edgeId >= edges.length) {
         return { error: `SdFillet - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
       }
-      const [localA, localB] = edges[edgeId];
-      const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
-      const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
-      const operation = { operation: "edge-chamfer", edgeId, radius };
-      const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, operation);
-      if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
-      filleted = canonicalFillet;
-      edgeCount = 1;
+      // Try C++ kern first; fall back to TS chamfer.
+      const kernResult = kernFilletDisplayResult(viewer, obj, radius, [edgeId], { operation: "edge-fillet", edgeId, radius });
+      if (kernResult) {
+        filleted = kernResult;
+        edgeCount = 1;
+      } else {
+        const [localA, localB] = edges[edgeId];
+        const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
+        const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
+        const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, { operation: "edge-chamfer", edgeId, radius });
+        if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+        filleted = canonicalFillet;
+        edgeCount = 1;
+      }
     } else if (edgeFrom && edgeTo) {
       const worldA = new THREE.Vector3(edgeFrom[0] ?? 0, edgeFrom[1] ?? 0, edgeFrom[2] ?? 0);
       const worldB = new THREE.Vector3(edgeTo[0] ?? 0, edgeTo[1] ?? 0, edgeTo[2] ?? 0);
@@ -1331,9 +1451,15 @@ export function registerTransformHandlers(viewer: Viewer): void {
       edgeCount = 1;
     } else {
       const operation = { operation: "all-edge-fillet", radius };
-      const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
-      if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
-      filleted = canonicalFillet;
+      // Try C++ kern first (all edges); fall back to TS chamfer.
+      const kernResult = kernFilletDisplayResult(viewer, obj, radius, [], operation);
+      if (kernResult) {
+        filleted = kernResult;
+      } else {
+        const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
+        if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
+        filleted = canonicalFillet;
+      }
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
@@ -1356,41 +1482,58 @@ export function registerTransformHandlers(viewer: Viewer): void {
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
     if (edgesArr.length > 0) {
-      const uniqueEdges = getUniqueEdges(obj);
-      const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
-      for (const eid of edgesArr) {
-        if (eid < 0 || eid >= uniqueEdges.length) {
-          return { error: `SdChamfer - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
-        }
-        const [localA, localB] = uniqueEdges[eid];
-        edgeCoords.push([
-          localA.clone().applyMatrix4(obj.matrixWorld),
-          localB.clone().applyMatrix4(obj.matrixWorld),
-        ]);
-      }
       const operation = { operation: "chamfer-multi-edge", edges: edgesArr, distance };
-      const result = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, distance, operation);
-      if (!result) return { error: `SdChamfer - multi-edge chamfer requires a supported canonical box-like BRep` };
-      filleted = result;
-      edgeCount = edgesArr.length;
+      const kernResult = kernChamferDisplayResult(viewer, obj, distance, edgesArr, operation);
+      if (kernResult) {
+        filleted = kernResult;
+        edgeCount = edgesArr.length;
+      } else {
+        const uniqueEdges = getUniqueEdges(obj);
+        const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
+        for (const eid of edgesArr) {
+          if (eid < 0 || eid >= uniqueEdges.length) {
+            return { error: `SdChamfer - edgeId ${eid} out of range [0, ${uniqueEdges.length - 1}]` };
+          }
+          const [localA, localB] = uniqueEdges[eid];
+          edgeCoords.push([
+            localA.clone().applyMatrix4(obj.matrixWorld),
+            localB.clone().applyMatrix4(obj.matrixWorld),
+          ]);
+        }
+        const result = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, distance, operation);
+        if (!result) return { error: `SdChamfer - multi-edge chamfer requires a supported canonical box-like BRep` };
+        filleted = result;
+        edgeCount = edgesArr.length;
+      }
     } else if (edgeId !== undefined && edgeId !== null) {
       const edges = getUniqueEdges(obj);
       if (edgeId < 0 || edgeId >= edges.length) {
         return { error: `SdChamfer - edgeId ${edgeId} out of range [0, ${edges.length - 1}]` };
       }
-      const [localA, localB] = edges[edgeId];
-      const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
-      const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
       const operation = { operation: "chamfer-edge", edgeId, distance };
-      const result = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, distance, operation);
-      if (!result) return { error: `SdChamfer - edge chamfer requires a supported canonical box-like BRep` };
-      filleted = result;
-      edgeCount = 1;
+      const kernResult = kernChamferDisplayResult(viewer, obj, distance, [edgeId], operation);
+      if (kernResult) {
+        filleted = kernResult;
+        edgeCount = 1;
+      } else {
+        const [localA, localB] = edges[edgeId];
+        const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
+        const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
+        const result = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, distance, operation);
+        if (!result) return { error: `SdChamfer - edge chamfer requires a supported canonical box-like BRep` };
+        filleted = result;
+        edgeCount = 1;
+      }
     } else {
       const operation = { operation: "chamfer-all", distance };
-      const result = canonicalAllEdgeChamferDisplayResult(viewer, obj, distance, operation);
-      if (!result) return { error: `SdChamfer - all-edge chamfer requires a supported canonical box-like BRep` };
-      filleted = result;
+      const kernResult = kernChamferDisplayResult(viewer, obj, distance, [], operation);
+      if (kernResult) {
+        filleted = kernResult;
+      } else {
+        const result = canonicalAllEdgeChamferDisplayResult(viewer, obj, distance, operation);
+        if (!result) return { error: `SdChamfer - all-edge chamfer requires a supported canonical box-like BRep` };
+        filleted = result;
+      }
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
