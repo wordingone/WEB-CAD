@@ -702,6 +702,9 @@ export class ChatPanel {
       this._removeThinking(thinking);
       const err = e as Error;
       const isGpuFatal = err.message.includes("GPU memory exhausted");
+      // §#307: WASM-align recycle is silent recovery — new worker already spawning, badge shows ⟳.
+      // No error bubble — user retries naturally when boot-complete re-enables the input.
+      if ((e as Error & { isAlignRecycle?: boolean }).isAlignRecycle) return;
       // agentmodel:fatal listener already pushed the bubble synchronously before this catch
       // runs (callback rejection is a microtask; fatal fires synchronously). Skip to avoid
       // a duplicate bubble, but still track error count.

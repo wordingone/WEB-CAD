@@ -737,6 +737,39 @@ function initWorkerIfNeeded(): Worker {
           }, 400);
           break;
         }
+        // §#307: WASM heap alignment trap — stochastic ~1/28 turns. After session-length
+        // heap churn, dlmalloc returns a 4-byte-aligned address for a staging buffer that
+        // ORT's i64 op requires 8-byte-aligned. Trap: "operation does not support unaligned
+        // accesses". Retrying with same inputs hits the same fragmented heap address.
+        // Fix: recycle worker to restore a fresh WASM heap. Not GPU state corruption —
+        // uses D3D12_OOM reason="align-recycle" so unplannedOomCount is NOT incremented.
+        const _isAlignErr = /unaligned accesses/i.test(_errMsg);
+        if (_isAlignErr && _inferenceWorker) {
+          _sessionRefreshResolve?.();
+          _sessionRefreshResolve = null;
+          _inferenceWorker.postMessage({ type: "destroy-device" });
+          const _w = _inferenceWorker;
+          _inferenceWorker = null;
+          _arc.dispatch({ type: "D3D12_OOM", reason: "align-recycle" }); // → recycling; skips unplannedOomCount++
+          (window as unknown as Record<string, unknown>).__model_worker_recycle_count = _arc.recycleCount;
+          window.dispatchEvent(new CustomEvent("agentmodel:worker-recycled", {
+            detail: { recycleCount: _arc.recycleCount, reason: "wasm-align-recycle" },
+          }));
+          emitRecycle(_arc.recycleCount, "wasm-align-recycle");
+          _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "wasm-align-recycle" }); // → recovering
+          setGpuHealthTier("yellow", "WASM alignment reset, recovering");
+          updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
+          for (const [, cb] of _generateCallbacks) {
+            const _re = Object.assign(new Error("wasm-align: worker recycled"), { isAlignRecycle: true });
+            cb.reject(_re);
+          }
+          _generateCallbacks.clear();
+          setTimeout(() => {
+            _w.terminate();
+            initWorkerIfNeeded();
+          }, 400);
+          break;
+        }
         // Non-OOM worker error: fatal path
         // §C-wasm-align (#1632): resolve any in-flight session-refresh (idle-dispose path) on FATAL.
         _sessionRefreshResolve?.();

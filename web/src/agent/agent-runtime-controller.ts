@@ -185,8 +185,10 @@ export class AgentRuntimeController {
         this.nextInitNoWarmup = true;
         this.recycleCount++;
         // §#1505: planned recycles (reason="planned") do not indicate GPU adapter corruption.
-        if ((ev as { reason?: string }).reason !== "planned") {
-          this.unplannedOomCount++;
+        // §#307: WASM-heap-alignment recycles (reason="align-recycle") are not GPU corruption either.
+        {
+          const _r = (ev as { reason?: string }).reason;
+          if (_r !== "planned" && _r !== "align-recycle") this.unplannedOomCount++;
         }
         break;
       case "WATCHDOG_TIMEOUT":
