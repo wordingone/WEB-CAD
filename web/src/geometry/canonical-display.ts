@@ -23,7 +23,7 @@ function geometryFromBrep(record: CanonicalGeometry & { kind: "brep" }): THREE.M
   for (const shell of record.brep.shells) {
     for (const face of shell.faces) {
       const indexStart = indices.length;
-      const trim = face.outerLoop.curves[0];
+      const trim = face.outerLoop?.curves?.[0];
       if (trim?.kind === "polyline" && trim.points.length >= 4) {
         const pts = trim.points;
         const closed = pts.length > 1

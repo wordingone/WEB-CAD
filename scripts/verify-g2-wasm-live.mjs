@@ -185,6 +185,32 @@ async function main() {
   if (!uuidB || typeof uuidB !== 'string') fail(`SdBox B: could not extract UUID, got: ${JSON.stringify(boxBResult)}`);
   log(`Box B created: ${uuidB}`);
 
+  // ── Capture console errors for stack traces ──
+  const consoleErrors = [];
+  cdp.on('Runtime.exceptionThrown', (params) => {
+    consoleErrors.push(JSON.stringify(params));
+  });
+  await cdp.send('Runtime.setAsyncCallStackDepth', { maxDepth: 32 });
+
+  // ── Inspect Brep surface structure (diagnostic) ──
+  const surfDiagResp = await cdp.eval(`JSON.stringify((() => {
+    try {
+      const store = __viewer.getCanonicalGeometryStore?.();
+      if (!store) return {error: 'no store'};
+      const obj = __viewer.getScene().getObjectByProperty('uuid', '${uuidA}');
+      if (!obj) return {error: 'obj not found'};
+      const rec = store.resolveObjectOrAncestor(obj);
+      if (!rec) return {error: 'no record'};
+      if (rec.kind !== 'brep') return {error: 'not brep: ' + rec.kind};
+      const surf = rec.brep.shells[0].faces[0].surface;
+      return { kind: surf.kind, hasKnots: 'knots' in surf, knots: surf.knots,
+               cvCount: surf.cvCount, cvStride: surf.cvStride, order: surf.order };
+    } catch(e) { return {error: String(e)}; }
+  })())`);
+  const surfDiag = JSON.parse(surfDiagResp ?? '{}');
+  record('surf-diag', surfDiag);
+  console.log('\\nSurface diag:', JSON.stringify(surfDiag, null, 2));
+
   // ── SdBooleanUnion ──
   console.log('\nIssuing SdBooleanUnion...');
   const boolResp = await cdp.eval(`JSON.stringify(__dispatchSync("SdBooleanUnion", { a: "${uuidA}", b: "${uuidB}" }))`);
@@ -192,6 +218,10 @@ async function main() {
   const boolResult = boolRaw.result ?? boolRaw;
   record('SdBooleanUnion', boolRaw);
   log(`SdBooleanUnion response: ${JSON.stringify(boolResult)}`);
+  if (consoleErrors.length > 0) {
+    console.log('\nRuntime exceptions captured:');
+    for (const e of consoleErrors) console.log(' ', e.slice(0, 600));
+  }
 
   // ── Assert ──
   const displaySource = boolResult.displaySource;

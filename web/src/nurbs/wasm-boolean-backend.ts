@@ -32,7 +32,7 @@ const _kernJsPath = import.meta.env.DEV ? '../../kern.js' : '../kern.js';
 const _kernWasmPath = import.meta.env.DEV ? '../../kern.wasm' : '../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
-import type { Surface } from './nurbs-surfaces';
+import type { Surface, NurbsSurface } from './nurbs-surfaces';
 import { getNurbsForm } from './nurbs-surfaces';
 import type {
   IBooleanBackend,
@@ -111,6 +111,63 @@ function brepToKernJson(brep: Brep): string {
   });
 }
 
+// ── Kern result → JS Brep conversion ─────────────────────────────────────────
+//
+// The kern returns surfaces in full-clamped knot vector format with xyzw CVs.
+// Convert to JS NurbsSurface (OpenNURBS knots, xyz CVs) and rebuild face topology.
+
+type KernSurface = {
+  degreeU: number; degreeV: number;
+  cvCountU: number; cvCountV: number;
+  knotsU: number[]; knotsV: number[];
+  cvs: number[];
+};
+type KernFace = { surface: KernSurface; outerLoop?: { orientation?: boolean }; orientation?: boolean; tolerance?: number };
+type KernShell = { faces: KernFace[]; isClosed?: boolean };
+type KernBrepRaw = { shells: KernShell[] };
+
+function kernResultToBrep(raw: unknown): Brep {
+  const k = raw as KernBrepRaw;
+  return {
+    shells: k.shells.map(shell => ({
+      faces: shell.faces.map(face => {
+        const s = face.surface;
+        const dU = s.degreeU, dV = s.degreeV;
+        const nU = s.cvCountU, nV = s.cvCountV;
+        // Full-clamped → OpenNURBS: strip first and last repeated knot
+        const knotsU = s.knotsU.slice(1, -1);
+        const knotsV = s.knotsV.slice(1, -1);
+        // xyzw (homogeneous, 4 per CV) → xyz (3 per CV, non-rational)
+        const cvs: number[] = [];
+        for (let i = 0; i < nU * nV; i++) {
+          const b = i * 4;
+          const w = s.cvs[b + 3];
+          const wSafe = Math.abs(w) > 1e-14 ? w : 1;
+          cvs.push(s.cvs[b] / wSafe, s.cvs[b + 1] / wSafe, s.cvs[b + 2] / wSafe);
+        }
+        const surface: NurbsSurface = {
+          kind: 'nurbs', dim: 3, isRational: false,
+          order: [dU + 1, dV + 1],
+          cvCount: [nU, nV],
+          knots: [knotsU, knotsV],
+          cvs,
+          cvStride: [nV * 3, 3],
+        };
+        return {
+          surface,
+          outerLoop: { curves: [], orientation: face.outerLoop?.orientation ?? true },
+          innerLoops: [],
+          orientation: face.orientation ?? true,
+          tolerance: face.tolerance ?? 1e-6,
+        };
+      }),
+      edges: [],
+      vertices: [],
+      isClosed: shell.isClosed ?? true,
+    })),
+  };
+}
+
 // ── Singleton loader ──────────────────────────────────────────────────────────
 
 let _mod: KernModule | null = null;
@@ -169,8 +226,21 @@ function callBinaryOp(
 ): BrepResult {
   const mod = assertLoaded();
 
-  const aJson = brepToKernJson(a);
-  const bJson = brepToKernJson(b);
+  let aJson: string;
+  let bJson: string;
+  try {
+    aJson = brepToKernJson(a);
+    bJson = brepToKernJson(b);
+  } catch (e) {
+    return {
+      ok: false,
+      error: {
+        code: 'NUMERICAL_FAILURE',
+        message: `brepToKernJson: ${e instanceof Error ? e.message : String(e)}`,
+        backend: backendId,
+      },
+    };
+  }
 
   let raw: string;
   try {
@@ -213,7 +283,7 @@ function callBinaryOp(
 
   return {
     ok:        true,
-    brep:      (resp as KernOk).result as Brep,
+    brep:      kernResultToBrep((resp as KernOk).result),
     changeMap: emptyChangeMap(),
   };
 }
