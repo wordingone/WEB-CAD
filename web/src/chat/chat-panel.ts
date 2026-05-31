@@ -205,6 +205,8 @@ export class ChatPanel {
   private _alignRetryPayload: { text: string; image: string | undefined } | null = null;
   // §#362: true on the auto-resume _send() call — skips pushing user bubble a second time.
   private _skipUserBubble = false;
+  // §#364: consecutive align-recycles on the same payload — capped at 2 to prevent infinite loop.
+  private _alignRetryCount = 0;
   private _contextChipEl!: HTMLDivElement;
 
   constructor(private _root: HTMLElement) {
@@ -372,14 +374,26 @@ export class ChatPanel {
         this._sendBtn.disabled = false;
         this._sendBtn.textContent = "SEND";
       }
-      // §#362: auto-resume eaten turn from align recycle.
+      // §#362/#364: auto-resume eaten turn from align recycle, with consecutive-recycle cap.
       if (this._alignRetryPayload) {
-        const { text: retryText, image: retryImage } = this._alignRetryPayload;
-        this._alignRetryPayload = null;
-        this._inputEl.value = retryText;
-        if (retryImage) this._pendingImage = retryImage;
-        this._skipUserBubble = true;
-        void this._send();
+        if (this._alignRetryCount >= 2) {
+          // §#364: deterministic-trigger guard — same payload has retried twice, still
+          // re-trapping. Stop auto-resume to prevent infinite "memory reset" loop.
+          this._alignRetryPayload = null;
+          this._alignRetryCount = 0;
+          this._pushMsg({
+            role: "assistant",
+            content: "Couldn't recover after a memory fault — please rephrase or retry.",
+          });
+        } else {
+          this._alignRetryCount++;
+          const { text: retryText, image: retryImage } = this._alignRetryPayload;
+          this._alignRetryPayload = null;
+          this._inputEl.value = retryText;
+          if (retryImage) this._pendingImage = retryImage;
+          this._skipUserBubble = true;
+          void this._send();
+        }
       }
     });
 
@@ -713,7 +727,8 @@ export class ChatPanel {
 
       this._removeThinking(thinking);
       this._updatePerfStrip();
-
+      // §#364: reset consecutive-recycle counter on any successful model response.
+      this._alignRetryCount = 0;
       // #980: goal-mode default — always auto-execute, no plan-pending UI.
       await this._executeAndPush(resp, _turnStart, text);
     } catch (e) {

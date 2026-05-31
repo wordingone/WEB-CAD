@@ -49,6 +49,9 @@ let _drafterSession: any = null;
 // §#1410: true when model weights weren't in Cache API at boot time (cold download).
 // Cold-cache paths have more pending GPU work after load → larger race window.
 let _coldCacheBoot = false;
+// §#307 diagnostic: count generate() calls in this worker session — proxy for WASM heap
+// fragmentation level (more turns → more alloc/free cycles → higher misalignment risk).
+let _generateCallCount = 0;
 
 const WEBGPU_CONTEXT_LIMIT = 16384;
 const GEMMA_ONNX_CPU_UNSUPPORTED =
@@ -983,6 +986,7 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
 async function handleGenerate(data: Record<string, unknown>): Promise<void> {
+  _generateCallCount++; // §#307: session-level counter for heap-fragmentation estimation
   if (!_model || !_processor) {
     post({ type: "generate-error", turnId: data.turnId, error: "model not loaded" });
     return;
@@ -1202,7 +1206,28 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
             console.warn("[model-worker] buffer_manager retry-2 — flushing+waiting 3000ms");
             await new Promise(r => setTimeout(r, 3000));
             await _flushWgpuQueue("retry-2"); // §#83
-            outputs = await _doGenerate(); // final attempt — throws to outer catch if still failing
+            try {
+              outputs = await _doGenerate(); // final attempt — throws if still failing
+            } catch (finalErr) {
+              // §#307 diagnostic: capture alignment context on exhausted-retry fail.
+              if (/unaligned accesses/i.test(String(finalErr))) {
+                const _ortEnv = (ort as any).env ?? {};
+                const _diag = {
+                  generateCount:  _generateCallCount,
+                  inputTokens:    inputLength,
+                  inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
+                  // byteOffset of the typed-array backing buffer — alignment indicator
+                  inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
+                  ortBackend:     String(_ortEnv.wasm?.proxy ?? _ortEnv.webgpu?.device ? 'webgpu' : 'unknown'),
+                  ortVersion:     String((ort as any).version ?? 'unknown'),
+                  errMsg:         String(finalErr).slice(0, 200),
+                  errStack:       ((finalErr as Error).stack ?? '').slice(0, 400),
+                };
+                console.warn('[align-diag-307]', JSON.stringify(_diag));
+                post({ type: 'align-diag-307', data: _diag });
+              }
+              throw finalErr;
+            }
           } else {
             throw retryErr;
           }
