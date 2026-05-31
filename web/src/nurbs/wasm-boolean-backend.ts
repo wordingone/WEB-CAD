@@ -23,8 +23,13 @@
 
 // kern.js and kern.wasm are generated Emscripten outputs (not present until `cmake --build`).
 // Use dynamic imports so module load doesn't fail when the WASM is absent.
-const _kernJsPath = '../../kern.js';
-const _kernWasmPath = '../../kern.wasm';
+//
+// Path arithmetic: Vite dev serves modules from their source tree depth
+// (web/src/nurbs/ → ../../ reaches web root). Production bundles everything into
+// assets/ → only one level up reaches the deploy root. Vite substitutes
+// import.meta.env.DEV at build time so the wrong branch is dead-code-eliminated.
+const _kernJsPath = import.meta.env.DEV ? '../../kern.js' : '../kern.js';
+const _kernWasmPath = import.meta.env.DEV ? '../../kern.wasm' : '../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
 import type { Surface } from './nurbs-surfaces';
