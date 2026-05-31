@@ -22,6 +22,20 @@ import { registerSkillHandlers } from "./handlers/skills";
 import { registerBrepOpHandlers } from "./handlers/brep-ops";
 import { registerVisibilityHandlers } from "./handlers/visibility";
 import { registerSelectionQueryHandlers } from "./handlers/selection-query";
+import { registerS321Handlers } from "./handlers/s321-impl";
+import { registerS322Handlers } from "./handlers/s322-impl";
+import { registerS323Handlers } from "./handlers/s323-impl";
+import { registerS324Handlers } from "./handlers/s324-impl";
+import { registerSurface325Handlers } from "./handlers/s325-impl";
+import { registerS326Handlers } from "./handlers/s326-impl";
+import { registerS327Handlers } from "./handlers/s327-impl";
+import { registerS328Handlers } from "./handlers/s328-impl";
+import { registerMeshKernelHandlers } from "./handlers/s329-impl";
+import { registerS330Handlers } from "./handlers/s330-impl";
+import { registerS331Handlers } from "./handlers/s331-impl";
+import { registerSubDHandlers } from "./handlers/s332-impl";
+import { registerS333Handlers } from "./handlers/s333-impl";
+import { registerS334Handlers } from "./handlers/s334-impl";
 
 const ORTHO_VIEWS = ["top", "bottom", "front", "back", "left", "right", "iso"] as const;
 type OrthoView = typeof ORTHO_VIEWS[number];
@@ -184,6 +198,22 @@ export function registerAllHandlers(viewer: Viewer, scenePanel: ScenePanel): voi
   registerAnnotationHandlers(viewer);
   registerSkillHandlers();
   registerBrepOpHandlers(viewer);
+
+  // #320 batch-1: Rhino-parity handlers (issues #321–#334)
+  registerS321Handlers(viewer);
+  registerS322Handlers(viewer);
+  registerS323Handlers(viewer);
+  registerS324Handlers(viewer);
+  registerSurface325Handlers(viewer);
+  registerS326Handlers(viewer);
+  registerS327Handlers(viewer);
+  registerS328Handlers();
+  registerMeshKernelHandlers(viewer);
+  registerS330Handlers(viewer);
+  registerS331Handlers(viewer);
+  registerSubDHandlers(viewer);
+  registerS333Handlers(viewer, scenePanel);
+  registerS334Handlers(viewer);
 
   registerHandler("SdClearScene", () => {
     viewer.clearScene();
