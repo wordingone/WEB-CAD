@@ -140,7 +140,10 @@ installDefaultHandlers();
 
 // Boot WASM geometry kernel (async, non-blocking). Once loaded, wasmBooleanBackend
 // (priority 20) supersedes NurbsBooleanBackend (priority 10) for SdBoolean* ops.
-initWasmKernel().then(() => registerBackend(wasmBooleanBackend)).catch(() => {
+initWasmKernel().then(() => {
+  registerBackend(wasmBooleanBackend);
+  (window as unknown as { __kernWasmReady?: boolean }).__kernWasmReady = true;
+}).catch(() => {
   // kern.wasm absent or failed — NurbsBooleanBackend remains active.
 });
 
