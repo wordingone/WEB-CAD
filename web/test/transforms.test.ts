@@ -1454,6 +1454,8 @@ describe("canonical geometry transform instances", () => {
     const result = dispatchSync("SdFillet", { target: mesh.uuid, edgeId: 0, radius: 0.05 });
 
     expect(result.ok).toBe(true);
+    // kern.wasm absent in test env → TS chamfer path; backend telemetry must surface (#354)
+    expect((result as { result?: { backend?: string } }).result?.backend).toBe('ts-approx');
     expect(added).toHaveLength(1);
     const output = added[0];
     const canonical = store.resolveObject(output);
@@ -1554,6 +1556,8 @@ describe("canonical geometry transform instances", () => {
     const result = dispatchSync("SdFillet", { target: mesh.uuid, radius: 0.05 });
 
     expect(result.ok).toBe(true);
+    // kern.wasm absent in test env → TS all-edge chamfer path; backend telemetry must surface (#354)
+    expect((result as { result?: { backend?: string } }).result?.backend).toBe('ts-approx');
     expect(added).toHaveLength(1);
     const canonical = store.resolveObject(added[0]);
     expect(canonical?.kind).toBe("brep");
@@ -1627,6 +1631,44 @@ describe("canonical geometry transform instances", () => {
     expect(added).toHaveLength(0);
     expect(scene.children).toContain(mesh);
     expect(store.exportRecords().filter((record) => record.createdBy === "SdFillet")).toHaveLength(0);
+  });
+
+  test("SdFillet + SdChamfer return backend telemetry field when TS path used (#354)", () => {
+    const scene = new THREE.Scene();
+    const store = createCanonicalGeometryStore();
+    const viewer = {
+      getScene() { return scene; },
+      getActiveObject() { return null; },
+      addMesh(obj: THREE.Object3D, kind?: string) { if (kind) obj.userData.kind = kind; scene.add(obj); },
+      getCanonicalGeometryStore() { return store; },
+    };
+    const makeMesh = () => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+      m.userData.kind = "brep";
+      m.userData.creator = "box";
+      scene.add(m);
+      const rec = store.create({ kind: "brep", brep: axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5), source: "command", createdBy: "SdBox" });
+      store.linkObject(m, rec.id);
+      return m;
+    };
+    registerTransformHandlers(viewer as never);
+
+    // SdFillet single-edge: kern absent in test env → ts-approx (#354)
+    const filletResult = dispatchSync("SdFillet", { target: makeMesh().uuid, edgeId: 0, radius: 0.05 });
+    expect(filletResult.ok).toBe(true);
+    expect((filletResult as { result?: { backend?: string } }).result?.backend).toBe('ts-approx');
+
+    // SdChamfer single-edge: backend field present regardless of kern state (#354)
+    // kern_chamfer succeeds (chamfer is implemented) so backend = 'kern-chamfer' when kern loaded;
+    // 'ts-approx' when kern absent. Either way the field must be present and accurate.
+    const chamferResult = dispatchSync("SdChamfer", { target: makeMesh().uuid, edgeId: 0, distance: 0.05 });
+    expect(chamferResult.ok).toBe(true);
+    const chamferBackend = (chamferResult as { result?: { backend?: string } }).result?.backend ?? '';
+    expect(['kern-chamfer', 'ts-approx']).toContain(chamferBackend);
+    // If kern loaded, chamfer MUST use kern path (validates kern-chamfer tracking)
+    if (wasmReady) expect(chamferBackend).toBe('kern-chamfer');
+    // If kern absent, MUST fall back to ts-approx (validates fallback surfacing)
+    if (!wasmReady) expect(chamferBackend).toBe('ts-approx');
   });
 });
 

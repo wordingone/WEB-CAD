@@ -142,9 +142,15 @@ installDefaultHandlers();
 // (priority 20) supersedes NurbsBooleanBackend (priority 10) for SdBoolean* ops.
 initWasmKernel().then(() => {
   registerBackend(wasmBooleanBackend);
-  (window as unknown as { __kernWasmReady?: boolean }).__kernWasmReady = true;
+  if (typeof window !== 'undefined') {
+    (window as unknown as Record<string, unknown>).__kernWasmReady = true;
+    window.dispatchEvent(new CustomEvent('kern:wasm-ready'));
+  }
 }).catch(() => {
   // kern.wasm absent or failed — NurbsBooleanBackend remains active.
+  if (typeof window !== 'undefined') {
+    (window as unknown as Record<string, unknown>).__kernWasmReady = false;
+  }
 });
 
 const { dispose: disposeWorker } = initDomEvents(viewer, scenePanel);
