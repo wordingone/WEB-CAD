@@ -571,6 +571,13 @@ function kernFilletDisplayResult(
   const source = transformBrep(canonical.brep, threeMatrixToXform(carrier.matrixWorld));
   const brep = kernFillet(source, radius, edges);
   if (!brep) return null;
+  // Validate manifold before accepting kern output (#357: fillet.cpp has naked edges).
+  // Non-manifold shells return null so the handler falls back to the TS valid-solid path.
+  const shell = brep.shells?.[0];
+  if (!shell || !shell.isClosed || shell.edges.some((e) => e.faceIndex2 === null)) {
+    console.warn('[kern] kern_fillet returned non-manifold shell — falling back to TS path (#357)');
+    return null;
+  }
   const record = store.create({
     kind: "brep",
     brep,
