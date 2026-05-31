@@ -31,7 +31,10 @@ FetchContent_MakeAvailable(json)
 add_library(kern_lib STATIC
     kern/brep.cpp
     kern/ssi.cpp
-    kern/boolean.cpp)
+    kern/boolean.cpp
+    kern/fillet.cpp
+    kern/chamfer.cpp
+    kern/loft.cpp)
 
 target_include_directories(kern_lib PUBLIC
     kern/

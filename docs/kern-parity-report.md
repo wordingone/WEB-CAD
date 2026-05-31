@@ -120,3 +120,96 @@ Once `kern.wasm` builds: run `bun test web/test/parity-gate.test.ts` — WASM-ga
 - `kern/chamfer.h` + `kern/chamfer.cpp` — edge chamfer.
 - `kern/loft.h` + `kern/loft.cpp` — profile lofting.
 - Replace `kern_fillet`/`kern_chamfer`/`kern_loft` NOT_IMPLEMENTED stubs in `module.cpp`.
+
+---
+
+# kern parity report — Phase C source complete
+
+Date: 2026-05-30
+Status: PHASE_C_SOURCE_COMPLETE
+
+## Phase C file inventory
+
+| File | Lines | Limit | Status |
+|---|---|---|---|
+| kern/fillet.h | 62 | 80 | OK |
+| kern/fillet.cpp | 375 | 400 | OK |
+| kern/chamfer.h | 59 | — | OK |
+| kern/chamfer.cpp | 238 | — | OK |
+| kern/loft.h | 57 | 80 | OK |
+| kern/loft.cpp | 386 | 400 | OK |
+| kern/module.cpp | — | 200 | updated |
+| CMakeLists.txt | — | 80 | updated |
+
+## Component summaries
+
+### fillet — kern/fillet.cpp
+
+Rolling-ball fillet for planar-face edges. Algorithm:
+
+- `uniformKnots` — clamped open-end knot vector helper.
+- `lineCurve` / `lineUV` — degree-1 NURBS stub curves for trim edges.
+- `isSurfacePlanar` — 3×3 normal sampling; rejects curved faces with `"curved-face fillet not yet implemented: edge N"`.
+- `buildArcCrossSection` — rational quadratic (degree-2) NURBS arc via Piegl & Tiller §7.1; mid-point weight `w = cos(sweep/2)`.
+- `extrudeCurve` — sweeps cross-section along edge direction producing degreeU=arc.degree, degreeV=1 ruled surface.
+- `fullDomainOuterLoop` / `innerTrimAtV` — trim loop builders.
+
+Main `fillet()` flow:
+1. Collects non-naked edges when `edgeIndices` is empty.
+2. Rejects curved faces; skips co-planar edges (theta < 1e-3).
+3. Computes dihedral theta, offset `d = radius / tan(theta/2)`, bisector arc centre.
+4. Builds cylindrical fillet surface + inner trim loops on both adjacent faces.
+5. Assembles trimmed original faces + fillet patches into a new `BrepShell`; marks filleted edges naked.
+
+### chamfer — kern/chamfer.cpp
+
+Equal-distance offset chamfer for planar-face edges.
+
+- `planarFaceNormal` — 4-point interior UV sample; rejects curved faces.
+- `offsetEdgeOnFace` — in-plane offset by `distance` along `(faceNormal × edgeTangent)` direction; returns degree-1 NURBS line.
+- `ruledSurface` — bilinear NurbsSurface (degreeU=degreeV=1, 2×2 CV) between the two offset lines.
+- `makeTrimLoop` — 3-edge inner TrimLoop (setback line + two cap curves) to clip adjacent faces at offset lines. UV curves identity-mapped.
+- `chamfer()` — validates, fans out per edge via `processEdge`, deep-copies all faces, appends inner trim loops, appends chamfer faces, assembles result BrepShell. `isClosed=false` (half-edge adjacency wiring deferred).
+
+### loft — kern/loft.cpp
+
+Global-interpolation skinning (Piegl & Tiller §9.2) + planar caps.
+
+1. **Validation** — degree, cvCount, knot identity across profiles.
+2. **Chord-length v parameterisation** — centroid-to-centroid distances normalised to [0,1].
+3. **v knot vector** — P&T Eq. 9.8 averaging formula; interpolation degree `dv = min(3, N-1)`.
+4. **Column-by-column global interpolation** — collocation matrix A (shared; v params uniform), `fullPivLu` solve per column.
+5. **Planar caps** (`buildPlanarCap`) — degree-1×1 bilinear NurbsSurface at profile z-plane; profile used as outer trim loop; start-cap normals flipped outward.
+
+### module.cpp updates
+
+- Uncommented `#include "fillet.h"`, `"chamfer.h"`, `"loft.h"`.
+- Added `#include <nlohmann/json.hpp>`.
+- Replaced `kern_fillet` stub with real implementation: parses `{ brep, radius, edges }`, calls `kern::fillet()`, returns `{ ok, result }` or `{ ok, error }`.
+- Replaced `kern_chamfer` stub: parses `{ brep, distance, edges }`, calls `kern::chamfer()`.
+- Replaced `kern_loft` stub: parses `{ profiles[], degree }`, deserialises each `NurbsCurve`, calls `kern::loft()`.
+- All six `EMSCRIPTEN_BINDINGS` entries retained; stubs are now live.
+
+### CMakeLists.txt updates
+
+- `kern_lib STATIC` now includes `kern/fillet.cpp`, `kern/chamfer.cpp`, `kern/loft.cpp`.
+
+## Full build command
+
+```
+cmake \
+  -DCMAKE_TOOLCHAIN_FILE=B:/M/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -B build/wasm \
+  -DCMAKE_BUILD_TYPE=Release \
+  && cmake --build build/wasm --target kern
+```
+
+Output: `build/wasm/kern.mjs` + `build/wasm/kern.wasm`
+
+Copy both to `web/public/` for Vite URL import.
+
+## Runtime parity
+
+Status: PENDING compilation (emsdk required).
+
+Once built: `bun test web/test/parity-gate.test.ts` — WASM-gated boolean cases activate; Phase C fillet/chamfer/loft exercised via parity-gate once test cases added.

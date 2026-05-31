@@ -4,13 +4,14 @@
 
 #include <emscripten/bind.h>
 #include <string>
+#include <nlohmann/json.hpp>
 #include "boolean.h"
 #include "brep.h"
 
-// Phase C ops — stubs; will be replaced in C:Synth
-// #include "fillet.h"
-// #include "chamfer.h"
-// #include "loft.h"
+// Phase C ops — wired in C:Synth
+#include "fillet.h"
+#include "chamfer.h"
+#include "loft.h"
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -108,23 +109,90 @@ static std::string js_boolIntersection(const std::string& aJson, const std::stri
 }
 
 // ---------------------------------------------------------------------------
-// Phase C stubs — fillet / chamfer / loft
-// These return a not-implemented envelope until C:Synth fills them in.
+// Phase C — fillet / chamfer / loft (real implementations)
 // ---------------------------------------------------------------------------
 
+// Helper: escape a string for embedding in a JSON string value.
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if      (c == '"')  out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else out += c;
+    }
+    return out;
+}
+
 // jsonRequest: { "brep": <BrepJson>, "radius": number, "edges": [index, ...] }
-static std::string kern_fillet(const std::string& /*jsonRequest*/) noexcept {
-    return R"({"ok":false,"error":{"code":"NOT_IMPLEMENTED","message":"fillet not yet implemented"}})";
+static std::string kern_fillet(const std::string& jsonRequest) noexcept {
+    try {
+        auto j = nlohmann::json::parse(jsonRequest);
+        kern::Brep b = kern::brepFromJson(j.at("brep").dump());
+        double radius = j.at("radius").get<double>();
+        std::vector<int> edgeIndices;
+        if (j.contains("edges")) {
+            for (auto& idx : j["edges"]) edgeIndices.push_back(idx.get<int>());
+        }
+        kern::FilletOptions opts;
+        opts.radius = radius;
+        opts.edgeIndices = std::move(edgeIndices);
+        auto r = kern::fillet(b, opts);
+        if (!r.ok)
+            return R"({"ok":false,"error":{"code":"FILLET_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
+        return R"({"ok":true,"result":)" + kern::brepToJson(r.brep) + "}";
+    } catch (const std::exception& e) { return exceptionEnvelope(e.what()); }
+    catch (...) { return R"({"ok":false,"error":{"code":"UNKNOWN","message":"unknown exception"}})"; }
 }
 
 // jsonRequest: { "brep": <BrepJson>, "distance": number, "edges": [index, ...] }
-static std::string kern_chamfer(const std::string& /*jsonRequest*/) noexcept {
-    return R"({"ok":false,"error":{"code":"NOT_IMPLEMENTED","message":"chamfer not yet implemented"}})";
+static std::string kern_chamfer(const std::string& jsonRequest) noexcept {
+    try {
+        auto j = nlohmann::json::parse(jsonRequest);
+        kern::Brep b = kern::brepFromJson(j.at("brep").dump());
+        double distance = j.at("distance").get<double>();
+        std::vector<int> edgeIndices;
+        if (j.contains("edges")) {
+            for (auto& idx : j["edges"]) edgeIndices.push_back(idx.get<int>());
+        }
+        kern::ChamferOptions opts;
+        opts.distance = distance;
+        opts.edgeIndices = std::move(edgeIndices);
+        auto r = kern::chamfer(b, opts);
+        if (!r.ok)
+            return R"({"ok":false,"error":{"code":"CHAMFER_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
+        return R"({"ok":true,"result":)" + kern::brepToJson(r.brep) + "}";
+    } catch (const std::exception& e) { return exceptionEnvelope(e.what()); }
+    catch (...) { return R"({"ok":false,"error":{"code":"UNKNOWN","message":"unknown exception"}})"; }
 }
 
-// jsonRequest: { "profiles": [<BrepJson>, ...] }
-static std::string kern_loft(const std::string& /*jsonRequest*/) noexcept {
-    return R"({"ok":false,"error":{"code":"NOT_IMPLEMENTED","message":"loft not yet implemented"}})";
+// jsonRequest: { "profiles": [ <NurbsCurveJson>, ... ], "degree": number }
+// Each profile is a NurbsCurve (cvCount, degree, knots, cvs).
+static std::string kern_loft(const std::string& jsonRequest) noexcept {
+    try {
+        auto j = nlohmann::json::parse(jsonRequest);
+        std::vector<kern::NurbsCurve> profiles;
+        for (auto& pj : j.at("profiles")) {
+            kern::NurbsCurve c;
+            c.degree   = pj.at("degree").get<int>();
+            c.cvCount  = pj.at("cvCount").get<int>();
+            for (auto& k : pj.at("knots"))  c.knots.push_back(k.get<double>());
+            const auto& cvsArr = pj.at("cvs");
+            for (size_t i = 0; i + 3 < cvsArr.size(); i += 4) {
+                c.cvs.push_back({cvsArr[i].get<double>(),   cvsArr[i+1].get<double>(),
+                                 cvsArr[i+2].get<double>(), cvsArr[i+3].get<double>()});
+            }
+            profiles.push_back(std::move(c));
+        }
+        int degree = j.value("degree", 3);
+        kern::LoftOptions opts;
+        opts.degree = degree;
+        auto r = kern::loft(profiles, opts);
+        if (!r.ok)
+            return R"({"ok":false,"error":{"code":"LOFT_FAILED","message":")" + jsonEscape(r.error) + R"("}})";
+        return R"({"ok":true,"result":)" + kern::brepToJson(r.brep) + "}";
+    } catch (const std::exception& e) { return exceptionEnvelope(e.what()); }
+    catch (...) { return R"({"ok":false,"error":{"code":"UNKNOWN","message":"unknown exception"}})"; }
 }
 
 // ---------------------------------------------------------------------------
