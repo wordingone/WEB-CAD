@@ -357,9 +357,9 @@ describe('parity-gate — boolean (WASM-gated)', () => {
 // ── Volume comparison TODOs (oracle targets) ──────────────────────────────────
 
 describe('parity-gate — oracle volume targets (TODO)', () => {
-  test.todo('oracle: fuse(1×1×1 box, 0.5×0.5×0.5 box at origin) volume ≈ 1.125 vs replicad')
-  test.todo('oracle: cut(1×1×1, 0.5×0.5×0.5 at origin) volume ≈ 0.875 vs replicad')
-  test.todo('oracle: intersect(1×1×1, 0.5×0.5×0.5 at origin) volume ≈ 0.125 vs replicad')
+  test.todo('oracle: fuse(1×1×1 box, 0.5×0.5×0.5 box at origin) volume ≈ 1.125 vs replicad', () => {})
+  test.todo('oracle: cut(1×1×1, 0.5×0.5×0.5 at origin) volume ≈ 0.875 vs replicad', () => {})
+  test.todo('oracle: intersect(1×1×1, 0.5×0.5×0.5 at origin) volume ≈ 0.125 vs replicad', () => {})
 })
 
 // ── Fuzz suite ────────────────────────────────────────────────────────────────

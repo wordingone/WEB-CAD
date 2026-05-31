@@ -21,9 +21,10 @@
 //   - IBooleanBackend: brep-boolean.ts:100-121
 //   - OCCT BRepAlgoAPI_BooleanOperation objects/tools vocabulary: brep-boolean.ts:92-98
 
-// @ts-expect-error — kern.js is a generated Emscripten module; no TS declarations exist.
-import createKernModule from '../../kern.js';
-import kernWasmUrl from '../../kern.wasm?url';
+// kern.js and kern.wasm are generated Emscripten outputs (not present until `cmake --build`).
+// Use dynamic imports so module load doesn't fail when the WASM is absent.
+const _kernJsPath = '../../kern.js';
+const _kernWasmPath = '../../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
 import type {
@@ -66,7 +67,11 @@ let _mod: KernModule | null = null;
  */
 async function getKern(): Promise<KernModule> {
   if (_mod) return _mod;
-  _mod = await createKernModule({ locateFile: () => kernWasmUrl }) as KernModule;
+  // Dynamic import so the module loads cleanly even before cmake produces kern.js.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { default: createKernModule } = await import(/* @vite-ignore */ _kernJsPath) as any;
+  const wasmUrl = new URL(_kernWasmPath, import.meta.url).href;
+  _mod = await createKernModule({ locateFile: () => wasmUrl }) as KernModule;
   return _mod;
 }
 
