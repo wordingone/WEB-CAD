@@ -26,10 +26,12 @@
 //
 // Path arithmetic: Vite dev serves modules from their source tree depth
 // (web/src/nurbs/ → ../../ reaches web root). Production bundles everything into
-// assets/ → only one level up reaches the deploy root. Vite substitutes
-// import.meta.env.DEV at build time so the wrong branch is dead-code-eliminated.
-const _kernJsPath = import.meta.env.DEV ? '../../kern.js' : '../kern.js';
-const _kernWasmPath = import.meta.env.DEV ? '../../kern.wasm' : '../kern.wasm';
+// assets/ → only one level up reaches the deploy root. Use PROD (not DEV) so the
+// non-prod default ('../../') also resolves correctly in the bun/CI test env where
+// import.meta.env.DEV is undefined — the DEV ternary fell through to the prod branch
+// and resolved ../kern.wasm → web/src/kern.wasm (missing), breaking the #617 guard.
+const _kernJsPath = import.meta.env.PROD ? '../kern.js' : '../../kern.js';
+const _kernWasmPath = import.meta.env.PROD ? '../kern.wasm' : '../../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
 import type { Surface, NurbsSurface } from './nurbs-surfaces';
