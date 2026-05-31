@@ -3013,3 +3013,4475 @@
   synonyms: [getgoal, "get goal", "show goal", "current goal", "goal status"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
+
+# ── Issue #321 verbs ────────────────────────────────────────────
+# s321-schema.yaml.part — Curve creation & primitives (issue #321)
+# Merge into §1 of spatial-api.yaml after SdCurve / SdSpline entries.
+# Each entry follows the existing schema format exactly.
+# C++-blocked verbs are included so dispatch returns structured errors.
+
+# ── SdBezier ─────────────────────────────────────────────────────────────────
+
+- name: SdBezier
+  kernel_op: drawBezier
+  parameters:
+    type: object
+    properties:
+      points:
+        type: array
+        items:
+          type: point3
+        description: "[required] Control points. Degree = len(points) - 1."
+      weights:
+        type: array
+        items:
+          type: number
+        description: "[optional] Per-control-point rational weights (default all 1 = polynomial Bezier). Length must equal points.length."
+    required: [points]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [bezier, beziercurve, bezier-curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── SdSpiral ─────────────────────────────────────────────────────────────────
+
+- name: SdSpiral
+  kernel_op: drawSpiral
+  parameters:
+    type: object
+    properties:
+      center:
+        type: point3
+        default: "[0,0,0]"
+        description: "[optional] Center of the spiral."
+      radiusStart:
+        type: number
+        unit: m
+        default: 0
+        description: "[optional] Inner radius (Archimedean spiral start). Alias: innerRadius."
+      radiusEnd:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional] Outer radius (Archimedean spiral end). Alias: outerRadius."
+      turns:
+        type: number
+        default: 3
+        description: "[optional] Number of full turns (e.g. 3 = 1080 degrees)."
+      innerRadius:
+        type: number
+        unit: m
+        description: "[optional] Alias for radiusStart."
+      outerRadius:
+        type: number
+        unit: m
+        description: "[optional] Alias for radiusEnd."
+    required: []
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [spiral, archimedean-spiral, flat-spiral]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── SdHelix ──────────────────────────────────────────────────────────────────
+
+- name: SdHelix
+  kernel_op: drawHelix
+  parameters:
+    type: object
+    properties:
+      center:
+        type: point3
+        default: "[0,0,0]"
+        description: "[optional] Start center of the helix axis."
+      radius:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional] Helix radius."
+      pitch:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional] Rise per full turn (meters per revolution)."
+      turns:
+        type: number
+        default: 3
+        description: "[optional] Number of full turns."
+    required: []
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [helix, helical-curve, spring-curve, coil]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── SdSubCurve ───────────────────────────────────────────────────────────────
+
+- name: SdSubCurve
+  kernel_op: extractSubCurve
+  parameters:
+    type: object
+    properties:
+      curve:
+        type: object
+        description: "[required] Curve description (line/arc/polyline/nurbs kind object). Alias: source."
+      t0:
+        type: number
+        description: "[optional] Domain start parameter (defaults to curve domain min). Alias: start."
+      t1:
+        type: number
+        description: "[optional] Domain end parameter (defaults to curve domain max). Alias: end."
+      source:
+        type: object
+        description: "[optional] Alias for curve."
+      start:
+        type: number
+        description: "[optional] Alias for t0."
+      end:
+        type: number
+        description: "[optional] Alias for t1."
+    required: [curve]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [subcurve, sub-curve, extract-curve, trim-domain, curve-domain]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── SdNurbsCurve ─────────────────────────────────────────────────────────────
+
+- name: SdNurbsCurve
+  kernel_op: drawNurbsCurve
+  parameters:
+    type: object
+    properties:
+      points:
+        type: array
+        items:
+          type: point3
+        description: "[required] Control points."
+      degree:
+        type: integer
+        default: 3
+        description: "[optional default=3] Polynomial degree (1=linear, 2=quadratic, 3=cubic, etc)."
+      weights:
+        type: array
+        items:
+          type: number
+        description: "[optional] Rational weights per control point (default 1 each)."
+      knots:
+        type: array
+        items:
+          type: number
+        description: "[optional] OpenNURBS-convention knot vector (length = order + cvCount - 2). Auto-generated (clamped uniform) if omitted."
+    required: [points]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [nurbs, nurbscurve, nurbs-curve, b-spline, bspline]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── SdInterpCurve ─────────────────────────────────────────────────────────────
+
+- name: SdInterpCurve
+  kernel_op: drawInterpCurve
+  parameters:
+    type: object
+    properties:
+      points:
+        type: array
+        items:
+          type: point3
+        description: "[required] Data points the curve passes exactly through."
+      closed:
+        type: boolean
+        default: false
+        description: "[optional default=false] Close the curve back to the first point."
+    required: [points]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [interp, interpolate, interpcurve, interpolating-curve, through-points]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── C++-blocked stubs ────────────────────────────────────────────────────────
+# Registered so dispatch returns structured NotYetImplemented errors.
+# Blocked on: kern_interpCurveOnSurface / kern_conicArc / kern_blendCurve in kern.wasm.
+
+- name: SdInterpCurveOnSurface
+  kernel_op: interpCurveOnSurface
+  parameters:
+    type: object
+    properties:
+      surface:
+        type: object
+        description: "[required] Surface on which to project the interpolating curve."
+      uvPoints:
+        type: array
+        items:
+          type: array
+        description: "[required] UV parameter pairs the geodesic passes through."
+    required: [surface, uvPoints]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [geodesic-curve, curve-on-surface, interp-on-surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdConicArc
+  kernel_op: conicArc
+  parameters:
+    type: object
+    properties:
+      p0:
+        type: point3
+        description: "[required] Start point."
+      p1:
+        type: point3
+        description: "[required] Interior (shoulder) point."
+      p2:
+        type: point3
+        description: "[required] End point."
+      weight:
+        type: number
+        default: 1
+        description: "[optional default=1] Rational weight for the shoulder control point. weight=1 → parabola, weight>1 → hyperbola, weight<1 → ellipse arc."
+    required: [p0, p1, p2]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [conic, conicarc, conic-arc, rational-arc]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBlendCurve
+  kernel_op: blendCurve
+  parameters:
+    type: object
+    properties:
+      curveA:
+        type: object
+        description: "[required] First curve."
+      tA:
+        type: number
+        description: "[required] Parameter on curveA at which to blend."
+      curveB:
+        type: object
+        description: "[required] Second curve."
+      tB:
+        type: number
+        description: "[required] Parameter on curveB at which to blend."
+      continuity:
+        type: string
+        default: G1
+        description: "[optional default=G1] Continuity type: G0 (position), G1 (tangent), G2 (curvature)."
+    required: [curveA, tA, curveB, tB]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [blend-curve, blendcurve, fair-curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #322 verbs ────────────────────────────────────────────
+# s322-schema.yaml.part — Curve operations & analysis (#322)
+# YAML fragment; merge into spatial-api.yaml §5 (Edge / surface ops) + §12 (Analysis).
+# Every entry follows the existing schema format exactly.
+
+# ============================================================
+# §5 Edge / curve ops  (S2 cluster — #322)
+# ============================================================
+
+- name: SdOffsetCurve
+  kernel_op: offsetCurve
+  parameters:
+    type: object
+    properties:
+      distance:
+        type: number
+        unit: m
+        description: "[required unit=m] Signed offset distance; positive = left of forward direction"
+      planeNormal:
+        type: array
+        items: { type: number }
+        description: "[optional default=[0,0,1]] Normal of the plane in which to offset; defaults to world Z"
+      cornerStyle:
+        type: string
+        enum: [sharp, round, smooth, chamfer]
+        description: "[optional default=sharp] Corner style for concave bends"
+    required: [distance]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [offsetcurve, offset curve, parallel curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdOffsetCurveOnSurface
+  kernel_op: offsetCurveOnSurface
+  parameters:
+    type: object
+    properties:
+      distance:
+        type: number
+        unit: m
+        description: "[required unit=m] Geodesic offset distance on the surface"
+      surfaceId:
+        type: string
+        description: "[required] Scene object id of the target surface"
+    required: [distance, surfaceId]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [offset curve on surface, geodesic offset]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdFilletCorner
+  kernel_op: filletCorner
+  parameters:
+    type: object
+    properties:
+      radius:
+        type: number
+        unit: m
+        description: "[required unit=m] Fillet radius"
+      curveIdA:
+        type: string
+        description: "[required] First curve scene-object id"
+      curveIdB:
+        type: string
+        description: "[required] Second curve scene-object id"
+      paramA:
+        type: number
+        description: "[optional] Parameter on curve A near the corner (auto-detected if omitted)"
+      paramB:
+        type: number
+        description: "[optional] Parameter on curve B near the corner (auto-detected if omitted)"
+      trimOrExtend:
+        type: boolean
+        description: "[optional default=true] Trim input curves to fillet tangent points"
+    required: [radius, curveIdA, curveIdB]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [filletcorner, fillet corner, add fillet curve, curve fillet]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdChamferCorner
+  kernel_op: chamferCorner
+  parameters:
+    type: object
+    properties:
+      distanceA:
+        type: number
+        unit: m
+        description: "[required unit=m] Chamfer setback on curve A"
+      distanceB:
+        type: number
+        unit: m
+        description: "[optional unit=m default=distanceA] Chamfer setback on curve B; symmetric if omitted"
+      curveIdA:
+        type: string
+        description: "[required] First curve scene-object id"
+      curveIdB:
+        type: string
+        description: "[required] Second curve scene-object id"
+    required: [distanceA, curveIdA, curveIdB]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [chamfercorner, chamfer corner, bevel corner]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDivide
+  kernel_op: divideCurve
+  parameters:
+    type: object
+    properties:
+      count:
+        type: integer
+        description: "[optional] Number of segments (returns count+1 points)"
+      length:
+        type: number
+        unit: m
+        description: "[optional unit=m] Fixed arc-length per segment"
+    required: []
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [divide, dividecurve, divide curve, segment curve, mark curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdProjectToPlane
+  kernel_op: projectCurveToPlane
+  parameters:
+    type: object
+    properties:
+      planeOrigin:
+        type: array
+        items: { type: number }
+        description: "[required] Plane origin [x,y,z]"
+      planeNormal:
+        type: array
+        items: { type: number }
+        description: "[required] Plane normal [x,y,z]"
+    required: [planeOrigin, planeNormal]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [projecttoplane, project to plane, flatten to plane, project curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdProjectToSurface
+  kernel_op: projectCurveToSurface
+  parameters:
+    type: object
+    properties:
+      surfaceId:
+        type: string
+        description: "[required] Scene object id of the target surface"
+      direction:
+        type: array
+        items: { type: number }
+        description: "[optional default=[0,0,-1]] Projection direction [x,y,z]"
+    required: [surfaceId]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [projecttosurface, project to surface, drape curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdProjectToMesh
+  kernel_op: projectCurveToMesh
+  parameters:
+    type: object
+    properties:
+      meshId:
+        type: string
+        description: "[required] Scene object id of the target mesh"
+      direction:
+        type: array
+        items: { type: number }
+        description: "[optional default=[0,0,-1]] Projection direction [x,y,z]"
+    required: [meshId]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [projecttomesh, project to mesh]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPull
+  kernel_op: pullCurveToSurface
+  parameters:
+    type: object
+    properties:
+      surfaceId:
+        type: string
+        description: "[required] Scene object id of the target surface"
+      tolerance:
+        type: number
+        unit: m
+        description: "[optional unit=m default=0.001] Fitting tolerance"
+    required: [surfaceId]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [pull, pulltosurface, pull curve to surface, geodesic pull]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ============================================================
+# §12 Analysis  (S2 cluster — #322)
+# ============================================================
+
+- name: SdClosestPoint
+  kernel_op: closestPointOnCurve
+  parameters:
+    type: object
+    properties:
+      testPoint:
+        type: array
+        items: { type: number }
+        description: "[required] Test point [x,y,z]"
+    required: [testPoint]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [closestpoint, closest point, closest point on curve, foot point]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdClosestObject
+  kernel_op: closestObjectQuery
+  parameters:
+    type: object
+    properties:
+      objectIdA:
+        type: string
+        description: "[required] First scene object id"
+      objectIdB:
+        type: string
+        description: "[required] Second scene object id"
+    required: [objectIdA, objectIdB]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [closestobject, closest object, min distance between objects]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLength
+  kernel_op: curveLength
+  parameters:
+    type: object
+    properties:
+      paramStart:
+        type: number
+        description: "[optional] Start parameter (defaults to domain minimum)"
+      paramEnd:
+        type: number
+        description: "[optional] End parameter (defaults to domain maximum)"
+    required: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [length, curvelength, curve length]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCurveArea
+  kernel_op: curveArea
+  parameters:
+    type: object
+    properties:
+      planeNormal:
+        type: array
+        items: { type: number }
+        description: "[optional default=[0,0,1]] Normal of the enclosing plane"
+    required: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [curvearea, curve area, enclosed area, planar area]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCurveAreaCentroid
+  kernel_op: curveAreaCentroid
+  parameters:
+    type: object
+    properties:
+      planeNormal:
+        type: array
+        items: { type: number }
+        description: "[optional default=[0,0,1]] Normal of the enclosing plane"
+    required: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [curveareacentroid, curve centroid, centroid of area, area centroid]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCurvature
+  kernel_op: curvatureAtParam
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[required] Curve parameter at which to evaluate curvature"
+    required: [param]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [curvature, curvature at param, kappa]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdFrame
+  kernel_op: frenetFrameAtParam
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[required] Curve parameter"
+    required: [param]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [frame, frenet frame, frenetframe, curve frame]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPerpFrame
+  kernel_op: perpTransportFrameAtParam
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[optional] Curve parameter (omit if count is provided)"
+      count:
+        type: integer
+        description: "[optional] Number of equidistant frames (returns array)"
+    required: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [perpframe, perp frame, parallel transport frame, stable frame]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDiscontinuity
+  kernel_op: curveDiscontinuity
+  parameters:
+    type: object
+    properties:
+      continuityOrder:
+        type: integer
+        description: "[required] Continuity order to test (0=G0, 1=G1, 2=G2)"
+      tol:
+        type: number
+        description: "[optional default=1e-6] Jump tolerance"
+    required: [continuityOrder]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [discontinuity, curve discontinuity, kinks, detect kinks]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDomain
+  kernel_op: curveDomain
+  parameters:
+    type: object
+    properties: {}
+    required: []
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [domain, curve domain, parameter range]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSetDomain
+  kernel_op: reparametrizeCurve
+  parameters:
+    type: object
+    properties:
+      min:
+        type: number
+        description: "[required] New domain minimum"
+      max:
+        type: number
+        description: "[required] New domain maximum"
+    required: [min, max]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [setdomain, set domain, reparametrize, reparametrize curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDeviation
+  kernel_op: curveDeviation
+  parameters:
+    type: object
+    properties:
+      curveIdA:
+        type: string
+        description: "[required] First curve scene-object id"
+      curveIdB:
+        type: string
+        description: "[required] Second curve scene-object id"
+      sampleCount:
+        type: integer
+        description: "[optional default=64] Number of samples along curve A"
+    required: [curveIdA, curveIdB]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [deviation, curve deviation, hausdorff distance, curve comparison]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPointEval
+  kernel_op: pointEvalOnCurve
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[required] Curve parameter"
+    required: [param]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [pointeval, point eval, evaluate point, point at parameter]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdTangentEval
+  kernel_op: tangentEvalOnCurve
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[required] Curve parameter"
+    required: [param]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [tangenteval, tangent eval, evaluate tangent, tangent at parameter]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDerivativeEval
+  kernel_op: derivativeEvalOnCurve
+  parameters:
+    type: object
+    properties:
+      param:
+        type: number
+        description: "[required] Curve parameter"
+      order:
+        type: integer
+        description: "[required] Derivative order (1=velocity, 2=acceleration, ...)"
+    required: [param, order]
+  topology_role: selection
+  kg_predicates: []
+  synonyms: [derivativeeval, derivative eval, evaluate derivative, curve derivative]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #323 verbs ────────────────────────────────────────────
+# s323-schema.yaml.part — Schema fragment for #323 (S3 surface creation).
+#
+# Merge target: web/src/commands/spatial-api.yaml §3 (after existing surface ops).
+# All entries follow the schema format in spatial-api.yaml header.
+
+# ============================================================
+# §3b Surface creation — NURBS + analytic (from #323)
+# ============================================================
+
+- name: SdNurbsSurfaceFromGrid
+  kernel_op: nurbsSurfaceFromGrid
+  parameters:
+    type: object
+    properties:
+      controlPoints:
+        type: array
+        description: "[required] Flat row-major array of [x,y,z] control point triples, nU×nV total"
+      nU:
+        type: integer
+        description: "[required] Number of control point rows in U direction (≥ 2)"
+      nV:
+        type: integer
+        description: "[required] Number of control point columns in V direction (≥ 2)"
+      degreeU:
+        type: integer
+        default: 3
+        description: "[optional] NURBS degree in U (1 ≤ degreeU ≤ nU-1, default 3)"
+      degreeV:
+        type: integer
+        default: 3
+        description: "[optional] NURBS degree in V (1 ≤ degreeV ≤ nV-1, default 3)"
+      knotsU:
+        type: array
+        description: "[optional] Knot vector in U direction — length must equal nU+degreeU-1 (OpenNURBS convention). Clamped uniform generated if omitted."
+      knotsV:
+        type: array
+        description: "[optional] Knot vector in V direction — length must equal nV+degreeV-1. Clamped uniform generated if omitted."
+      weights:
+        type: array
+        description: "[optional] Rational weights — flat array of nU×nV positive numbers. Omit for non-rational (all weights=1)."
+    required: [controlPoints, nU, nV]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [nurbs-surface, nurbssurface, srfgrid, surface-from-grid, addnurbssurface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Constructs a rational or non-rational NURBS surface from caller-supplied CV grid + knots. General: arbitrary degree, rational weights, custom knots. oracle: verb-nurbs de Boor parity at tolerance 1e-5."
+
+- name: SdNurbsSurfaceEvaluate
+  kernel_op: nurbsSurfaceEvaluate
+  parameters:
+    type: object
+    properties:
+      object_id:
+        type: string
+        description: "[required] UUID of an existing surface object in the scene"
+      u:
+        type: number
+        description: "[required] Parameter value in U (within domainU of the surface)"
+      v:
+        type: number
+        description: "[required] Parameter value in V (within domainV of the surface)"
+    required: [object_id, u, v]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [evaluate-surface, surface-point, srfpt, evalsrf]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Returns point [x,y,z] at surface parameter (u,v). No scene geometry created. oracle: de Boor exact for NurbsSurface; closed-form for RevSurface."
+
+- name: SdNurbsSurfaceNormal
+  kernel_op: nurbsSurfaceNormal
+  parameters:
+    type: object
+    properties:
+      object_id:
+        type: string
+        description: "[required] UUID of an existing surface object in the scene"
+      u:
+        type: number
+        description: "[required] Parameter value in U"
+      v:
+        type: number
+        description: "[required] Parameter value in V"
+    required: [object_id, u, v]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [surface-normal, srfnormal, normal-at-uv, evalnormal]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Returns unit normal vector [nx,ny,nz] at surface parameter (u,v). No scene geometry created. oracle: numerical central-difference cross product."
+
+- name: SdNurbsSurfaceDerivatives
+  kernel_op: nurbsSurfaceDerivatives
+  parameters:
+    type: object
+    properties:
+      object_id:
+        type: string
+        description: "[required] UUID of an existing surface object in the scene"
+      u:
+        type: number
+        description: "[required] Parameter value in U"
+      v:
+        type: number
+        description: "[required] Parameter value in V"
+      order:
+        type: integer
+        default: 1
+        description: "[optional] Derivative order: 1 returns dU+dV; 2 also returns d2U+d2V+dUV. Default 1."
+    required: [object_id, u, v]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [surface-derivatives, srfderivs, evalsrfderivs, srf-tangent]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Returns partial derivatives at surface parameter (u,v). order=1: dU, dV. order=2: adds d2U, d2V, dUV. oracle: numerical finite-difference."
+
+- name: SdTorusSurface
+  kernel_op: torusSurface
+  parameters:
+    type: object
+    properties:
+      majorRadius:
+        type: number
+        unit: m
+        default: 1
+        description: "[required unit=m default=1] Distance from torus center to tube center"
+      minorRadius:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[required unit=m default=0.3] Tube radius (must be < majorRadius)"
+      center:
+        type: point3
+        description: "[optional] World-space center of the torus. Default: origin, offset by minorRadius along active CPlane normal."
+    required: []
+  topology_role: face
+  kg_predicates: []
+  synonyms: [torus, ring-surface, donut, torus-srf, addtorus]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Creates a torus as a RevSurface (circle profile revolved around Z). oracle: closed-form P(u,v) = ((R+r·cos(v))·cos(u), (R+r·cos(v))·sin(u), r·sin(v)) at tolerance 1e-5."
+
+- name: SdSumSurface
+  kernel_op: sumSurface
+  parameters:
+    type: object
+    properties:
+      curve_u_id:
+        type: string
+        description: "[required] UUID of canonical curve defining U direction"
+      curve_v_id:
+        type: string
+        description: "[required] UUID of canonical curve defining V direction"
+    required: [curve_u_id, curve_v_id]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [sum-surface, translational-surface, addsumsrf, srf-sum]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "Creates a translational (sum) surface S(u,v) = C1(u) + C2(v) - basepoint. Requires two existing canonical curve objects. oracle: SumSurface.pointAtUV closed-form."
+
+- name: SdEdgeSurface
+  kernel_op: edgeSurface
+  parameters:
+    type: object
+    properties:
+      edges:
+        type: array
+        description: "[required] Array of 2–4 boundary curve UUIDs (Coons patch)"
+    required: [edges]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [edge-surface, coons-patch, edgesrf, boundary-srf, patch-from-edges]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "STUB — blocked: requires kern_edgeSurface (Coons patch bilinear blending + boundary parameterization) in kern.wasm. C++ signature: Brep kern_edgeSurface(const ON_SimpleArray<ON_Curve*>& edges, double tolerance)."
+
+- name: SdNetworkSurface
+  kernel_op: networkSurface
+  parameters:
+    type: object
+    properties:
+      uCurves:
+        type: array
+        description: "[required] Array of curve UUIDs forming the U direction net"
+      vCurves:
+        type: array
+        description: "[required] Array of curve UUIDs forming the V direction net"
+    required: [uCurves, vCurves]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [network-surface, netsrf, curve-network-srf, networksrf]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "STUB — blocked: requires kern_networkSurface (least-squares NURBS fitting from curve net) in kern.wasm. C++ signature: Brep kern_networkSurface(const ON_SimpleArray<ON_Curve*>& uCurves, const ON_SimpleArray<ON_Curve*>& vCurves, double tolerance)."
+
+- name: SdTorusSurfaceExact
+  kernel_op: torusSurfaceExact
+  parameters:
+    type: object
+    properties:
+      majorRadius:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional unit=m default=1] Major radius"
+      minorRadius:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[optional unit=m default=0.3] Minor radius (tube radius)"
+    required: []
+  topology_role: face
+  kg_predicates: []
+  synonyms: [torus-nurbs-exact, exact-torus-nurbs]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "STUB — blocked: requires kern_torusSurface_nurbs (exact 9×9 rational NURBS representation) in kern.wasm. C++ signature: ON_NurbsSurface kern_torusSurface_nurbs(double R, double r)."
+
+- name: SdNurbsSurfaceDerivativesExact
+  kernel_op: nurbsSurfaceDerivativesExact
+  parameters:
+    type: object
+    properties:
+      object_id:
+        type: string
+        description: "[required] UUID of an existing NURBS surface"
+      u:
+        type: number
+        description: "[required] U parameter"
+      v:
+        type: number
+        description: "[required] V parameter"
+      order:
+        type: integer
+        default: 1
+        description: "[optional] Derivative order"
+    required: [object_id, u, v]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [exact-surface-derivatives, rational-srf-derivs]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "STUB — blocked: requires kern_evaluateSurfaceDerivatives_rational (exact rational Bézier extraction) in kern.wasm. C++ signature: bool kern_evaluateSurfaceDerivatives_rational(const ON_NurbsSurface& srf, double u, double v, int order, ON_3dPoint* pts)."
+
+- name: SdTrimmedNurbsSurface
+  kernel_op: trimmedNurbsSurface
+  parameters:
+    type: object
+    properties:
+      surface_id:
+        type: string
+        description: "[required] UUID of the base NURBS surface"
+      trimCurves:
+        type: array
+        description: "[required] Array of trim curve UUIDs (closed planar curves in UV space)"
+    required: [surface_id, trimCurves]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [trimmed-surface, trim-nurbs, trimmedsrf, srf-trim-topo]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "STUB — blocked: requires kern_surfaceTrim_withTopology (SSI + parametric trim loop + BRep topology) in kern.wasm. C++ signature: Brep kern_surfaceTrim_withTopology(const ON_NurbsSurface& base, const ON_SimpleArray<ON_Curve*>& trimCurves, double tolerance)."
+
+# ── Issue #324 verbs ────────────────────────────────────────────
+# s324-schema.yaml.part — S4 Freeform generators schema fragment (#324)
+#
+# Merge target: web/src/commands/spatial-api.yaml §3 (Solid creation), after SdLoft.
+# All entries follow the existing schema format (see spatial-api.yaml header).
+# kernel: nurbs-webgpu for all (TypeScript NURBS implementation; no kern.wasm needed).
+# kernel: kern-blocked for C++-blocked ops (kern.wasm functions not yet compiled).
+
+# ── TypeScript-implementable verbs ────────────────────────────────────────────
+
+- name: SdExtrudeCurve
+  kernel_op: extrudeCurve
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Profile curve to extrude"
+      path:
+        type: curve
+        description: "[required] Path curve (rail) for the extrusion"
+      rail:
+        type: curve
+        description: "[optional] Alias for path"
+      keepFrame:
+        type: boolean
+        default: false
+        description: "[optional] If true, profile frame is kept fixed (no Bishop transport)"
+    required: [profile, path]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [extrudeAlongCurve, sweep1, sweep-along-curve, pathExtrude]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdExtrudePoint
+  kernel_op: extrudePoint
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Closed profile curve to extrude"
+      apex:
+        type: point3
+        description: "[required] Apex point — the profile collapses to this point"
+        default: "[0, 0, 1]"
+    required: [profile]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [extrudeToPoint, pyramidExtrude, pointExtrude]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdExtrudeTapered
+  kernel_op: extrudeTapered
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Closed profile curve to extrude"
+      direction:
+        type: vector3
+        default: "[0, 0, 1]"
+        description: "[optional unit=unitless] Extrusion direction (normalized)"
+      distance:
+        type: number
+        unit: m
+        default: 1
+        description: "[required unit=m] Extrusion distance"
+      draftAngle:
+        type: number
+        unit: rad
+        default: 0
+        description: "[optional unit=rad] Draft angle in radians (positive = outward taper)"
+    required: [profile]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [taperedExtrude, draftExtrude, draftAngleExtrude]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdExtrudeSurface
+  ifc4_class: IfcExtrudedAreaSolid
+  kernel_op: extrudeSurface
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Profile curve (boundary) of the surface to extrude"
+      direction:
+        type: vector3
+        default: "[0, 0, 1]"
+        description: "[optional unit=unitless] Extrusion direction"
+      distance:
+        type: number
+        unit: m
+        default: 1
+        description: "[required unit=m] Extrusion distance"
+    required: [profile]
+  topology_role: solid
+  kg_predicates: [aggregatedBy]
+  synonyms: [surfaceExtrude, extrudeFace, extrudeSrf]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLoftRebuild
+  kernel_op: loftRebuild
+  parameters:
+    type: object
+    properties:
+      curves:
+        type: list_edge_or_surface
+        description: "[required] Section curves to loft through"
+      sections:
+        type: list_edge_or_surface
+        description: "[optional] Alias for curves"
+      pointCount:
+        type: integer
+        default: 16
+        description: "[optional] Number of rebuild points per section curve"
+      degreeV:
+        type: integer
+        default: 3
+        description: "[optional] NURBS degree in the loft (V) direction"
+      closed:
+        type: boolean
+        default: false
+        description: "[optional] Whether the loft is closed in the section direction"
+    required: [curves]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [loftRebuild, loft-rebuild, rebuildLoft]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLoftRefit
+  kernel_op: loftRefit
+  parameters:
+    type: object
+    properties:
+      curves:
+        type: list_edge_or_surface
+        description: "[required] Section curves to loft through"
+      sections:
+        type: list_edge_or_surface
+        description: "[optional] Alias for curves"
+      degree:
+        type: integer
+        default: 3
+        description: "[optional] Target NURBS degree for refit"
+      closed:
+        type: boolean
+        default: false
+        description: "[optional] Whether the loft is closed in the section direction"
+    required: [curves]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [loftRefit, loft-refit, refitLoft]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSweepMultiProfile
+  kernel_op: sweepMultiProfile
+  parameters:
+    type: object
+    properties:
+      profiles:
+        type: list_edge_or_surface
+        description: "[required] Ordered list of profile curves distributed along rail"
+      sections:
+        type: list_edge_or_surface
+        description: "[optional] Alias for profiles"
+      rail:
+        type: curve
+        description: "[required] Single rail curve"
+      path:
+        type: curve
+        description: "[optional] Alias for rail"
+      profilePositions:
+        type: array
+        items:
+          type: number
+        description: "[optional] Normalized positions [0,1] of each profile along rail; defaults to evenly spaced"
+    required: [profiles, rail]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [sweep1MultiProfile, sweepMulti, multi-profile-sweep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSweepSegmented
+  kernel_op: sweepSegmented
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Profile curve swept along each segment"
+      rail:
+        type: curve
+        description: "[required] Polyline/curve rail (tessellated into segments)"
+      path:
+        type: curve
+        description: "[optional] Alias for rail"
+    required: [profile, rail]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [sweepInParts, sweepSegments, segmented-sweep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── C++-blocked verbs (kern.wasm stubs) ───────────────────────────────────────
+#
+# These verbs are registered with stub handlers that return NotYetImplemented.
+# They require the corresponding C++ function in kern.wasm before they can produce geometry.
+
+- name: SdSweep2
+  kernel_op: kern_sweep2_two_rail
+  parameters:
+    type: object
+    properties:
+      profiles:
+        type: list_edge_or_surface
+        description: "[required] One or more cross-section profile curves"
+      rail1:
+        type: curve
+        description: "[required] First rail curve"
+      rail2:
+        type: curve
+        description: "[required] Second rail curve"
+      closed:
+        type: boolean
+        default: false
+        description: "[optional] Periodic in the sweep direction"
+    required: [profiles, rail1, rail2]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [sweep2, two-rail-sweep, twoRailSweep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdRailRevolve
+  kernel_op: kern_rail_revolve
+  parameters:
+    type: object
+    properties:
+      profile:
+        type: edge_or_surface
+        description: "[required] Profile curve to revolve"
+      rail:
+        type: curve
+        description: "[required] Rail curve (generatrix path)"
+      axisFrom:
+        type: point3
+        default: "[0,0,0]"
+        description: "[optional] Revolution axis start point"
+      axisTo:
+        type: point3
+        default: "[0,0,1]"
+        description: "[optional] Revolution axis end point"
+      angleStart:
+        type: number
+        unit: rad
+        default: 0
+        description: "[optional unit=rad] Start angle"
+      angleEnd:
+        type: number
+        unit: rad
+        default: 6.2832
+        description: "[optional unit=rad] End angle"
+    required: [profile, rail]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [railRevolve, railRevSrf, revolveAlongRail]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPipe
+  kernel_op: kern_pipe_single_wall
+  parameters:
+    type: object
+    properties:
+      rail:
+        type: curve
+        description: "[required] Centreline / path curve"
+      radius:
+        type: number
+        unit: m
+        default: 0.05
+        description: "[required unit=m] Pipe radius"
+      capMode:
+        type: string
+        default: flat
+        description: "[optional] Cap type: none | flat | round"
+    required: [rail, radius]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [pipe, createPipe, pipeAlong]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPipeThick
+  kernel_op: kern_pipe_thick
+  parameters:
+    type: object
+    properties:
+      rail:
+        type: curve
+        description: "[required] Centreline / path curve"
+      outerRadius:
+        type: number
+        unit: m
+        default: 0.06
+        description: "[required unit=m] Outer pipe radius"
+      innerRadius:
+        type: number
+        unit: m
+        default: 0.05
+        description: "[required unit=m] Inner pipe radius (must be < outerRadius)"
+      capMode:
+        type: string
+        default: flat
+        description: "[optional] Cap type: none | flat | round"
+    required: [rail, outerRadius, innerRadius]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [thickPipe, pipeThick, createThickPipe, hollow-pipe]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #325 verbs ────────────────────────────────────────────
+# s325-schema.yaml.part — Surface operations (#325) schema fragment.
+# Merge into spatial-api.yaml under §5 Edge / surface ops.
+# TS-implementable verbs: SdEvaluate, SdClosestPoint, SdDivideUV, SdIsocurve,
+#                         SdFlipNormal, SdDraftAngle, SdRebuildSurface, SdContourSurface
+# C++-blocked stubs: SdSurfaceOffset, SdTrimSurface, SdSplitSurface, SdUntrim,
+#                    SdExtendSurface, SdSection, SdSingularity
+
+# ── TS-implementable ──────────────────────────────────────────────────────────
+
+- name: SdEvaluate
+  kernel_op: evaluateSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object to evaluate"
+      u:
+        type: number
+        description: "[optional] U parameter (defaults to domain midpoint)"
+      v:
+        type: number
+        description: "[optional] V parameter (defaults to domain midpoint)"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [evaluate surface, eval surface, surface point, surface normal, curvature at point]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDivideUV
+  kernel_op: divideUV
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object"
+      uCount:
+        type: number
+        description: "[optional unit=int default=4] Number of U divisions"
+      vCount:
+        type: number
+        description: "[optional unit=int default=4] Number of V divisions"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [divide uv, surface grid, uv grid, surface divide, surface points grid]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdIsocurve
+  kernel_op: isocurve
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object"
+      dir:
+        type: string
+        description: "[optional default=u] Isocurve direction: 'u' or 'v'"
+      param:
+        type: number
+        description: "[optional] Parameter value in the fixed direction (defaults to domain midpoint)"
+      samples:
+        type: number
+        description: "[optional unit=int default=64] Polyline sample count"
+    required: [target]
+  topology_role: curve
+  kg_predicates: []
+  synonyms: [isocurve, iso curve, surface isocurve, extract isocurve, u curve, v curve, isoparametric curve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdFlipNormal
+  kernel_op: flipNormal
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface or mesh object whose normals to flip"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [flip normal, reverse normal, flip surface, reverse surface, flip face, invert normal]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdDraftAngle
+  kernel_op: draftAngle
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object"
+      direction:
+        type: vector3
+        description: "[optional default=[0,0,1]] Pull direction vector for draft angle analysis"
+      samples:
+        type: number
+        description: "[optional unit=int default=8] Grid samples per UV axis for draft map"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [draft angle, analyze draft, draft analysis, pull direction angle, mold draft]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdRebuildSurface
+  kernel_op: rebuildSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object to rebuild"
+      uDegree:
+        type: number
+        description: "[optional unit=int default=3] Target U degree (1-9)"
+      vDegree:
+        type: number
+        description: "[optional unit=int default=3] Target V degree (1-9)"
+      uCount:
+        type: number
+        description: "[optional unit=int default=8] Target U control point count"
+      vCount:
+        type: number
+        description: "[optional unit=int default=8] Target V control point count"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [rebuild surface, refit surface, resurface, reparametrize surface, resurface nurbs]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdContourSurface
+  kernel_op: contourSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface object"
+      interval:
+        type: number
+        description: "[optional unit=m default=1] Z contour interval (0 = use count)"
+      count:
+        type: number
+        description: "[optional unit=int default=5] Number of contour planes (used when interval=0)"
+    required: [target]
+  topology_role: curve
+  kg_predicates: []
+  synonyms: [contour surface, surface contour, surface sections, z sections, level curves]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── C++-blocked stubs ─────────────────────────────────────────────────────────
+# These verbs are registered as stub handlers returning NotYetImplemented.
+# Full implementation requires SSI / OCCT / ShapeHealing in kern.wasm.
+
+- name: SdSurfaceOffset
+  kernel_op: surfaceOffset
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface or BRep object"
+      distance:
+        type: number
+        unit: m
+        description: "[required] Offset distance (positive = outward, negative = inward)"
+    required: [target, distance]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [offset surface, surface offset, offset brep face, shell surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdTrimSurface
+  kernel_op: trimSurface
+  parameters:
+    type: object
+    properties:
+      surface:
+        type: any
+        description: "[required] UUID of surface object to trim"
+      cutter:
+        type: any
+        description: "[required] UUID of cutting curve or surface"
+      side:
+        type: string
+        description: "[optional default=inside] Which side to retain: 'inside' or 'outside'"
+    required: [surface, cutter]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [trim surface, surface trim, clip surface, cut surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSplitSurface
+  kernel_op: splitSurface
+  parameters:
+    type: object
+    properties:
+      surface:
+        type: any
+        description: "[required] UUID of surface object to split"
+      cutter:
+        type: any
+        description: "[required] UUID of splitting curve, surface, or BRep"
+    required: [surface, cutter]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [split surface, divide surface, bisect surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdUntrim
+  kernel_op: untrimSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of trimmed BRep face to untrim"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [untrim, untrim surface, remove trim, restore surface boundary]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdExtendSurface
+  kernel_op: extendSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of surface or BRep to extend"
+      edge:
+        type: number
+        description: "[optional unit=int default=0] Edge index to extend"
+      distance:
+        type: number
+        unit: m
+        description: "[required] Extension distance"
+    required: [target, distance]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [extend surface, surface extend, lengthen surface, extrapolate surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSection
+  kernel_op: sectionCut
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of BRep or surface object to section"
+      origin:
+        type: point3
+        description: "[required] Plane origin [x, y, z]"
+      normal:
+        type: vector3
+        description: "[required] Plane normal [x, y, z]"
+    required: [target, origin, normal]
+  topology_role: curve
+  kg_predicates: []
+  synonyms: [section cut, plane cut, cross section, cut by plane]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSingularity
+  kernel_op: surfaceSingularity
+  parameters:
+    type: object
+    properties:
+      target:
+        type: any
+        description: "[required] UUID of NURBS surface to analyze for singularities"
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [singularity, surface singularity, iso status, degenerate edge, singular point]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #326 verbs ────────────────────────────────────────────
+# s326-schema.yaml.part — YAML fragment for #326 S6 boolean additions.
+#
+# Merge this into spatial-api.yaml §4 Boolean ops section.
+# All entries follow the existing schema format exactly:
+#   name, kernel_op, parameters, topology_role, kg_predicates,
+#   synonyms, kernel, alias_source
+#
+# New verbs added:
+#   SdBooleanSplit          — split solid A by solid B (two result shells)
+#   SdDifferenceWithIndexMap — difference + face provenance index map
+#
+# Existing verbs enhanced (no schema change needed — general Brep already accepted):
+#   SdBooleanUnion          — already general via brepUnion backend dispatch
+#   SdBooleanDifference     — already general via brepDifference backend dispatch
+#   SdBooleanIntersection   — already general via brepIntersection backend dispatch
+
+# ── SdBooleanSplit ─────────────────────────────────────────────────────────────
+# Splits solid A along the surface of solid B, returning two sub-solids.
+# Blocked until kern.wasm exports boolSplit(aJson, bJson).
+# oracle: replicad split() — vol(A) + vol(B_result) ≈ vol(A_input)
+
+- name: SdBooleanSplit
+  kernel_op: boolSplit
+  parameters:
+    type: object
+    properties:
+      a:
+        description: "[required] UUID of the solid to split"
+        type: object_id
+      b:
+        description: "[required] UUID of the splitting tool solid"
+        type: object_id
+    required: [a, b]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [split-solid, bool-split, boolean-split, divide-solid, split]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── SdDifferenceWithIndexMap ───────────────────────────────────────────────────
+# Boolean difference outer − inner, plus a face provenance index map.
+# Each result face maps back to its source face in outer or inner.
+# Blocked until kern.wasm exports boolDifferenceWithIndexMap(aJson, bJson).
+# oracle: replicad cut() for result geometry;
+#         closed-form: each result face has a deterministic source face.
+
+- name: SdDifferenceWithIndexMap
+  kernel_op: boolDifferenceWithIndexMap
+  parameters:
+    type: object
+    properties:
+      outer:
+        description: "[required] UUID of the solid to cut from (objects)"
+        type: object_id
+      inner:
+        description: "[required] UUID of the cutting solid (tools)"
+        type: object_id
+    required: [outer, inner]
+  topology_role: solid
+  kg_predicates: [hosts]
+  synonyms: [diff-index-map, difference-with-map, cut-indexed, subtract-indexed]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #327 verbs ────────────────────────────────────────────
+# s327-schema.yaml.part — YAML fragment for spatial-api.yaml
+# S7 cluster: Brep edit & topology (#327)
+# Merge into spatial-api.yaml under §5 Edge / surface ops.
+#
+# Format follows existing spatial-api.yaml schema exactly.
+# [required/optional unit=X default=Y] markers in descriptions.
+# All ops use alias_source: generic_cad_vocabulary.
+
+# ── Topology queries ───────────────────────────────────────────────────────────
+
+- name: SdBrepIsValid
+  kernel_op: brep_is_valid
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object to validate"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [isvalid, validate brep, check validity, brep valid]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBrepIsSolid
+  kernel_op: brep_is_solid
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object to test"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [issolid, is solid, check solid, watertight]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBrepIsManifold
+  kernel_op: brep_is_manifold
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object to test"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [ismanifold, is manifold, manifold check]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdNakedEdgeCount
+  kernel_op: naked_edge_count
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+    required: [target]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [naked edges, naked edge count, open edges, boundary edges]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdNakedEdgeLocations
+  kernel_op: naked_edge_locations
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+    required: [target]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [naked edge locations, open edge midpoints, boundary edge positions]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdFaceAccessor
+  kernel_op: face_accessor
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+      faceIndex:
+        type: integer
+        description: "[required] 0-based global face index across all shells"
+    required: [target, faceIndex]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [face info, get face, face data, face properties]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdEdgeAccessor
+  kernel_op: edge_accessor
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+      edgeIndex:
+        type: integer
+        description: "[required] 0-based global edge index across all shells"
+    required: [target, edgeIndex]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [edge info, get edge, edge data, edge properties]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdVertexAccessor
+  kernel_op: vertex_accessor
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+      vertexIndex:
+        type: integer
+        description: "[required] 0-based global vertex index across all shells"
+    required: [target, vertexIndex]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [vertex info, get vertex, vertex data, vertex properties]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBrepTopology
+  kernel_op: brep_topology
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the scene object"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [topology report, brep info, topology query, adjacency report, topo]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Brep edit ops (TS-implementable) ─────────────────────────────────────────
+
+- name: SdCapPlanarHoles
+  kernel_op: cap_planar_holes
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the open brep to cap"
+      tolerance:
+        type: number
+        unit: m
+        default: 0.0001
+        description: "[optional unit=m default=0.0001] Endpoint chaining tolerance for naked edge loops"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [cap holes, cap planar holes, close holes, cap open edges, fill holes]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMergeCoplanarFaces
+  kernel_op: merge_coplanar_faces
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the brep to simplify"
+      angleTolerance:
+        type: number
+        unit: rad
+        default: 0.0001
+        description: "[optional unit=rad default=0.0001] Maximum angle between face normals to be considered coplanar"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [merge faces, merge coplanar, simplify faces, unify faces, merge coplanar faces]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdExtractFace
+  kernel_op: extract_face
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the source brep"
+      faceIndex:
+        type: integer
+        description: "[required] 0-based global face index to extract"
+    required: [target, faceIndex]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [extract face, pull face, detach face, extract surface, extract patch]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdUnjoin
+  kernel_op: unjoin
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the multi-shell brep to unjoin"
+    required: [target]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [unjoin, unjoin brep, split shells, separate shells, disjoin]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── C++ blocked ops (stubs return NotYetImplemented) ─────────────────────────
+
+- name: SdFilletCurved
+  kernel_op: kern_fillet_curved
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the brep to fillet"
+      edges:
+        type: array
+        description: "[required] Array of 0-based edge indices to fillet"
+        items:
+          type: integer
+      radius:
+        type: number
+        unit: m
+        description: "[required unit=m] Constant fillet radius"
+      tolerance:
+        type: number
+        unit: m
+        default: 0.000001
+        description: "[optional unit=m default=1e-6] Geometric tolerance"
+    required: [target, edges, radius]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [fillet curved, curved fillet, round curved edge, fillet curved edge]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdFilletVariableRadius
+  kernel_op: kern_fillet_variable_radius
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the brep to fillet"
+      edges:
+        type: array
+        description: "[required] Array of 0-based edge indices"
+        items:
+          type: integer
+      startRadii:
+        type: array
+        description: "[required] Fillet radius at the start of each edge [m]"
+        items:
+          type: number
+      endRadii:
+        type: array
+        description: "[required] Fillet radius at the end of each edge [m]"
+        items:
+          type: number
+      tolerance:
+        type: number
+        unit: m
+        default: 0.000001
+        description: "[optional unit=m default=1e-6] Geometric tolerance"
+    required: [target, edges, startRadii, endRadii]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [variable fillet, variable radius fillet, tapered fillet, radius fillet variable]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdChamferCurved
+  kernel_op: kern_chamfer_curved
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the brep to chamfer"
+      edges:
+        type: array
+        description: "[required] Array of 0-based edge indices"
+        items:
+          type: integer
+      distance1:
+        type: number
+        unit: m
+        description: "[required unit=m] First chamfer distance"
+      distance2:
+        type: number
+        unit: m
+        description: "[optional unit=m] Second chamfer distance (defaults to distance1 for equal chamfer)"
+        default: null
+      tolerance:
+        type: number
+        unit: m
+        default: 0.000001
+        description: "[optional unit=m default=1e-6] Geometric tolerance"
+    required: [target, edges, distance1]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [chamfer curved, curved chamfer, bevel curved edge]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBlend
+  kernel_op: kern_blend_edge
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the brep"
+      edgeId1:
+        type: integer
+        description: "[required] First edge index for blend"
+      edgeId2:
+        type: integer
+        description: "[required] Second edge index for blend"
+      continuity:
+        type: integer
+        description: "[optional default=1] Continuity: 0=G0 position, 1=G1 tangent, 2=G2 curvature"
+        default: 1
+      tolerance:
+        type: number
+        unit: m
+        default: 0.000001
+        description: "[optional unit=m default=1e-6] Geometric tolerance"
+    required: [target, edgeId1, edgeId2]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [blend surface, blend edge, sweep blend, g1 blend, g2 blend]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #328 verbs ────────────────────────────────────────────
+# s328-schema.yaml.part — S8 Intersection complete matrix (#328)
+# YAML fragment; merge into web/src/commands/spatial-api.yaml under §12 Analysis
+# or a new §14 Intersection section.
+#
+# Schema convention: [required] / [optional] markers in description field.
+# Tolerance default: 1e-6 m for primitive ops; 1e-4 m for curve ops.
+
+# ============================================================
+# §14 Intersection — complete matrix (#328)
+# ============================================================
+
+- name: SdCurveCurveOverlaps
+  kernel_op: curveCurveOverlaps
+  parameters:
+    type: object
+    properties:
+      ptsA:
+        type: array
+        items:
+          type: array
+          items:
+            type: number
+        description: "[required] 3D point list for curve A — at least 2 points"
+      ptsB:
+        type: array
+        items:
+          type: array
+          items:
+            type: number
+        description: "[required] 3D point list for curve B — at least 2 points"
+      tolerance:
+        type: number
+        default: 0.0001
+        description: "[optional unit=m default=1e-4] geometric overlap tolerance"
+    required: [ptsA, ptsB]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [curvecurveoverlaps, ccx_overlap, curve_overlap]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCurveSelfIntersection
+  kernel_op: curveSelfIntersection
+  parameters:
+    type: object
+    properties:
+      pts:
+        type: array
+        items:
+          type: array
+          items:
+            type: number
+        description: "[required] 3D point list — at least 3 points"
+      tolerance:
+        type: number
+        default: 0.0001
+        description: "[optional unit=m default=1e-4] self-intersection tolerance"
+    required: [pts]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [curveselfintersection, self_intersect, csx_self]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLineLineIntersection
+  kernel_op: lineLineIntersection
+  parameters:
+    type: object
+    properties:
+      fromA:
+        type: point3
+        description: "[required] start point of line A"
+      toA:
+        type: point3
+        description: "[required] end point of line A"
+      fromB:
+        type: point3
+        description: "[required] start point of line B"
+      toB:
+        type: point3
+        description: "[required] end point of line B"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6] intersection tolerance"
+    required: [fromA, toA, fromB, toB]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [linelineintersection, line_line, llintersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLinePlaneIntersection
+  kernel_op: linePlaneIntersection
+  parameters:
+    type: object
+    properties:
+      from:
+        type: point3
+        description: "[required] line start"
+      to:
+        type: point3
+        description: "[required] line end"
+      planeOrigin:
+        type: point3
+        description: "[required] a point on the plane"
+      planeNormal:
+        type: vector3
+        description: "[required] plane unit normal"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [from, to, planeOrigin, planeNormal]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [lineplaneintersection, line_plane, lp_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdLineSphereIntersection
+  kernel_op: lineSphereIntersection
+  parameters:
+    type: object
+    properties:
+      from:
+        type: point3
+        description: "[required] line start"
+      to:
+        type: point3
+        description: "[required] line end"
+      sphereCenter:
+        type: point3
+        description: "[required] sphere center"
+      radius:
+        type: number
+        unit: m
+        description: "[required] sphere radius"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [from, to, sphereCenter, radius]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [linesphereintersection, line_sphere, ls_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPlanePrimitiveIntersection
+  kernel_op: planePrimitiveIntersection
+  parameters:
+    type: object
+    properties:
+      op:
+        type: string
+        description: "[optional default=plane-plane] one of: plane-plane | plane-sphere | plane-line | plane-plane-plane"
+        default: plane-plane
+      originA:
+        type: point3
+        description: "[required] origin of plane A"
+      normalA:
+        type: vector3
+        description: "[required] normal of plane A"
+      originB:
+        type: point3
+        description: "[optional] origin of plane B (plane-plane and plane-plane-plane)"
+      normalB:
+        type: vector3
+        description: "[optional] normal of plane B"
+      originC:
+        type: point3
+        description: "[optional] origin of plane C (plane-plane-plane only)"
+      normalC:
+        type: vector3
+        description: "[optional] normal of plane C (plane-plane-plane only)"
+      sphereCenter:
+        type: point3
+        description: "[optional] sphere center (plane-sphere only)"
+      radius:
+        type: number
+        unit: m
+        description: "[optional] sphere radius (plane-sphere only)"
+      from:
+        type: point3
+        description: "[optional] line start (plane-line only)"
+      to:
+        type: point3
+        description: "[optional] line end (plane-line only)"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [originA, normalA]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [planeprimitiveintersection, plane_prim, plane_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdPlaneSphereSectionIntersection
+  kernel_op: planeSphereSectionIntersection
+  parameters:
+    type: object
+    properties:
+      planeOrigin:
+        type: point3
+        description: "[required] a point on the plane"
+      planeNormal:
+        type: vector3
+        description: "[required] plane unit normal"
+      sphereCenter:
+        type: point3
+        description: "[required] sphere center"
+      radius:
+        type: number
+        unit: m
+        description: "[required] sphere radius"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [planeOrigin, planeNormal, sphereCenter, radius]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [planespheresectionintersection, plane_sphere_section, pss_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdArcArcIntersection
+  kernel_op: arcArcIntersection
+  parameters:
+    type: object
+    properties:
+      aCenter:
+        type: point3
+        description: "[required] center of arc A"
+      aRadius:
+        type: number
+        unit: m
+        description: "[required] radius of arc A"
+      aStartAngle:
+        type: number
+        unit: rad
+        description: "[required] start angle of arc A in radians"
+      aEndAngle:
+        type: number
+        unit: rad
+        description: "[required] end angle of arc A in radians"
+      aNormal:
+        type: vector3
+        description: "[optional default=[0,0,1]] normal of arc A plane"
+      bCenter:
+        type: point3
+        description: "[required] center of arc B"
+      bRadius:
+        type: number
+        unit: m
+        description: "[required] radius of arc B"
+      bStartAngle:
+        type: number
+        unit: rad
+        description: "[required] start angle of arc B in radians"
+      bEndAngle:
+        type: number
+        unit: rad
+        description: "[required] end angle of arc B in radians"
+      bNormal:
+        type: vector3
+        description: "[optional default=[0,0,1]] normal of arc B plane"
+      tolerance:
+        type: number
+        default: 0.0001
+        description: "[optional unit=m default=1e-4]"
+    required: [aCenter, aRadius, aStartAngle, aEndAngle, bCenter, bRadius, bStartAngle, bEndAngle]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [arcarcintersection, arc_arc, aa_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCircleCircleIntersection
+  kernel_op: circleCircleIntersection
+  parameters:
+    type: object
+    properties:
+      aCenter:
+        type: point3
+        description: "[required] center of circle A"
+      aRadius:
+        type: number
+        unit: m
+        description: "[required] radius of circle A"
+      aNormal:
+        type: vector3
+        description: "[optional default=[0,0,1]] normal of circle A plane"
+      bCenter:
+        type: point3
+        description: "[required] center of circle B"
+      bRadius:
+        type: number
+        unit: m
+        description: "[required] radius of circle B"
+      bNormal:
+        type: vector3
+        description: "[optional default=[0,0,1]] normal of circle B plane"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [aCenter, aRadius, bCenter, bRadius]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [circlecircleintersection, circle_circle, cc_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSphereSphereIntersection
+  kernel_op: sphereSphereIntersection
+  parameters:
+    type: object
+    properties:
+      aCenter:
+        type: point3
+        description: "[required] center of sphere A"
+      aRadius:
+        type: number
+        unit: m
+        description: "[required] radius of sphere A"
+      bCenter:
+        type: point3
+        description: "[required] center of sphere B"
+      bRadius:
+        type: number
+        unit: m
+        description: "[required] radius of sphere B"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [aCenter, aRadius, bCenter, bRadius]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [spheresphereintersection, sphere_sphere, ss_intersect]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── C++ blocked stubs (kern.wasm expansion required) ─────────────────────────
+
+- name: SdCurveSurfaceIntersection
+  kernel_op: curveSurfaceIntersection
+  parameters:
+    type: object
+    properties:
+      curve:
+        type: object
+        description: "[required] NurbsCurve JSON"
+      surface:
+        type: object
+        description: "[required] NurbsSurface JSON"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [curve, surface]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [curvesurfaceintersection, csx, curve_surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdCurveBrepIntersection
+  kernel_op: curveBrepIntersection
+  parameters:
+    type: object
+    properties:
+      curve:
+        type: object
+        description: "[required] NurbsCurve JSON"
+      brep:
+        type: object
+        description: "[required] Brep JSON"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [curve, brep]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [curvebrepintersection, cbx, curve_brep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBrepPlaneSection
+  kernel_op: brepPlaneSection
+  parameters:
+    type: object
+    properties:
+      brep:
+        type: object
+        description: "[required] Brep JSON"
+      planeOrigin:
+        type: point3
+        description: "[required] plane origin"
+      planeNormal:
+        type: vector3
+        description: "[required] plane normal"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [brep, planeOrigin, planeNormal]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [brepplanesection, brep_section, section_curves]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSurfaceSurfaceIntersectionGeneral
+  kernel_op: surfaceSurfaceIntersectionGeneral
+  parameters:
+    type: object
+    properties:
+      surfaceA:
+        type: object
+        description: "[required] NurbsSurface JSON"
+      surfaceB:
+        type: object
+        description: "[required] NurbsSurface JSON"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+      marchStep:
+        type: number
+        default: 0.05
+        description: "[optional unit=m default=0.05] marching step size"
+    required: [surfaceA, surfaceB]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [surfacesurfaceintersectiongeneral, ssi_general, ssx_general]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdBrepBrepIntersection
+  kernel_op: brepBrepIntersection
+  parameters:
+    type: object
+    properties:
+      brepA:
+        type: object
+        description: "[required] Brep JSON"
+      brepB:
+        type: object
+        description: "[required] Brep JSON"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [brepA, brepB]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [brepbrepintersection, bbx, brep_brep]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshMeshIntersection
+  kernel_op: meshMeshIntersection
+  parameters:
+    type: object
+    properties:
+      meshA:
+        type: object
+        description: "[required] mesh JSON {vertices: float32[], faces: uint32[]}"
+      meshB:
+        type: object
+        description: "[required] mesh JSON"
+      mode:
+        type: string
+        default: accurate
+        description: "[optional default=accurate] one of: accurate | fast | predicate"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [meshA, meshB]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [meshmeshintersection, mmx, mesh_mesh]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshRayIntersection
+  kernel_op: meshRayIntersection
+  parameters:
+    type: object
+    properties:
+      mesh:
+        type: object
+        description: "[required] mesh JSON {vertices: float32[], faces: uint32[]}"
+      rayOrigin:
+        type: point3
+        description: "[required] ray origin"
+      rayDirection:
+        type: vector3
+        description: "[required] ray direction (need not be unit)"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [mesh, rayOrigin, rayDirection]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [meshrayintersection, mrx, mesh_ray]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshPlaneIntersection
+  kernel_op: meshPlaneIntersection
+  parameters:
+    type: object
+    properties:
+      mesh:
+        type: object
+        description: "[required] mesh JSON {vertices: float32[], faces: uint32[]}"
+      planeOrigin:
+        type: point3
+        description: "[required] plane origin"
+      planeNormal:
+        type: vector3
+        description: "[required] plane normal"
+      tolerance:
+        type: number
+        default: 0.000001
+        description: "[optional unit=m default=1e-6]"
+    required: [mesh, planeOrigin, planeNormal]
+  topology_role: edge
+  kg_predicates: []
+  synonyms: [meshplaneintersection, mpx, mesh_plane]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #329 verbs ────────────────────────────────────────────
+# s329-schema.yaml.part — S9 Mesh kernel YAML fragment (#329)
+# Merge into spatial-api.yaml §14 (or a new §16 Mesh Kernel section).
+# Format matches existing entries exactly.
+
+# ============================================================
+# §16 Mesh Kernel (#329)
+# ============================================================
+
+- name: SdMeshFromPolyline
+  kernel_op: meshFromPolyline
+  parameters:
+    type: object
+    properties:
+      points:
+        type: array
+        description: "[required] Ordered array of [x,y,z] vertices forming a closed planar boundary. Min 3 points."
+        items:
+          type: array
+    required: [points]
+  topology_role: face
+  kg_predicates: [hasMesh]
+  synonyms:
+    - meshfrompolyline
+    - "mesh from boundary"
+    - "mesh from polyline"
+    - "triangulate boundary"
+    - "fill polyline"
+    - "planar mesh"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshFromPoints
+  kernel_op: meshFromPoints
+  parameters:
+    type: object
+    properties:
+      points:
+        type: array
+        description: "[required] Array of [x,y,z] scattered points to triangulate via Delaunay 2.5D. Min 3 points."
+        items:
+          type: array
+    required: [points]
+  topology_role: face
+  kg_predicates: [hasMesh]
+  synonyms:
+    - meshfrompoints
+    - "mesh from point cloud"
+    - "delaunay mesh"
+    - "triangulate points"
+    - "point cloud to mesh"
+    - "2.5d mesh"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshBoolean
+  kernel_op: meshBoolean
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the target (base) mesh."
+      tool:
+        type: object_id
+        description: "[required] UUID of the tool (cutting/adding) mesh."
+      operation:
+        type: string
+        description: "[optional default=union] One of: union, difference, intersection."
+        enum: [union, difference, intersection]
+        default: union
+    required: [target, tool]
+  topology_role: solid
+  kg_predicates: [hasMesh]
+  synonyms:
+    - meshboolean
+    - "mesh union"
+    - "mesh difference"
+    - "mesh intersection"
+    - "mesh csg"
+    - "mesh boolean operation"
+    - "mesh cut"
+    - "mesh fuse"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshWeld
+  kernel_op: meshWeld
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to weld."
+      tolerance:
+        type: number
+        unit: m
+        description: "[optional default=1e-4] Distance threshold for vertex merging (metres)."
+        default: 0.0001
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms:
+    - meshweld
+    - "weld mesh"
+    - "merge vertices"
+    - "weld vertices"
+    - "merge coincident vertices"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshUnweld
+  kernel_op: meshUnweld
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to unweld."
+      angle:
+        type: number
+        unit: degrees
+        description: "[optional default=30] Crease angle in degrees; edges sharper than this are split."
+        default: 30
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms:
+    - meshunweld
+    - "unweld mesh"
+    - "split vertices"
+    - "explode mesh"
+    - "hard edge mesh"
+    - "faceted mesh"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshRepair
+  kernel_op: meshRepair
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to repair."
+    required: [target]
+  topology_role: face
+  kg_predicates: []
+  synonyms:
+    - meshrepair
+    - "repair mesh"
+    - "fix mesh"
+    - "clean mesh"
+    - "heal mesh"
+    - "fill holes"
+    - "remove degenerate faces"
+    - "unify normals"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshClosestPoint
+  kernel_op: meshClosestPoint
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to query."
+      point:
+        type: array
+        description: "[required] Query point as [x,y,z] or {x,y,z}."
+    required: [target, point]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - meshclosestpoint
+    - "mesh closest point"
+    - "nearest point on mesh"
+    - "project point to mesh"
+    - "closest face"
+    - "mesh proximity"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshArea
+  kernel_op: meshArea
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh."
+    required: [target]
+  topology_role: annotation
+  kg_predicates: [hasArea]
+  synonyms:
+    - mesharea
+    - "mesh area"
+    - "mesh surface area"
+    - "surface area of mesh"
+    - "total mesh area"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshVolume
+  kernel_op: meshVolume
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh (must be closed/manifold for meaningful result)."
+    required: [target]
+  topology_role: annotation
+  kg_predicates: [hasVolume]
+  synonyms:
+    - meshvolume
+    - "mesh volume"
+    - "volume of mesh"
+    - "mesh mass"
+    - "enclosed volume"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshCentroid
+  kernel_op: meshCentroid
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh."
+    required: [target]
+  topology_role: annotation
+  kg_predicates: [hasCentroid]
+  synonyms:
+    - meshcentroid
+    - "mesh centroid"
+    - "center of mass mesh"
+    - "mesh center"
+    - "mesh barycenter"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshToNurbs
+  kernel_op: meshToNurbs
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to convert."
+      gridU:
+        type: integer
+        description: "[optional default=4] NURBS control point grid resolution in U direction (2-32)."
+        default: 4
+      gridV:
+        type: integer
+        description: "[optional default=4] NURBS control point grid resolution in V direction (2-32)."
+        default: 4
+    required: [target]
+  topology_role: face
+  kg_predicates: [hasSurface]
+  synonyms:
+    - meshtonurbs
+    - "mesh to nurbs"
+    - "mesh to surface"
+    - "convert mesh to nurbs"
+    - "fit nurbs to mesh"
+    - "nurbs from mesh"
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshFromBrep
+  kernel_op: meshFromBrep
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the BREP solid to mesh."
+      linearDeflection:
+        type: number
+        unit: m
+        description: "[optional default=0.01] Max linear deviation from true geometry (metres)."
+        default: 0.01
+      angularDeflection:
+        type: number
+        unit: rad
+        description: "[optional default=0.1] Max angular deviation in radians."
+        default: 0.1
+    required: [target]
+  topology_role: face
+  kg_predicates: [hasMesh]
+  synonyms:
+    - meshfrombrep
+    - "mesh from brep"
+    - "tessellate brep"
+    - "brep to mesh"
+    - "meshing"
+    - "analysis mesh"
+    - "render mesh"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshOffset
+  kernel_op: meshOffset
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the mesh to offset."
+      distance:
+        type: number
+        unit: m
+        description: "[required] Offset distance in metres (positive = outward)."
+    required: [target, distance]
+  topology_role: face
+  kg_predicates: [hasMesh]
+  synonyms:
+    - meshoffset
+    - "mesh offset"
+    - "offset mesh"
+    - "thicken mesh"
+    - "inflate mesh"
+    - "deflate mesh"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdMeshIntersect
+  kernel_op: meshIntersect
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of the first mesh."
+      tool:
+        type: object_id
+        description: "[required] UUID of the second mesh / line / plane."
+    required: [target, tool]
+  topology_role: edge
+  kg_predicates: []
+  synonyms:
+    - meshintersect
+    - "mesh intersect"
+    - "mesh intersection"
+    - "mesh-mesh intersection"
+    - "ray mesh"
+    - "plane mesh intersection"
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #330 verbs ────────────────────────────────────────────
+# s330-schema.yaml.part — S10 Transform & Deform verbs (#330)
+# Merge into spatial-api.yaml under §6 Transform (after SdArrayAlongCurve)
+#
+# Implemented (TypeScript): SdOrient3Point, SdOrientOnSurface, SdProject,
+#                            SdPlanarFlow, SdTwist, SdTaper, SdBend
+# C++-blocked stubs: SdFlowAlongCurve, SdFlowAlongSurface, SdCageMorph,
+#                    SdSporph, SdSplop, SdMaelstrom
+
+# ============================================================
+# §6 Transform — deform + orient extensions
+# ============================================================
+
+- name: SdOrient3Point
+  kernel_op: orient3Point
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to orient; falls back to selection"
+      from0:
+        type: point3
+        description: "[required] First point of source frame (origin)"
+      from1:
+        type: point3
+        description: "[required] Second point of source frame (defines X axis)"
+      from2:
+        type: point3
+        description: "[required] Third point of source frame (defines Y axis)"
+      to0:
+        type: point3
+        description: "[required] First point of target frame (origin)"
+      to1:
+        type: point3
+        description: "[required] Second point of target frame (defines X axis)"
+      to2:
+        type: point3
+        description: "[required] Third point of target frame (defines Y axis)"
+    required: [from0, from1, from2, to0, to1, to2]
+  topology_role: transform
+  kg_predicates: [transformed_by]
+  synonyms: [orient3pt, orient3point, orient3, alignframe, orient-3-point]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Aligns object by mapping a 3-point source frame to a 3-point target frame. Non-degenerate frames only (points must not be collinear)."
+
+- name: SdOrientOnSurface
+  kernel_op: orientOnSurface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to orient"
+      surface0:
+        type: point3
+        description: "[required] Surface patch corner 0 (origin of surface frame)"
+      surface1:
+        type: point3
+        description: "[required] Surface patch corner 1 (defines surface X)"
+      surface2:
+        type: point3
+        description: "[required] Surface patch corner 2 (defines surface Y)"
+      surface3:
+        type: point3
+        description: "[optional] Surface patch corner 3 (bilinear UV); defaults to surface1.x, surface2.y, surface0.z"
+      u:
+        type: number
+        default: 0
+        description: "[optional] U parameter in [0,1] on surface patch"
+      v:
+        type: number
+        default: 0
+        description: "[optional] V parameter in [0,1] on surface patch"
+      position:
+        type: point3
+        description: "[optional] Explicit placement position; overrides bilinear UV position"
+    required: [surface0, surface1, surface2]
+  topology_role: transform
+  kg_predicates: [transformed_by]
+  synonyms: [orientonsurface, orient-on-surface, aligntosurface, orient-surface]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Aligns object Z-axis to surface normal at UV point on a bilinear patch defined by 3–4 corner points."
+
+- name: SdProject
+  kernel_op: projectToPlane
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of source object; falls back to selection"
+      normal:
+        type: point3
+        description: "[optional unit=none] Plane normal vector; default [0,0,1]"
+        default: "[0,0,1]"
+      origin:
+        type: point3
+        description: "[optional] A point on the projection plane; default origin"
+        default: "[0,0,0]"
+    required: []
+  topology_role: transform
+  kg_predicates: [projected_onto]
+  synonyms: [project, projecttoplane, project-to-plane, flatten, flattentoplane]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Projects all geometry vertices onto a plane defined by normal + origin. Creates a new flat copy."
+
+- name: SdPlanarFlow
+  kernel_op: planarFlow
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to flow; falls back to selection"
+      src_origin:
+        type: point3
+        description: "[optional] Source plane origin; default world origin"
+        default: "[0,0,0]"
+      src_x:
+        type: point3
+        description: "[optional] Source plane X axis; default [1,0,0]"
+        default: "[1,0,0]"
+      src_y:
+        type: point3
+        description: "[optional] Source plane Y axis; default [0,1,0]"
+        default: "[0,1,0]"
+      dst_origin:
+        type: point3
+        description: "[required] Target plane origin"
+      dst_x:
+        type: point3
+        description: "[optional] Target plane X axis; default [1,0,0]"
+        default: "[1,0,0]"
+      dst_y:
+        type: point3
+        description: "[optional] Target plane Y axis; default [0,1,0]"
+        default: "[0,1,0]"
+    required: [dst_origin]
+  topology_role: transform
+  kg_predicates: [flowed_to]
+  synonyms: [planarflow, planar-flow, planeflow, flowtoplane]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Maps geometry from source plane UV coordinates to target plane UV coordinates. Affine plane-to-plane flow."
+
+- name: SdTwist
+  kernel_op: twist
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to twist; falls back to selection"
+      axis:
+        type: point3
+        description: "[optional] Twist axis direction; default [0,0,1] (Z)"
+        default: "[0,0,1]"
+      axis_origin:
+        type: point3
+        description: "[optional] Point on twist axis; default world origin"
+        default: "[0,0,0]"
+      angle:
+        type: number
+        unit: deg
+        default: 90
+        description: "[optional unit=deg] Total twist angle from base to top of object extent"
+    required: []
+  topology_role: transform
+  kg_predicates: [deformed_by]
+  synonyms: [twist, twistdeform, twist-deform]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Rotates geometry cross-sections proportionally along the twist axis. Angle is total rotation from one end to the other."
+
+- name: SdTaper
+  kernel_op: taper
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to taper; falls back to selection"
+      axis:
+        type: point3
+        description: "[optional] Taper axis direction; default [0,0,1] (Z)"
+        default: "[0,0,1]"
+      axis_origin:
+        type: point3
+        description: "[optional] Point on taper axis; default world origin"
+        default: "[0,0,0]"
+      start_factor:
+        type: number
+        default: 1.0
+        description: "[optional] Scale factor at the start (base) of the object"
+      end_factor:
+        type: number
+        default: 0.5
+        description: "[optional] Scale factor at the end (top) of the object"
+      factor:
+        type: number
+        description: "[optional] Shorthand for end_factor when start_factor=1.0"
+    required: []
+  topology_role: transform
+  kg_predicates: [deformed_by]
+  synonyms: [taper, taperdeform, taper-deform, scale-along-axis]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Scales cross-sections perpendicularly along the taper axis, interpolating from start_factor to end_factor."
+
+- name: SdBend
+  kernel_op: bend
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to bend; falls back to selection"
+      axis:
+        type: point3
+        description: "[optional] Bend spine axis direction (parallel to the cylinder spine); default [0,1,0]"
+        default: "[0,1,0]"
+      direction:
+        type: point3
+        description: "[optional] Bend direction (axis being curved); default [1,0,0]"
+        default: "[1,0,0]"
+      origin:
+        type: point3
+        description: "[optional] Point on bend spine axis; default world origin"
+        default: "[0,0,0]"
+      angle:
+        type: number
+        unit: deg
+        default: 90
+        description: "[optional unit=deg] Total bend angle"
+    required: []
+  topology_role: transform
+  kg_predicates: [deformed_by]
+  synonyms: [bend, benddeform, bend-deform, curve-along-axis]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+  note: "Bends geometry along a cylindrical arc. Axis is the spine of the bend cylinder; direction is the axis being curved."
+
+# ── C++-blocked stubs ──────────────────────────────────────────────────────────
+
+- name: SdFlowAlongCurve
+  kernel_op: kern_flow_along_curve
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of source object"
+      rail:
+        type: list_point3
+        description: "[required] Rail curve control points"
+      align:
+        type: string
+        default: "normal"
+        description: "[optional] Frame alignment: normal | vertical | freeform"
+    required: [rail]
+  topology_role: transform
+  kg_predicates: [flowed_along]
+  synonyms: [flowalong, flow-along-curve, flowalongrail, flowcurve]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_flow_along_curve sweep+frame-interpolation along NURBS rail. Returns NotYetImplemented."
+
+- name: SdFlowAlongSurface
+  kernel_op: kern_flow_along_surface
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of source object"
+      surface_points:
+        type: list_point3
+        description: "[required] Control points defining the target NURBS surface"
+    required: [surface_points]
+  topology_role: transform
+  kg_predicates: [flowed_onto]
+  synonyms: [flowalongsurface, flow-along-surface, flowsurface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_flow_along_surface UV-pullback morphing. Returns NotYetImplemented."
+
+- name: SdCageMorph
+  kernel_op: kern_cage_morph
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to morph"
+      cage_points:
+        type: list_point3
+        description: "[required] 27 control points of the 3×3×3 cage (row-major)"
+      deformed_points:
+        type: list_point3
+        description: "[required] 27 deformed control points of the cage (row-major)"
+    required: [cage_points, deformed_points]
+  topology_role: transform
+  kg_predicates: [cage_morphed]
+  synonyms: [cagemorph, cage-morph, cage-edit, cageedit, freefromdeform, ffd]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_cage_morph trilinear cage interpolation. Returns NotYetImplemented."
+
+- name: SdSporph
+  kernel_op: kern_sporph
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of source object"
+      src_surface:
+        type: list_point3
+        description: "[required] Source NURBS surface control points"
+      dst_surface:
+        type: list_point3
+        description: "[required] Destination NURBS surface control points"
+    required: [src_surface, dst_surface]
+  topology_role: transform
+  kg_predicates: [sporphed_to]
+  synonyms: [sporph, surface-morph, surf-morph]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_sporph surface-to-surface UV morphing. Returns NotYetImplemented."
+
+- name: SdSplop
+  kernel_op: kern_splop
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to distribute"
+      surface_points:
+        type: list_point3
+        description: "[required] Target NURBS surface control points"
+      u_count:
+        type: integer
+        default: 3
+        description: "[optional] Number of instances in U direction"
+      v_count:
+        type: integer
+        default: 3
+        description: "[optional] Number of instances in V direction"
+      align:
+        type: string
+        default: "normal"
+        description: "[optional] Frame alignment mode: normal | flat"
+    required: [surface_points]
+  topology_role: transform
+  kg_predicates: [splopped_onto]
+  synonyms: [splop, surface-populate, populate-surface]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_splop surface UV grid instance placement. Returns NotYetImplemented."
+
+- name: SdMaelstrom
+  kernel_op: kern_maelstrom
+  parameters:
+    type: object
+    properties:
+      target:
+        type: string
+        description: "[optional] UUID of object to deform"
+      axis:
+        type: point3
+        description: "[optional] Maelstrom axis direction; default [0,0,1]"
+        default: "[0,0,1]"
+      origin:
+        type: point3
+        description: "[optional] A point on the maelstrom axis; default world origin"
+        default: "[0,0,0]"
+      angle:
+        type: number
+        unit: deg
+        default: 360
+        description: "[optional unit=deg] Total spiral rotation angle"
+      falloff_radius:
+        type: number
+        unit: m
+        default: 1.0
+        description: "[optional unit=m] Radial distance at which deformation falls to zero"
+    required: []
+  topology_role: transform
+  kg_predicates: [deformed_by]
+  synonyms: [maelstrom, vortex, spiral-deform, spiraldeform]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+  note: "BLOCKED: requires kern Phase D — kern_maelstrom radial-falloff spiral deformation. Returns NotYetImplemented."
+
+# ── Issue #331 verbs ────────────────────────────────────────────
+# ── S11 Measurement & mass properties (#331) ─────────────────────────────────
+# YAML fragment — merge into §12 Analysis of spatial-api.yaml after SdFaceArea.
+# Each entry follows the codebase schema convention exactly.
+
+- name: SdCurveLength
+  kernel_op: measureCurveLength
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of a canonical curve or brep whose arc length to compute"
+    required: [target]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - curve length
+    - length of curve
+    - measure curve
+    - how long is this curve
+    - perimeter
+  note: |
+    Arc-length via GL-16 Gaussian quadrature of ‖C′(t)‖ dt. Exact for line/arc kinds;
+    relative tolerance 1e-5 for smooth NURBS degree ≥ 3.
+    oracle: closed-form GL16; matches replicad CurveLengthComputer within 1e-5 relative.
+  alias_source: generic_cad_vocabulary
+
+- name: SdAreaCentroid
+  kernel_op: measureAreaCentroid
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of a surface or brep whose area centroid to compute"
+    required: [target]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - area centroid
+    - surface centroid
+    - centroid of surface
+    - geometric center
+    - center of mass surface
+    - center of area
+  note: |
+    Area-weighted centroid from tessellated triangle mesh (Green's theorem).
+    Oracle: area-weighted centroid of tessellateSurface triangulation;
+    validated vs replicad/OCCT GProp_GProps (tol 1e-3 for smooth surfaces at 64×64 samples).
+  alias_source: generic_cad_vocabulary
+
+- name: SdBoundingBox
+  kernel_op: measureBoundingBox
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of a scene object whose axis-aligned bounding box to compute"
+    required: [target]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - bounding box
+    - bbox
+    - aabb
+    - axis aligned bounding box
+    - extent
+    - bounds
+    - how big is this object
+    - object size
+  note: |
+    Returns { min, max, center, diagonal, volume } in model units (m).
+    Computed via THREE.Box3.setFromObject (includes world transform); falls back to
+    brep tessellation if object has no render geometry.
+    oracle: THREE.Box3 — exact on rendered geometry.
+  alias_source: generic_cad_vocabulary
+
+- name: SdBoundingBoxOriented
+  kernel_op: measureBoundingBoxOriented
+  parameters:
+    type: object
+    properties:
+      target:
+        type: object_id
+        description: "[required] UUID of a scene object whose oriented bounding box to compute"
+    required: [target]
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - oriented bounding box
+    - obb
+    - tight bounding box
+    - minimum bounding box
+    - oriented bbox
+    - tight box
+  note: |
+    PCA-based OBB via Jacobi eigenvectors of covariance matrix.
+    Returns { center, axes:[3×Vector3], halfExtents:[3], volume }.
+    oracle: Jacobi 3×3; validated vs OCCT BRepBndLib::AddOBB for arbitrary-rotation inputs
+    (tol 5% volume for typical NURBS surfaces with 32×32 samples).
+  alias_source: generic_cad_vocabulary
+
+- name: SdClosestPointPoint
+  kernel_op: measureClosestPointPoint
+  parameters:
+    type: object
+    properties:
+      pointA:
+        type: array
+        items:
+          type: number
+        description: "[optional unit=m] First point [x, y, z]. Provide pointA or targetA."
+      pointB:
+        type: array
+        items:
+          type: number
+        description: "[optional unit=m] Second point [x, y, z]. Provide pointB or targetB."
+      targetA:
+        type: object_id
+        description: "[optional] UUID of first scene object; centroid used as point."
+      targetB:
+        type: object_id
+        description: "[optional] UUID of second scene object; centroid used as point."
+    required: []
+  topology_role: annotation
+  kg_predicates: []
+  synonyms:
+    - closest point point
+    - point to point distance
+    - distance two points
+    - point distance
+    - measure points
+  note: |
+    Exact Euclidean distance ‖B − A‖₂ between two points or object centroids.
+    Returns { distance, pointA, pointB, midpoint, direction }.
+    oracle: closed-form Euclidean formula; machine-precision exact.
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #332 verbs ────────────────────────────────────────────
+# S332 SubD schema fragment — merge into §2 Solid primitives / new §S12 SubD section
+# Issue #332: S12 — SubD (from-mesh / primitives / loft-sweep / ToBrep / ToNurbs / subdivide / crease)
+#
+# ALL verbs in this fragment are BLOCKED on kern.wasm SubD extensions.
+# Handlers return { error: "NotYetImplemented" } until kern/subd.cpp is compiled.
+# See docs/spec-332-subd.md for full architectural spec.
+#
+# ============================================================
+# §S12 SubD — Subdivision Surface operations
+# ============================================================
+
+- name: SdSubDFromMesh
+  kernel_op: kern_subd_from_mesh
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID or selection reference of the source mesh."
+      creaseWeight:
+        type: number
+        default: 0
+        description: "[optional] Default crease weight for all edges (0 = smooth, >=2 = full crease)."
+    required: [objectId]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdfrommesh, "subd from mesh", "convert to subd", "mesh to subd"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDBox
+  kernel_op: kern_subd_box
+  parameters:
+    type: object
+    properties:
+      width:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional unit=m default=1] Width (X dimension) of the SubD box."
+      depth:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional unit=m default=1] Depth (Y dimension) of the SubD box."
+      height:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional unit=m default=1] Height (Z dimension) of the SubD box."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdbox, "subd box", "subdivision box", "organic box"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDSphere
+  kernel_op: kern_subd_sphere
+  parameters:
+    type: object
+    properties:
+      radius:
+        type: number
+        unit: m
+        default: 1
+        description: "[optional unit=m default=1] Sphere radius."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdsphere, "subd sphere", "subdivision sphere", "organic sphere"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDCylinder
+  kernel_op: kern_subd_cylinder
+  parameters:
+    type: object
+    properties:
+      radius:
+        type: number
+        unit: m
+        default: 0.5
+        description: "[optional unit=m default=0.5] Cylinder radius."
+      height:
+        type: number
+        unit: m
+        default: 2
+        description: "[optional unit=m default=2] Cylinder height."
+      sides:
+        type: integer
+        default: 8
+        description: "[optional default=8] Number of longitudinal sides."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdcylinder, "subd cylinder", "subdivision cylinder"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDCone
+  kernel_op: kern_subd_cone
+  parameters:
+    type: object
+    properties:
+      radius:
+        type: number
+        unit: m
+        default: 0.5
+        description: "[optional unit=m default=0.5] Base radius."
+      height:
+        type: number
+        unit: m
+        default: 2
+        description: "[optional unit=m default=2] Cone height."
+      sides:
+        type: integer
+        default: 8
+        description: "[optional default=8] Number of longitudinal sides."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdcone, "subd cone", "subdivision cone"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDPlane
+  kernel_op: kern_subd_plane
+  parameters:
+    type: object
+    properties:
+      width:
+        type: number
+        unit: m
+        default: 2
+        description: "[optional unit=m default=2] Plane width (X)."
+      depth:
+        type: number
+        unit: m
+        default: 2
+        description: "[optional unit=m default=2] Plane depth (Y)."
+      uDivisions:
+        type: integer
+        default: 4
+        description: "[optional default=4] Grid divisions in U direction."
+      vDivisions:
+        type: integer
+        default: 4
+        description: "[optional default=4] Grid divisions in V direction."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: face
+  kg_predicates: []
+  synonyms: [subdplane, "subd plane", "subdivision plane", "subd grid"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDTorus
+  kernel_op: kern_subd_torus
+  parameters:
+    type: object
+    properties:
+      majorRadius:
+        type: number
+        unit: m
+        default: 2
+        description: "[optional unit=m default=2] Major radius (distance from torus center to tube center)."
+      minorRadius:
+        type: number
+        unit: m
+        default: 0.5
+        description: "[optional unit=m default=0.5] Minor radius (tube radius)."
+      uSides:
+        type: integer
+        default: 8
+        description: "[optional default=8] Segments around the major axis."
+      vSides:
+        type: integer
+        default: 8
+        description: "[optional default=8] Segments around the tube."
+      center:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space center [x, y, z]. Defaults to [0, 0, 0]."
+    required: []
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdtorus, "subd torus", "subdivision torus", "organic torus", "donut subd"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDCreaseSet
+  kernel_op: kern_subd_crease_set
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID of the target SubD object."
+      edges:
+        type: array
+        items:
+          oneOf:
+            - type: integer
+            - type: array
+              items:
+                type: integer
+              minItems: 2
+              maxItems: 2
+        description: "[required] Edge indices (integers) or vertex-pair arrays [v0, v1] identifying edges."
+      weight:
+        type: number
+        default: 2
+        description: "[optional default=2] Crease weight. 0=smooth, >=2=full crease, Infinity=corner."
+    required: [objectId, edges]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [setcrease, "set crease", "add crease", "crease edge", "subd crease"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDCreaseRemove
+  kernel_op: kern_subd_crease_remove
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID of the target SubD object."
+      edges:
+        type: array
+        items:
+          oneOf:
+            - type: integer
+            - type: array
+              items:
+                type: integer
+              minItems: 2
+              maxItems: 2
+        description: "[optional] Edge indices or vertex-pair arrays. If omitted, removes all creases."
+      all:
+        type: boolean
+        default: false
+        description: "[optional default=false] If true, remove all creases on the object."
+    required: [objectId]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [removecrease, "remove crease", "uncrease", "smooth edge", "delete crease"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDToBrep
+  kernel_op: kern_subd_to_brep
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID of the source SubD object."
+      smooth:
+        type: boolean
+        default: true
+        description: "[optional default=true] true=limit surface patches; false=faceted control-net BRep."
+      tolerance:
+        type: number
+        default: 0.0001
+        description: "[optional default=0.0001] Fit tolerance for extraordinary vertex regions."
+      keepOriginal:
+        type: boolean
+        default: false
+        description: "[optional default=false] Keep the original SubD object after conversion."
+    required: [objectId]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdtobrep, "subd to brep", "convert subd to brep", "subd to solid"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDToNurbs
+  kernel_op: kern_subd_to_nurbs
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID of the source SubD object."
+      degree:
+        type: integer
+        default: 3
+        description: "[optional default=3] Target NURBS degree for output patches."
+      tolerance:
+        type: number
+        default: 0.001
+        description: "[optional default=0.001] Approximation tolerance."
+      keepOriginal:
+        type: boolean
+        default: false
+        description: "[optional default=false] Keep the original SubD object after conversion."
+    required: [objectId]
+  topology_role: face
+  kg_predicates: []
+  synonyms: [subdtonurbs, "subd to nurbs", "convert subd to nurbs", "subd to surface"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+- name: SdSubDControlPointEdit
+  kernel_op: kern_subd_control_point_edit
+  parameters:
+    type: object
+    properties:
+      objectId:
+        type: string
+        description: "[required] Scene UUID of the target SubD object."
+      vertexIndex:
+        type: integer
+        description: "[required] Index of the control vertex to move."
+      position:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] New world-space position [x, y, z]. Use position OR delta."
+      delta:
+        type: array
+        items:
+          type: number
+        minItems: 3
+        maxItems: 3
+        unit: m
+        description: "[optional unit=m] World-space displacement [dx, dy, dz]. Use position OR delta."
+    required: [objectId, vertexIndex]
+  topology_role: solid
+  kg_predicates: []
+  synonyms: [subdcpedit, "subd control point", "move subd vertex", "edit subd point", "subd cp edit"]
+  kernel: nurbs-webgpu
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #333 verbs ────────────────────────────────────────────
+# S333 — Interop / file-format verbs
+# YAML fragment — merge into spatial-api.yaml §13 IO section.
+#
+# Each entry follows the existing schema format exactly (see §13 for reference).
+# kernel_op values match registerHandler("Sd*") keys in s333-impl.ts.
+# All aliases are generic_cad_vocabulary (unprotectable functional verbs).
+
+# ── Read / import ops ────────────────────────────────────────────────────────
+
+- name: Sd3dmRead
+  kernel_op: 3dmRead
+  parameters:
+    type: object
+    properties:
+      bytes:
+        type: arraybuffer
+        description: "[required] Raw .3dm file bytes (ArrayBuffer)"
+      filename:
+        type: string
+        description: "[optional] Display name shown in status bar"
+        default: "model.3dm"
+    required: [bytes]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [open 3dm, import 3dm, load 3dm, rhino open, open rhino file, import rhino]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdDxfRead
+  kernel_op: dxfRead
+  parameters:
+    type: object
+    properties:
+      bytes:
+        type: arraybuffer
+        description: "[required] Raw DXF file bytes (ASCII or UTF-8)"
+      filename:
+        type: string
+        description: "[optional] Display name"
+        default: "model.dxf"
+    required: [bytes]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [import dxf, open dxf, load dxf, read dxf, autocad dxf import]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdIfcImport
+  kernel_op: ifcImport
+  parameters:
+    type: object
+    properties:
+      bytes:
+        type: arraybuffer
+        description: "[required] Raw IFC file bytes"
+      filename:
+        type: string
+        description: "[optional] Display name"
+        default: "model.ifc"
+    required: [bytes]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [import ifc, open ifc, load ifc, ifc import, read ifc]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdIgesRead
+  kernel_op: igesRead
+  parameters:
+    type: object
+    properties:
+      bytes:
+        type: arraybuffer
+        description: "[required] Raw IGES file bytes"
+      filename:
+        type: string
+        description: "[optional] Display name"
+        default: "model.iges"
+    required: [bytes]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [import iges, open iges, load iges, read iges, iges import]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── Write / export ops ───────────────────────────────────────────────────────
+
+- name: SdObjWrite
+  kernel_op: objWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.obj"
+      target:
+        type: string
+        description: "[optional] 'scene' or 'selection'"
+        default: "scene"
+    required: []
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export obj, save obj, obj export, write obj, save as obj, download obj]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdStlWrite
+  kernel_op: stlWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.stl"
+      ascii:
+        type: boolean
+        description: "[optional] Emit ASCII STL instead of binary"
+        default: false
+    required: []
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export stl, save stl, stl export, write stl, save as stl, download stl, print, 3d print]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdIgesWrite
+  kernel_op: igesWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.igs"
+    required: []
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export iges, save iges, iges export, write iges, save as iges]
+  note: "Blocked: kern_iges_write_nurbs not yet in kern.wasm. Returns NotYetImplemented."
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdGltfJsonExport
+  kernel_op: gltfJsonExport
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.gltf"
+    required: []
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export gltf, save gltf, gltf export, write gltf, export gltf json, download gltf]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── C++ blocked stubs ────────────────────────────────────────────────────────
+
+- name: SdStepWrite
+  kernel_op: stepWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.step"
+    required: []
+  topology_role: system
+  kg_predicates: []
+  synonyms: [export step, save step, step export, write step, save as step]
+  note: "Blocked: kern_step_write not yet in kern.wasm. Returns NotYetImplemented."
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+- name: SdDwgRead
+  kernel_op: dwgRead
+  parameters:
+    type: object
+    properties:
+      bytes:
+        type: arraybuffer
+        description: "[required] Raw DWG file bytes"
+      filename:
+        type: string
+        description: "[optional] Display name"
+        default: "model.dwg"
+    required: [bytes]
+  topology_role: system
+  kg_predicates: []
+  synonyms: [import dwg, open dwg, load dwg, read dwg, autocad dwg import]
+  note: "Blocked: kern_dwg_read requires libredwg/ODA (GPL/proprietary). Convert DWG→DXF first."
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
+# ── Issue #334 verbs ────────────────────────────────────────────
+# s334-schema.yaml.part — S14 Grasshopper parametric layer (#334)
+#
+# YAML fragment to be merged into spatial-api.yaml under §14 Grasshopper.
+# Follows the same schema format as existing entries:
+#   name / kernel_op / parameters / topology_role / kg_predicates / synonyms / kernel / alias_source
+#
+# All ops here are pure TypeScript (no kern.wasm). kernel: gh-runtime.
+# Ops marked "NotYetImplemented" have stub handlers that return an error.
+#
+# ============================================================
+# §14 Grasshopper parametric layer
+# ============================================================
+
+- name: GhScriptRuntime_Python
+  kernel_op: ghScriptPython
+  parameters:
+    type: object
+    properties:
+      script:
+        type: string
+        description: "[required] Python script source (GhPython-compatible)"
+      inputs:
+        type: object
+        description: "[optional] Input name→value map passed to the script as globals"
+    required: [script]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_python, grasshopper_python, pycomponent]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — requires Pyodide WASM runtime. See docs/spec-334-grasshopper.md § A1-Python."
+
+- name: GhScriptRuntime_CSharp
+  kernel_op: ghScriptCSharp
+  parameters:
+    type: object
+    properties:
+      script:
+        type: string
+        description: "[required] C# script source (GH_Component SolveInstance-style)"
+      inputs:
+        type: object
+        description: "[optional] Input name→value map"
+    required: [script]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_csharp, grasshopper_csharp, cscomponent]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — blocked on dotnet-wasm/mono-wasm. See docs/spec-334-grasshopper.md § A1-CSharp."
+
+- name: GhScriptRuntime_JavaScript
+  kernel_op: ghScriptJavaScript
+  parameters:
+    type: object
+    properties:
+      script:
+        type: string
+        description: "[required] JavaScript source evaluated in a sandboxed scope"
+      inputs:
+        type: object
+        description: "[optional] Input name→value map"
+    required: [script]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_js, grasshopper_js, jscomponent]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — requires sandboxed JS evaluator. See docs/spec-334-grasshopper.md § A1-JavaScript."
+
+- name: GhDataTree_Model
+  kernel_op: ghDataTreeModel
+  parameters:
+    type: object
+    properties:
+      op:
+        type: string
+        description: "[required] CRUD operation: create | addItem | getItem | getBranch | allPaths | allItems | itemCount | branchCount"
+      path:
+        type: array
+        items:
+          type: number
+        description: "[optional] GhPath — array of integers, e.g. [0, 1, 2]"
+      item:
+        description: "[optional] Item value to add"
+      index:
+        type: number
+        description: "[optional] Item index within branch"
+    required: [op]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_datatree, grasshopper_datatree, datatree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+
+- name: GhDataTree_Graft
+  kernel_op: ghDataTreeGraft
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to graft"
+    required: [tree]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_graft, graft_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Each item becomes its own branch. oracle: Grasshopper Graft component."
+
+- name: GhDataTree_Flatten
+  kernel_op: ghDataTreeFlatten
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to flatten"
+    required: [tree]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_flatten, flatten_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Collapse all branches to root. oracle: Grasshopper Flatten component."
+
+- name: GhDataTree_Simplify
+  kernel_op: ghDataTreeSimplify
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to simplify"
+    required: [tree]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_simplify, simplify_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Remove common path prefix. oracle: Grasshopper Simplify component."
+
+- name: GhDataTree_Shift
+  kernel_op: ghDataTreeShift
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to shift"
+      offset:
+        type: array
+        items:
+          type: number
+        description: "[optional] Path index offset per depth level, e.g. [1, 0]"
+    required: [tree]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_shift_paths, shift_paths]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Shift path indices. oracle: Grasshopper Shift Paths component."
+
+- name: GhDataTree_Cull
+  kernel_op: ghDataTreeCull
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to cull from"
+      mode:
+        type: string
+        description: "[optional] cull mode: index | pattern | nth (default: index)"
+      indices:
+        type: array
+        items:
+          type: number
+        description: "[optional] indices to remove (mode=index)"
+      pattern:
+        type: array
+        items:
+          type: boolean
+        description: "[optional] boolean pattern — true = remove (mode=pattern)"
+      n:
+        type: number
+        description: "[optional] keep every N-th item (mode=nth)"
+    required: [tree]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_cull, cull_tree, cull_index, cull_pattern, cull_nth]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+
+- name: GhDataTree_Dispatch
+  kernel_op: ghDataTreeDispatch
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to dispatch"
+      pattern:
+        type: array
+        items:
+          type: boolean
+        description: "[required] dispatch pattern — true = output A, false = output B"
+    required: [tree, pattern]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_dispatch, dispatch_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Split items into two trees by boolean pattern. oracle: Grasshopper Dispatch component."
+
+- name: GhDataTree_Weave
+  kernel_op: ghDataTreeWeave
+  parameters:
+    type: object
+    properties:
+      trees:
+        type: array
+        items:
+          type: object
+        description: "[required] List of GhDataTree inputs to weave"
+      pattern:
+        type: array
+        items:
+          type: number
+        description: "[required] Weave pattern — each value is the 0-based source tree index"
+    required: [trees, pattern]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_weave, weave_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Interleave items from multiple trees. oracle: Grasshopper Weave component."
+
+- name: GhDataTree_Merge
+  kernel_op: ghDataTreeMerge
+  parameters:
+    type: object
+    properties:
+      trees:
+        type: array
+        items:
+          type: object
+        description: "[required] List of GhDataTree inputs to merge"
+    required: [trees]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_merge, merge_tree]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Union all trees, combining branches at matching paths. oracle: Grasshopper Merge component."
+
+- name: GhDataTree_PathMapper
+  kernel_op: ghDataTreePathMapper
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to remap"
+      inputPattern:
+        type: array
+        items:
+          type: string
+        description: "[required] Input path tokens, e.g. [\"A\", \"B\", \"C\"]"
+      outputPattern:
+        type: array
+        items:
+          type: string
+        description: "[required] Output path tokens, e.g. [\"C\", \"A\"]"
+    required: [tree, inputPattern, outputPattern]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_path_mapper, path_mapper]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Remap paths by token substitution. oracle: Grasshopper Path Mapper component."
+
+- name: GhDataTree_Partition
+  kernel_op: ghDataTreePartition
+  parameters:
+    type: object
+    properties:
+      tree:
+        type: object
+        description: "[required] GhDataTree to partition"
+      size:
+        type: number
+        description: "[required] Partition size (items per sub-list)"
+    required: [tree, size]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_partition, partition_list]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Split each branch into sub-lists of size N. oracle: Grasshopper Partition List component."
+
+- name: GhMath_Components
+  kernel_op: ghMathComponents
+  parameters:
+    type: object
+    properties:
+      op:
+        type: string
+        description: "[required] Math op name: add | subtract | multiply | divide | power | sqrt | abs | modulus | sin | cos | tan | asin | acos | atan | atan2 | logN | pi | average | max | min | round | floor | ceiling | clamp | interpolate | series | range | degrees | radians"
+      a:
+        type: number
+        description: "[optional] First operand"
+      b:
+        type: number
+        description: "[optional] Second operand"
+      values:
+        type: array
+        items:
+          type: number
+        description: "[optional] List of values (for average)"
+      domain:
+        type: object
+        description: "[optional] Interval/Domain for range op"
+      steps:
+        type: number
+        description: "[optional] Step count for range op"
+      step:
+        type: number
+        description: "[optional] Step size for series op"
+      count:
+        type: number
+        description: "[optional] Item count for series op"
+      base:
+        type: number
+        description: "[optional] Log base for logN op"
+      t:
+        type: number
+        description: "[optional] Interpolation parameter for interpolate op"
+      min:
+        type: number
+        description: "[optional] Min for clamp op"
+      max:
+        type: number
+        description: "[optional] Max for clamp op"
+    required: [op]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_math, grasshopper_math]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "Pure-math Grasshopper Math tab components. oracle: closed-form IEEE 754."
+
+- name: GhComponentGraph_Evaluator
+  kernel_op: ghComponentGraphEvaluate
+  parameters:
+    type: object
+    properties:
+      graphId:
+        type: string
+        description: "[required] Component graph session ID"
+    required: [graphId]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_evaluate, gh_graph_evaluate]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — requires GhComponentGraph evaluator (web/src/gh/gh-component-graph.ts). See docs/spec-334-grasshopper.md § A3."
+
+- name: GhComponentGraph_LazyEvaluation
+  kernel_op: ghComponentGraphLazy
+  parameters:
+    type: object
+    properties:
+      graphId:
+        type: string
+        description: "[required] Component graph session ID"
+      nodeId:
+        type: string
+        description: "[required] Node to mark dirty and trigger lazy re-evaluation"
+    required: [graphId, nodeId]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [gh_lazy_eval, gh_dirty_propagate]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — requires lazy dirty-propagation in GhComponentGraph. See docs/spec-334-grasshopper.md § A3."
+
+- name: GhRhinoScriptSyntax_API
+  kernel_op: ghRhinoScriptSyntax
+  parameters:
+    type: object
+    properties:
+      fn:
+        type: string
+        description: "[required] RhinoScriptSyntax function name, e.g. Distance, AddLine, VectorAdd"
+      args:
+        type: array
+        description: "[optional] Positional arguments to the function"
+    required: [fn]
+  topology_role: compound
+  kg_predicates: []
+  synonyms: [rhinoscript, rhinoscriptsyntax, rs]
+  kernel: gh-runtime
+  alias_source: generic_cad_vocabulary
+  note: "NotYetImplemented — requires RhinoScriptSyntax module (web/src/gh/gh-rhinoscript-api.ts). See docs/spec-334-grasshopper.md § A4. Reference: https://developer.rhino3d.com/api/rhinoscript/"
