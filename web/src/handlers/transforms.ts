@@ -7,7 +7,7 @@ import { replayCloneSideEffects } from "../viewer/copy-array";
 import { execAlignTool } from "../tools/index";
 import { csgUnion, csgDifference, csgIntersection, getUniqueEdges } from "../viewer/csg";
 import { runPolySel, runRectSel } from "../viewer/selection-ops";
-import { NurbsBooleanBackend } from "../nurbs/brep-boolean";
+import { brepUnion, brepDifference, brepIntersection } from "../nurbs/brep-boolean";
 import { BREP_DEFAULT_TOLERANCE, transformBrep, brepConcat, type Brep, type BrepFace } from "../nurbs/nurbs-brep";
 import { Plane, type Point3, type Xform } from "../nurbs/nurbs-primitives";
 import type { NurbsSurface } from "../nurbs/nurbs-surfaces";
@@ -44,11 +44,10 @@ function linkCanonicalBooleanResult(
   const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
   const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
 
-  const backend = new NurbsBooleanBackend();
   const canonicalResult =
-    op === "difference" ? backend.difference(brepA, brepB)
-      : op === "intersection" ? backend.intersection(brepA, brepB)
-        : backend.union(brepA, brepB);
+    op === "difference" ? brepDifference(brepA, brepB)
+      : op === "intersection" ? brepIntersection(brepA, brepB)
+        : brepUnion(brepA, brepB);
   if (!canonicalResult.ok) return;
 
   const record = store.create({
@@ -80,11 +79,10 @@ function canonicalBooleanDisplayResult(
   if (canonicalA?.kind !== "brep" || canonicalB?.kind !== "brep") return null;
   const brepA = transformBrep(canonicalA.brep, threeMatrixToXform(objA.matrixWorld));
   const brepB = transformBrep(canonicalB.brep, threeMatrixToXform(objB.matrixWorld));
-  const backend = new NurbsBooleanBackend();
   const canonicalResult =
-    op === "difference" ? backend.difference(brepA, brepB)
-      : op === "intersection" ? backend.intersection(brepA, brepB)
-        : backend.union(brepA, brepB);
+    op === "difference" ? brepDifference(brepA, brepB)
+      : op === "intersection" ? brepIntersection(brepA, brepB)
+        : brepUnion(brepA, brepB);
   if (!canonicalResult.ok) {
     return {
       error: `boolean ${op} canonical BRep failed: ${canonicalResult.error.code} (${canonicalResult.error.message})`,

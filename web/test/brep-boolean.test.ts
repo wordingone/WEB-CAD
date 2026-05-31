@@ -5,11 +5,11 @@
 //         per-op backend selection, BACKEND_UNAVAILABLE error path.
 //         #1828: SdBooleanUnion/SdBooleanDifference/SdBooleanIntersection schema +
 //         synonym routing + dispatch routing + error path.
-import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, afterEach, afterAll, beforeEach } from "bun:test";
 import {
   registerBackend, registeredBackends, resolveBackend,
   brepUnion, brepDifference, brepIntersection, brepSection,
-  ToyBooleanBackend, _clearRegistryForTest,
+  ToyBooleanBackend, NurbsBooleanBackend, _clearRegistryForTest,
   type IBooleanBackend, type BrepResult, type ChangeMap,
 } from "../src/nurbs/brep-boolean";
 import { brepFromSurface, brepFaceCount, type Brep } from "../src/nurbs/nurbs-brep";
@@ -40,9 +40,14 @@ function twoShellBrep(): Brep {
   };
 }
 
-// Reset registry to just the toy backend after each test
+// Reset registry to just the toy backend after each test.
+// afterAll restores NurbsBooleanBackend so subsequent test files (e.g. transforms.test.ts)
+// that rely on it via module-shared _registry aren't left with only ToyBooleanBackend.
 afterEach(() => {
   _clearRegistryForTest(true);
+});
+afterAll(() => {
+  registerBackend(new NurbsBooleanBackend());
 });
 
 describe("IBooleanBackend registry", () => {

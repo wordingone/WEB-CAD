@@ -232,7 +232,7 @@ function _newtonRefine(
 ): Seed | null {
   const domA0 = domainU(a), domA1 = domainV(a);
   const domB0 = domainU(b), domB1 = domainV(b);
-  const MAX_ITER = 20;
+  const MAX_ITER = 50; // M2: raised from 20 — alternating projection needs more iterations for curved surfaces (#316)
 
   for (let iter = 0; iter < MAX_ITER; iter++) {
     const pA = pointAtUV(a, u0, v0);
@@ -255,7 +255,9 @@ function _newtonRefine(
   // Check convergence after MAX_ITER
   const pA = pointAtUV(a, u0, v0);
   const pB = pointAtUV(b, u1, v1);
-  if (Pt3.distance(pA, pB) <= tol * 10) {
+  // M2: tightened from tol*10 → tol*2. The loose tol*10 accept produced seeds up to 10× off
+  // target precision, compounding into marching drift over deep parametric trees (#316).
+  if (Pt3.distance(pA, pB) <= tol * 2) {
     const pt = { x: (pA.x + pB.x) / 2, y: (pA.y + pB.y) / 2, z: (pA.z + pB.z) / 2 };
     return { u0, v0, u1, v1, pt };
   }
