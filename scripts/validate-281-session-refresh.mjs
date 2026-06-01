@@ -312,11 +312,29 @@ for (let i = 0; i < MAX_TURNS; i++) {
   // ── Pre-turn gate ────────────────────────────────────────────────────────────
   const pgStart = Date.now();
   let pgOk = false;
+  let pgFatalMs = 0;
   process.stdout.write(`[281-val] T${turnNum} pre-gate…`);
   while (Date.now() - pgStart < TURN_TIMEOUT) {
     const dis = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const txt = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
     if (!dis && String(txt).includes("SEND")) { pgOk = true; break; }
+    // Abort-on-FATAL: badge ERROR + chat disabled ≥30s in pre-gate → §C-recycle-limit FATAL.
+    // chatSendDisabled stays true permanently after unplannedOomCount≥2; without this guard
+    // the pre-gate spins for TURN_TIMEOUT (45min) and leaves orphan processes.
+    const pgBadge = String(await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`));
+    if (Boolean(dis) && pgBadge.includes("ERROR")) {
+      pgFatalMs += 5_000;
+      if (pgFatalMs >= 30_000) {
+        console.error(`\n[281-val] T${turnNum}: FATAL-STATE-ABORT — badge ERROR + chat disabled ≥30s → §C-recycle-limit FATAL`);
+        turns.push({ turn: turnNum, prompt, outcome: "fatal_abort", gpu_vram_mb_start: null, gpu_vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
+        persistArtifact(false);
+        ws.close();
+        clearLock();
+        process.exit(1);
+      }
+    } else {
+      pgFatalMs = 0;
+    }
     process.stdout.write("w"); await delay(5_000);
   }
   console.log();
