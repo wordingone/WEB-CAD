@@ -15,7 +15,7 @@
 // Requires: shared browser at :9222.
 
 import { WebSocket } from "ws";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 import { CDP_PORT } from "./ports.mjs";
 
@@ -30,6 +30,24 @@ const NO_NAV        = process.argv.includes("--no-nav");
 
 const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 mkdirSync("state/diag-307", { recursive: true });
+
+// ── Single-instance lockfile guard ───────────────────────────────────────────
+const LOCKFILE = "state/diag-307/.lock";
+if (existsSync(LOCKFILE)) {
+  const lockData = readFileSync(LOCKFILE, "utf8");
+  const lockTs = parseInt(lockData.split(":")[2] ?? "0");
+  const lockAge = Date.now() - lockTs;
+  if (lockAge < 10 * 60_000) {
+    console.error(`[307] another instance is running (lockfile age ${Math.round(lockAge/1000)}s). Abort.`);
+    process.exit(1);
+  }
+  console.warn(`[307] stale lockfile found (age ${Math.round(lockAge/60000)}min) — clearing`);
+}
+writeFileSync(LOCKFILE, `pid:${process.pid}:${Date.now()}`);
+const clearLock = () => { try { unlinkSync(LOCKFILE); } catch {} };
+process.on("exit", clearLock);
+process.on("SIGINT", () => { clearLock(); process.exit(0); });
+process.on("SIGTERM", () => { clearLock(); process.exit(0); });
 
 // ── CDP plumbing ──────────────────────────────────────────────────────────────
 const targets = JSON.parse(
@@ -78,35 +96,86 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 await send("Runtime.enable");
 await send("Page.enable");
 
-// ── Optional: cold-cache clear ────────────────────────────────────────────────
-if (!OPFS_WARM && !NO_NAV) {
-  console.log("[307] clearing storage for cold-cache Pages session…");
-  await send("Storage.clearDataForOrigin", {
-    origin: "https://wordingone.github.io",
-    storageTypes: "all",
-  });
-  console.log("[307] storage cleared");
-}
-
 // ── Navigate (or skip if --no-nav) ───────────────────────────────────────────
+// CDP IndexedDB requires a real page frame context, so we navigate to Pages first
+// (if starting from about:blank) to get that context, delete IDB, then blank-nav
+// to kill app JS before it can race-write session state back, then navigate to
+// Pages for the actual run.
+const nextLoadEvent = () => new Promise(res => {
+  const h = raw => {
+    const m = JSON.parse(raw);
+    if (m.method === "Page.loadEventFired") { ws.off("message", h); res(); }
+  };
+  ws.on("message", h);
+});
+
 let bootMs = 0;
 if (NO_NAV) {
   console.log("[307] --no-nav: skipping navigation, attaching to live session");
 } else {
+  // CDP IndexedDB domain requires a real page frame context — requestDatabaseNames
+  // fails from about:blank ("No document for given frame found"). Fix: navigate to
+  // Pages first if starting from blank, delete IDB, then blank-nav to kill app JS,
+  // then navigate to Pages for the actual run.
+  // Sequence: [if blank] Pages-for-ctx → IDB delete → blank → Pages-for-run
+  //           [if Pages]               → IDB delete → blank → Pages-for-run
+  const curUrlResult = await send("Runtime.evaluate", { expression: `window.location.href`, returnByValue: true });
+  const curUrl = curUrlResult.result?.value ?? "";
+  const startingAtBlank = !curUrl.startsWith("https://wordingone.github.io");
+
+  if (startingAtBlank) {
+    console.log("[307] (starting from blank) navigating to Pages for IDB frame context…");
+    const ctxLoaded = Promise.race([nextLoadEvent(), delay(10_000)]);
+    await send("Page.navigate", { url: PAGES_URL });
+    await ctxLoaded;
+    await delay(300); // let frame settle
+  }
+
+  // Step 1: delete IDB databases via CDP (requires Pages frame context; privileged delete
+  // bypasses open-connection blocking and same-origin restriction)
+  console.log("[307] clearing IDB via CDP IndexedDB…");
+  try { await send("IndexedDB.enable"); } catch (e) { console.warn(`[307] IndexedDB.enable warn: ${e.message}`); }
+  let idbDbs = [];
+  try {
+    const idbResult = await send("IndexedDB.requestDatabaseNames", { securityOrigin: "https://wordingone.github.io" });
+    idbDbs = idbResult.databaseNames ?? [];
+  } catch (e) { console.warn(`[307] IDB list warn (non-fatal): ${e.message}`); }
+  console.log(`[307] IDB databases: ${JSON.stringify(idbDbs)}`);
+  for (const name of idbDbs) {
+    try {
+      await send("IndexedDB.deleteDatabase", { securityOrigin: "https://wordingone.github.io", databaseName: name });
+      console.log(`[307] deleted IDB: ${name}`);
+    } catch (e) { console.warn(`[307] IDB delete ${name} warn (non-fatal): ${e.message}`); }
+  }
+
+  // Step 2: blank-nav to kill app JS (prevents IDB re-write race between IDB delete and reload)
+  console.log("[307] blank-nav → about:blank (kill app JS)…");
+  const blankLoaded = Promise.race([nextLoadEvent(), delay(5_000)]);
+  await send("Page.navigate", { url: "about:blank" });
+  await blankLoaded;
+  await delay(500);
+
+  // Step 3: clear cookies + localStorage
+  await send("Storage.clearDataForOrigin", {
+    origin: "https://wordingone.github.io",
+    storageTypes: "cookies,local_storage",
+  });
+  if (OPFS_WARM) {
+    console.log("[307] app state cleared (OPFS preserved)");
+  } else {
+    await send("Storage.clearDataForOrigin", {
+      origin: "https://wordingone.github.io",
+      storageTypes: "file_systems,cache_storage,service_workers,shader_cache",
+    });
+    console.log("[307] storage cleared (cold-cache)");
+  }
+
+  // Step 4: navigate to Pages URL for the actual run
   console.log(`[307] navigating → ${PAGES_URL}`);
+  const pagesLoaded = Promise.race([nextLoadEvent(), delay(15_000)]);
   await send("Page.navigate", { url: PAGES_URL });
-  // Wait for Page.loadEventFired to confirm actual reload before polling
-  await Promise.race([
-    new Promise(res => {
-      const handler = raw => {
-        const msg = JSON.parse(raw);
-        if (msg.method === "Page.loadEventFired") { ws.off("message", handler); res(); }
-      };
-      ws.on("message", handler);
-    }),
-    delay(15_000),
-  ]);
-  await delay(2_000); // settle after load
+  await pagesLoaded;
+  await delay(2_000);
 }
 
 // ── Inject diagnostic listeners ───────────────────────────────────────────────
@@ -139,6 +208,7 @@ const bootStart = Date.now();
 let booted = NO_NAV; // --no-nav: assume already booted, pre-gate will wait
 if (!NO_NAV) {
   console.log(`[307] waiting for boot-complete (badge READY + btn SEND, up to ${BOOT_TIMEOUT/60000}min)…`);
+  let bootStuckMs = 0;
   while (Date.now() - bootStart < BOOT_TIMEOUT) {
     const badgeText   = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
@@ -146,6 +216,15 @@ if (!NO_NAV) {
     if (String(badgeText).includes("READY") && !btnDisabled && String(btnText).includes("SEND")) {
       booted = true; break;
     }
+    // §#307-recovery: if badge READY but button stuck "…" at boot, same orphaned-_send() issue.
+    if (String(btnText) === '…' && Boolean(btnDisabled) && String(badgeText).includes('READY')) {
+      bootStuckMs += 5_000;
+      if (bootStuckMs >= 60_000) {
+        console.warn(`\n[307] boot: stuck "…"+READY for 60s — resetting button to SEND`);
+        await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+        bootStuckMs = 0;
+      }
+    } else { bootStuckMs = 0; }
     process.stdout.write(".");
     await delay(5_000);
   }
@@ -186,13 +265,57 @@ for (let i = 0; i < MAX_TURNS; i++) {
   // ── Pre-turn gate: wait for button SEND+enabled (serializes turns) ──────────
   // If the previous turn timed out while model was still generating, this waits
   // for that generation to finish before we send the next turn.
+  // §#307-recovery: if badge READY but button "…" for ≥60s, the _send() Promise was orphaned
+  // by a D3D12-OOM recycle (worker died, Promise never resolved). Reset button to SEND.
   const preGateStart = Date.now();
   let preGateOk = false;
+  let preGateStuckMs = 0;
+  let preGateErrorMs = 0;
   process.stdout.write(`[307] turn ${turnCount}/${MAX_TURNS} pre-gate…`);
   while (Date.now() - preGateStart < TURN_TIMEOUT) {
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const btnText    = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
     if (!btnDisabled && String(btnText).includes("SEND")) { preGateOk = true; break; }
+    if (String(btnText) === '…' && Boolean(btnDisabled)) {
+      const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+      if (String(badgeText).includes('READY')) {
+        preGateStuckMs += 5_000; preGateErrorMs = 0;
+        if (preGateStuckMs >= 60_000) {
+          console.warn(`\n[307] pre-gate: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
+          await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+          preGateStuckMs = 0;
+        }
+      } else if (String(badgeText).includes('ERROR')) {
+        preGateErrorMs += 5_000; preGateStuckMs = 0;
+        if (preGateErrorMs >= 120_000) {
+          console.warn(`\n[307] pre-gate: badge ERROR for 120s — reloading page`);
+          const pgBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+          await send("Page.navigate", { url: "about:blank" });
+          await pgBlank; await delay(500);
+          const pgPages = Promise.race([nextLoadEvent(), delay(15_000)]);
+          await send("Page.navigate", { url: PAGES_URL });
+          await pgPages; await delay(2_000);
+          await evaluate(`
+            window.__diag307Captured = null; window.__alignRecycleCount = 0; window.__alignSamples307 = [];
+            window.addEventListener("agentmodel:align-diag-307", e => { window.__diag307Captured = e.detail; console.warn("[align-diag-307]", JSON.stringify(e.detail)); });
+            window.addEventListener("agentmodel:align-sample-307", e => { window.__alignSamples307.push(e.detail); });
+            window.addEventListener("agentmodel:worker-recycled", e => { if (e.detail?.reason === "wasm-align-recycle") { window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1; } }); true
+          `);
+          let pgBootOk = false; const pgBootStart = Date.now();
+          while (Date.now() - pgBootStart < BOOT_TIMEOUT) {
+            const rbt = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+            const rbd = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+            const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+            if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { pgBootOk = true; break; }
+            if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) { await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`); }
+            process.stdout.write("R"); await delay(5_000);
+          }
+          if (!pgBootOk) { console.error("[307] pre-gate recovery boot timed out"); break; }
+          console.log(`\n[307] pre-gate: recovery boot OK`);
+          preGateOk = true; break;
+        }
+      } else { preGateStuckMs = 0; preGateErrorMs = 0; }
+    } else { preGateStuckMs = 0; preGateErrorMs = 0; }
     process.stdout.write("w");
     await delay(5_000);
   }
@@ -200,6 +323,40 @@ for (let i = 0; i < MAX_TURNS; i++) {
   if (!preGateOk) {
     console.warn(`[307] turn ${turnCount}: pre-gate timeout (button never SEND) — aborting`);
     break;
+  }
+
+  // §#307-density: pre-click badge check — button appears SEND+enabled even when model is dead
+  // (badge=ERROR, _modelDeadBubbleShown=true → _send() returns early → ghost turn, no sample).
+  // Reload immediately rather than burning a turn slot on a ghost.
+  {
+    const preSendBadge = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+    if (String(preSendBadge).includes('ERROR')) {
+      console.warn(`\n[307] turn ${turnCount}: badge ERROR before send — reloading page`);
+      const preBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+      await send("Page.navigate", { url: "about:blank" });
+      await preBlank; await delay(500);
+      const prePages = Promise.race([nextLoadEvent(), delay(15_000)]);
+      await send("Page.navigate", { url: PAGES_URL });
+      await prePages; await delay(2_000);
+      await evaluate(`
+        window.__diag307Captured = null; window.__alignRecycleCount = 0; window.__alignSamples307 = [];
+        window.addEventListener("agentmodel:align-diag-307", e => { window.__diag307Captured = e.detail; console.warn("[align-diag-307]", JSON.stringify(e.detail)); });
+        window.addEventListener("agentmodel:align-sample-307", e => { window.__alignSamples307.push(e.detail); });
+        window.addEventListener("agentmodel:worker-recycled", e => { if (e.detail?.reason === "wasm-align-recycle") { window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1; } }); true
+      `);
+      lastRecycleCount = 0;
+      let preBootOk = false; const preBootStart = Date.now();
+      while (Date.now() - preBootStart < BOOT_TIMEOUT) {
+        const rbt = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+        const rbd = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+        const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+        if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { preBootOk = true; break; }
+        if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) { await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`); }
+        process.stdout.write("R"); await delay(5_000);
+      }
+      if (!preBootOk) { console.error("[307] pre-click recovery boot timed out — aborting"); break; }
+      console.log(`\n[307] turn ${turnCount}: pre-click recovery boot OK`);
+    }
   }
 
   console.log(`[307] turn ${turnCount}/${MAX_TURNS}: "${prompt}"`);
@@ -244,9 +401,13 @@ for (let i = 0; i < MAX_TURNS; i++) {
   process.stdout.write("G");
 
   // ── Wait for generation complete: button SEND+enabled or align-recycle ─────
+  // §#307-recovery: same orphaned-_send() guard as pre-gate — if badge READY but button
+  // "…" for ≥60s mid-turn, reset the button so the loop exits and the next turn starts.
   const turnStart = Date.now();
   let turnDone = false;
   let recycled = false;
+  let turnStuckMs = 0;
+  let turnErrorMs = 0;
   while (Date.now() - turnStart < TURN_TIMEOUT) {
     await delay(5_000);
 
@@ -263,6 +424,73 @@ for (let i = 0; i < MAX_TURNS; i++) {
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const btnText    = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
     if (!btnDisabled && String(btnText).includes("SEND")) { turnDone = true; break; }
+
+    if (String(btnText) === '…' && Boolean(btnDisabled)) {
+      const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+      if (String(badgeText).includes('READY')) {
+        turnStuckMs += 5_000;
+        turnErrorMs = 0;
+        if (turnStuckMs >= 60_000) {
+          console.warn(`\n[307] turn ${turnCount}: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
+          await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+          turnStuckMs = 0;
+        }
+      } else if (String(badgeText).includes('ERROR')) {
+        // Model fatal error (D3D12-OOM). Does not self-recover. After 120s, reload page.
+        turnErrorMs += 5_000;
+        turnStuckMs = 0;
+        if (turnErrorMs >= 120_000) {
+          console.warn(`\n[307] turn ${turnCount}: badge ERROR for 120s — reloading page to recover model`);
+          const recBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+          await send("Page.navigate", { url: "about:blank" });
+          await recBlank;
+          await delay(500);
+          const recPages = Promise.race([nextLoadEvent(), delay(15_000)]);
+          await send("Page.navigate", { url: PAGES_URL });
+          await recPages;
+          await delay(2_000);
+          // re-inject listeners (fresh page context; prior alignSamples reset by navigation)
+          await evaluate(`
+            window.__diag307Captured = null;
+            window.__alignRecycleCount = 0;
+            window.__alignSamples307 = [];
+            window.addEventListener("agentmodel:align-diag-307", e => {
+              window.__diag307Captured = e.detail;
+              console.warn("[align-diag-307]", JSON.stringify(e.detail));
+            });
+            window.addEventListener("agentmodel:align-sample-307", e => {
+              window.__alignSamples307.push(e.detail);
+            });
+            window.addEventListener("agentmodel:worker-recycled", e => {
+              if (e.detail?.reason === "wasm-align-recycle") {
+                window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1;
+                console.warn("[307] align-recycle #" + window.__alignRecycleCount + " fired");
+              }
+            });
+            true
+          `);
+          // wait for boot-complete after recovery reload
+          let recBootOk = false;
+          const recBootStart = Date.now();
+          while (Date.now() - recBootStart < BOOT_TIMEOUT) {
+            const rbt  = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+            const rbd  = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+            const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+            if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { recBootOk = true; break; }
+            if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) {
+              await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+            }
+            process.stdout.write("R");
+            await delay(5_000);
+          }
+          if (!recBootOk) { console.error("[307] recovery boot timed out"); break; }
+          console.log(`\n[307] turn ${turnCount}: recovery boot OK — counting turn as done`);
+          turnDone = true;
+          break;
+        }
+      } else { turnStuckMs = 0; turnErrorMs = 0; }
+    } else { turnStuckMs = 0; turnErrorMs = 0; }
+
     process.stdout.write("·");
   }
   console.log();
@@ -277,7 +505,9 @@ for (let i = 0; i < MAX_TURNS; i++) {
   }
 
   lastRecycleCount = await evaluate(`window.__alignRecycleCount ?? 0`);
-  await delay(500);
+  // 2s settle: let badge update propagate (OOM error posts async from worker → main thread).
+  // Without this, the next turn's pre-click badge check misses the READY→ERROR transition.
+  await delay(2_000);
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
