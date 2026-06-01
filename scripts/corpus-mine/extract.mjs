@@ -109,6 +109,68 @@ function isInstructional(text) {
 }
 
 /**
+ * Positional mapping: verb → ordered list of arg names for dimensional parsing.
+ * Values stored in inches (imperial-only hard ban). Angles excluded (not linear dims).
+ */
+const VERB_ARGS_SCHEMA = {
+  SdBox:        ["width", "depth", "height"],
+  SdCylinder:   ["r", "height"],
+  SdSphere:     ["r"],
+  SdCone:       ["r", "height"],
+  SdRect:       ["width", "height"],
+  SdCircle:     ["r"],
+  SdLine:       ["length"],
+  SdArc:        ["r"],
+  SdExtrude:    ["distance"],
+  SdFillet:     ["r"],
+  SdChamfer:    ["distance"],
+  SdShell:      ["thickness"],
+  SdMove:       ["x"],
+  SdBeam:       ["length"],
+  SdWall:       ["length", "thickness", "height"],
+  SdSlab:       ["width", "length"],
+  SdDoor:       ["width", "height"],
+  SdWindow:     ["width", "height"],
+  SdRoof:       ["width", "length"],
+  SdStair:      ["height", "run"],
+};
+
+/**
+ * Parse imperial dimensions from an instruction string into typed arg objects.
+ * All values stored in inches {value: N, unit: "in"}.
+ * Returns null if no dimensions found or verb has no schema.
+ * @param {string} instruction
+ * @param {string} verb  WEB-CAD verb e.g. "SdBox"
+ * @returns {object|null}
+ */
+function parseArgsFromInstruction(instruction, verb) {
+  const schema = VERB_ARGS_SCHEMA[verb];
+  if (!schema || schema.length === 0) return null;
+
+  const dims = [];
+  // Allow optional hyphen/space between number and unit ("10-foot", "6-inch", "10 feet")
+  const re = /(\d+(?:\.\d+)?)[\s-]*(feet?|foot|ft|inch(?:es)?|in\b|"(?!\w))/gi;
+  let m;
+  while ((m = re.exec(instruction)) !== null) {
+    const raw = parseFloat(m[1]);
+    const u = m[2].toLowerCase();
+    const inInches = (u === "ft" || u.startsWith("foot") || u.startsWith("feet"))
+      ? Math.round(raw * 12 * 100) / 100
+      : Math.round(raw * 100) / 100;
+    dims.push(inInches);
+  }
+
+  if (dims.length === 0) return null;
+
+  const args = {};
+  const count = Math.min(dims.length, schema.length);
+  for (let i = 0; i < count; i++) {
+    args[schema[i]] = { value: dims[i], unit: "in" };
+  }
+  return Object.keys(args).length > 0 ? args : null;
+}
+
+/**
  * Attempt to translate a candidate step text into a WEB-CAD scenario.
  * Returns null if no WEB-CAD verb is found.
  */
@@ -124,6 +186,9 @@ function tryTranslate(stepText, url, source, fetchedAt, sourcePrefix, state, lin
   // Build instruction — convert to imperial if metric dims present
   const instruction = imperializeInstruction(stepText);
 
+  // Parse args from imperial dims in instruction
+  const args = parseArgsFromInstruction(instruction, target.verb);
+
   // Step context = surrounding lines (±2)
   const ctxLines = lines.slice(Math.max(0, lineIdx - 2), lineIdx + 3);
   const step_context = ctxLines.join(" ").slice(0, 500);
@@ -136,6 +201,7 @@ function tryTranslate(stepText, url, source, fetchedAt, sourcePrefix, state, lin
     expected_state: {
       verb: target.verb,
       geometry_class: target.geometry_class,
+      ...(args ? { args } : {}),
     },
     provenance: {
       source,
@@ -236,6 +302,8 @@ export function templateScenario(seedTitle, url, source, fetchedAt, sourcePrefix
   const target = lookupVerb(cmd);
   if (!target) return null;
 
+  const args = parseArgsFromInstruction(instruction, target.verb);
+
   const id = `${sourcePrefix.replace(/[^a-z0-9]/gi, "-")}-tmpl-${(state.startSeq++).toString().padStart(4, "0")}`;
   return {
     id,
@@ -243,6 +311,7 @@ export function templateScenario(seedTitle, url, source, fetchedAt, sourcePrefix
     expected_state: {
       verb: target.verb,
       geometry_class: target.geometry_class,
+      ...(args ? { args } : {}),
     },
     provenance: {
       source,
