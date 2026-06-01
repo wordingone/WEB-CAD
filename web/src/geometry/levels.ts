@@ -13,7 +13,8 @@ export type Level = {
 
 // IDB persistence for level lock state (#1752).
 // Separate DB so it doesn't interfere with scene auto-save versioning.
-const _META_DB = "gemma-level-meta";
+import { SLOT_SUFFIX } from '../io/slot-id';
+const _META_DB = SLOT_SUFFIX ? `gemma-level-meta-${SLOT_SUFFIX}` : "gemma-level-meta";
 const _META_STORE = "meta";
 const _LOCKS_KEY = "locks";
 

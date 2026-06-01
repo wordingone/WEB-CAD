@@ -167,7 +167,8 @@ export const drawingLayerStore = new DrawingLayerStore();
 export const SKETCH_KINDS = new Set(["rectangle", "circle", "line", "polyline", "curve", "point", "polygon"]);
 
 // IDB persistence.
-const IDB_NAME = "gemma-drawing-layers";
+import { SLOT_SUFFIX } from '../io/slot-id';
+const IDB_NAME = SLOT_SUFFIX ? `gemma-drawing-layers-${SLOT_SUFFIX}` : "gemma-drawing-layers";
 const IDB_STORE = "state";
 const IDB_VERSION = 1;
 let _db: IDBDatabase | null = null;
