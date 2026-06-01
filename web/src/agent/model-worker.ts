@@ -862,13 +862,11 @@ async function handleDisposeSession(): Promise<void> {
   post({ type: "session-disposed" });
 }
 
-// §#88-C: transparent ORT session refresh — re-creates the ORT inference session from
-// Cache API (no re-download) to eliminate accumulated WGPU buffer pool state that causes
-// buffer_manager.cc:553 mapAsync race. Invisible to the ARC machine (no D3D12_OOM event,
-// no recycleCount increment). Called by agent-harness before high-pressure turns (T3+).
-// §C-wasm-align (#1632): outer guard catches any unhandled WASM alignment error that
-// escapes the inner try/catches (e.g., deferred GPU destructions from model.dispose()).
-// Posts session-refresh-complete with a skip so the harness doesn't escalate to FATAL_ERROR.
+// §#380: inter-turn GPU flush — persistent-worker, no dispose/reload.
+// Flushes deferred GPU destructions from prior-turn §A tensor disposal (generated/outputs/inputs).
+// The ORT session and WebGPU device stay alive across turns; only the GPU queue is drained.
+// This is the "in-place KV-reset": buffer_manager returns complete without destroying the device.
+// Eliminates the dispose→reload→warmup OOM cycle that caused ghost every 3rd turn (b5af554).
 async function handleSessionRefresh(): Promise<void> {
   try { await _handleSessionRefreshInner(); } catch (e) {
     const _msg = (e as Error)?.message ?? String(e);
@@ -882,106 +880,13 @@ async function _handleSessionRefreshInner(): Promise<void> {
     return;
   }
 
-  // Release drafter ORT session first
-  if (_drafterSession) {
-    try { await (_drafterSession as any).release?.(); } catch { /* non-fatal */ }
-    _drafterSession = null;
-  }
-  // Dispose main model — releases the ORT WebGPU buffer pool
-  if (_model) {
-    try { await (_model as any).dispose?.(); } catch { /* non-fatal */ }
-    _model = null;
-  }
-  _processor = null;
-  // §#156 Layer 4: flush pending GPU ops after dispose to verify VRAM is returned to
-  // the allocator before reallocation. _flushWgpuQueue uses ort.env.webgpu.device
-  // (same device, module-scope path) so _preAcquiredGpuDevice locality is irrelevant.
-  await _flushWgpuQueue("session-refresh-pre-reload");
-  // §C-wasm-align (#1632): 500ms hold after flush — GPU driver needs time to fully retire
-  // freed WASM buffer pages from dispose() before re-allocating ORT WebGPU session storage.
-  // 200ms was insufficient for SdScale T3; 500ms covers the longer deferred-destruction tail.
-  await new Promise(r => setTimeout(r, 500));
+  // §#380: drain the GPU queue — completes deferred buffer_manager destructions from
+  // prior-turn §A tensor dispose() calls. 200ms settle lets the destructions finalize
+  // before T(n+1) inference begins. No model dispose, no reload, no warmup probe.
+  await _flushWgpuQueue("inter-turn-flush");
+  await new Promise(r => setTimeout(r, 200));
 
-  // Re-load from Cache API. The model was already downloaded during T1 init; Cache API
-  // holds the shards so from_pretrained serves from cache without any network fetch.
-  // GPU device (_preAcquiredGpuDevice) persists — only ORT's buffer pool is reset.
-  const modelId = _lastInitData.modelId as string;
-  if (!modelId) {
-    post({ type: "session-refresh-complete", skipped: true, reason: "no-model-id" });
-    return;
-  }
-
-  // Mirror the backend priority from handleInit: WebGPU if device was acquired, CPU fallback.
-  // _preAcquiredGpuDevice is handleInit-local; detect via ort.env.webgpu.device (set at init line 447).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const _hasWgpuDevice = !!((ort.env as any)?.webgpu?.device);
-  const refreshBackends: Array<{ device: "webgpu"; dtype: "q4f16" }> = _hasWgpuDevice
-    ? [{ device: "webgpu", dtype: "q4f16" }]
-    : [];
-
-  let refreshed = false;
-  for (const { device, dtype } of refreshBackends) {
-    let _fpErr: Error | null = null;
-    for (let _attempt = 0; _attempt < 3; _attempt++) {
-      if (_attempt > 0) {
-        // §C-wasm-align (#1632): from_pretrained alignment retry — deferred destructions from
-        // dispose() fire during model weight loading; flush + longer wait each attempt.
-        await _flushWgpuQueue("session-refresh-fp-retry-" + _attempt);
-        await new Promise(r => setTimeout(r, 2000 * _attempt)); // 2s, 4s
-        console.warn("[session-refresh] from_pretrained retry", _attempt, "after alignment error");
-      }
-      try {
-        const model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, { dtype, device });
-        const processor = await AutoProcessor.from_pretrained(modelId);
-        _model = model;
-        _processor = processor;
-        refreshed = true;
-        _fpErr = null;
-        break;
-      } catch (e) {
-        _fpErr = e as Error;
-        if (!/unaligned accesses/i.test(_fpErr.message ?? "")) break; // don't retry non-align errors
-      }
-    }
-    if (_fpErr) {
-      post({ type: "session-refresh-complete", skipped: false, error: _fpErr.message?.slice(0, 100) });
-      return;
-    }
-    if (refreshed) break;
-  }
-
-  // §#196: warmup probe — pre-sizes GPU buffer pool after re-load to close the
-  // buffer_manager.cc:553 mapAsync race. Without this, the first real inference allocates
-  // KV cache at full production size against an un-primed pool — same race that
-  // §C-warmup-context (#1362) was added to close on cold boot.
-  if (_model && _processor && refreshed) {
-    try {
-      const proc = _processor as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-      const warmupText = proc.apply_chat_template(
-        [{ role: "user", content: "." }],
-        { add_generation_prompt: true, tokenize: false },
-      ) as string;
-      const warmupIn = await proc(warmupText, null);
-      if ((warmupIn.input_ids?.dims?.[1] ?? 0) < WEBGPU_CONTEXT_LIMIT - 64) {
-        await Promise.race([
-          (_model as any).generate({ ...warmupIn, max_new_tokens: 8, do_sample: false }), // eslint-disable-line @typescript-eslint/no-explicit-any
-          new Promise<void>(r => setTimeout(r, 30_000)),
-        ]);
-        await _flushWgpuQueue("session-refresh-warmup");
-        // §C-wasm-align (#1632): post-warmup settle — warmup generate creates/destroys GPU
-        // buffers asynchronously; 200ms lets deferred destructions complete before T3 inference.
-        await new Promise(r => setTimeout(r, 200));
-      }
-    } catch (e) {
-      console.warn("[#196] warmup probe failed (non-fatal):", (e as Error).message?.slice(0, 100));
-    }
-  }
-
-  post({
-    type: "session-refresh-complete",
-    skipped: !refreshed,
-    ...(!refreshed ? { error: GEMMA_ONNX_CPU_UNSUPPORTED } : {}),
-  });
+  post({ type: "session-refresh-complete", skipped: false });
 }
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
