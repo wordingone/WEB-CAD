@@ -1583,11 +1583,9 @@ describe("canonical geometry transform instances", () => {
     expect(canonical.brep.shells[0].isClosed).toBe(true);
   });
 
-  // kern_fillet returns non-manifold output — planar-edge sewing not yet implemented.
-  // Tracked: #357. When #357 lands, remove test.failing and verify this test passes.
+  // #357 — kern seam-sewing lands in PR3. Skipped when kern.wasm is absent (CI).
   // Proof tokens: kern-fillet wasm-kern (required by model-palette-runtime-proof.test.ts)
-  test.failing("kern_fillet: edge fillet returns watertight manifold BRep // #357", async () => {
-    if (!wasmReady) throw new Error("kern.wasm absent — run: cmake --build kern-build-em2 --target kern");
+  test.skipIf(!wasmReady)("kern_fillet: edge fillet returns watertight manifold BRep // #357", async () => {
     const { kernFillet } = await import("../src/nurbs/kern-ops");
     const box = axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
     const result = kernFillet(box, 0.05, [0]);

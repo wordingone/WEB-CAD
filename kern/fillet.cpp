@@ -17,6 +17,7 @@
 #include <Eigen/Geometry>
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -202,6 +203,14 @@ static TrimLoop innerTrimAtV(double vCut, double tol) {
     return loop;
 }
 
+// Per-filleted-edge record used by the seam sewing assembly stage.
+struct FilletRecord {
+    int          edgeIdx;
+    int          faceA, faceB;   // original face indices (faceIndex1/2 of the edge)
+    Vec3         V0, V1;          // edge start / end (world space)
+    NurbsSurface surf;             // the extruded arc surface
+};
+
 } // namespace (anonymous)
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -229,9 +238,10 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         return {false, {}, "fillet: no non-naked edges found to fillet"};
 
     // ── Work on a mutable copy of the shell's faces ───────────────────────────
-    std::vector<BrepFace> outFaces = shell.faces;
-    std::vector<BrepEdge> outEdges = shell.edges;
-    std::vector<BrepFace> filletFaces;
+    std::vector<BrepFace>    outFaces = shell.faces;
+    std::vector<BrepEdge>    outEdges = shell.edges;
+    std::vector<BrepFace>    filletFaces;
+    std::vector<FilletRecord> filletRecords;
 
     for (int edgeIdx : targets) {
         if (edgeIdx < 0 || edgeIdx >= static_cast<int>(shell.edges.size())) {
@@ -319,6 +329,10 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         ff.tolerance   = opts.tolerance;
         filletFaces.push_back(std::move(ff));
 
+        // Capture data for seam sewing (filletSurf is still valid — ff.surface was a copy)
+        filletRecords.push_back({edgeIdx, edge.faceIndex1, edge.faceIndex2,
+                                  edgeStart, edgeEnd, filletSurf});
+
         // ── Add inner trim loops to adjacent faces ────────────────────────────
         // Map offset `d` into the face's [0,1] v-parameter range.
         // For a planar face the surface extent can be estimated from the bbox.
@@ -341,30 +355,88 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         outEdges[edgeIdx].faceIndex2 = -1;
     }
 
-    // ── Assemble output Brep ──────────────────────────────────────────────────
-    BrepShell outShell;
-    outShell.faces    = std::move(outFaces);
-    outShell.edges    = std::move(outEdges);
-    outShell.vertices = shell.vertices;
-
-    // Append fillet faces; add placeholder naked edges for each fillet face
-    for (auto& ff : filletFaces) {
-        int fIdx = static_cast<int>(outShell.faces.size());
-        outShell.faces.push_back(std::move(ff));
-
-        // Four boundary edges of the fillet patch (naked — not yet sewn)
-        for (int side = 0; side < 4; ++side) {
-            BrepEdge be;
-            be.faceIndex1 = fIdx;
-            be.faceIndex2 = -1;
-            be.tolerance  = opts.tolerance;
-            // Minimal stub curve (degenerate point) — full sewing is future work
-            be.curve = lineCurve(Vec3::Zero(), Vec3::Zero());
-            outShell.edges.push_back(std::move(be));
-        }
+    // ── Seam-sewing assembly ──────────────────────────────────────────────────
+    // Remove filleted edges (they no longer exist in topology)
+    std::set<int> removedEdgeSet(targets.begin(), targets.end());
+    std::vector<BrepEdge> finalEdges;
+    for (int i = 0; i < static_cast<int>(outEdges.size()); ++i) {
+        if (!removedEdgeSet.count(i))
+            finalEdges.push_back(outEdges[i]);
     }
 
-    outShell.isClosed = false; // seam sewing not yet performed
+    // Copy original vertices; fillet corners will be appended
+    std::vector<BrepVertex> finalVertices = shell.vertices;
+
+    // For each filleted edge: add fillet face + 2 triangular cap faces + 8 manifold edges
+    for (size_t ri = 0; ri < filletRecords.size(); ++ri) {
+        const FilletRecord& rec = filletRecords[ri];
+
+        int fFillet = static_cast<int>(outFaces.size());
+        int fCap0   = fFillet + 1; // triangular cap at V0 end
+        int fCap1   = fFillet + 2; // triangular cap at V1 end
+
+        // Fillet surface corners: evaluate(u, v) — u=arc direction, v=along-edge
+        Vec3 P_fA_0 = rec.surf.evaluate(0.0, 0.0); // arc-start at edge-start
+        Vec3 P_fA_1 = rec.surf.evaluate(0.0, 1.0); // arc-start at edge-end
+        Vec3 P_fB_0 = rec.surf.evaluate(1.0, 0.0); // arc-end   at edge-start
+        Vec3 P_fB_1 = rec.surf.evaluate(1.0, 1.0); // arc-end   at edge-end
+
+        // Add 4 fillet corner vertices
+        finalVertices.push_back({P_fA_0, {}, opts.tolerance});
+        finalVertices.push_back({P_fA_1, {}, opts.tolerance});
+        finalVertices.push_back({P_fB_0, {}, opts.tolerance});
+        finalVertices.push_back({P_fB_1, {}, opts.tolerance});
+
+        // Append fillet face
+        outFaces.push_back(filletFaces[ri]);
+
+        // Build degenerate bilinear cap face (triangle pA→pB→apex).
+        // CVs row-major [i*2+j]: (0,0)=pA, (0,1)=pB, (1,0)=apex, (1,1)=apex.
+        auto makeCapFace = [&](const Vec3& pA, const Vec3& pB, const Vec3& apex) {
+            NurbsSurface cs;
+            cs.degreeU  = 1; cs.degreeV  = 1;
+            cs.cvCountU = 2; cs.cvCountV = 2;
+            cs.knotsU   = {0.0, 0.0, 1.0, 1.0};
+            cs.knotsV   = {0.0, 0.0, 1.0, 1.0};
+            cs.cvs = {
+                Vec4(pA.x(),   pA.y(),   pA.z(),   1.0),
+                Vec4(pB.x(),   pB.y(),   pB.z(),   1.0),
+                Vec4(apex.x(), apex.y(), apex.z(), 1.0),
+                Vec4(apex.x(), apex.y(), apex.z(), 1.0),
+            };
+            BrepFace cf;
+            cf.surface     = cs;
+            cf.outerLoop   = fullDomainOuterLoop(cs, opts.tolerance);
+            cf.orientation = true;
+            cf.tolerance   = opts.tolerance;
+            return cf;
+        };
+        outFaces.push_back(makeCapFace(P_fA_0, P_fB_0, rec.V0)); // cap0 at V0
+        outFaces.push_back(makeCapFace(P_fA_1, P_fB_1, rec.V1)); // cap1 at V1
+
+        // 8 manifold edges — every edge shared by exactly 2 faces
+        auto addEdge = [&](int f1, int f2, const Vec3& a, const Vec3& b) {
+            BrepEdge e;
+            e.faceIndex1 = f1; e.faceIndex2 = f2;
+            e.tolerance  = opts.tolerance;
+            e.curve      = lineCurve(a, b);
+            finalEdges.push_back(e);
+        };
+        addEdge(fFillet, rec.faceA, P_fA_0, P_fA_1); // E1: fillet u=0 ↔ faceA
+        addEdge(fFillet, rec.faceB, P_fB_0, P_fB_1); // E2: fillet u=1 ↔ faceB
+        addEdge(fFillet, fCap0,     P_fA_0, P_fB_0); // E3: fillet v=0 ↔ cap0
+        addEdge(fFillet, fCap1,     P_fA_1, P_fB_1); // E4: fillet v=1 ↔ cap1
+        addEdge(fCap0,   rec.faceA, rec.V0, P_fA_0); // E5: cap0 ↔ faceA
+        addEdge(fCap0,   rec.faceB, rec.V0, P_fB_0); // E6: cap0 ↔ faceB
+        addEdge(fCap1,   rec.faceA, rec.V1, P_fA_1); // E7: cap1 ↔ faceA
+        addEdge(fCap1,   rec.faceB, rec.V1, P_fB_1); // E8: cap1 ↔ faceB
+    }
+
+    BrepShell outShell;
+    outShell.faces    = std::move(outFaces);
+    outShell.edges    = std::move(finalEdges);
+    outShell.vertices = std::move(finalVertices);
+    outShell.isClosed = true; // all edges are manifold after seam sewing
 
     Brep result;
     result.shells.push_back(std::move(outShell));
