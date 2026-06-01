@@ -219,6 +219,13 @@ const AGENT_IDLE_DISPOSE_DELAY_MS = _agentIdleMsParam >= 1000 ? _agentIdleMsPara
 let _agentIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
+// §#88-C §#281: periodic ORT session-refresh to clear WGPU allocator fragmentation.
+// Removed by #306 based on ghost-contaminated #305 flatness data (#307 OOM every-2-turns
+// confirms the refresh is necessary). Restored per Leo characterization (mail 12295).
+const ORT_SESSION_REFRESH_INTERVAL = 2; // fire session-refresh every N turns
+let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T3)
+let _ortSessionRefreshDone = false;      // skip refreshes on post-recycle workers (they start clean)
+
 // §#156 Layer 2: inference-boundary memory pressure monitoring.
 // Checked after each ONNX WebGPU turn (not polled on RAF). Chrome-only (performance.memory).
 const MEMORY_PRESSURE_THRESHOLD_BYTES = 8 * 1024 ** 3; // 8GB JS heap → pressure
@@ -375,6 +382,25 @@ export function isAgentSessionSuspended(): boolean { return _sessionSuspended; }
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
 
+  // §#88-C §#281: periodic ORT session refresh every ORT_SESSION_REFRESH_INTERVAL turns.
+  // Disposes the WGPU buffer pool (fragmentation builds per-turn) and re-loads from Cache API.
+  // Fires before T3, T5, T7, T9... — clears fragmentation every 2 turns so it never reaches
+  // the OOM threshold. ARC state is NOT changed; recycleCount stays 0.
+  // Post-recycle workers (_ortSessionRefreshDone=true) skip all refreshes — they start clean.
+  if (!_ortSessionRefreshDone && (_arc.turnCount - _lastRefreshTurnCount) >= ORT_SESSION_REFRESH_INTERVAL) {
+    _lastRefreshTurnCount = _arc.turnCount; // update before await to prevent double-fire on concurrent calls
+    console.info(`[VRAM-REFRESH] ORT session refresh triggered: turnCount=${_arc.turnCount} interval=${ORT_SESSION_REFRESH_INTERVAL} lastRefresh=${_lastRefreshTurnCount}`);
+    await Promise.race([
+      new Promise<void>(resolve => {
+        _sessionRefreshResolve = resolve;
+        _inferenceWorker!.postMessage({ type: "session-refresh" });
+      }),
+      new Promise<void>(resolve => setTimeout(resolve, 180_000)), // 3-min safety timeout
+    ]);
+    _sessionRefreshResolve = null;
+    console.info(`[VRAM-REFRESH] ORT session refresh complete`);
+  }
+
   // §#1505/#66: VRAM-aware early flush — count creator-tagged scene objects to estimate
   // GPU buffer pressure. Above threshold, dispose() their geometry/material buffers to
   // free VRAM before LLM inference begins. Disposal is synchronous and non-destructive:
@@ -451,6 +477,11 @@ function initWorkerIfNeeded(): Worker {
 
   // §#156 Layer 4: reset per-worker-lifetime flags on each new spawn.
   // _sessionSuspended must not carry over from a prior worker's dispose-session.
+  // §#281: post-recycle workers start with a fresh ORT session; skip ALL periodic refreshes.
+  // The warmup probe in session-refresh OOMs when the GPU driver hasn't fully returned memory
+  // from the prior device. First-boot (recycleCount=0) gets periodic refresh.
+  _ortSessionRefreshDone = _arc.recycleCount > 0;
+  _lastRefreshTurnCount = 0; // reset periodic counter; first refresh fires before T3
   _sessionSuspended = false;
   // §#156 Layer 5: new worker = loading state until warmup-done confirms GPU healthy.
   setGpuHealthTier("yellow", "GPU loading");
