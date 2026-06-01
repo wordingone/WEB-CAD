@@ -138,6 +138,14 @@ drawingLayerStore.subscribe(() => {
 registerAllHandlers(viewer, scenePanel);
 installDefaultHandlers();
 
+// CDP sidecar entry — exposes validated dispatch to webcad-mcp.mjs via Runtime.evaluate.
+// Read-only shim; no logic, no behavior change. See tools/mcp/webcad-mcp.mjs.
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__wcDispatch =
+    async (verb: string, args: Record<string, unknown>) =>
+      JSON.stringify(await dispatch(verb, args));
+}
+
 // Boot WASM geometry kernel (async, non-blocking). Once loaded, wasmBooleanBackend
 // (priority 20) supersedes NurbsBooleanBackend (priority 10) for SdBoolean* ops.
 initWasmKernel().then(() => {
