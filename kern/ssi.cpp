@@ -455,9 +455,20 @@ SsiResult ssi(const NurbsSurface& a, const NurbsSurface& b, const SsiOptions& op
         return result;
     }
     if (capHit) {
-        result.ok    = false;
-        result.error = "SSI aborted: maxLeaves=" + std::to_string(opts.maxLeaves)
-                     + " exceeded — degenerate or coincident face pair (axis-aligned overlap). Not truncating silently.";
+        result.ok = false;
+        // Distinguish genuinely degenerate/coincident pairs from complex-but-valid intersections
+        Vec3  nA        = a.normalAt(0.5, 0.5);
+        Vec3  nB        = b.normalAt(0.5, 0.5);
+        double crossNorm = nA.cross(nB).norm();
+        if (crossNorm < 1e-3) {
+            result.error = "SSI aborted: degenerate or coincident face pair "
+                           "(face normals nearly parallel, nA×nB norm=" +
+                           std::to_string(crossNorm) + "). Not a leaf-budget issue.";
+        } else {
+            result.error = "SSI aborted: leaf budget exhausted (maxLeaves=" +
+                           std::to_string(opts.maxLeaves) +
+                           "). Increase SsiOptions::maxLeaves for complex curved-surface intersection.";
+        }
         return result;
     }
 
