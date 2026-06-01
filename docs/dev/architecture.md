@@ -1,6 +1,6 @@
 # Architecture Overview — WEB-CAD
 
-Post-refactor structure (as of master 2026-05-25). Three LOC-reduction PRs: viewer decomposition (#38, #69), main.ts split (#36, #71).
+Post-refactor structure (as of master 2026-05-31). Three LOC-reduction PRs: viewer decomposition (#38, #69), main.ts split (#36, #71).
 
 ## Entry point
 
@@ -61,7 +61,11 @@ web/src/
 │   ├── datum.ts              Level, reference line, grid
 │   ├── cplane.ts             CPlane set/reset handlers
 │   ├── annotations.ts        Dimension, label
-│   └── skills.ts             SdInvokeSkill
+│   ├── skills.ts             SdInvokeSkill
+│   ├── brep-ops.ts           BRep boolean + surface ops (SdUnion, SdDifference, SdFillet, …)
+│   ├── canonical-surface.ts  Canonical BRep surface construction
+│   ├── mesh-planar-brep.ts   Planar mesh → BRep promotion
+│   └── s321-impl.ts …        Rhino-parity operation clusters S321–S332 (batch #320)
 │
 ├── geometry/
 │   ├── layers.ts             Layer store (color, visibility)
@@ -105,7 +109,10 @@ web/src/
 │   ├── nurbs-surfaces.ts     NURBS surface tessellation
 │   ├── nurbs-primitives.ts   Point3, Plane, Arc primitives
 │   ├── nurbs-curve-algorithms.ts  Arc → NURBS
-│   └── nurbs-surface-algorithms.ts  Revolve, sweep, loft surfaces
+│   ├── nurbs-surface-algorithms.ts  Revolve, sweep, loft surfaces
+│   └── wasm-boolean-backend.ts  kern.wasm C++ geometry kernel integration
+│                                (initWasmKernel / wasmBooleanBackend — loaded at boot,
+│                                 TS fallback when kern.wasm absent; foundation #370)
 │
 ├── chat/
 │   └── chat-panel.ts         Chat UI, runIteration (NL agent)
@@ -128,6 +135,19 @@ User input (palette click / chat / CDP command)
 ```
 
 Schema contract: `spatial-api.yaml` defines each verb's parameters (required/optional, types, units, synonyms). Handler and schema must agree — see `audit:dispatch` and the C2 failure class.
+
+## Geometry kernel — dual-backend
+
+Two geometry backends operate in parallel:
+
+| Backend | Location | Used for |
+|---|---|---|
+| TS (replicad/NURBS-WebGPU) | `web/src/nurbs/` | Default path for all operations |
+| C++ WASM (kern.wasm) | `web/src/nurbs/wasm-boolean-backend.ts` | SdFillet, SdChamfer, boolean ops when kern.wasm present |
+
+`initWasmKernel` in `main.ts` loads `kern.wasm` at boot via dynamic import. If absent (dev without cmake, CI without kern build step), `wasmBooleanBackend` returns a no-op and the TS fallback handles the operation with a console warning.
+
+The kern.wasm/emcc build system is tracked as issue #370 (owner: Eli). The JS↔kern ABI boundary is defined in `wasm-boolean-backend.ts` — coordinate with Eli before changing the `KernResult` schema.
 
 ## Failure classes (C1–C15)
 
