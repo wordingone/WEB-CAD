@@ -1180,6 +1180,16 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
     // §#83: flush ORT GPU queue before initial attempt — ensures all buffer destructions
     // from warmup probes and prior turns are committed before this turn allocates.
     await _flushWgpuQueue("pre-generate");
+    // §#307 per-turn alignment sample — logged before every generate attempt so we build
+    // a continuous inputIdsByteOffset distribution, not just the fatal-trap snapshot.
+    {
+      const _byteOff = (inputs as any)?.input_ids?.data?.byteOffset ?? -1;
+      post({ type: 'align-sample-307', data: {
+        generateCount: _generateCallCount,
+        inputIdsByteOffset: _byteOff,
+        mod8: _byteOff >= 0 ? _byteOff % 8 : -1,
+      }});
+    }
     try {
       outputs = await _doGenerate();
     } catch (genErr) {

@@ -113,9 +113,13 @@ if (NO_NAV) {
 await evaluate(`
   window.__diag307Captured = null;
   window.__alignRecycleCount = 0;
+  window.__alignSamples307 = [];
   window.addEventListener("agentmodel:align-diag-307", e => {
     window.__diag307Captured = e.detail;
     console.warn("[align-diag-307]", JSON.stringify(e.detail));
+  });
+  window.addEventListener("agentmodel:align-sample-307", e => {
+    window.__alignSamples307.push(e.detail);
   });
   window.addEventListener("agentmodel:worker-recycled", e => {
     if (e.detail?.reason === "wasm-align-recycle") {
@@ -279,6 +283,24 @@ for (let i = 0; i < MAX_TURNS; i++) {
 // ── Report ────────────────────────────────────────────────────────────────────
 const totalRecycles = await evaluate(`window.__alignRecycleCount ?? 0`);
 console.log(`\n[307] loop complete: ${turnCount} turns, align-recycle=${totalRecycles > 0 || diagCaptured ? "YES" : "NO"}`);
+
+// ── Per-turn alignment distribution ──────────────────────────────────────────
+const alignSamples = await evaluate(
+  `window.__alignSamples307 ? JSON.parse(JSON.stringify(window.__alignSamples307)) : []`
+);
+if (Array.isArray(alignSamples) && alignSamples.length > 0) {
+  const mod8Dist = {};
+  for (const s of alignSamples) {
+    const k = String(s.mod8 ?? 'unknown');
+    mod8Dist[k] = (mod8Dist[k] ?? 0) + 1;
+  }
+  console.log(`[307] alignment samples: ${alignSamples.length} — mod8 distribution: ${JSON.stringify(mod8Dist)}`);
+  const distPath = `state/diag-307/align-dist-${SHA}-${Date.now()}.json`;
+  writeFileSync(distPath, JSON.stringify({ sha: SHA, turnCount, samples: alignSamples, mod8Distribution: mod8Dist }, null, 2));
+  console.log(`[307] distribution saved → ${distPath}`);
+} else {
+  console.log(`[307] alignment samples: 0 (build may not have per-turn logging; needs deploy)`);
+}
 
 if (diagCaptured) {
   const outPath = `state/diag-307/diag-307-${SHA}-${Date.now()}.json`;
