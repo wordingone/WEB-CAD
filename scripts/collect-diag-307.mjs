@@ -15,7 +15,7 @@
 // Requires: shared browser at :9222.
 
 import { WebSocket } from "ws";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync } from "fs";
 import { execSync } from "child_process";
 import { CDP_PORT } from "./ports.mjs";
 
@@ -30,6 +30,24 @@ const NO_NAV        = process.argv.includes("--no-nav");
 
 const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 mkdirSync("state/diag-307", { recursive: true });
+
+// ── Single-instance lockfile guard ───────────────────────────────────────────
+const LOCKFILE = "state/diag-307/.lock";
+if (existsSync(LOCKFILE)) {
+  const lockData = readFileSync(LOCKFILE, "utf8");
+  const lockTs = parseInt(lockData.split(":")[2] ?? "0");
+  const lockAge = Date.now() - lockTs;
+  if (lockAge < 10 * 60_000) {
+    console.error(`[307] another instance is running (lockfile age ${Math.round(lockAge/1000)}s). Abort.`);
+    process.exit(1);
+  }
+  console.warn(`[307] stale lockfile found (age ${Math.round(lockAge/60000)}min) — clearing`);
+}
+writeFileSync(LOCKFILE, `pid:${process.pid}:${Date.now()}`);
+const clearLock = () => { try { unlinkSync(LOCKFILE); } catch {} };
+process.on("exit", clearLock);
+process.on("SIGINT", () => { clearLock(); process.exit(0); });
+process.on("SIGTERM", () => { clearLock(); process.exit(0); });
 
 // ── CDP plumbing ──────────────────────────────────────────────────────────────
 const targets = JSON.parse(
@@ -78,34 +96,54 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 await send("Runtime.enable");
 await send("Page.enable");
 
-// ── Optional: cold-cache clear ────────────────────────────────────────────────
-if (!OPFS_WARM && !NO_NAV) {
-  console.log("[307] clearing storage for cold-cache Pages session…");
-  await send("Storage.clearDataForOrigin", {
-    origin: "https://wordingone.github.io",
-    storageTypes: "all",
-  });
-  console.log("[307] storage cleared");
-}
-
 // ── Navigate (or skip if --no-nav) ───────────────────────────────────────────
+// blank-nav BEFORE storage clear: kills app JS so it cannot race-write to
+// IndexedDB between clearDataForOrigin and the subsequent page reload.
+// Without this, app JS writes activeTurnId+chat history to IDB *after* the clear,
+// which persists across the reload and causes the restored session to auto-retry
+// an interrupted turn → button stays "…" indefinitely at boot.
+const nextLoadEvent = () => new Promise(res => {
+  const h = raw => {
+    const m = JSON.parse(raw);
+    if (m.method === "Page.loadEventFired") { ws.off("message", h); res(); }
+  };
+  ws.on("message", h);
+});
+
 let bootMs = 0;
 if (NO_NAV) {
   console.log("[307] --no-nav: skipping navigation, attaching to live session");
 } else {
+  // Step 1: blank-nav to kill app JS (prevents IDB write race)
+  console.log("[307] blank-nav → about:blank (kill app JS before storage clear)…");
+  const blankLoaded = Promise.race([nextLoadEvent(), delay(5_000)]);
+  await send("Page.navigate", { url: "about:blank" });
+  await blankLoaded;
+  await delay(500); // ensure JS context fully destroyed
+
+  // Step 2: clear storage (app JS is dead, no race possible)
+  if (OPFS_WARM) {
+    console.log("[307] clearing app state (keeping OPFS model weights)…");
+    await send("Storage.clearDataForOrigin", {
+      origin: "https://wordingone.github.io",
+      // Model weights are in OPFS (file_systems), NOT in IndexedDB — safe to clear IDB.
+      storageTypes: "cookies,local_storage,indexeddb",
+    });
+    console.log("[307] app state cleared (OPFS preserved)");
+  } else {
+    console.log("[307] clearing all storage (cold-cache)…");
+    await send("Storage.clearDataForOrigin", {
+      origin: "https://wordingone.github.io",
+      storageTypes: "all",
+    });
+    console.log("[307] storage cleared");
+  }
+
+  // Step 3: navigate to Pages URL with clean storage
   console.log(`[307] navigating → ${PAGES_URL}`);
+  const pagesLoaded = Promise.race([nextLoadEvent(), delay(15_000)]);
   await send("Page.navigate", { url: PAGES_URL });
-  // Wait for Page.loadEventFired to confirm actual reload before polling
-  await Promise.race([
-    new Promise(res => {
-      const handler = raw => {
-        const msg = JSON.parse(raw);
-        if (msg.method === "Page.loadEventFired") { ws.off("message", handler); res(); }
-      };
-      ws.on("message", handler);
-    }),
-    delay(15_000),
-  ]);
+  await pagesLoaded;
   await delay(2_000); // settle after load
 }
 
@@ -139,6 +177,7 @@ const bootStart = Date.now();
 let booted = NO_NAV; // --no-nav: assume already booted, pre-gate will wait
 if (!NO_NAV) {
   console.log(`[307] waiting for boot-complete (badge READY + btn SEND, up to ${BOOT_TIMEOUT/60000}min)…`);
+  let bootStuckMs = 0;
   while (Date.now() - bootStart < BOOT_TIMEOUT) {
     const badgeText   = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
@@ -146,6 +185,15 @@ if (!NO_NAV) {
     if (String(badgeText).includes("READY") && !btnDisabled && String(btnText).includes("SEND")) {
       booted = true; break;
     }
+    // §#307-recovery: if badge READY but button stuck "…" at boot, same orphaned-_send() issue.
+    if (String(btnText) === '…' && Boolean(btnDisabled) && String(badgeText).includes('READY')) {
+      bootStuckMs += 5_000;
+      if (bootStuckMs >= 60_000) {
+        console.warn(`\n[307] boot: stuck "…"+READY for 60s — resetting button to SEND`);
+        await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+        bootStuckMs = 0;
+      }
+    } else { bootStuckMs = 0; }
     process.stdout.write(".");
     await delay(5_000);
   }
@@ -186,13 +234,27 @@ for (let i = 0; i < MAX_TURNS; i++) {
   // ── Pre-turn gate: wait for button SEND+enabled (serializes turns) ──────────
   // If the previous turn timed out while model was still generating, this waits
   // for that generation to finish before we send the next turn.
+  // §#307-recovery: if badge READY but button "…" for ≥60s, the _send() Promise was orphaned
+  // by a D3D12-OOM recycle (worker died, Promise never resolved). Reset button to SEND.
   const preGateStart = Date.now();
   let preGateOk = false;
+  let preGateStuckMs = 0;
   process.stdout.write(`[307] turn ${turnCount}/${MAX_TURNS} pre-gate…`);
   while (Date.now() - preGateStart < TURN_TIMEOUT) {
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const btnText    = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
     if (!btnDisabled && String(btnText).includes("SEND")) { preGateOk = true; break; }
+    if (String(btnText) === '…' && Boolean(btnDisabled)) {
+      const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+      if (String(badgeText).includes('READY')) {
+        preGateStuckMs += 5_000;
+        if (preGateStuckMs >= 60_000) {
+          console.warn(`\n[307] pre-gate: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
+          await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+          preGateStuckMs = 0;
+        }
+      } else { preGateStuckMs = 0; }
+    } else { preGateStuckMs = 0; }
     process.stdout.write("w");
     await delay(5_000);
   }
@@ -244,9 +306,12 @@ for (let i = 0; i < MAX_TURNS; i++) {
   process.stdout.write("G");
 
   // ── Wait for generation complete: button SEND+enabled or align-recycle ─────
+  // §#307-recovery: same orphaned-_send() guard as pre-gate — if badge READY but button
+  // "…" for ≥60s mid-turn, reset the button so the loop exits and the next turn starts.
   const turnStart = Date.now();
   let turnDone = false;
   let recycled = false;
+  let turnStuckMs = 0;
   while (Date.now() - turnStart < TURN_TIMEOUT) {
     await delay(5_000);
 
@@ -263,6 +328,19 @@ for (let i = 0; i < MAX_TURNS; i++) {
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const btnText    = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
     if (!btnDisabled && String(btnText).includes("SEND")) { turnDone = true; break; }
+
+    if (String(btnText) === '…' && Boolean(btnDisabled)) {
+      const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+      if (String(badgeText).includes('READY')) {
+        turnStuckMs += 5_000;
+        if (turnStuckMs >= 60_000) {
+          console.warn(`\n[307] turn ${turnCount}: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
+          await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+          turnStuckMs = 0;
+        }
+      } else { turnStuckMs = 0; }
+    } else { turnStuckMs = 0; }
+
     process.stdout.write("·");
   }
   console.log();
