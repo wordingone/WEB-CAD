@@ -36,7 +36,7 @@ const _kernWasmPath = import.meta.env.PROD ? '../kern.wasm' : '../../kern.wasm';
 import type { Brep } from './nurbs-brep';
 import type { Surface, NurbsSurface } from './nurbs-surfaces';
 import { getNurbsForm } from './nurbs-surfaces';
-import type { Curve } from './nurbs-curves';
+import type { Curve, NurbsCurve } from './nurbs-curves';
 import { getNurbsForm as getCurveNurbsForm } from './nurbs-curves';
 import type {
   IBooleanBackend,
@@ -86,11 +86,30 @@ type KernResponse = KernOk | KernErr;
 // The C++ kern expects standard full knot vectors (length = cvCount + order) and
 // xyzw homogeneous CVs.  Non-NURBS surfaces are tessellated via getNurbsForm.
 
-function _curveToKernCurve(c: Curve): {
-  degree: number; cvCount: number; knots: number[]; cvs: number[];
-} {
-  const nc = c.kind === 'nurbs' ? c : getCurveNurbsForm(c).curve;
-  const degree = nc.order - 1;
+// ── Kern curve types ──────────────────────────────────────────────────────────
+// Standard full-clamped knot vector (length = degree + cvCount + 1), xyzw CVs.
+
+type KernCurve = { degree: number; cvCount: number; knots: number[]; cvs: number[] };
+type KernTrimEdge = { curve3d: KernCurve; curveUV: KernCurve; tolerance: number };
+type KernTrimLoop = { edges: KernTrimEdge[]; isOuter: boolean };
+type KernEdge = { curve: KernCurve; faceIndex1: number; faceIndex2: number; tolerance: number };
+type KernVertex = { point: [number, number, number]; edgeIndices: number[]; tolerance: number };
+
+// kMaxDeg in kern/evalSurf — stack array d[kMaxDeg+1]; degree > 7 = buffer overflow (#359)
+const _KERN_MAX_DEGREE = 7;
+
+function _checkDegree(name: string, degree: number): void {
+  if (degree > _KERN_MAX_DEGREE) {
+    throw new Error(
+      `brepToKernJson: ${name} has degree ${degree} > kMaxDeg=${_KERN_MAX_DEGREE}. ` +
+      'Reduce degree before passing to the kern (issue #359).',
+    );
+  }
+}
+
+function _curveToKernCurve(c: Curve): KernCurve {
+  const nc: NurbsCurve = c.kind === 'nurbs' ? c : getCurveNurbsForm(c).curve;
+  _checkDegree('curve', nc.order - 1);
   const knots = [nc.knots[0], ...nc.knots, nc.knots[nc.knots.length - 1]];
   const cvs: number[] = [];
   for (let i = 0; i < nc.cvCount; i++) {
@@ -98,7 +117,24 @@ function _curveToKernCurve(c: Curve): {
     cvs.push(nc.cvs[base], nc.cvs[base + 1], nc.cvs[base + 2]);
     cvs.push(nc.isRational ? (nc.cvs[base + nc.dim] ?? 1) : 1);
   }
-  return { degree, cvCount: nc.cvCount, knots, cvs };
+  return { degree: nc.order - 1, cvCount: nc.cvCount, knots, cvs };
+}
+
+// Placeholder UV trim curve — kern boolean ops use 3D edge curves; UV filled in PR2.
+function _stubUVCurve(): KernCurve {
+  return { degree: 1, cvCount: 2, knots: [0, 0, 1, 1], cvs: [0, 0, 0, 1, 0, 0, 0, 1] };
+}
+
+function _kernCurveToJs(kc: KernCurve): NurbsCurve {
+  const knots = kc.knots.slice(1, -1);
+  const cvs: number[] = [];
+  for (let i = 0; i < kc.cvCount; i++) {
+    const b = i * 4;
+    const w = kc.cvs[b + 3];
+    const wSafe = Math.abs(w) > 1e-14 ? w : 1;
+    cvs.push(kc.cvs[b] / wSafe, kc.cvs[b + 1] / wSafe, kc.cvs[b + 2] / wSafe);
+  }
+  return { kind: 'nurbs', dim: 3, isRational: false, order: kc.degree + 1, cvCount: kc.cvCount, knots, cvs, cvStride: 3 };
 }
 
 function _surfaceToKernSurf(s: Surface): {
@@ -126,27 +162,49 @@ function _surfaceToKernSurf(s: Surface): {
 
 export function brepToKernJson(brep: Brep): string {
   return JSON.stringify({
-    shells: brep.shells.map(shell => ({
-      faces: shell.faces.map(face => ({
-        surface: _surfaceToKernSurf(face.surface),
-        outerLoop: { edges: [], isOuter: true },
-        innerLoops: [],
-        orientation: face.orientation,
-        tolerance: face.tolerance,
-      })),
-      edges: shell.edges.map(edge => ({
-        curve: _curveToKernCurve(edge.curve),
-        faceIndex1: edge.faceIndex1,
-        faceIndex2: edge.faceIndex2 ?? -1,
-        tolerance: edge.tolerance,
-      })),
-      vertices: shell.vertices.map(vertex => ({
-        point: [vertex.point.x, vertex.point.y, vertex.point.z],
-        edgeIndices: vertex.edgeIndices,
-        tolerance: vertex.tolerance,
-      })),
-      isClosed: shell.isClosed,
-    })),
+    shells: brep.shells.map(shell => {
+      // Degree guard: surfaces (#359 — kern stack array kMaxDeg=7)
+      for (const face of shell.faces) {
+        const ns = face.surface.kind === 'nurbs' ? face.surface : getNurbsForm(face.surface).surface;
+        _checkDegree('surface degreeU', ns.order[0] - 1);
+        _checkDegree('surface degreeV', ns.order[1] - 1);
+      }
+      return {
+        faces: shell.faces.map(face => ({
+          surface: _surfaceToKernSurf(face.surface),
+          outerLoop: {
+            edges: face.outerLoop.curves.map(c => ({
+              curve3d: _curveToKernCurve(c),
+              curveUV: _stubUVCurve(),
+              tolerance: face.tolerance,
+            })),
+            isOuter: true,
+          },
+          innerLoops: face.innerLoops.map(loop => ({
+            edges: loop.curves.map(c => ({
+              curve3d: _curveToKernCurve(c),
+              curveUV: _stubUVCurve(),
+              tolerance: face.tolerance,
+            })),
+            isOuter: false,
+          })),
+          orientation: face.orientation,
+          tolerance: face.tolerance,
+        })),
+        edges: shell.edges.map(edge => ({
+          curve: _curveToKernCurve(edge.curve),
+          faceIndex1: edge.faceIndex1,
+          faceIndex2: edge.faceIndex2 ?? -1,
+          tolerance: edge.tolerance,
+        })),
+        vertices: shell.vertices.map(vertex => ({
+          point: [vertex.point.x, vertex.point.y, vertex.point.z] as [number, number, number],
+          edgeIndices: vertex.edgeIndices,
+          tolerance: vertex.tolerance,
+        })),
+        isClosed: shell.isClosed,
+      };
+    }),
   });
 }
 
@@ -161,8 +219,19 @@ type KernSurface = {
   knotsU: number[]; knotsV: number[];
   cvs: number[];
 };
-type KernFace = { surface: KernSurface; outerLoop?: { orientation?: boolean }; orientation?: boolean; tolerance?: number };
-type KernShell = { faces: KernFace[]; isClosed?: boolean };
+type KernFace = {
+  surface: KernSurface;
+  outerLoop?: KernTrimLoop;
+  innerLoops?: KernTrimLoop[];
+  orientation?: boolean;
+  tolerance?: number;
+};
+type KernShell = {
+  faces: KernFace[];
+  edges?: KernEdge[];
+  vertices?: KernVertex[];
+  isClosed?: boolean;
+};
 type KernBrepRaw = { shells: KernShell[] };
 
 export function kernResultToBrep(raw: unknown): Brep {
@@ -192,16 +261,29 @@ export function kernResultToBrep(raw: unknown): Brep {
           cvs,
           cvStride: [nV * 3, 3],
         };
+        const toTrimLoop = (kl: KernTrimLoop | undefined, defaultOrientation: boolean) => ({
+          curves: kl?.edges.map(e => _kernCurveToJs(e.curve3d)) ?? [],
+          orientation: kl?.isOuter ?? defaultOrientation,
+        });
         return {
           surface,
-          outerLoop: { curves: [], orientation: face.outerLoop?.orientation ?? true },
-          innerLoops: [],
+          outerLoop: toTrimLoop(face.outerLoop, true),
+          innerLoops: (face.innerLoops ?? []).map(l => toTrimLoop(l, false)),
           orientation: face.orientation ?? true,
           tolerance: face.tolerance ?? 1e-6,
         };
       }),
-      edges: [],
-      vertices: [],
+      edges: (shell.edges ?? []).map(e => ({
+        curve: _kernCurveToJs(e.curve),
+        faceIndex1: e.faceIndex1,
+        faceIndex2: e.faceIndex2 === -1 ? null : e.faceIndex2,
+        tolerance: e.tolerance,
+      })),
+      vertices: (shell.vertices ?? []).map(v => ({
+        point: { x: v.point[0], y: v.point[1], z: v.point[2] },
+        edgeIndices: v.edgeIndices,
+        tolerance: v.tolerance,
+      })),
       isClosed: shell.isClosed ?? true,
     })),
   };
@@ -414,3 +496,9 @@ export async function initWasmKernel(): Promise<void> {
 export function rawKernModule(): KernModule {
   return assertLoaded();
 }
+
+// ── Test-only exports ─────────────────────────────────────────────────────────
+export {
+  brepToKernJson as _brepToKernJsonForTest,
+  kernResultToBrep as _kernResultToBrepForTest,
+};
