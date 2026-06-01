@@ -219,12 +219,14 @@ const AGENT_IDLE_DISPOSE_DELAY_MS = _agentIdleMsParam >= 1000 ? _agentIdleMsPara
 let _agentIdleTimer: ReturnType<typeof setTimeout> | null = null;
 let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-refresh-complete" msg
 
-// §#88-C §#281: periodic ORT session-refresh to clear WGPU allocator fragmentation.
-// Removed by #306 based on ghost-contaminated #305 flatness data (#307 OOM every-2-turns
-// confirms the refresh is necessary). Restored per Leo characterization (mail 12295).
-const ORT_SESSION_REFRESH_INTERVAL = 1; // fire session-refresh every N turns
-let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T2)
-let _ortSessionRefreshDone = false;      // skip refreshes on post-recycle workers (they start clean)
+// §#380: inter-turn GPU flush — fires before every turn via session-refresh message.
+// #380 replaces the prior dispose+reload approach: the worker drains the GPU queue
+// (completes deferred §A tensor destructions) without touching the ORT session.
+// Persistent-worker: session stays alive across all turns; no buffer pool fragmentation
+// from reload; ghost-every-3rd-turn pattern (b5af554) eliminated.
+const ORT_SESSION_REFRESH_INTERVAL = 1; // flush GPU queue before every turn
+let _lastRefreshTurnCount = 0;           // turnCount at last flush (0 = on init, fires before T2)
+let _ortSessionRefreshDone = false;      // skip flushes on post-recycle workers (they start clean)
 
 // §#156 Layer 2: inference-boundary memory pressure monitoring.
 // Checked after each ONNX WebGPU turn (not polled on RAF). Chrome-only (performance.memory).
@@ -382,12 +384,11 @@ export function isAgentSessionSuspended(): boolean { return _sessionSuspended; }
 async function recycleModelWorkerIfNeeded(): Promise<void> {
   if (!_inferenceWorker) return;
 
-  // §#88-C §#281: periodic ORT session refresh every ORT_SESSION_REFRESH_INTERVAL turns.
-  // Disposes the WGPU buffer pool (fragmentation builds per-turn) and re-loads from Cache API.
-  // Fires before T2, T3, T4... — clears fragmentation every turn so single-turn
-  // post-generation fragmentation (below the 2-turn OOM threshold) never accumulates.
+  // §#380: inter-turn GPU flush every ORT_SESSION_REFRESH_INTERVAL turns.
+  // Sends "session-refresh" to worker; worker drains GPU queue (no dispose/reload).
+  // Fires before T2, T3, T4... — completes deferred §A tensor destructions before each inference.
   // ARC state is NOT changed; recycleCount stays 0.
-  // Post-recycle workers (_ortSessionRefreshDone=true) skip all refreshes — they start clean.
+  // Post-recycle workers (_ortSessionRefreshDone=true) skip all flushes — they start clean.
   if (!_ortSessionRefreshDone && (_arc.turnCount - _lastRefreshTurnCount) >= ORT_SESSION_REFRESH_INTERVAL) {
     _lastRefreshTurnCount = _arc.turnCount; // update before await to prevent double-fire on concurrent calls
     console.info(`[VRAM-REFRESH] ORT session refresh triggered: turnCount=${_arc.turnCount} interval=${ORT_SESSION_REFRESH_INTERVAL} lastRefresh=${_lastRefreshTurnCount}`);
