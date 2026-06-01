@@ -25,7 +25,35 @@ const TURN_TIMEOUT = 2_700_000; // 45 min
 const MAX_TURNS    = parseInt(process.argv.find((_,i,a) => a[i-1]==="--max-turns") ?? "25");
 const COLD_CACHE   = process.argv.includes("--cold-cache");
 
-const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+const SHA      = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+const SHA_FULL = execSync("git rev-parse HEAD",       { encoding: "utf8" }).trim();
+
+// §#390 deploy-SHA assert guard: cold-cache runs verify the deployed bundle matches
+// local HEAD before booting. Prevents deploy-straddle contamination (booting on the
+// pre-commit bundle because the CDN hadn't propagated yet).
+if (COLD_CACHE) {
+  let deployedSha = "";
+  try {
+    deployedSha = execSync(
+      `curl -s --max-time 10 "https://wordingone.github.io/WEB-CAD/build-sha.txt"`,
+      { encoding: "utf8" }
+    ).trim();
+  } catch (e) {
+    console.error("[281-val] DEPLOY-STRADDLE-ABORT: could not fetch build-sha.txt:", e.message);
+    process.exit(2);
+  }
+  const validSha = /^[0-9a-f]{40}$/i.test(deployedSha);
+  if (!validSha) {
+    console.error(`[281-val] DEPLOY-STRADDLE-ABORT: build-sha.txt missing or not a valid SHA (got: "${deployedSha.slice(0,80)}"). Deploy may be pre-#390 or still in progress.`);
+    process.exit(2);
+  }
+  if (deployedSha !== SHA_FULL) {
+    console.error(`[281-val] DEPLOY-STRADDLE-ABORT: deployed ${deployedSha.slice(0,7)} ≠ local HEAD ${SHA_FULL.slice(0,7)}. Pages deploy not yet complete. Re-run after deploy.`);
+    process.exit(2);
+  }
+  console.log(`[281-val] deploy-SHA OK: ${deployedSha.slice(0,7)} === ${SHA_FULL.slice(0,7)}`);
+}
+
 mkdirSync("state/diag-307", { recursive: true });
 const PARTIAL_PATH = `state/diag-307/validate-281-${SHA}-partial.json`;
 
