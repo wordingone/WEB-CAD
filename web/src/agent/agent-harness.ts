@@ -681,6 +681,15 @@ function initWorkerIfNeeded(): Worker {
         console.warn("[align-diag-307] captured", JSON.stringify(_diag307));
         break;
       }
+      case "align-sample-307": {
+        // §#307 per-turn alignment sample — accumulate distribution for diagnosis.
+        const _sample = msg.data as Record<string, unknown>;
+        const _winS = window as unknown as Record<string, unknown>;
+        if (!Array.isArray(_winS.__alignSamples307)) _winS.__alignSamples307 = [];
+        (_winS.__alignSamples307 as unknown[]).push(_sample);
+        window.dispatchEvent(new CustomEvent("agentmodel:align-sample-307", { detail: _sample }));
+        break;
+      }
       case "error": {
         const _errMsg = (msg.error as string) ?? "Unknown model load error";
         // #1313: D3D12 silent OOM — OrtRun throws buffer_manager/CreateCommittedResource
