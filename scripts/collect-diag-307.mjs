@@ -505,7 +505,9 @@ for (let i = 0; i < MAX_TURNS; i++) {
   }
 
   lastRecycleCount = await evaluate(`window.__alignRecycleCount ?? 0`);
-  await delay(500);
+  // 2s settle: let badge update propagate (OOM error posts async from worker → main thread).
+  // Without this, the next turn's pre-click badge check misses the READY→ERROR transition.
+  await delay(2_000);
 }
 
 // ── Report ────────────────────────────────────────────────────────────────────
