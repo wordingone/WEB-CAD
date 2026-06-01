@@ -1,4 +1,5 @@
-﻿const DB_NAME = "web-cad-scene";
+﻿import { SLOT_SUFFIX } from './slot-id';
+const DB_NAME = SLOT_SUFFIX ? `web-cad-scene-${SLOT_SUFFIX}` : "web-cad-scene";
 const DB_VERSION = 1;
 const STORE = "autosave";
 const KEY = "scene";
