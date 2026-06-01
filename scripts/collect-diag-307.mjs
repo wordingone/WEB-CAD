@@ -21,7 +21,7 @@ import { CDP_PORT } from "./ports.mjs";
 
 const PAGES_URL     = "https://wordingone.github.io/WEB-CAD/";
 const BOOT_TIMEOUT  = 1_200_000; // 20 min — cold-cache 4GB download
-const TURN_TIMEOUT  =   900_000; // 15 min per turn — Gemma 4 WASM ~10s/token
+const TURN_TIMEOUT  = 2_700_000; // 45 min per turn — Gemma 4 thinking trace ~20-30 min observed
 const MAX_TURNS     = parseInt(process.argv.find((_,i,a) => a[i-1]==="--max-turns") ?? "30");
 const OPFS_WARM     = process.argv.includes("--opfs-warm");
 // --no-nav: skip Page.navigate + boot wait; attach to existing live session.
