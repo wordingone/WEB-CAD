@@ -325,6 +325,40 @@ for (let i = 0; i < MAX_TURNS; i++) {
     break;
   }
 
+  // §#307-density: pre-click badge check — button appears SEND+enabled even when model is dead
+  // (badge=ERROR, _modelDeadBubbleShown=true → _send() returns early → ghost turn, no sample).
+  // Reload immediately rather than burning a turn slot on a ghost.
+  {
+    const preSendBadge = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+    if (String(preSendBadge).includes('ERROR')) {
+      console.warn(`\n[307] turn ${turnCount}: badge ERROR before send — reloading page`);
+      const preBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+      await send("Page.navigate", { url: "about:blank" });
+      await preBlank; await delay(500);
+      const prePages = Promise.race([nextLoadEvent(), delay(15_000)]);
+      await send("Page.navigate", { url: PAGES_URL });
+      await prePages; await delay(2_000);
+      await evaluate(`
+        window.__diag307Captured = null; window.__alignRecycleCount = 0; window.__alignSamples307 = [];
+        window.addEventListener("agentmodel:align-diag-307", e => { window.__diag307Captured = e.detail; console.warn("[align-diag-307]", JSON.stringify(e.detail)); });
+        window.addEventListener("agentmodel:align-sample-307", e => { window.__alignSamples307.push(e.detail); });
+        window.addEventListener("agentmodel:worker-recycled", e => { if (e.detail?.reason === "wasm-align-recycle") { window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1; } }); true
+      `);
+      lastRecycleCount = 0;
+      let preBootOk = false; const preBootStart = Date.now();
+      while (Date.now() - preBootStart < BOOT_TIMEOUT) {
+        const rbt = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+        const rbd = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+        const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+        if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { preBootOk = true; break; }
+        if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) { await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`); }
+        process.stdout.write("R"); await delay(5_000);
+      }
+      if (!preBootOk) { console.error("[307] pre-click recovery boot timed out — aborting"); break; }
+      console.log(`\n[307] turn ${turnCount}: pre-click recovery boot OK`);
+    }
+  }
+
   console.log(`[307] turn ${turnCount}/${MAX_TURNS}: "${prompt}"`);
 
   // ── Get current message count for post-click verification ─────────────────
