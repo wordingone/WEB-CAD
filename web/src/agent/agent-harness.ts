@@ -222,8 +222,8 @@ let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-
 // §#88-C §#281: periodic ORT session-refresh to clear WGPU allocator fragmentation.
 // Removed by #306 based on ghost-contaminated #305 flatness data (#307 OOM every-2-turns
 // confirms the refresh is necessary). Restored per Leo characterization (mail 12295).
-const ORT_SESSION_REFRESH_INTERVAL = 2; // fire session-refresh every N turns
-let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T3)
+const ORT_SESSION_REFRESH_INTERVAL = 1; // fire session-refresh every N turns
+let _lastRefreshTurnCount = 0;           // turnCount at last refresh (0 = on init, fires before T2)
 let _ortSessionRefreshDone = false;      // skip refreshes on post-recycle workers (they start clean)
 
 // §#156 Layer 2: inference-boundary memory pressure monitoring.
@@ -384,8 +384,9 @@ async function recycleModelWorkerIfNeeded(): Promise<void> {
 
   // §#88-C §#281: periodic ORT session refresh every ORT_SESSION_REFRESH_INTERVAL turns.
   // Disposes the WGPU buffer pool (fragmentation builds per-turn) and re-loads from Cache API.
-  // Fires before T3, T5, T7, T9... — clears fragmentation every 2 turns so it never reaches
-  // the OOM threshold. ARC state is NOT changed; recycleCount stays 0.
+  // Fires before T2, T3, T4... — clears fragmentation every turn so single-turn
+  // post-generation fragmentation (below the 2-turn OOM threshold) never accumulates.
+  // ARC state is NOT changed; recycleCount stays 0.
   // Post-recycle workers (_ortSessionRefreshDone=true) skip all refreshes — they start clean.
   if (!_ortSessionRefreshDone && (_arc.turnCount - _lastRefreshTurnCount) >= ORT_SESSION_REFRESH_INTERVAL) {
     _lastRefreshTurnCount = _arc.turnCount; // update before await to prevent double-fire on concurrent calls
