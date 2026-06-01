@@ -15,7 +15,7 @@
 // deployed JS from Pages, verifying the run is against actual deployed code).
 
 import { WebSocket } from "ws";
-import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync, rmSync } from "fs";
 import { execSync } from "child_process";
 import { CDP_PORT } from "./ports.mjs";
 
@@ -27,6 +27,7 @@ const COLD_CACHE   = process.argv.includes("--cold-cache");
 
 const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 mkdirSync("state/diag-307", { recursive: true });
+const PARTIAL_PATH = `state/diag-307/validate-281-${SHA}-partial.json`;
 
 const LOCKFILE = "state/diag-307/.lock";
 if (existsSync(LOCKFILE)) {
@@ -214,7 +215,7 @@ const PROMPTS = [
 ];
 
 /**
- * @typedef {{ turn: number, prompt: string, outcome: string, gpu_gpu_vram_mb_start: number|null, gpu_gpu_vram_mb_end: number|null, elapsed_s: number, ai_msgs_delta: number }} TurnRecord
+ * @typedef {{ turn: number, prompt: string, outcome: string, gpu_vram_mb_start: number|null, gpu_vram_mb_end: number|null, elapsed_s: number, ai_msgs_delta: number }} TurnRecord
  */
 /** @type {TurnRecord[]} */
 const turns = [];
@@ -224,6 +225,32 @@ let oomCount         = 0;
 let alignCount       = 0;
 let lastOomCount     = 0;
 let lastAlignCount   = 0;
+
+/** Write current state to partial artifact after each turn so a mid-run crash doesn't lose data. */
+const persistArtifact = (final = false) => {
+  const gpuSamples = turns.map(t => t.gpu_vram_mb_end).filter(v => v !== null);
+  const gpuVramMin  = gpuSamples.length ? Math.min(...gpuSamples) : null;
+  const gpuVramMax  = gpuSamples.length ? Math.max(...gpuSamples) : null;
+  const gpuVramDiff = (gpuVramMin !== null && gpuVramMax !== null) ? gpuVramMax - gpuVramMin : null;
+  const art = {
+    sha: SHA, max_turns: MAX_TURNS, turns_total: turns.length,
+    real_success: realSuccessCount, ghost: ghostCount,
+    oom_d3d12: oomCount, align_recycle: alignCount,
+    gpu_vram_min_mb: gpuVramMin, gpu_vram_max_mb: gpuVramMax, gpu_vram_range_mb: gpuVramDiff,
+    gate_pass: realSuccessCount >= 20 && ghostCount === 0 && oomCount === 0 && alignCount === 0,
+    partial: !final,
+    turn_log: turns,
+  };
+  if (final) {
+    const finalPath = `state/diag-307/validate-281-${SHA}-${Date.now()}.json`;
+    writeFileSync(finalPath, JSON.stringify(art, null, 2));
+    try { rmSync(PARTIAL_PATH); } catch {}
+    return finalPath;
+  } else {
+    writeFileSync(PARTIAL_PATH, JSON.stringify(art, null, 2));
+    return PARTIAL_PATH;
+  }
+};
 
 const reloadAndReboot = async (reason) => {
   console.warn(`\n[281-val] reload triggered: ${reason}`);
@@ -405,37 +432,20 @@ for (let i = 0; i < MAX_TURNS; i++) {
     elapsed_s:    elapsed,
     ai_msgs_delta: aiMsgsDelta,
   });
+  persistArtifact(false); // incremental write — preserves data if script dies mid-run
 
   // 2s settle between turns
   await delay(2_000);
 }
 
-// ── Build artifact ────────────────────────────────────────────────────────────
-const gpuSamples = turns
-  .map(t => t.gpu_vram_mb_end)
-  .filter(v => v !== null);
-const gpuVramMin  = gpuSamples.length ? Math.min(...gpuSamples) : null;
-const gpuVramMax  = gpuSamples.length ? Math.max(...gpuSamples) : null;
-const gpuVramDiff = (gpuVramMin !== null && gpuVramMax !== null) ? gpuVramMax - gpuVramMin : null;
+// ── Write final artifact ──────────────────────────────────────────────────────
+const outPath = persistArtifact(true);
+const gatePass = realSuccessCount >= 20 && ghostCount === 0 && oomCount === 0 && alignCount === 0;
 
-const artifact = {
-  sha:               SHA,
-  max_turns:         MAX_TURNS,
-  turns_total:       turns.length,
-  real_success:      realSuccessCount,
-  ghost:             ghostCount,
-  oom_d3d12:         oomCount,
-  align_recycle:     alignCount,
-  gpu_vram_min_mb:   gpuVramMin,
-  gpu_vram_max_mb:   gpuVramMax,
-  gpu_vram_range_mb: gpuVramDiff,
-  // Leo gate (re-specified mail 12313): real_success>=20, ghost=0, oom=0, align=0
-  gate_pass:         realSuccessCount >= 20 && ghostCount === 0 && oomCount === 0 && alignCount === 0,
-  turn_log:          turns,
-};
-
-const outPath = `state/diag-307/validate-281-${SHA}-${Date.now()}.json`;
-writeFileSync(outPath, JSON.stringify(artifact, null, 2));
+const gpuSamples   = turns.map(t => t.gpu_vram_mb_end).filter(v => v !== null);
+const gpuVramMin   = gpuSamples.length ? Math.min(...gpuSamples) : null;
+const gpuVramMax   = gpuSamples.length ? Math.max(...gpuSamples) : null;
+const gpuVramDiff  = (gpuVramMin !== null && gpuVramMax !== null) ? gpuVramMax - gpuVramMin : null;
 
 console.log(`\n[281-val] ── VALIDATION COMPLETE ─────────────────────────────────────`);
 console.log(`  SHA:          ${SHA}`);
@@ -445,8 +455,8 @@ console.log(`  Ghost:        ${ghostCount}`);
 console.log(`  D3D12-OOM:    ${oomCount}`);
 console.log(`  Align-recycle:${alignCount}`);
 console.log(`  GPU VRAM:     ${gpuVramMin}–${gpuVramMax} MB (delta=${gpuVramDiff}) [nvidia-smi]`);
-console.log(`  Gate PASS:    ${artifact.gate_pass}`);
+console.log(`  Gate PASS:    ${gatePass}`);
 console.log(`  Artifact:     ${outPath}`);
 
 ws.close();
-process.exit(artifact.gate_pass ? 0 : 1);
+process.exit(gatePass ? 0 : 1);
