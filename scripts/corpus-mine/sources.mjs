@@ -218,6 +218,74 @@ export const SEEDS = [
     url: "https://discourse.mcneel.com/t/how-to-use-filletedge-command/",
     source: "rhino-forum", title: "Discourse: FilletEdge usage",
   },
+
+  // ── FreeCAD BIM / Arch workbench — architectural elements (#377) ─────────
+  // Public wiki; "How to use" sections have numbered steps.
+  // BIM_* = new unified workbench (FC 0.22+); Arch_* = legacy fallback pages.
+  {
+    url: "https://wiki.freecad.org/BIM_Wall",
+    source: "freecad-arch", title: "FreeCAD Wall",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Slab",
+    source: "freecad-arch", title: "FreeCAD Slab",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Column",
+    source: "freecad-arch", title: "FreeCAD Column",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Beam",
+    source: "freecad-arch", title: "FreeCAD Beam",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Door",
+    source: "freecad-arch", title: "FreeCAD Door",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Window",
+    source: "freecad-arch", title: "FreeCAD Window",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Roof",
+    source: "freecad-arch", title: "FreeCAD Roof",
+  },
+  {
+    url: "https://wiki.freecad.org/BIM_Floor",
+    source: "freecad-arch", title: "FreeCAD Floor",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Wall",
+    source: "freecad-arch", title: "FreeCAD Arch Wall",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Floor",
+    source: "freecad-arch", title: "FreeCAD Arch Floor",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Door",
+    source: "freecad-arch", title: "FreeCAD Arch Door",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Window",
+    source: "freecad-arch", title: "FreeCAD Arch Window",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Roof",
+    source: "freecad-arch", title: "FreeCAD Arch Roof",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Stairs",
+    source: "freecad-arch", title: "FreeCAD Stair",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Structure",
+    source: "freecad-arch", title: "FreeCAD Arch Column",
+  },
+  {
+    url: "https://wiki.freecad.org/Arch_Panel",
+    source: "freecad-arch", title: "FreeCAD Arch Slab",
+  },
 ];
 
 /** Group seeds by source category. */
