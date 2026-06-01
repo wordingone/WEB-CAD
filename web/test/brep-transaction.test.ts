@@ -1,13 +1,14 @@
 // brep-transaction.test.ts — #370 PR3 BrepTransaction unit tests.
 //
-// Tests the accumulation model without kern.wasm — uses the toy boolean backend
-// so tests are self-contained and run in CI without WASM.
+// Tests the accumulation model using the toy boolean backend via explicit
+// { backend: 'toy' } opts. Never calls _clearRegistryForTest — that mutates
+// shared module-level state and breaks the nurbs-backend registration that
+// brep-boolean.test.ts depends on.
 
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { BrepTransaction, transactionFromShells } from "../src/geometry/brep-transaction";
 import type { BrepStep } from "../src/geometry/brep-transaction";
 import type { Brep } from "../src/nurbs/nurbs-brep";
-import { _clearRegistryForTest } from "../src/nurbs/brep-boolean";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -15,10 +16,9 @@ function minimalBrep(): Brep {
   return { shells: [{ faces: [], edges: [], vertices: [], isClosed: false }] };
 }
 
-beforeAll(() => {
-  // Ensure the toy backend is registered (default after _clearRegistryForTest)
-  _clearRegistryForTest(true);
-});
+// Explicit toy backend — keeps test assertions deterministic (structural concat)
+// without touching the shared backend registry.
+const TOY = { backend: "toy" } as const;
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ describe("BrepTransaction — step queuing", () => {
   });
 });
 
-// ── commit() — empty transaction ──────────────────────────────────────────────
+// ── commit() ──────────────────────────────────────────────────────────────────
 
 describe("BrepTransaction — commit", () => {
   test("empty transaction returns base brep", async () => {
@@ -93,11 +93,11 @@ describe("BrepTransaction — commit", () => {
     expect(outcomes).toHaveLength(0);
   });
 
-  test("union step applied via toy backend", async () => {
+  test("union step (toy) structural-concat shells", async () => {
     const base = minimalBrep();
     const other = minimalBrep();
     const tx = new BrepTransaction(base);
-    tx.union(other);
+    tx.union(other, TOY);
     const { brep, outcomes } = await tx.commit();
     expect(outcomes).toHaveLength(1);
     expect(outcomes[0].ok).toBe(true);
@@ -105,38 +105,36 @@ describe("BrepTransaction — commit", () => {
     expect(brep.shells.length).toBe(base.shells.length + other.shells.length);
   });
 
-  test("failed fillet step is recorded but does not abort", async () => {
-    // kernFillet returns null when kern.wasm is not loaded — this becomes a failure
+  test("failed fillet step recorded but does not abort chain", async () => {
+    // kernFillet returns null when kern.wasm is not loaded — becomes a failure
     const base = minimalBrep();
     const tx = new BrepTransaction(base);
-    tx.fillet([0], 0.05);          // will fail (no kern.wasm in CI)
-    tx.union(minimalBrep());       // should still execute
+    tx.fillet([0], 0.05);           // fails (no kern.wasm in CI)
+    tx.union(minimalBrep(), TOY);   // should still execute
     const { brep, outcomes } = await tx.commit();
     expect(outcomes).toHaveLength(2);
-    // fillet fails gracefully
     expect(outcomes[0].ok).toBe(false);
     expect((outcomes[0] as { ok: false; error: string }).error).toMatch(/kern not loaded/);
-    // union still applied after the failed fillet
     expect(outcomes[1].ok).toBe(true);
-    // result has 2 shells (base + union other)
+    // union was applied to base (fillet failed, base carried forward)
     expect(brep.shells.length).toBe(2);
   });
 
-  test("multiple boolean steps chain correctly", async () => {
+  test("multiple union steps chain — toy concat", async () => {
     const base: Brep = { shells: [{ faces: [], edges: [], vertices: [], isClosed: false }] };
     const b1:   Brep = { shells: [{ faces: [], edges: [], vertices: [], isClosed: false }] };
     const b2:   Brep = { shells: [{ faces: [], edges: [], vertices: [], isClosed: false }] };
     const tx = new BrepTransaction(base);
-    tx.union(b1).union(b2);
+    tx.union(b1, TOY).union(b2, TOY);
     const { brep, outcomes } = await tx.commit();
     expect(outcomes.every((o) => o.ok)).toBe(true);
-    // After 2 unions: 1 + 1 + 1 = 3 shells (toy backend concat)
+    // After 2 toy unions: 1 + 1 + 1 = 3 shells
     expect(brep.shells.length).toBe(3);
   });
 
   test("step kind preserved in outcome", async () => {
     const tx = new BrepTransaction(minimalBrep());
-    tx.union(minimalBrep());
+    tx.union(minimalBrep(), TOY);
     const { outcomes } = await tx.commit();
     const step = outcomes[0].step as BrepStep;
     expect(step.kind).toBe("union");
