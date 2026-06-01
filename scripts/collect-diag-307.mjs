@@ -270,6 +270,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
   const preGateStart = Date.now();
   let preGateOk = false;
   let preGateStuckMs = 0;
+  let preGateErrorMs = 0;
   process.stdout.write(`[307] turn ${turnCount}/${MAX_TURNS} pre-gate…`);
   while (Date.now() - preGateStart < TURN_TIMEOUT) {
     const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
@@ -278,14 +279,43 @@ for (let i = 0; i < MAX_TURNS; i++) {
     if (String(btnText) === '…' && Boolean(btnDisabled)) {
       const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
       if (String(badgeText).includes('READY')) {
-        preGateStuckMs += 5_000;
+        preGateStuckMs += 5_000; preGateErrorMs = 0;
         if (preGateStuckMs >= 60_000) {
           console.warn(`\n[307] pre-gate: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
           await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
           preGateStuckMs = 0;
         }
-      } else { preGateStuckMs = 0; }
-    } else { preGateStuckMs = 0; }
+      } else if (String(badgeText).includes('ERROR')) {
+        preGateErrorMs += 5_000; preGateStuckMs = 0;
+        if (preGateErrorMs >= 120_000) {
+          console.warn(`\n[307] pre-gate: badge ERROR for 120s — reloading page`);
+          const pgBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+          await send("Page.navigate", { url: "about:blank" });
+          await pgBlank; await delay(500);
+          const pgPages = Promise.race([nextLoadEvent(), delay(15_000)]);
+          await send("Page.navigate", { url: PAGES_URL });
+          await pgPages; await delay(2_000);
+          await evaluate(`
+            window.__diag307Captured = null; window.__alignRecycleCount = 0; window.__alignSamples307 = [];
+            window.addEventListener("agentmodel:align-diag-307", e => { window.__diag307Captured = e.detail; console.warn("[align-diag-307]", JSON.stringify(e.detail)); });
+            window.addEventListener("agentmodel:align-sample-307", e => { window.__alignSamples307.push(e.detail); });
+            window.addEventListener("agentmodel:worker-recycled", e => { if (e.detail?.reason === "wasm-align-recycle") { window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1; } }); true
+          `);
+          let pgBootOk = false; const pgBootStart = Date.now();
+          while (Date.now() - pgBootStart < BOOT_TIMEOUT) {
+            const rbt = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+            const rbd = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+            const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+            if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { pgBootOk = true; break; }
+            if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) { await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`); }
+            process.stdout.write("R"); await delay(5_000);
+          }
+          if (!pgBootOk) { console.error("[307] pre-gate recovery boot timed out"); break; }
+          console.log(`\n[307] pre-gate: recovery boot OK`);
+          preGateOk = true; break;
+        }
+      } else { preGateStuckMs = 0; preGateErrorMs = 0; }
+    } else { preGateStuckMs = 0; preGateErrorMs = 0; }
     process.stdout.write("w");
     await delay(5_000);
   }
@@ -343,6 +373,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
   let turnDone = false;
   let recycled = false;
   let turnStuckMs = 0;
+  let turnErrorMs = 0;
   while (Date.now() - turnStart < TURN_TIMEOUT) {
     await delay(5_000);
 
@@ -364,13 +395,67 @@ for (let i = 0; i < MAX_TURNS; i++) {
       const badgeText = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
       if (String(badgeText).includes('READY')) {
         turnStuckMs += 5_000;
+        turnErrorMs = 0;
         if (turnStuckMs >= 60_000) {
           console.warn(`\n[307] turn ${turnCount}: stuck "…"+READY for 60s — orphaned _send() after OOM, resetting button`);
           await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
           turnStuckMs = 0;
         }
-      } else { turnStuckMs = 0; }
-    } else { turnStuckMs = 0; }
+      } else if (String(badgeText).includes('ERROR')) {
+        // Model fatal error (D3D12-OOM). Does not self-recover. After 120s, reload page.
+        turnErrorMs += 5_000;
+        turnStuckMs = 0;
+        if (turnErrorMs >= 120_000) {
+          console.warn(`\n[307] turn ${turnCount}: badge ERROR for 120s — reloading page to recover model`);
+          const recBlank = Promise.race([nextLoadEvent(), delay(5_000)]);
+          await send("Page.navigate", { url: "about:blank" });
+          await recBlank;
+          await delay(500);
+          const recPages = Promise.race([nextLoadEvent(), delay(15_000)]);
+          await send("Page.navigate", { url: PAGES_URL });
+          await recPages;
+          await delay(2_000);
+          // re-inject listeners (fresh page context; prior alignSamples reset by navigation)
+          await evaluate(`
+            window.__diag307Captured = null;
+            window.__alignRecycleCount = 0;
+            window.__alignSamples307 = [];
+            window.addEventListener("agentmodel:align-diag-307", e => {
+              window.__diag307Captured = e.detail;
+              console.warn("[align-diag-307]", JSON.stringify(e.detail));
+            });
+            window.addEventListener("agentmodel:align-sample-307", e => {
+              window.__alignSamples307.push(e.detail);
+            });
+            window.addEventListener("agentmodel:worker-recycled", e => {
+              if (e.detail?.reason === "wasm-align-recycle") {
+                window.__alignRecycleCount = (window.__alignRecycleCount ?? 0) + 1;
+                console.warn("[307] align-recycle #" + window.__alignRecycleCount + " fired");
+              }
+            });
+            true
+          `);
+          // wait for boot-complete after recovery reload
+          let recBootOk = false;
+          const recBootStart = Date.now();
+          while (Date.now() - recBootStart < BOOT_TIMEOUT) {
+            const rbt  = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+            const rbd  = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+            const rbtx = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+            if (String(rbt).includes('READY') && !rbd && String(rbtx).includes('SEND')) { recBootOk = true; break; }
+            if (String(rbtx) === '…' && Boolean(rbd) && String(rbt).includes('READY')) {
+              await evaluate(`{const _b=document.querySelector('.chat-send-btn');if(_b&&_b.textContent==='…'){_b.disabled=false;_b.textContent='SEND';}}`);
+            }
+            process.stdout.write("R");
+            await delay(5_000);
+          }
+          if (!recBootOk) { console.error("[307] recovery boot timed out"); break; }
+          console.log(`\n[307] turn ${turnCount}: recovery boot OK — counting turn as done`);
+          turnDone = true;
+          break;
+        }
+      } else { turnStuckMs = 0; turnErrorMs = 0; }
+    } else { turnStuckMs = 0; turnErrorMs = 0; }
 
     process.stdout.write("·");
   }
