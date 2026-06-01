@@ -11,7 +11,8 @@
 //   bun scripts/validate-281-session-refresh.mjs [--max-turns N]
 //
 // Default: 25 turns, warm-OPFS (OPFS preserved; only cookies+localStorage cleared).
-// Warm-OPFS is acceptable per Leo — OOM is in active-chat KV path, not cold-boot path.
+// Pass --cold-cache to also clear cache_storage + service_workers (forces re-download of
+// deployed JS from Pages, verifying the run is against actual deployed code).
 
 import { WebSocket } from "ws";
 import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync } from "fs";
@@ -22,6 +23,7 @@ const PAGES_URL    = "https://wordingone.github.io/WEB-CAD/";
 const BOOT_TIMEOUT = 1_200_000; // 20 min
 const TURN_TIMEOUT = 2_700_000; // 45 min
 const MAX_TURNS    = parseInt(process.argv.find((_,i,a) => a[i-1]==="--max-turns") ?? "25");
+const COLD_CACHE   = process.argv.includes("--cold-cache");
 
 const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 mkdirSync("state/diag-307", { recursive: true });
@@ -117,12 +119,17 @@ await send("Page.navigate", { url: "about:blank" });
 await blankLoaded;
 await delay(500);
 
-// Warm-OPFS: clear only cookies+localStorage (not file_systems/cache_storage)
+// Clear storage: warm-OPFS preserves cache_storage+service_workers; cold-cache clears them too.
+// In both modes file_systems (OPFS model weights) is preserved to avoid multi-hour re-download.
+const storageTypes = COLD_CACHE
+  ? "cookies,local_storage,cache_storage,service_workers"
+  : "cookies,local_storage";
 await send("Storage.clearDataForOrigin", {
   origin: "https://wordingone.github.io",
-  storageTypes: "cookies,local_storage",
+  storageTypes,
 });
-console.log("[281-val] warm-OPFS: cookies+localStorage cleared; OPFS+cache preserved");
+const modeLabel = COLD_CACHE ? "cold-cache: cookies+localStorage+cache+SW cleared; OPFS preserved" : "warm-OPFS: cookies+localStorage cleared; OPFS+cache preserved";
+console.log(`[281-val] ${modeLabel}`);
 
 // Navigate to Pages for the run
 console.log(`[281-val] navigating → ${PAGES_URL}`);
