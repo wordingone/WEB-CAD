@@ -23,6 +23,8 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { USDZExporter } from "three/examples/jsm/exporters/USDZExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import type { CanonicalGeometry } from "../geometry/canonical-geometry.js";
+import { register } from "../geometry/conversion-registry.js";
+import type { Brep } from "../nurbs/nurbs-brep.js";
 import { canonicalGeometryToIfcNurbsSurfaces } from "../ifc/canonical-ifc.js";
 import { nurbsCurveFromArc } from "../nurbs/nurbs-curve-algorithms.js";
 import { getNurbsForm as curveToNurbsForm, tessellate as tessellateCurve } from "../nurbs/nurbs-curves.js";
@@ -33,6 +35,29 @@ import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel.j
 export type CanonicalExportOptions = {
   getCanonicalGeometryForObject?: (obj: THREE.Object3D) => CanonicalGeometry | undefined;
 };
+
+// Register brep→mesh in the conversion registry at module load.
+register<Brep, THREE.Mesh | null>("brep", "mesh", (brep) => {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  let offset = 0;
+  for (const shell of brep.shells) {
+    for (const face of shell.faces) {
+      const tess = tessellateSurface(face.surface, 4, 4);
+      positions.push(...tess.positions);
+      normals.push(...tess.normals);
+      for (const index of tess.indices) indices.push(index + offset);
+      offset += tess.positions.length / 3;
+    }
+  }
+  if (positions.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(normals), 3));
+  geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial());
+});
 
 function meshFromCanonicalSurface(record: Extract<CanonicalGeometry, { kind: "surface" }>): THREE.Mesh | null {
   const tess = tessellateSurface(record.surface, 16, 16);
