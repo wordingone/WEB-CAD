@@ -5,7 +5,7 @@
 //  1. Ghost-turn detection ACTIVE — each turn's real/ghost status reported.
 //  2. ≥20 REAL generation turns — model produced an AI response, not a silent skip.
 //  3. 0 OOM and 0 alignment-FATAL across real turns.
-//  4. VRAM bounded — performance.memory sample per turn; no monotonic climb.
+//  4. GPU VRAM trend — nvidia-smi per turn (NOT JS heap); ghost=0 is OOM-gone proxy.
 //
 // Usage:
 //   bun scripts/validate-281-session-refresh.mjs [--max-turns N]
@@ -146,15 +146,16 @@ const injectListeners = async () => {
 await injectListeners();
 console.log("[281-val] listeners installed");
 
-// ── VRAM sample helper ────────────────────────────────────────────────────────
-const sampleVram = async () => {
-  const r = await evaluate(`
-    (() => {
-      const m = performance?.memory;
-      return m ? m.usedJSHeapSize : null;
-    })()
-  `);
-  return typeof r === "number" ? Math.round(r / 1024 / 1024) : null; // MB
+// ── GPU VRAM sample helper (nvidia-smi, not JS heap) ─────────────────────────
+// performance.memory.usedJSHeapSize is JS heap, invisible to D3D12 GPU buffers.
+// nvidia-smi reports actual GPU memory used (MB), which is the OOM surface.
+const sampleVram = () => {
+  try {
+    const out = execSync("nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits", { encoding: "utf8" });
+    return parseInt(out.trim(), 10);
+  } catch {
+    return null;
+  }
 };
 
 // ── Wait for boot ─────────────────────────────────────────────────────────────
@@ -206,7 +207,7 @@ const PROMPTS = [
 ];
 
 /**
- * @typedef {{ turn: number, prompt: string, outcome: string, vram_mb_start: number|null, vram_mb_end: number|null, elapsed_s: number, ai_msgs_delta: number }} TurnRecord
+ * @typedef {{ turn: number, prompt: string, outcome: string, gpu_gpu_vram_mb_start: number|null, gpu_gpu_vram_mb_end: number|null, elapsed_s: number, ai_msgs_delta: number }} TurnRecord
  */
 /** @type {TurnRecord[]} */
 const turns = [];
@@ -264,19 +265,19 @@ for (let i = 0; i < MAX_TURNS; i++) {
   if (String(preBadge).includes("ERROR")) {
     console.warn(`[281-val] T${turnNum}: badge ERROR before send — ghost detected, reloading`);
     ghostCount++;
-    turns.push({ turn: turnNum, prompt, outcome: "ghost_pre_badge", vram_mb_start: null, vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
+    turns.push({ turn: turnNum, prompt, outcome: "ghost_pre_badge", gpu_vram_mb_start: null, gpu_vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
     const ok = await reloadAndReboot("ghost pre-badge ERROR");
     if (!ok) { console.error("[281-val] recovery boot timeout — aborting"); break; }
     continue;
   }
 
-  // ── VRAM sample (before turn) ────────────────────────────────────────────────
+  // ── GPU VRAM sample via nvidia-smi (before turn) ─────────────────────────────
   const vramStart = await sampleVram();
 
   // ── Count AI messages before send ────────────────────────────────────────────
   const aiMsgsBefore = await evaluate(`document.querySelectorAll('.chat-msg').length`);
 
-  console.log(`[281-val] T${turnNum}/${MAX_TURNS}: "${prompt}" | vram_start=${vramStart}MB`);
+  console.log(`[281-val] T${turnNum}/${MAX_TURNS}: "${prompt}" | gpu_vram_start=${vramStart}MB`);
   const turnStart = Date.now();
 
   // ── Send message ─────────────────────────────────────────────────────────────
@@ -295,7 +296,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
 
   if (sent !== "sent") {
     console.warn(`[281-val] T${turnNum}: send returned "${sent}" — skipping`);
-    turns.push({ turn: turnNum, prompt, outcome: "send_fail", vram_mb_start: vramStart, vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
+    turns.push({ turn: turnNum, prompt, outcome: "send_fail", gpu_vram_mb_start: vramStart, gpu_vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
     continue;
   }
 
@@ -310,7 +311,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
   if (!userMsgAppeared) {
     console.warn(`[281-val] T${turnNum}: no user message in DOM — early silent return (ghost)`);
     ghostCount++;
-    turns.push({ turn: turnNum, prompt, outcome: "ghost_no_user_msg", vram_mb_start: vramStart, vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
+    turns.push({ turn: turnNum, prompt, outcome: "ghost_no_user_msg", gpu_vram_mb_start: vramStart, gpu_vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
     continue;
   }
 
@@ -383,17 +384,17 @@ for (let i = 0; i < MAX_TURNS; i++) {
 
   if (outcome === "real_success") {
     realSuccessCount++;
-    console.log(`[281-val] T${turnNum}: REAL_SUCCESS in ${elapsed}s | vram_end=${vramEnd}MB | ai_msgs+=${aiMsgsDelta}`);
+    console.log(`[281-val] T${turnNum}: REAL_SUCCESS in ${elapsed}s | gpu_vram_end=${vramEnd}MB | ai_msgs+=${aiMsgsDelta}`);
   } else {
-    console.log(`[281-val] T${turnNum}: ${outcome.toUpperCase()} in ${elapsed}s | vram_end=${vramEnd}MB`);
+    console.log(`[281-val] T${turnNum}: ${outcome.toUpperCase()} in ${elapsed}s | gpu_vram_end=${vramEnd}MB`);
   }
 
   turns.push({
     turn:         turnNum,
     prompt,
     outcome,
-    vram_mb_start: vramStart,
-    vram_mb_end:   vramEnd,
+    gpu_vram_mb_start: vramStart,
+    gpu_vram_mb_end:   vramEnd,
     elapsed_s:    elapsed,
     ai_msgs_delta: aiMsgsDelta,
   });
@@ -403,27 +404,27 @@ for (let i = 0; i < MAX_TURNS; i++) {
 }
 
 // ── Build artifact ────────────────────────────────────────────────────────────
-const vramSamples = turns
-  .map(t => t.vram_mb_end)
+const gpuSamples = turns
+  .map(t => t.gpu_vram_mb_end)
   .filter(v => v !== null);
-const vramMin  = vramSamples.length ? Math.min(...vramSamples) : null;
-const vramMax  = vramSamples.length ? Math.max(...vramSamples) : null;
-const vramDiff = (vramMin !== null && vramMax !== null) ? vramMax - vramMin : null;
+const gpuVramMin  = gpuSamples.length ? Math.min(...gpuSamples) : null;
+const gpuVramMax  = gpuSamples.length ? Math.max(...gpuSamples) : null;
+const gpuVramDiff = (gpuVramMin !== null && gpuVramMax !== null) ? gpuVramMax - gpuVramMin : null;
 
 const artifact = {
-  sha:              SHA,
-  max_turns:        MAX_TURNS,
-  turns_total:      turns.length,
-  real_success:     realSuccessCount,
-  ghost:            ghostCount,
-  oom_d3d12:        oomCount,
-  align_recycle:    alignCount,
-  vram_min_mb:      vramMin,
-  vram_max_mb:      vramMax,
-  vram_range_mb:    vramDiff,
-  // Leo gate: pass = real_success >= 20, oom = 0, align = 0, vram bounded
-  gate_pass:        realSuccessCount >= 20 && oomCount === 0 && alignCount === 0,
-  turn_log:         turns,
+  sha:               SHA,
+  max_turns:         MAX_TURNS,
+  turns_total:       turns.length,
+  real_success:      realSuccessCount,
+  ghost:             ghostCount,
+  oom_d3d12:         oomCount,
+  align_recycle:     alignCount,
+  gpu_vram_min_mb:   gpuVramMin,
+  gpu_vram_max_mb:   gpuVramMax,
+  gpu_vram_range_mb: gpuVramDiff,
+  // Leo gate (re-specified mail 12313): real_success>=20, ghost=0, oom=0, align=0
+  gate_pass:         realSuccessCount >= 20 && ghostCount === 0 && oomCount === 0 && alignCount === 0,
+  turn_log:          turns,
 };
 
 const outPath = `state/diag-307/validate-281-${SHA}-${Date.now()}.json`;
@@ -436,7 +437,7 @@ console.log(`  Real success: ${realSuccessCount}`);
 console.log(`  Ghost:        ${ghostCount}`);
 console.log(`  D3D12-OOM:    ${oomCount}`);
 console.log(`  Align-recycle:${alignCount}`);
-console.log(`  VRAM range:   ${vramMin}–${vramMax} MB (delta=${vramDiff})`);
+console.log(`  GPU VRAM:     ${gpuVramMin}–${gpuVramMax} MB (delta=${gpuVramDiff}) [nvidia-smi]`);
 console.log(`  Gate PASS:    ${artifact.gate_pass}`);
 console.log(`  Artifact:     ${outPath}`);
 
