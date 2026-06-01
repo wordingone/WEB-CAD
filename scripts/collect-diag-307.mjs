@@ -24,6 +24,9 @@ const BOOT_TIMEOUT  = 1_200_000; // 20 min — cold-cache 4GB download
 const TURN_TIMEOUT  =   900_000; // 15 min per turn — Gemma 4 WASM ~10s/token
 const MAX_TURNS     = parseInt(process.argv.find((_,i,a) => a[i-1]==="--max-turns") ?? "30");
 const OPFS_WARM     = process.argv.includes("--opfs-warm");
+// --no-nav: skip Page.navigate + boot wait; attach to existing live session.
+// Use when model is already running (e.g. mid-generation from a prior script run).
+const NO_NAV        = process.argv.includes("--no-nav");
 
 const SHA = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 mkdirSync("state/diag-307", { recursive: true });
@@ -76,7 +79,7 @@ await send("Runtime.enable");
 await send("Page.enable");
 
 // ── Optional: cold-cache clear ────────────────────────────────────────────────
-if (!OPFS_WARM) {
+if (!OPFS_WARM && !NO_NAV) {
   console.log("[307] clearing storage for cold-cache Pages session…");
   await send("Storage.clearDataForOrigin", {
     origin: "https://wordingone.github.io",
@@ -85,23 +88,28 @@ if (!OPFS_WARM) {
   console.log("[307] storage cleared");
 }
 
-// ── Navigate (always reload for clean model/button state) ────────────────────
-console.log(`[307] navigating → ${PAGES_URL}`);
-await send("Page.navigate", { url: PAGES_URL });
-// Wait for Page.loadEventFired to confirm actual reload before polling
-await Promise.race([
-  new Promise(res => {
-    const handler = raw => {
-      const msg = JSON.parse(raw);
-      if (msg.method === "Page.loadEventFired") { ws.off("message", handler); res(); }
-    };
-    ws.on("message", handler);
-  }),
-  delay(15_000),
-]);
-await delay(2_000); // settle after load
+// ── Navigate (or skip if --no-nav) ───────────────────────────────────────────
+let bootMs = 0;
+if (NO_NAV) {
+  console.log("[307] --no-nav: skipping navigation, attaching to live session");
+} else {
+  console.log(`[307] navigating → ${PAGES_URL}`);
+  await send("Page.navigate", { url: PAGES_URL });
+  // Wait for Page.loadEventFired to confirm actual reload before polling
+  await Promise.race([
+    new Promise(res => {
+      const handler = raw => {
+        const msg = JSON.parse(raw);
+        if (msg.method === "Page.loadEventFired") { ws.off("message", handler); res(); }
+      };
+      ws.on("message", handler);
+    }),
+    delay(15_000),
+  ]);
+  await delay(2_000); // settle after load
+}
 
-// ── Inject diagnostic listener BEFORE boot-complete ──────────────────────────
+// ── Inject diagnostic listeners ───────────────────────────────────────────────
 await evaluate(`
   window.__diag307Captured = null;
   window.__alignRecycleCount = 0;
@@ -119,30 +127,32 @@ await evaluate(`
 `);
 console.log("[307] diagnostic listeners installed");
 
-// ── Wait for boot-complete ────────────────────────────────────────────────────
+// ── Wait for boot-complete (skip if --no-nav: pre-turn gate handles the wait) ─
 // Require BOTH badge contains "READY" (JS-driven, not initial HTML) AND button is
-// SEND+enabled. Badge "READY" is set by JS after bootComplete, so it's not present
-// in the initial HTML — this prevents the false-positive that fires before JS init.
+// SEND+enabled. Skip this step with --no-nav — the pre-turn gate already waits for
+// SEND before each click, handling any in-flight generation from prior sessions.
 const bootStart = Date.now();
-let booted = false;
-console.log(`[307] waiting for boot-complete (badge READY + btn SEND, up to ${BOOT_TIMEOUT/60000}min)…`);
-while (Date.now() - bootStart < BOOT_TIMEOUT) {
-  const badgeText  = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
-  const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
-  const btnText    = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
-  if (String(badgeText).includes("READY") && !btnDisabled && String(btnText).includes("SEND")) {
-    booted = true; break;
+let booted = NO_NAV; // --no-nav: assume already booted, pre-gate will wait
+if (!NO_NAV) {
+  console.log(`[307] waiting for boot-complete (badge READY + btn SEND, up to ${BOOT_TIMEOUT/60000}min)…`);
+  while (Date.now() - bootStart < BOOT_TIMEOUT) {
+    const badgeText   = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
+    const btnDisabled = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
+    const btnText     = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
+    if (String(badgeText).includes("READY") && !btnDisabled && String(btnText).includes("SEND")) {
+      booted = true; break;
+    }
+    process.stdout.write(".");
+    await delay(5_000);
   }
-  process.stdout.write(".");
-  await delay(5_000);
+  console.log();
 }
-console.log();
-const bootMs = Date.now() - bootStart;
+bootMs = Date.now() - bootStart;
 if (!booted) {
   console.error(`[307] never reached READY+SEND after ${BOOT_TIMEOUT/60000}min`);
   ws.close(); process.exit(1);
 }
-console.log(`[307] booted in ${Math.round(bootMs/1000)}s`);
+if (!NO_NAV) console.log(`[307] booted in ${Math.round(bootMs/1000)}s`);
 
 // ── Send turns until align-trap fires ────────────────────────────────────────
 // Short prompts for faster decode cycles (shorter ORT runs = faster heap growth).
@@ -191,7 +201,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
   console.log(`[307] turn ${turnCount}/${MAX_TURNS}: "${prompt}"`);
 
   // ── Get current message count for post-click verification ─────────────────
-  const msgsBefore = await evaluate(`document.querySelectorAll('.chat-message').length`);
+  const msgsBefore = await evaluate(`document.querySelectorAll('.chat-msg').length`);
 
   // ── Type into chat input and submit ───────────────────────────────────────
   const sent = await evaluate(`
@@ -215,11 +225,12 @@ for (let i = 0; i < MAX_TURNS; i++) {
 
   // ── Verify user message appeared in DOM (within 10s) ──────────────────────
   // If _send() silently returned (chatInputEnabled=false), no message is pushed.
+  // Class is "chat-msg" (not "chat-message") per chat-panel.ts line 962.
   const verifyStart = Date.now();
   let msgAppeared = false;
   while (Date.now() - verifyStart < 10_000) {
     await delay(1_000);
-    const msgsAfter = await evaluate(`document.querySelectorAll('.chat-message').length`);
+    const msgsAfter = await evaluate(`document.querySelectorAll('.chat-msg').length`);
     if (msgsAfter > msgsBefore) { msgAppeared = true; break; }
   }
   if (!msgAppeared) {
