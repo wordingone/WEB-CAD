@@ -121,22 +121,31 @@ if (NO_NAV) {
   await blankLoaded;
   await delay(500); // ensure JS context fully destroyed
 
-  // Step 2: clear storage (app JS is dead, no race possible)
+  // Step 2: clear IDB via CDP IndexedDB.deleteDatabase (reliable, bypasses open-connection blocking
+  // and same-origin restriction; Storage.clearDataForOrigin with 'indexeddb' is unreliable from
+  // about:blank context — unknown why, but direct CDP IDB delete is authoritative).
+  await send("IndexedDB.enable");
+  const idbResult = await send("IndexedDB.requestDatabaseNames", { securityOrigin: "https://wordingone.github.io" });
+  const idbDbs = idbResult.databaseNames ?? [];
+  console.log(`[307] IDB databases: ${JSON.stringify(idbDbs)}`);
+  for (const name of idbDbs) {
+    await send("IndexedDB.deleteDatabase", { securityOrigin: "https://wordingone.github.io", databaseName: name });
+    console.log(`[307] deleted IDB: ${name}`);
+  }
+  // Also clear cookies + localStorage (no chat state, but be clean)
+  await send("Storage.clearDataForOrigin", {
+    origin: "https://wordingone.github.io",
+    storageTypes: "cookies,local_storage",
+  });
   if (OPFS_WARM) {
-    console.log("[307] clearing app state (keeping OPFS model weights)…");
-    await send("Storage.clearDataForOrigin", {
-      origin: "https://wordingone.github.io",
-      // Model weights are in OPFS (file_systems), NOT in IndexedDB — safe to clear IDB.
-      storageTypes: "cookies,local_storage,indexeddb",
-    });
     console.log("[307] app state cleared (OPFS preserved)");
   } else {
-    console.log("[307] clearing all storage (cold-cache)…");
+    // cold-cache: also clear OPFS (model weights) via all-storage clear
     await send("Storage.clearDataForOrigin", {
       origin: "https://wordingone.github.io",
-      storageTypes: "all",
+      storageTypes: "file_systems,cache_storage,service_workers,shader_cache",
     });
-    console.log("[307] storage cleared");
+    console.log("[307] storage cleared (cold-cache)");
   }
 
   // Step 3: navigate to Pages URL with clean storage
