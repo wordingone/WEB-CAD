@@ -97,11 +97,10 @@ await send("Runtime.enable");
 await send("Page.enable");
 
 // ── Navigate (or skip if --no-nav) ───────────────────────────────────────────
-// blank-nav BEFORE storage clear: kills app JS so it cannot race-write to
-// IndexedDB between clearDataForOrigin and the subsequent page reload.
-// Without this, app JS writes activeTurnId+chat history to IDB *after* the clear,
-// which persists across the reload and causes the restored session to auto-retry
-// an interrupted turn → button stays "…" indefinitely at boot.
+// CDP IndexedDB requires a real page frame context, so we navigate to Pages first
+// (if starting from about:blank) to get that context, delete IDB, then blank-nav
+// to kill app JS before it can race-write session state back, then navigate to
+// Pages for the actual run.
 const nextLoadEvent = () => new Promise(res => {
   const h = raw => {
     const m = JSON.parse(raw);
@@ -114,25 +113,49 @@ let bootMs = 0;
 if (NO_NAV) {
   console.log("[307] --no-nav: skipping navigation, attaching to live session");
 } else {
-  // Step 1: blank-nav to kill app JS (prevents IDB write race)
-  console.log("[307] blank-nav → about:blank (kill app JS before storage clear)…");
+  // CDP IndexedDB domain requires a real page frame context — requestDatabaseNames
+  // fails from about:blank ("No document for given frame found"). Fix: navigate to
+  // Pages first if starting from blank, delete IDB, then blank-nav to kill app JS,
+  // then navigate to Pages for the actual run.
+  // Sequence: [if blank] Pages-for-ctx → IDB delete → blank → Pages-for-run
+  //           [if Pages]               → IDB delete → blank → Pages-for-run
+  const curUrlResult = await send("Runtime.evaluate", { expression: `window.location.href`, returnByValue: true });
+  const curUrl = curUrlResult.result?.value ?? "";
+  const startingAtBlank = !curUrl.startsWith("https://wordingone.github.io");
+
+  if (startingAtBlank) {
+    console.log("[307] (starting from blank) navigating to Pages for IDB frame context…");
+    const ctxLoaded = Promise.race([nextLoadEvent(), delay(10_000)]);
+    await send("Page.navigate", { url: PAGES_URL });
+    await ctxLoaded;
+    await delay(300); // let frame settle
+  }
+
+  // Step 1: delete IDB databases via CDP (requires Pages frame context; privileged delete
+  // bypasses open-connection blocking and same-origin restriction)
+  console.log("[307] clearing IDB via CDP IndexedDB…");
+  try { await send("IndexedDB.enable"); } catch (e) { console.warn(`[307] IndexedDB.enable warn: ${e.message}`); }
+  let idbDbs = [];
+  try {
+    const idbResult = await send("IndexedDB.requestDatabaseNames", { securityOrigin: "https://wordingone.github.io" });
+    idbDbs = idbResult.databaseNames ?? [];
+  } catch (e) { console.warn(`[307] IDB list warn (non-fatal): ${e.message}`); }
+  console.log(`[307] IDB databases: ${JSON.stringify(idbDbs)}`);
+  for (const name of idbDbs) {
+    try {
+      await send("IndexedDB.deleteDatabase", { securityOrigin: "https://wordingone.github.io", databaseName: name });
+      console.log(`[307] deleted IDB: ${name}`);
+    } catch (e) { console.warn(`[307] IDB delete ${name} warn (non-fatal): ${e.message}`); }
+  }
+
+  // Step 2: blank-nav to kill app JS (prevents IDB re-write race between IDB delete and reload)
+  console.log("[307] blank-nav → about:blank (kill app JS)…");
   const blankLoaded = Promise.race([nextLoadEvent(), delay(5_000)]);
   await send("Page.navigate", { url: "about:blank" });
   await blankLoaded;
-  await delay(500); // ensure JS context fully destroyed
+  await delay(500);
 
-  // Step 2: clear IDB via CDP IndexedDB.deleteDatabase (reliable, bypasses open-connection blocking
-  // and same-origin restriction; Storage.clearDataForOrigin with 'indexeddb' is unreliable from
-  // about:blank context — unknown why, but direct CDP IDB delete is authoritative).
-  await send("IndexedDB.enable");
-  const idbResult = await send("IndexedDB.requestDatabaseNames", { securityOrigin: "https://wordingone.github.io" });
-  const idbDbs = idbResult.databaseNames ?? [];
-  console.log(`[307] IDB databases: ${JSON.stringify(idbDbs)}`);
-  for (const name of idbDbs) {
-    await send("IndexedDB.deleteDatabase", { securityOrigin: "https://wordingone.github.io", databaseName: name });
-    console.log(`[307] deleted IDB: ${name}`);
-  }
-  // Also clear cookies + localStorage (no chat state, but be clean)
+  // Step 3: clear cookies + localStorage
   await send("Storage.clearDataForOrigin", {
     origin: "https://wordingone.github.io",
     storageTypes: "cookies,local_storage",
@@ -140,7 +163,6 @@ if (NO_NAV) {
   if (OPFS_WARM) {
     console.log("[307] app state cleared (OPFS preserved)");
   } else {
-    // cold-cache: also clear OPFS (model weights) via all-storage clear
     await send("Storage.clearDataForOrigin", {
       origin: "https://wordingone.github.io",
       storageTypes: "file_systems,cache_storage,service_workers,shader_cache",
@@ -148,12 +170,12 @@ if (NO_NAV) {
     console.log("[307] storage cleared (cold-cache)");
   }
 
-  // Step 3: navigate to Pages URL with clean storage
+  // Step 4: navigate to Pages URL for the actual run
   console.log(`[307] navigating → ${PAGES_URL}`);
   const pagesLoaded = Promise.race([nextLoadEvent(), delay(15_000)]);
   await send("Page.navigate", { url: PAGES_URL });
   await pagesLoaded;
-  await delay(2_000); // settle after load
+  await delay(2_000);
 }
 
 // ── Inject diagnostic listeners ───────────────────────────────────────────────
