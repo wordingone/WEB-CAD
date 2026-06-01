@@ -215,6 +215,14 @@ export class ChatPanel {
     (window as unknown as _GemmaW).__gemmaSession = { startTs: Date.now(), turnCount: 0, dispatchCount: 0, errorCount: 0 };
     // QW-1 (#409): pre-dispatch hook registry — external code registers hooks here.
     (window as unknown as _GemmaW).__gemma_dispatch_hooks = { pre: [] };
+    // §#313: model-not-loaded sets _modelDeadBubbleShown; reset it when model is ready.
+    window.addEventListener("agentmodel:ready", () => {
+      if (this._modelDeadBubbleShown) {
+        this._modelDeadBubbleShown = false;
+        this._sendBtn.disabled = false;
+        this._sendBtn.textContent = "SEND";
+      }
+    });
   }
 
   setSkills(skills: Skill[]): void {
@@ -672,7 +680,7 @@ export class ChatPanel {
       console.log("[vision] text=", JSON.stringify(text.substring(0,60)), "hasImg=", !!effectiveImage, "re=", isVisualQuery);
       let agentRing: HTMLDivElement | null = null;
       if (!effectiveImage && isVisualQuery) {
-        effectiveImage = captureViewport(768) ?? undefined;
+        effectiveImage = captureViewport(512) ?? undefined;
         console.log("[vision] captureViewport=", effectiveImage ? "OK len="+effectiveImage.length : "NULL");
         if (effectiveImage) {
           const canvas = document.querySelector<HTMLElement>(".viewport-area canvas");
