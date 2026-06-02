@@ -29,23 +29,31 @@ const DRAIN_FIXED_MS = 60_000;
 //   ±5m  → ±16.40 (16.40 × 0.3048 = 4.999m)
 //   ±4m  → ±13.12 (13.12 × 0.3048 = 3.999m)
 //   ±2m  → ±6.562 (6.562 × 0.3048 = 1.999m)
+// §Leo-gate-req3: pitched (gable) roof — SdRoof roofType=pitched replaces flat SdSlab.
+// Active level when SdRoof fires: Level-2. Handler infers eave from Level-2 walls (height=2.8m),
+// places roof at activeLevelElev + eaveOffset = 3m + 2.8m = 5.8m (top of Level-2 walls). ✓
+// No separate Roof level needed — caller stays on Level-2.
+// ft pre-scaling unchanged (×0.3048 model conversion):
+//   footprint corners [-16.4,-13.12]→[16.4,13.12] = ±5m×±4m after conversion.
 const HOUSE_PROMPT =
-  "Build a 2-storey single-family house in feet (the app converts to metres automatically). " +
+  "Build a 2-storey single-family house. All numbers are in feet; the app converts to metres. " +
+  "Execute exactly these 16 steps in order, then stop immediately. Do NOT add any more commands after step 16: " +
   "(1) SdLevel name=Ground elevation=0. " +
-  "(2) SdSlab on Ground floor size=[32.8,26.25] at z=0. " +
-  "(3) Four SdWall on Ground height=9.843: " +
-  "south start=[-16.4,-13.12] end=[16.4,-13.12]; " +
-  "north start=[-16.4,13.12] end=[16.4,13.12]; " +
-  "east start=[16.4,-13.12] end=[16.4,13.12]; " +
-  "west start=[-16.4,-13.12] end=[-16.4,13.12]. " +
-  "(4) SdDoor position=[0,-13.12,0] — entry door on south wall. " +
-  "(5) SdLevel name=Level-2 elevation=9.843. " +
-  "(6) SdSlab on Level-2 size=[32.8,26.25] at z=9.843. " +
-  "(7) Four SdWall on Level-2 height=9.186: same footprint. " +
-  "(8) SdWindow position=[-6.562,-13.12,9.843] on south wall. " +
-  "(9) SdWindow position=[6.562,-13.12,9.843] on south wall. " +
-  "(10) SdLevel name=Roof elevation=19.03. " +
-  "(11) SdSlab on Roof size=[32.8,26.25] thickness=0.492 at z=19.03.";
+  "(2) SdSlab on Ground size=[32.8,26.25] at z=0. " +
+  "(3) SdWall on Ground height=9.843 start=[-16.4,-13.12] end=[16.4,-13.12]. " +
+  "(4) SdWall on Ground height=9.843 start=[-16.4,13.12] end=[16.4,13.12]. " +
+  "(5) SdWall on Ground height=9.843 start=[16.4,-13.12] end=[16.4,13.12]. " +
+  "(6) SdWall on Ground height=9.843 start=[-16.4,-13.12] end=[-16.4,13.12]. " +
+  "(7) SdDoor position=[0,-13.12,0] on south wall. " +
+  "(8) SdLevel name=Level-2 elevation=9.843. " +
+  "(9) SdSlab on Level-2 size=[32.8,26.25] at z=9.843. " +
+  "(10) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[16.4,-13.12]. " +
+  "(11) SdWall on Level-2 height=9.186 start=[-16.4,13.12] end=[16.4,13.12]. " +
+  "(12) SdWall on Level-2 height=9.186 start=[16.4,-13.12] end=[16.4,13.12]. " +
+  "(13) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[-16.4,13.12]. " +
+  "(14) SdWindow position=[-6.562,-13.12,9.843] on south wall Level-2. " +
+  "(15) SdWindow position=[6.562,-13.12,9.843] on south wall Level-2. " +
+  "(16) SdRoof roofType=pitched pitchDeg=30 footprint=[[-16.4,-13.12],[16.4,-13.12],[16.4,13.12],[-16.4,13.12]].";
 
 const DIAG_DIR = "state/diag-house";
 
@@ -93,12 +101,23 @@ const ws = new WebSocket(target.webSocketDebuggerUrl);
 let msgId = 1;
 const pending = new Map();
 await new Promise((res, rej) => { ws.on("open", res); ws.on("error", rej); });
+// §runtime-binding: instant callback from browser when 16-geom gate fires.
+// Resolves houseGatePromise with { geom, voidInfo } payload.
+let _houseGateResolve = null;
+const houseGatePromise = new Promise(r => { _houseGateResolve = r; });
+
 ws.on("message", raw => {
   const m = JSON.parse(raw);
   if (m.id && pending.has(m.id)) {
     const { res, rej } = pending.get(m.id);
     pending.delete(m.id);
     m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result ?? {});
+  }
+  // Runtime.bindingCalled fires synchronously when browser calls window.houseGeomGate(...)
+  if (m.method === "Runtime.bindingCalled" && m.params?.name === "houseGeomGate") {
+    let payload = { geom: 0, voidInfo: [] };
+    try { payload = JSON.parse(m.params.payload ?? "{}"); } catch {}
+    if (_houseGateResolve) { _houseGateResolve(payload); _houseGateResolve = null; }
   }
 });
 const send = (method, params = {}) => new Promise((res, rej) => {
@@ -117,6 +136,8 @@ const delay = ms => new Promise(r => setTimeout(r, ms));
 
 await send("Runtime.enable");
 await send("Page.enable");
+// Register binding BEFORE navigation so it's available in the page
+await send("Runtime.addBinding", { name: "houseGeomGate" });
 
 // ── Phase 0: VRAM drain ────────────────────────────────────────────────────────
 if (!NO_DRAIN) {
@@ -242,14 +263,368 @@ if (sent !== "sent") {
 }
 console.log(`[house] sent (VRAM=${vramStart}MB)`);
 
+// §runtime-binding: inject ledger watcher using Object.defineProperty so ANY future assignment
+// to window.__dispatchLedger immediately patches the new array.
+// §voidCut: at gate fire, collect userData.creator+hostExpressID for door/window objects.
+// §SdClearScene-timing: SdClearScene is the FIRST tool call in each batch (resets prev session
+// geometry). All 16 geometry calls follow synchronously. By the time geom=16 fires, all calls
+// are complete and SdClearScene has ALREADY run — scene is fully populated, no pending clear.
+// §force-render: force THREE.js to write the current scene to the WebGL framebuffer so
+// Page.captureScreenshot captures the house even if requestAnimationFrame hasn't ticked.
+await evaluate(`
+  (function installGeomGateWatcher() {
+    var _ledgerInner = window.__dispatchLedger || null;
+
+    function patchLedger(arr) {
+      if (!arr || arr._geomGatePatched) return;
+      arr._geomGatePatched = true;
+      var orig = Array.prototype.push;
+      arr.push = function() {
+        var r = orig.apply(this, arguments);
+        var geom = 0;
+        for (var i = 0; i < this.length; i++) {
+          if (this[i].sceneChildrenDelta > 0) geom++;
+        }
+        if (geom >= 16 && !window.__houseGeomGateFired) {
+          window.__houseGeomGateFired = true;
+          // Collect voidCut info from scene before any potential re-render
+          var voidInfo = [];
+          try {
+            var v0 = window.__viewer;
+            var sc0 = v0 && (v0.scene || (v0.getScene && v0.getScene()));
+            if (sc0) {
+              sc0.traverse(function(obj) {
+                var ud = obj && obj.userData;
+                if (!ud) return;
+                var c = ud.creator;
+                if (c === 'door' || c === 'window' || c === 'opening') {
+                  voidInfo.push({
+                    creator: c,
+                    voidCut: Boolean(ud.hostExpressID || ud.hostUuid)
+                  });
+                }
+              });
+            }
+          } catch(ev) {}
+          // §force-render: freeze current scene into framebuffer with better-framed hero camera.
+          // Node.js will re-render with the same angles after receiving binding, but this
+          // prevents a stale/blank framebuffer if rAF fires before the Node.js evaluate arrives.
+          // Camera: dist=26, az=225°, elev=30°, target=(0,0,4) — frames full 8m house.
+          try {
+            var v = window.__viewer;
+            if (v) {
+              var cam = v.camera;
+              var tx = 0, ty = 0, tz = 4, dist = 26;
+              var az = 225 * Math.PI / 180, elev = 30 * Math.PI / 180;
+              cam.position.set(
+                tx + dist * Math.cos(az) * Math.cos(elev),
+                ty + dist * Math.sin(az) * Math.cos(elev),
+                tz + dist * Math.sin(elev)
+              );
+              cam.up.set(0, 0, 1);
+              cam.lookAt(tx, ty, tz);
+              cam.updateProjectionMatrix();
+              var scene = v.scene || (v.getScene && v.getScene());
+              if (scene && v.renderer) { v.renderer.render(scene, cam); }
+            }
+          } catch(e2) {}
+          // Signal Node.js with JSON payload including voidInfo
+          try { window.houseGeomGate(JSON.stringify({ geom: geom, voidInfo: voidInfo })); } catch(e) {}
+        }
+        return r;
+      };
+    }
+
+    // Patch current ledger (if it exists)
+    patchLedger(_ledgerInner);
+
+    // Intercept all future assignments — catches SdClearScene replacing the array
+    try {
+      Object.defineProperty(window, '__dispatchLedger', {
+        configurable: true,
+        enumerable: true,
+        get: function() { return _ledgerInner; },
+        set: function(v) { _ledgerInner = v; patchLedger(v); }
+      });
+    } catch(e) {
+      // defineProperty failed — fall back to 50ms poll
+      var _iv = setInterval(function() {
+        var cur = window['__dispatchLedger'];
+        if (cur && !cur._geomGatePatched) patchLedger(cur);
+      }, 50);
+      setTimeout(function() { clearInterval(_iv); }, 1200000);
+    }
+  })()
+`);
+
 // ── Phase 4: Wait for generation to complete ──────────────────────────────────
+// §runtime-binding-race: houseGatePromise resolves the instant browser calls window.houseGeomGate()
+// (injected ledger watcher fires synchronously on 17th geometry push — no poll delay).
+// Poll loop still runs for OOM, badge-error, and success detection; but the gate drives the hero.
+// §16-step-prompt: 16 geometry dispatches (SdLevel×2 + SdSlab×2 + SdWall×8 + SdDoor + SdWindow×2 + SdRoof).
+const EARLY_STOP_GEOM = 16;
 const turnStart = Date.now();
 let outcome = "timeout";
 let oomCount = 0;
 let vramPeak = vramStart ?? 0;
+let earlyStopped = false;
+let earlyHeroBuf = null;
+let earlyHeroSha256Short = "";
+let earlyHeroPathSaved = "";
+let earlyAerialBuf = null;
+let earlyAerialSha256Short = "";
+let earlyAerialPathSaved = "";
+let earlySideBuf = null;
+let earlySideSha256Short = "";
+let earlySidePathSaved = "";
+let bindingVoidInfo = [];  // voidCut info collected by browser watcher at gate time
+
+// Track gate resolution via side-effect flag so Promise.race() can be called each iteration.
+let houseGateFired = false;
+let houseGatePayload = null;
+houseGatePromise.then((payload) => { houseGateFired = true; houseGatePayload = payload; });
+
+// §capture-framing: compute TRUE fit-to-scene-bbox camera at capture time.
+// §controls-bypass: NO pp.controls.update() — OrbitControls.update() recomputes camera position
+// from stored spherical coords and OVERRIDES the cam.position we just set. Render directly.
+// §canvas-clip: screenshot clips to #viewer-canvas bounding rect (offset 82,146 in 1689×1325 page).
+// §aerial-at-binding: capture aerial top-down in same call — scene still fully populated.
+async function captureHeroAndAerial(label) {
+  // Compute world bbox + set hero camera (NO controls.update) + get canvas rect for clip
+  const camLogRaw = await evaluate(`
+    (function() {
+      var v = window.__viewer;
+      if (!v) return JSON.stringify({err:'no-viewer'});
+      var cam = v.camera;
+      var scene = v.scene || (v.getScene && v.getScene());
+      if (!scene) return JSON.stringify({err:'no-scene'});
+
+      // Compute world-space bbox from USER geometry only (userData.kind || userData.creator).
+      // Excludes system objects: GridHelper, AxesHelper, lights, and unnamed meshes — some of
+      // which span 60km+ and would blow out the fit-to-bbox camera to 200km distance.
+      var bmin = [Infinity,Infinity,Infinity], bmax = [-Infinity,-Infinity,-Infinity];
+      scene.traverse(function(obj) {
+        if (!obj.isMesh || !obj.geometry) return;
+        if (!obj.userData || (!obj.userData.kind && !obj.userData.creator)) return;
+        obj.geometry.computeBoundingBox();
+        var bb = obj.geometry.boundingBox;
+        if (!bb) return;
+        obj.updateMatrixWorld(true);
+        var mat = obj.matrixWorld;
+        var lmin = bb.min, lmax = bb.max;
+        var xs = [lmin.x, lmax.x], ys = [lmin.y, lmax.y], zs = [lmin.z, lmax.z];
+        for (var xi=0;xi<2;xi++) for (var yi=0;yi<2;yi++) for (var zi=0;zi<2;zi++) {
+          var c = lmin.clone().set(xs[xi],ys[yi],zs[zi]).applyMatrix4(mat);
+          if(c.x<bmin[0])bmin[0]=c.x; if(c.x>bmax[0])bmax[0]=c.x;
+          if(c.y<bmin[1])bmin[1]=c.y; if(c.y>bmax[1])bmax[1]=c.y;
+          if(c.z<bmin[2])bmin[2]=c.z; if(c.z>bmax[2])bmax[2]=c.z;
+        }
+      });
+
+      // Camera target = scene center; dist = span * 1.8 (frames with ~30° half-angle margin)
+      var cx=0, cy=0, cz=2, dist=18;
+      var hasBbox = isFinite(bmin[0]);
+      if (hasBbox) {
+        cx=(bmin[0]+bmax[0])/2; cy=(bmin[1]+bmax[1])/2; cz=(bmin[2]+bmax[2])/2;
+        var span = Math.max(bmax[0]-bmin[0], bmax[1]-bmin[1], bmax[2]-bmin[2], 2);
+        dist = span * 1.8;
+      }
+
+      var az = 225*Math.PI/180, el = 30*Math.PI/180;
+      cam.position.set(cx+dist*Math.cos(az)*Math.cos(el), cy+dist*Math.sin(az)*Math.cos(el), cz+dist*Math.sin(el));
+      cam.up.set(0,0,1);
+      cam.lookAt(cx,cy,cz);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      // NO pp.controls.update() — renders directly to preserve camera
+      if (v.renderer) { v.renderer.render(scene, cam); }
+
+      // Canvas rect for clipped screenshot
+      var canvas = document.getElementById('viewer-canvas');
+      var rect = canvas ? canvas.getBoundingClientRect() : null;
+
+      return JSON.stringify({
+        ok: true, hasBbox: hasBbox,
+        bbox: hasBbox ? {
+          min:[Math.round(bmin[0]*100)/100,Math.round(bmin[1]*100)/100,Math.round(bmin[2]*100)/100],
+          max:[Math.round(bmax[0]*100)/100,Math.round(bmax[1]*100)/100,Math.round(bmax[2]*100)/100]
+        } : null,
+        center:[Math.round(cx*100)/100,Math.round(cy*100)/100,Math.round(cz*100)/100],
+        dist: Math.round(dist*100)/100,
+        canvasRect: rect ? {x:Math.round(rect.left),y:Math.round(rect.top),w:Math.round(rect.width),h:Math.round(rect.height)} : null
+      });
+    })()
+  `);
+
+  let camData = { ok: false };
+  try { camData = JSON.parse(String(camLogRaw)); } catch {}
+  const canvasRect = camData.canvasRect;
+  const camSummary = camData.ok
+    ? `bbox=${JSON.stringify(camData.bbox)} center=[${camData.center}] dist=${camData.dist}`
+    : String(camLogRaw);
+
+  // Clip screenshot to canvas element rect (bypass full-page capture)
+  const heroShotParams = { format: "png" };
+  if (canvasRect && canvasRect.w > 0 && canvasRect.h > 0) {
+    heroShotParams.clip = { x: canvasRect.x, y: canvasRect.y, width: canvasRect.w, height: canvasRect.h, scale: 1 };
+  }
+  const heroResult = await send("Page.captureScreenshot", heroShotParams);
+  const heroBuf = heroResult.data ? Buffer.from(heroResult.data, "base64") : null;
+  if (heroBuf) {
+    const earlyTs = Date.now();
+    const earlyHeroPath = `${DIAG_DIR}/house-hero-${earlyTs}.png`;
+    writeFileSync(earlyHeroPath, heroBuf);
+    const sha = createHash("sha256").update(heroBuf).digest("hex").slice(0, 12);
+    process.stdout.write(`[house] ${label} hero saved: ${earlyHeroPath} sha256[:12]=${sha} cam=${camSummary}\n`);
+    earlyHeroBuf = heroBuf;
+    earlyHeroSha256Short = sha;
+    earlyHeroPathSaved = earlyHeroPath;
+  } else {
+    process.stdout.write(`[house] ${label} hero EMPTY\n`);
+  }
+
+  // Aerial: top-down, fit bbox horizontally, NO controls.update
+  const aerialLogRaw = await evaluate(`
+    (function() {
+      var v = window.__viewer;
+      if (!v) return 'no-viewer';
+      var cam = v.camera;
+      var scene = v.scene || (v.getScene && v.getScene());
+      if (!scene) return 'no-scene';
+      var bmin=[Infinity,Infinity,Infinity], bmax=[-Infinity,-Infinity,-Infinity];
+      scene.traverse(function(obj) {
+        if (!obj.isMesh || !obj.geometry) return;
+        if (!obj.userData || (!obj.userData.kind && !obj.userData.creator)) return;
+        obj.geometry.computeBoundingBox();
+        var bb = obj.geometry.boundingBox;
+        if (!bb) return;
+        obj.updateMatrixWorld(true);
+        var mat = obj.matrixWorld;
+        var lmin=bb.min, lmax=bb.max;
+        var xs=[lmin.x,lmax.x], ys=[lmin.y,lmax.y], zs=[lmin.z,lmax.z];
+        for(var xi=0;xi<2;xi++) for(var yi=0;yi<2;yi++) for(var zi=0;zi<2;zi++){
+          var c=lmin.clone().set(xs[xi],ys[yi],zs[zi]).applyMatrix4(mat);
+          if(c.x<bmin[0])bmin[0]=c.x; if(c.x>bmax[0])bmax[0]=c.x;
+          if(c.y<bmin[1])bmin[1]=c.y; if(c.y>bmax[1])bmax[1]=c.y;
+          if(c.z<bmin[2])bmin[2]=c.z; if(c.z>bmax[2])bmax[2]=c.z;
+        }
+      });
+      var cx=0, cy=0, maxZ=10, h=20;
+      if(isFinite(bmin[0])){
+        cx=(bmin[0]+bmax[0])/2; cy=(bmin[1]+bmax[1])/2; maxZ=bmax[2];
+        var span=Math.max(bmax[0]-bmin[0],bmax[1]-bmin[1],2);
+        h=span*1.5;
+      }
+      cam.position.set(cx, cy, maxZ+h);
+      cam.up.set(0,1,0);
+      cam.lookAt(cx,cy,maxZ);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      // NO pp.controls.update()
+      if(v.renderer){ v.renderer.render(scene,cam); }
+      return 'ok|top-down|cx='+Math.round(cx*10)/10+'|cy='+Math.round(cy*10)/10+'|h='+Math.round(h*10)/10;
+    })()
+  `);
+
+  const aerialShotParams = { format: "png" };
+  if (canvasRect && canvasRect.w > 0 && canvasRect.h > 0) {
+    aerialShotParams.clip = { x: canvasRect.x, y: canvasRect.y, width: canvasRect.w, height: canvasRect.h, scale: 1 };
+  }
+  const aerialResult = await send("Page.captureScreenshot", aerialShotParams);
+  const aerialBuf = aerialResult.data ? Buffer.from(aerialResult.data, "base64") : null;
+  if (aerialBuf) {
+    const aerialTs = Date.now();
+    const aerialPath = `${DIAG_DIR}/house-aerial-${aerialTs}.png`;
+    writeFileSync(aerialPath, aerialBuf);
+    const aerialSha = createHash("sha256").update(aerialBuf).digest("hex").slice(0, 12);
+    process.stdout.write(`[house] ${label} aerial saved: ${aerialPath} sha256[:12]=${aerialSha} cam=${String(aerialLogRaw)}\n`);
+    earlyAerialBuf = aerialBuf;
+    earlyAerialSha256Short = aerialSha;
+    earlyAerialPathSaved = aerialPath;
+  } else {
+    process.stdout.write(`[house] ${label} aerial EMPTY\n`);
+  }
+
+  // Side/gable-on elevation: camera pointing straight west→east at gable end.
+  // Pitched roof shows unmistakable triangle above wall; flat roof shows rectangle.
+  // Nearly orthographic: 80m standoff + computed FOV to frame building.
+  const sideLogRaw = await evaluate(`
+    (function() {
+      var v = window.__viewer;
+      if (!v) return 'no-viewer';
+      var cam = v.camera;
+      var scene = v.scene || (v.getScene && v.getScene());
+      if (!scene) return 'no-scene';
+      var bmin=[Infinity,Infinity,Infinity], bmax=[-Infinity,-Infinity,-Infinity];
+      scene.traverse(function(obj) {
+        if (!obj.isMesh || !obj.geometry) return;
+        if (!obj.userData || (!obj.userData.kind && !obj.userData.creator)) return;
+        obj.geometry.computeBoundingBox();
+        var bb = obj.geometry.boundingBox;
+        if (!bb) return;
+        obj.updateMatrixWorld(true);
+        var mat = obj.matrixWorld;
+        var lmin=bb.min, lmax=bb.max;
+        var xs=[lmin.x,lmax.x], ys=[lmin.y,lmax.y], zs=[lmin.z,lmax.z];
+        for(var xi=0;xi<2;xi++) for(var yi=0;yi<2;yi++) for(var zi=0;zi<2;zi++){
+          var c=lmin.clone().set(xs[xi],ys[yi],zs[zi]).applyMatrix4(mat);
+          if(c.x<bmin[0])bmin[0]=c.x; if(c.x>bmax[0])bmax[0]=c.x;
+          if(c.y<bmin[1])bmin[1]=c.y; if(c.y>bmax[1])bmax[1]=c.y;
+          if(c.z<bmin[2])bmin[2]=c.z; if(c.z>bmax[2])bmax[2]=c.z;
+        }
+      });
+      var cy=(bmin[1]+bmax[1])/2, cz=(bmin[2]+bmax[2])/2;
+      var sy=isFinite(bmax[1]) ? bmax[1]-bmin[1] : 10;
+      var sz=isFinite(bmax[2]) ? bmax[2]-bmin[2] : 10;
+      var sideDist = 80;
+      var halfSpan = Math.max(sy, sz, 4) * 0.65;
+      var origFov = cam.fov;
+      cam.fov = 2 * Math.atan2(halfSpan, sideDist) * 180/Math.PI;
+      cam.position.set((isFinite(bmin[0]) ? bmin[0] : 0) - sideDist, cy, cz);
+      cam.up.set(0,0,1);
+      cam.lookAt(0, cy, cz);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      if(v.renderer){ v.renderer.render(scene,cam); }
+      return 'ok|side-west|fov='+Math.round(cam.fov*10)/10+'|dist='+sideDist+'|cy='+Math.round(cy*10)/10+'|cz='+Math.round(cz*10)/10;
+    })()
+  `);
+
+  const sideShotParams = { format: "png" };
+  if (canvasRect && canvasRect.w > 0 && canvasRect.h > 0) {
+    sideShotParams.clip = { x: canvasRect.x, y: canvasRect.y, width: canvasRect.w, height: canvasRect.h, scale: 1 };
+  }
+  const sideResult = await send("Page.captureScreenshot", sideShotParams);
+  const sideBuf = sideResult.data ? Buffer.from(sideResult.data, "base64") : null;
+  if (sideBuf) {
+    const sideTs = Date.now();
+    const sidePath = `${DIAG_DIR}/house-side-${sideTs}.png`;
+    writeFileSync(sidePath, sideBuf);
+    const sideSha = createHash("sha256").update(sideBuf).digest("hex").slice(0, 12);
+    process.stdout.write(`[house] ${label} side saved: ${sidePath} sha256[:12]=${sideSha} cam=${String(sideLogRaw)}\n`);
+    earlySideBuf = sideBuf;
+    earlySideSha256Short = sideSha;
+    earlySidePathSaved = sidePath;
+  } else {
+    process.stdout.write(`[house] ${label} side EMPTY\n`);
+  }
+}
 
 while (Date.now() - turnStart < TURN_TIMEOUT) {
-  await delay(5_000);
+  // §race: wake immediately when gate fires, otherwise poll every 5s for OOM/badge/success
+  await Promise.race([delay(5_000), houseGatePromise]);
+
+  // Gate check FIRST — houseGateFired is set by the .then() above when binding fires
+  if (houseGateFired && !earlyStopped) {
+    process.stdout.write(`\n[house] houseGeomGate binding fired — hero+aerial capture NOW\n`);
+    bindingVoidInfo = (houseGatePayload && Array.isArray(houseGatePayload.voidInfo))
+      ? houseGatePayload.voidInfo : [];
+    // Re-render with correct framing + capture hero + aerial (scene still fully populated)
+    await captureHeroAndAerial("gate-binding");
+    earlyStopped = true;
+    outcome = "early-stop-17geom";
+    break;
+  }
 
   const vNow = sampleVram();
   if (vNow !== null && vNow > vramPeak) vramPeak = vNow;
@@ -266,10 +641,21 @@ while (Date.now() - turnStart < TURN_TIMEOUT) {
   const txt   = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
   const badge = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
   const ledgerLen = await evaluate(`(window.__dispatchLedger ?? []).length`);
+  const geomLen = await evaluate(`(window.__dispatchLedger ?? []).filter(e => e.sceneChildrenDelta > 0).length`);
 
-  process.stdout.write(`\r[house] ${elapsed}s btn=${txt}(${dis}) OOM=${oomCount} VRAM=${vNow}MB ledger=${ledgerLen}`);
+  process.stdout.write(`\r[house] ${elapsed}s btn=${txt}(${dis}) OOM=${oomCount} VRAM=${vNow}MB ledger=${ledgerLen} geom=${geomLen}`);
 
   if (String(badge).includes("ERROR")) { outcome = "ghost_badge_error"; break; }
+
+  // Fallback poll-based gate — catches case where binding wasn't installed before dispatches began
+  if (!earlyStopped && Number(geomLen) >= EARLY_STOP_GEOM) {
+    process.stdout.write(`\n[house] fallback-poll early-stop: geom=${geomLen} >= ${EARLY_STOP_GEOM}\n`);
+    await captureHeroAndAerial("fallback-poll");
+    earlyStopped = true;
+    outcome = "early-stop-17geom";
+    break;
+  }
+
   if (!Boolean(dis) && String(txt).includes("SEND")) {
     const aiMsgsAfter = await evaluate(`document.querySelectorAll('.chat-msg').length`);
     if (Number(aiMsgsAfter) > Number(aiMsgsBefore)) { outcome = "success"; break; }
@@ -281,115 +667,98 @@ const elapsed = Math.round((Date.now() - turnStart) / 1000);
 const vramEnd = sampleVram();
 console.log(`[house] done | outcome=${outcome} | elapsed=${elapsed}s | OOM=${oomCount} | VRAM ${vramStart}→${vramPeak}(peak)→${vramEnd}MB`);
 
-// ── Phase 5: Read dispatch ledger ─────────────────────────────────────────────
+// ── Phase 5: Read dispatch ledger + merge voidCut ────────────────────────────
 const ledgerRaw = await evaluate(`(function(){ return JSON.stringify(window.__dispatchLedger ?? []); })()`);
 let ledger = [];
 try { ledger = JSON.parse(String(ledgerRaw)); } catch {}
+
+// §voidCut-merge: binding payload collected voidInfo from scene at gate time.
+// Match in order: first door entry ← first bindingVoidInfo door, etc.
+{
+  let doorIdx = 0, winIdx = 0;
+  const doorVoids = bindingVoidInfo.filter(v => v.creator === "door");
+  const winVoids  = bindingVoidInfo.filter(v => v.creator === "window" || v.creator === "opening");
+  for (const e of ledger) {
+    if (e.verb === "SdDoor") {
+      e.voidCut = doorIdx < doorVoids.length ? doorVoids[doorIdx++].voidCut : null;
+    } else if (e.verb === "SdWindow" || e.verb === "SdOpening") {
+      e.voidCut = winIdx < winVoids.length ? winVoids[winIdx++].voidCut : null;
+    }
+  }
+}
 
 const successEntries  = ledger.filter(e => e.status === "success");
 const geomEntries     = successEntries.filter(e => e.sceneChildrenDelta > 0);
 const hasGeometry     = geomEntries.length > 0;
 const sceneChildren   = await evaluate(`(window.__viewer?.scene?.children?.length ?? -1)`);
 
-const ledgerSummary = ledger.map(e =>
-  `${e.verb}(${e.status},Δ${e.sceneChildrenDelta > 0 ? "+" + e.sceneChildrenDelta : e.sceneChildrenDelta})`
-).join(", ") || "(none)";
+const ledgerSummary = ledger.map(e => {
+  const voidStr = (e.voidCut !== undefined && e.voidCut !== null) ? `,voidCut=${e.voidCut}` : "";
+  return `${e.verb}(${e.status},Δ${e.sceneChildrenDelta > 0 ? "+" + e.sceneChildrenDelta : e.sceneChildrenDelta}${voidStr})`;
+}).join(", ") || "(none)";
 
 console.log(`[house] ledger: ${ledger.length} total | ${successEntries.length} success | ${geomEntries.length} geometry`);
 console.log(`[house] scene children: ${sceneChildren}`);
 console.log(`[house] dispatches: ${ledgerSummary}`);
 
-// ── Phase 6: Hero screenshot — low exterior 3/4 angle ─────────────────────────
-// Step 1: frameAllVisible to normalise bounds
-await evaluate(`window.__viewer?.frameAllVisible?.();`);
-await delay(300);
-
-// Step 2: Override camera to 20° elevation (low exterior hero angle)
-const camResult = await evaluate(`
-  (function() {
-    const v = window.__viewer;
-    if (!v) return 'no-viewer';
-    const p = v.panes.find(function(pp) { return pp.view === 'persp'; });
-    if (!p) return 'no-persp-pane';
-    const t = p.controls.target;
-    const cam = v.camera;
-    const dx = cam.position.x - t.x;
-    const dy = cam.position.y - t.y;
-    const dz = cam.position.z - t.z;
-    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-    // 225° azimuth: camera to SW of building → shows south facade where door+windows live.
-    // 20° elevation: low exterior 3/4 angle showing both storeys + roof.
-    const azimuth = 225 * Math.PI / 180;
-    const elevRad = 20 * Math.PI / 180;
-    const newX = t.x + dist * Math.cos(azimuth) * Math.cos(elevRad);
-    const newY = t.y + dist * Math.sin(azimuth) * Math.cos(elevRad);
-    const newZ = t.z + dist * Math.sin(elevRad);
-    cam.position.set(newX, newY, newZ);
-    cam.up.set(0, 0, 1);
-    cam.lookAt(t.x, t.y, t.z);
-    cam.updateProjectionMatrix();
-    p.controls.target.set(t.x, t.y, t.z);
-    p.controls.update();
-    return 'ok|dist=' + Math.round(dist*100)/100 + '|az=' + Math.round(azimuth*180/Math.PI) + '°|elev=20°';
-  })()
-`);
-console.log(`[house] camera: ${camResult}`);
-await delay(400); // allow renderer to update
-
-// Step 3: Capture screenshot
+// ── Phase 6: Screenshots — use binding-time captures if available ─────────────
+// §binding-time-capture: hero+aerial taken at gate moment (scene populated).
+// Success-path fallback: model finished cleanly, capture now with same framing.
+let heroBuf, heroPath, heroSha256Short;
 const ts = Date.now();
-const heroResult = await send("Page.captureScreenshot", { format: "png" });
-const heroBuf = Buffer.from(heroResult.data, "base64");
-const heroPath = `${DIAG_DIR}/house-hero-${ts}.png`;
-writeFileSync(heroPath, heroBuf);
-const heroSha256 = createHash("sha256").update(heroBuf).digest("hex");
-const heroSha256Short = heroSha256.slice(0, 12);
+if (earlyHeroBuf) {
+  heroBuf = earlyHeroBuf;
+  heroPath = earlyHeroPathSaved;
+  heroSha256Short = earlyHeroSha256Short;
+  console.log(`[house] camera: fit-to-bbox az=225° elev=30° (captured at gate)`);
+} else {
+  // success-path: model finished cleanly; capture with correct framing
+  await captureHeroAndAerial("success-path");
+  heroBuf = earlyHeroBuf;
+  heroPath = earlyHeroPathSaved;
+  heroSha256Short = earlyHeroSha256Short;
+  console.log(`[house] camera: fit-to-bbox az=225° elev=30° (captured success-path)`);
+}
 console.log(`[house] hero saved: ${heroPath}`);
-console.log(`[house] hero sha256[:12]: ${heroSha256Short} | bytes: ${heroBuf.length}`);
+console.log(`[house] hero sha256[:12]: ${heroSha256Short} | bytes: ${heroBuf?.length ?? 0}`);
 
-// Step 4: Also capture true top-down ortho for footprint
-await evaluate(`
-  (function() {
-    const v = window.__viewer;
-    if (!v || !v.scene) return;
-    const box = { minX:Infinity, minY:Infinity, minZ:Infinity, maxX:-Infinity, maxY:-Infinity, maxZ:-Infinity };
-    v.scene.traverse(function(obj) {
-      if (!obj.userData || !obj.userData.kind) return;
-      if (obj.position) {
-        box.minX = Math.min(box.minX, obj.position.x);
-        box.maxX = Math.max(box.maxX, obj.position.x);
-        box.minY = Math.min(box.minY, obj.position.y);
-        box.maxY = Math.max(box.maxY, obj.position.y);
-        box.minZ = Math.min(box.minZ, obj.position.z);
-        box.maxZ = Math.max(box.maxZ, obj.position.z);
-      }
-    });
-    const cx = (box.minX + box.maxX) / 2;
-    const cy = (box.minY + box.maxY) / 2;
-    const cz = (box.maxZ || 6);
-    const dist = Math.max(box.maxX - box.minX, box.maxY - box.minY, 10) * 1.5;
-    const p = v.panes.find(function(pp) { return pp.view === 'persp'; });
-    if (!p) return;
-    v.camera.position.set(cx, cy, cz + dist);
-    v.camera.up.set(0, 1, 0);
-    v.camera.lookAt(cx, cy, cz);
-    v.camera.updateProjectionMatrix();
-    p.controls.target.set(cx, cy, cz);
-    p.controls.update();
-  })()
-`);
-await delay(400);
-
-const aerialResult = await send("Page.captureScreenshot", { format: "png" });
-const aerialBuf = Buffer.from(aerialResult.data, "base64");
-const aerialPath = `${DIAG_DIR}/house-aerial-${ts}.png`;
-writeFileSync(aerialPath, aerialBuf);
-const aerialSha256Short = createHash("sha256").update(aerialBuf).digest("hex").slice(0, 12);
+// Aerial — use binding-time capture (populated scene) or fallback to now
+let aerialBuf, aerialPath, aerialSha256Short;
+if (earlyAerialBuf) {
+  aerialBuf = earlyAerialBuf;
+  aerialPath = earlyAerialPathSaved;
+  aerialSha256Short = earlyAerialSha256Short;
+} else {
+  // Fallback: scene may be empty now, but try anyway
+  const aerialResult = await send("Page.captureScreenshot", { format: "png" });
+  aerialBuf = aerialResult.data ? Buffer.from(aerialResult.data, "base64") : Buffer.alloc(0);
+  aerialPath = `${DIAG_DIR}/house-aerial-${ts}.png`;
+  if (aerialBuf.length) writeFileSync(aerialPath, aerialBuf);
+  aerialSha256Short = aerialBuf.length
+    ? createHash("sha256").update(aerialBuf).digest("hex").slice(0, 12) : "empty";
+}
 console.log(`[house] aerial saved: ${aerialPath}`);
 console.log(`[house] aerial sha256[:12]: ${aerialSha256Short} | bytes: ${aerialBuf.length}`);
 
+// Side elevation — use binding-time capture or fallback
+let sideBuf, sidePath, sideSha256Short;
+if (earlySideBuf) {
+  sideBuf = earlySideBuf;
+  sidePath = earlySidePathSaved;
+  sideSha256Short = earlySideSha256Short;
+} else {
+  const sideResult = await send("Page.captureScreenshot", { format: "png" });
+  sideBuf = sideResult.data ? Buffer.from(sideResult.data, "base64") : Buffer.alloc(0);
+  sidePath = `${DIAG_DIR}/house-side-${ts}.png`;
+  if (sideBuf.length) writeFileSync(sidePath, sideBuf);
+  sideSha256Short = sideBuf.length
+    ? createHash("sha256").update(sideBuf).digest("hex").slice(0, 12) : "empty";
+}
+console.log(`[house] side saved: ${sidePath}`);
+console.log(`[house] side sha256[:12]: ${sideSha256Short} | bytes: ${sideBuf?.length ?? 0}`);
+
 // ── Phase 7: Summary + artifact ───────────────────────────────────────────────
-const gatePass = oomCount === 0 && outcome === "success" && hasGeometry;
+const gatePass = oomCount === 0 && (outcome === "success" || outcome === "early-stop-17geom") && hasGeometry;
 
 console.log(`\n[house] ══════════════════════════════════════════`);
 console.log(`[house] SHA:           ${SHA}`);
@@ -401,6 +770,7 @@ console.log(`[house] VRAM range:    ${vramStart}–${vramPeak}(peak)–${vramEnd
 console.log(`[house] Scene objects: ${sceneChildren}`);
 console.log(`[house] Hero:          ${heroPath} sha256[:12]=${heroSha256Short}`);
 console.log(`[house] Aerial:        ${aerialPath} sha256[:12]=${aerialSha256Short}`);
+console.log(`[house] Side:          ${sidePath} sha256[:12]=${sideSha256Short}`);
 console.log(`[house] Gate PASS:     ${gatePass}`);
 console.log(`[house] ══════════════════════════════════════════`);
 
@@ -420,8 +790,9 @@ const artifact = {
   has_geometry: hasGeometry,
   ledger,
   screenshots: {
-    hero: { path: heroPath, sha256: heroSha256Short, bytes: heroBuf.length },
-    aerial: { path: aerialPath, sha256: aerialSha256Short, bytes: aerialBuf.length },
+    hero:   { path: heroPath,   sha256: heroSha256Short,   bytes: heroBuf?.length ?? 0 },
+    aerial: { path: aerialPath, sha256: aerialSha256Short, bytes: aerialBuf?.length ?? 0 },
+    side:   { path: sidePath,   sha256: sideSha256Short,   bytes: sideBuf?.length ?? 0 },
   },
   gate_pass: gatePass,
 };
