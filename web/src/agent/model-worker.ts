@@ -649,9 +649,17 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let model: Awaited<ReturnType<typeof Gemma4ForConditionalGeneration.from_pretrained>>;
+      // §#420-c: pin the KV-cache time dimension so ORT WebGPU can reuse intermediate buffers
+      // across decode steps instead of reallocating for every new past_sequence_length value.
+      // Dimension name 'past_sequence_length' is the optimum-exporter convention for the KV
+      // time axis. batch_size=1 matches our single-sequence inference mode.
+      const _webgpuSessionOpts = device === "webgpu"
+        ? { freeDimensionOverrides: { batch_size: 1, past_sequence_length: 2048 } }
+        : undefined;
       try {
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
+          ...(device === "webgpu" && { session_options: _webgpuSessionOpts }),
         });
       } catch (loadErr) {
         // §B-cache-retry (#1316): Cache.put() failure on fresh chromium profiles causes
@@ -664,10 +672,21 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         await new Promise<void>(r => setTimeout(r, 500));
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
+          ...(device === "webgpu" && { session_options: _webgpuSessionOpts }),
         });
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
       post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - _workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource });
+      // §#420-c diagnostic: dump session inputNames so we can verify freeDimensionOverrides
+      // applied to the correct symbolic dims. Remove after OOM fix is confirmed.
+      if (device === "webgpu") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _sessions = (model as any).sessions as Record<string, { inputNames?: string[]; outputNames?: string[] }> | undefined;
+        if (_sessions) {
+          const _decoderSess = _sessions["decoder_model_merged"] ?? _sessions["model"];
+          console.log("[#420-c] ort-session-dims: inputNames=", _decoderSess?.inputNames, "outputNames=", _decoderSess?.outputNames);
+        }
+      }
 
       // WebGPU sanity probe — same as main-thread path (#128/#133).
       // Skipped on recycle (noWarmup): GPU device is persistent, shaders already compiled.
