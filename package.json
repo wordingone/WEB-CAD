@@ -55,7 +55,8 @@
     "baseline:compare": "bun web/test/capability/baselines/post-comparison.ts",
     "llama:proxy": "bun scripts/llama-proxy.ts",
     "pre-commit-setup": "sh scripts/setup-hooks.sh",
-    "cold-cache:first-visit": "bun scripts/cold-cache-first-visit.mjs"
+    "cold-cache:first-visit": "bun scripts/cold-cache-first-visit.mjs",
+    "cap-harness": "node tools/mcp/agent-capability-harness.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.0",

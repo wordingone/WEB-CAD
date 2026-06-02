@@ -1,0 +1,106 @@
+{
+  "goals": [
+    {
+      "id": "A1",
+      "type": "architectural",
+      "expectedRole": "architectural",
+      "prompt": "Build a 20ft x 30ft single-story room with 4 exterior walls, each 9ft tall.",
+      "visualCheck": true,
+      "assertions": {
+        "minObjectCount": 4,
+        "anyObjectContains": ["wall", "Wall", "SdWall"]
+      }
+    },
+    {
+      "id": "A2",
+      "type": "architectural",
+      "expectedRole": "architectural",
+      "prompt": "Place 4 structural columns in a 24ft x 36ft rectangular layout, one column at each corner.",
+      "assertions": {
+        "minObjectCount": 4,
+        "anyObjectContains": ["column", "Column", "SdColumn"]
+      }
+    },
+    {
+      "id": "A3",
+      "type": "architectural",
+      "expectedRole": "architectural",
+      "prompt": "Create a straight staircase with 10 steps, each step 7 inches tall and 11 inches deep.",
+      "assertions": {
+        "minObjectCount": 1,
+        "anyObjectContains": ["stair", "Stair", "SdStair", "step", "Step"]
+      }
+    },
+    {
+      "id": "G1",
+      "type": "geometry",
+      "expectedRole": "geometry",
+      "prompt": "Create a 6ft-diameter sphere and a 3ft cube as two separate objects in the scene.",
+      "visualCheck": true,
+      "assertions": {
+        "minObjectCount": 2,
+        "anyObjectContains": ["sphere", "Sphere", "SdSphere", "box", "Box", "SdBox", "cube", "Cube"]
+      }
+    },
+    {
+      "id": "G2",
+      "type": "geometry",
+      "expectedRole": "geometry",
+      "prompt": "Create a cylinder 4ft in diameter and 8ft tall, centered at the origin.",
+      "assertions": {
+        "minObjectCount": 1,
+        "anyObjectContains": ["cylinder", "Cylinder", "SdCylinder"]
+      }
+    },
+    {
+      "id": "G3",
+      "type": "geometry",
+      "expectedRole": "geometry",
+      "prompt": "Create a box 10ft long, 4ft wide, and 8ft tall.",
+      "assertions": {
+        "minObjectCount": 1,
+        "anyObjectContains": ["box", "Box", "SdBox", "solid", "extrude"]
+      }
+    },
+    {
+      "id": "N1",
+      "type": "analysis",
+      "expectedRole": "analysis",
+      "prompt": "List all objects currently in the scene. Report the total count and object names.",
+      "assertions": {
+        "agentTextContainsAny": ["0", "empty", "no object", "count", "objects", "none"]
+      }
+    },
+    {
+      "id": "N2",
+      "type": "analysis",
+      "expectedRole": "analysis",
+      "prompt": "Inspect the scene and report how many objects are present and what types they are.",
+      "assertions": {
+        "agentTextContainsAny": ["0", "empty", "no object", "type", "object", "found", "none"]
+      }
+    },
+    {
+      "id": "X1",
+      "type": "cross-role",
+      "expectedRole": null,
+      "prompt": "Draw a 16ft wall on level 1. Then measure and report its length.",
+      "assertions": {
+        "minObjectCount": 1,
+        "anyObjectContains": ["wall", "Wall", "SdWall"],
+        "agentTextContainsAny": ["16", "ft", "feet", "foot", "length", "measure"]
+      }
+    },
+    {
+      "id": "X2",
+      "type": "cross-role",
+      "expectedRole": null,
+      "prompt": "Create a 5ft-diameter sphere. Then list all objects in the scene and report the count.",
+      "assertions": {
+        "minObjectCount": 1,
+        "anyObjectContains": ["sphere", "Sphere", "SdSphere"],
+        "agentTextContainsAny": ["1", "object", "count", "found", "sphere"]
+      }
+    }
+  ]
+}
