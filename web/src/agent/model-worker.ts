@@ -106,6 +106,180 @@ const GEMMA_ONNX_CPU_UNSUPPORTED =
 // Flip to false if verification is ever reverted to the "accept-all" placeholder.
 const MTP_VERIFICATION_WIRED = true;
 
+// ── §#420-d: StaticKVCache scaffold ────────────────────────────────────────────
+// Companion to freeDimensionOverrides (#438). Pre-allocates fixed-shape GPU buffers
+// for KV so ORT WebGPU sees the SAME tensor shapes every decode step and reuses its
+// intermediate buffer pool instead of reallocating (~15 MB) per step.
+//
+// Activate: flip STATIC_KV_CACHE_ENABLED_420D = true once [#420-c] diagnostic:
+//   (a) confirms freeDimensionOverrides key matched the real symbolic dim name, AND
+//   (b) OOM still fires (i.e., #438 alone insufficient).
+//   OR: if [#420-c] shows key was WRONG — fix key name, re-deploy, then enable this.
+//
+// Parameters: _SKV_NUM_KV_HEADS, _SKV_HEAD_DIM — fill from [#420-c] kv-input-metadata.
+//   Example expected log: "[#420-c] kv-input-metadata (first 2 layers): [{"name":"past_key_values.0.key","shape":[1,2,"past_sequence_length",256]}]"
+//   → NUM_KV_HEADS=2, HEAD_DIM=256, symbolic dim name = "past_sequence_length" (matches freeDimensionOverrides key if correct).
+//
+// Mechanism (2 patches, both reversed in finally):
+//   1. DynamicCache.prototype.update() — instead of concatenating growing tensors,
+//      copies new [1,nh,1,hd] step into pre-allocated buf at pos seqLen, returns
+//      fixed [1,nh,MAX_SEQ,hd] ORT gpu-buffer tensor. ORT sees same shape every step.
+//   2. ORT decoder session.run() feed intercept — replaces growing attention_mask
+//      [1, seqLen] with fixed [1, MAX_SEQ] mask (1s for valid positions, 0s for padding).
+//      Both KV and mask become fixed shape → ORT reuses intermediates → no per-step alloc.
+//
+// GPU budget: 42L × 2(K+V) × [1,2,2048,256] × 2 B/elem ≈ 88 MB (within D3D12 budget).
+// ───────────────────────────────────────────────────────────────────────────────
+
+const STATIC_KV_CACHE_ENABLED_420D = false; // flip after [#420-c] confirms + OOM persists
+
+// §#420-d dims — PLACEHOLDER; verify from [#420-c] kv-input-metadata log before enabling.
+// The shape array's number elements give the fixed dims; strings are the symbolic ones.
+const _SKV_NUM_LAYERS   = 42;    // Gemma 4 decoder layers (from config.json)
+const _SKV_NUM_KV_HEADS = 2;    // §#420-d-fill: verify from [#420-c] shape[1] (first number after batch=1)
+const _SKV_HEAD_DIM     = 256;  // §#420-d-fill: verify from [#420-c] shape[3] (last fixed dim)
+const _SKV_MAX_SEQ      = 2048; // must match freeDimensionOverrides.past_sequence_length (#438)
+
+// §#420-d: Static KV cache manager.
+// Allocates GPU buffers on construction; call destroy() when generate() completes.
+class _StaticKVCache_420d {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly dev: any; // GPUDevice
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly keyBufs: any[]; // GPUBuffer[numLayers]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly valBufs: any[]; // GPUBuffer[numLayers]
+  seqLen = 0;           // valid entries written so far
+  prefillLen = 0;       // set after prefill run completes (before first decode step)
+  private readonly numLayers:   number;
+  private readonly numKvHeads:  number;
+  private readonly headDim:     number;
+  private readonly maxSeq:      number;
+  private readonly elemBytes = 2; // float16 = 2 B/elem
+
+  constructor(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dev: any,
+    numLayers: number, numKvHeads: number, headDim: number, maxSeq: number,
+  ) {
+    this.dev      = dev;
+    this.numLayers  = numLayers;
+    this.numKvHeads = numKvHeads;
+    this.headDim    = headDim;
+    this.maxSeq     = maxSeq;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const USAGE = (globalThis as any).GPUBufferUsage;
+    const bufBytes = numKvHeads * maxSeq * headDim * this.elemBytes; // batch=1 always
+    this.keyBufs = Array.from({ length: numLayers }, () =>
+      dev.createBuffer({ size: bufBytes, usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC })
+    );
+    this.valBufs = Array.from({ length: numLayers }, () =>
+      dev.createBuffer({ size: bufBytes, usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC })
+    );
+  }
+
+  // Copy single decode-step KV tensors (shape [1, numKvHeads, 1, headDim]) into
+  // pre-allocated buffers at position seqLen. Advances seqLen after the last layer.
+  // §#420-d-fill: verify gpuBuffer property path — may be tensor._data?.gpuBuffer or tensor.data.gpuBuffer
+  // depending on ort version. Log tensor keys in [#420-c] run if not accessible.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  writeStep(newKey: any, newVal: any, layerIdx: number): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const keyGpu: unknown = (newKey as any).gpuBuffer ?? (newKey as any)._data?.gpuBuffer;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const valGpu: unknown = (newVal as any).gpuBuffer ?? (newVal as any)._data?.gpuBuffer;
+    if (!keyGpu || !valGpu) {
+      console.warn(`[#420-d] layer ${layerIdx}: gpuBuffer inaccessible on KV tensor — static cache non-functional`);
+      return;
+    }
+    const bpe = this.elemBytes;
+    const stepBytes   = this.numKvHeads * this.headDim * bpe;
+    const destOffset  = this.seqLen * this.numKvHeads * this.headDim * bpe;
+    const enc = this.dev.createCommandEncoder();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    enc.copyBufferToBuffer(keyGpu as any, 0, this.keyBufs[layerIdx], destOffset, stepBytes);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    enc.copyBufferToBuffer(valGpu as any, 0, this.valBufs[layerIdx], destOffset, stepBytes);
+    this.dev.queue.submit([enc.finish()]);
+    if (layerIdx === this.numLayers - 1) this.seqLen++;
+  }
+
+  // Return ORT gpu-buffer tensors backed by our fixed-size pre-allocated buffers.
+  // Shape is always [1, numKvHeads, maxSeq, headDim] — never changes across decode steps.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getOrtTensors(layerIdx: number): [any, any] {
+    const dims = [1, this.numKvHeads, this.maxSeq, this.headDim];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fromGpuBuf = (ort as any).Tensor?.fromGpuBuffer;
+    if (!fromGpuBuf) throw new Error("[#420-d] ort.Tensor.fromGpuBuffer not available — upgrade onnxruntime-web to ≥1.19");
+    return [
+      fromGpuBuf(this.keyBufs[layerIdx], { dataType: "float16", dims }),
+      fromGpuBuf(this.valBufs[layerIdx], { dataType: "float16", dims }),
+    ];
+  }
+
+  // Build a fixed-size attention mask for the current state.
+  // Shape: [1, maxSeq] — FIXED across all decode steps (no more growing shapes).
+  // Content: 1n at positions 0..seqLen-1 (valid KV entries), 0n elsewhere (padding).
+  // §#420-d-fill: verify attention_mask dtype expected by the ONNX model (int64 assumed here;
+  // check if [#420-c] run shows error on int64 → fall back to int32 / float32).
+  getAttentionMask(): ort.Tensor {
+    const data = new BigInt64Array(this.maxSeq); // int64
+    for (let i = 0; i < this.seqLen; i++) data[i] = 1n;
+    return new ort.Tensor("int64", data, [1, this.maxSeq]);
+  }
+
+  destroy(): void {
+    for (const b of this.keyBufs) { try { b.destroy(); } catch { /* non-fatal */ } }
+    for (const b of this.valBufs) { try { b.destroy(); } catch { /* non-fatal */ } }
+  }
+}
+
+// §#420-d: Install DynamicCache.prototype.update monkeypatch + decoder session.run intercept.
+// Returns cleanup thunk — call in finally{} to restore original behavior.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function _installStaticKvPatches(DynamicCacheClass: any, decoderSess: any, skv: _StaticKVCache_420d): () => void {
+  // Patch 1: DynamicCache.prototype.update
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const origUpdate = DynamicCacheClass.prototype.update as (...a: any[]) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  DynamicCacheClass.prototype.update = function(keyStates: any, valueStates: any, layerIdx: number) {
+    // keyStates / valueStates: new-step ORT gpu-buffer tensors, shape [1, nh, 1, hd]
+    // Write to pre-allocated buffer; return fixed-size tensors so ORT reuses pool.
+    skv.writeStep(keyStates, valueStates, layerIdx);
+    return skv.getOrtTensors(layerIdx);
+  };
+
+  // Patch 2: decoder session.run() feed intercept for attention_mask
+  // Without this patch, attention_mask grows by 1 each step → shape change → ORT reallocates.
+  // With this: mask is always [1, MAX_SEQ] → fixed shape → ORT reuses same-sized intermediates.
+  let _origSessRun: unknown = null;
+  if (decoderSess && typeof decoderSess.run === "function") {
+    _origSessRun = decoderSess.run.bind(decoderSess);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    decoderSess.run = async (feeds: Record<string, any>, ...rest: any[]) => {
+      // Only intercept decoder calls that carry past_key_values (decode steps, not prefill).
+      // Prefill (first call) has no past_key_values in feeds — let it run normally.
+      const hasPastKv = feeds["past_key_values.0.key"] !== undefined;
+      if (hasPastKv && feeds["attention_mask"]) {
+        // Replace growing attention_mask with our fixed-size version.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        feeds = { ...feeds, attention_mask: skv.getAttentionMask() as any };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (_origSessRun as any)(feeds, ...rest);
+    };
+  } else {
+    console.warn("[#420-d] decoder session.run not patchable — attention_mask will still grow");
+  }
+
+  return () => {
+    // Restore both patches
+    DynamicCacheClass.prototype.update = origUpdate;
+    if (decoderSess && _origSessRun) decoderSess.run = _origSessRun;
+  };
+}
+
 // Boot-completion tracking — boot-complete fires when all three phases done.
 let _bootModelReady = false;
 let _bootWarmupDone = false;
@@ -1247,6 +1421,10 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
     }
   }
 
+  // §#420-d: declare at function scope so cleanup below can reach them after if(!outputs).
+  let _skv420d_outer: _StaticKVCache_420d | null = null;
+  let _skv420dUninstall_outer: (() => void) | null = null;
+
   // Standard generate fallback
   if (!outputs) {
     // Progress streamer — skip the initial prompt put, then post every 50 tokens generated.
@@ -1267,6 +1445,29 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
         }
       },
     };
+    // §#420-d: static KV cache — install before generate() so patches are active.
+    // Disabled by default (STATIC_KV_CACHE_ENABLED_420D = false); flip after [#420-c] confirms.
+    if (STATIC_KV_CACHE_ENABLED_420D) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _gpuDev = (ort.env as any)?.webgpu?.device;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { DynamicCache: _DynCache } = await import("@huggingface/transformers") as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _decoderSess = (_model as any)?.sessions?.["decoder_model_merged"] ?? (_model as any)?.sessions?.["model"];
+        if (_gpuDev && _DynCache && _decoderSess) {
+          _skv420d_outer = new _StaticKVCache_420d(_gpuDev, _SKV_NUM_LAYERS, _SKV_NUM_KV_HEADS, _SKV_HEAD_DIM, _SKV_MAX_SEQ);
+          _skv420dUninstall_outer = _installStaticKvPatches(_DynCache, _decoderSess, _skv420d_outer);
+          console.log(`[#420-d] static KV cache active: ${_SKV_NUM_LAYERS}L × ${_SKV_NUM_KV_HEADS}H × ${_SKV_MAX_SEQ}seq × ${_SKV_HEAD_DIM}dim`);
+        } else {
+          console.warn("[#420-d] static KV cache skipped — missing gpu device, DynamicCache, or decoder session");
+        }
+      } catch (e420d) {
+        console.warn("[#420-d] static KV cache install failed:", (e420d as Error).message);
+        _skv420d_outer?.destroy(); _skv420d_outer = null;
+      }
+    }
+
     // §C-decode-retry (#1362-C): buffer_manager.cc:553 "Buffer was unmapped before mapping
     // was resolved" is a D3D12 CPU/GPU sync race triggered during multi-step decode.
     // §#83: pre-generate GPU flush added — drains ORT buffer destructions from prior turn
@@ -1353,6 +1554,13 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       }
     }
   }
+
+  // §#420-d cleanup: restore patches + free GPU buffers on the normal (non-throw) path.
+  // The throw path (exhausted retries) propagates without cleanup — acceptable since the
+  // flag is false by default and GPU buffers are GC'd on worker recycle anyway.
+  // §#420-d-fill: wrap the decode section in try-finally when enabling permanently.
+  if (_skv420dUninstall_outer) { _skv420dUninstall_outer(); _skv420dUninstall_outer = null; }
+  if (_skv420d_outer) { _skv420d_outer.destroy(); _skv420d_outer = null; }
 
   const tGen = performance.now();
 
