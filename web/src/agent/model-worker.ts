@@ -727,16 +727,16 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
             console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
           }
           console.log(`[model-worker] warmup-settled after ${_wr} retries`);
-          // §#281 post-warmup settle: `onSubmittedWorkDone()` waits for GPU command
-          // execution but NOT D3D12 deferred buffer deletions — those drain through a
-          // separate fence/GC path. The warmup generate() (64 tokens cold-cache) creates
-          // significant buffer churn; 5s lets D3D12 process its deferred deletion queue
-          // before the first real inference fires. Applies to both initial cold-cache boot
-          // and D3D12_OOM recycle-boot (which now runs warmup via nextInitNoWarmup=false,
-          // see agent-runtime-controller.ts D3D12_OOM case).
+          // §#281 post-warmup settle (proactive-yield): from_pretrained() creates large
+          // GPU buffer allocations; D3D12's deferred deletion queue takes ~30s to drain
+          // these destructions. Validate-281 evidence: retries at ~30s after BOOT_COMPLETE
+          // always succeed; retries at <11s always fail. Yield the event loop for 30s so
+          // D3D12 drains BEFORE the first real inference (prevent, not recover-after-OOM).
+          // Applies to cold-cache boots (initial and post-D3D12_OOM recycle with
+          // nextInitNoWarmup=false, per agent-runtime-controller.ts D3D12_OOM case).
           if (_coldCacheBoot) {
-            console.log("[#281] post-warmup settle: 5s for D3D12 destructions");
-            await new Promise(r => setTimeout(r, 5_000));
+            console.log("[#281] post-warmup settle: 30s proactive-yield for D3D12 destructions");
+            await new Promise(r => setTimeout(r, 30_000));
             await _flushWgpuQueue("post-warmup-settle");
           }
           break; // warmup succeeded — buffers settled
@@ -974,6 +974,16 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
 async function handleGenerate(data: Record<string, unknown>): Promise<void> {
+  // §#281 pre-generate proactive-yield: inference output buffers (KV cache updates,
+  // logits) go into D3D12's deferred deletion queue after each generate() completes.
+  // Without a yield, the next generate() fires before D3D12 drains them → OOM.
+  // Yield 10s for inter-turn (smaller activation buffers than from_pretrained();
+  // post-warmup-settle covers the first generate; this handles all subsequent ones).
+  if (_generateCallCount > 0) {
+    console.log("[#281] pre-generate proactive-yield: 10s for inter-turn D3D12 drain");
+    await new Promise<void>(r => setTimeout(r, 10_000));
+    await _flushWgpuQueue("pre-generate-yield");
+  }
   _generateCallCount++; // §#307: session-level counter for heap-fragmentation estimation
   if (!_model || !_processor) {
     post({ type: "generate-error", turnId: data.turnId, error: "model not loaded" });
