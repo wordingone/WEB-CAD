@@ -392,17 +392,28 @@ function linkCompoundMeshBreps(
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
     const cplane = resolveCPlane("SdWall", args as Record<string, unknown>, viewer);
-    const startArg = args.start as { x?: number; y?: number } | undefined;
-    const endArg = args.end as { x?: number; y?: number } | undefined;
     const rawProfile = args.profile as [number, number][] | undefined;
     const wallLen = (args.length as number | undefined) ?? 4;
+    // Normalize start/end from any form the model may emit:
+    //   object {x,y[,z]}, array [x,y[,z]], or camelCase startPoint/endPoint aliases.
+    function toWallPt(v: unknown): { x: number; y: number } | undefined {
+      if (!v) return undefined;
+      if (Array.isArray(v) && v.length >= 2) return { x: Number(v[0]), y: Number(v[1]) };
+      if (typeof v === "object" && v !== null) {
+        const o = v as Record<string, unknown>;
+        if (typeof o.x === "number" && typeof o.y === "number") return { x: o.x, y: o.y };
+      }
+      return undefined;
+    }
+    const startPt = toWallPt(args.start ?? args.startPoint ?? args.start_point);
+    const endPt   = toWallPt(args.end   ?? args.endPoint   ?? args.end_point);
     let a: { x: number; y: number }, b: { x: number; y: number };
     if (rawProfile && rawProfile.length >= 2) {
       a = { x: rawProfile[0][0], y: rawProfile[0][1] };
       b = { x: rawProfile[rawProfile.length - 1][0], y: rawProfile[rawProfile.length - 1][1] };
-    } else if (startArg && endArg) {
-      a = { x: startArg.x ?? 0, y: startArg.y ?? 0 };
-      b = { x: endArg.x ?? wallLen, y: endArg.y ?? 0 };
+    } else if (startPt && endPt) {
+      a = startPt;
+      b = endPt;
     } else {
       a = { x: 0, y: 0 };
       b = { x: wallLen, y: 0 };

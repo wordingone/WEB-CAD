@@ -1069,10 +1069,12 @@
         type: polyline
       start:
         type: point
-        description: "Start point {x,y,z}. Alternative to profile."
+        description: "Start point {x,y,z} or [x,y,z] array. Alternative to profile."
+        synonyms: [startPoint, start_point]
       end:
         type: point
-        description: "End point {x,y,z}. Alternative to profile."
+        description: "End point {x,y,z} or [x,y,z] array. Alternative to profile."
+        synonyms: [endPoint, end_point]
       length:
         type: number
         unit: m
