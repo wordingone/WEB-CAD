@@ -219,11 +219,18 @@ async function runSmoke() {
     console.log('[smoke] slotDef:', JSON.stringify(sDef));
     check('slotDef created', !!sDef.slotId, JSON.stringify(sDef));
 
-    // Dispatch geometry to each → triggers autosave in 2s
+    // Dispatch geometry to each → triggers autosave in 2s; capture UUIDs for identity check
     console.log('[smoke] Dispatching SdBox→slotA, SdSphere→slotB, SdCone→slotDef...');
-    await call('dispatch', { verb: 'SdBox',    args: {}, slotId: sA.slotId });
-    await call('dispatch', { verb: 'SdSphere', args: {}, slotId: sB.slotId });
-    await call('dispatch', { verb: 'SdCone',   args: {}, slotId: sDef.slotId });
+    const dA   = await call('dispatch', { verb: 'SdBox',    args: {}, slotId: sA.slotId });
+    const dB   = await call('dispatch', { verb: 'SdSphere', args: {}, slotId: sB.slotId });
+    const dDef = await call('dispatch', { verb: 'SdCone',   args: {}, slotId: sDef.slotId });
+    const pA   = dA.content?.[0]?.text   ? JSON.parse(dA.content[0].text)   : dA;
+    const pB   = dB.content?.[0]?.text   ? JSON.parse(dB.content[0].text)   : dB;
+    const pDef = dDef.content?.[0]?.text ? JSON.parse(dDef.content[0].text) : dDef;
+    const uuidA   = pA?.result?.created   ?? pA?.result?.object_id;
+    const uuidB   = pB?.result?.created   ?? pB?.result?.object_id;
+    const uuidDef = pDef?.result?.created ?? pDef?.result?.object_id;
+    console.log(`[smoke] dispatch UUIDs: box=${uuidA?.slice(0,8)} sphere=${uuidB?.slice(0,8)} cone=${uuidDef?.slice(0,8)}`);
 
     console.log('[smoke] Waiting 4s for autosave to flush...');
     await new Promise(r => setTimeout(r, 4000));
@@ -316,6 +323,22 @@ async function runSmoke() {
       dataB?.objects?.length > 0, `got: ${JSON.stringify(dataB)?.slice(0, 80)}`);
     check('slotDef wrote to web-cad-scene (autosave data present)',
       dataDef?.objects?.length > 0, `got: ${JSON.stringify(dataDef)?.slice(0, 80)}`);
+
+    // Identity isolation: correct object (by UUID) is in the correct DB, and NOT in the other slots.
+    // SerializedSceneObj.uuid matches the object_id returned by dispatch.
+    const hasUuid = (data, uuid) => Array.isArray(data?.objects) && data.objects.some(o => o?.uuid === uuid);
+    if (uuidA && uuidB && uuidDef) {
+      check('smokeA DB contains SdBox UUID',    hasUuid(dataA,   uuidA),   `box=${uuidA?.slice(0,8)} not in smokeA`);
+      check('smokeB DB contains SdSphere UUID', hasUuid(dataB,   uuidB),   `sphere=${uuidB?.slice(0,8)} not in smokeB`);
+      check('default DB contains SdCone UUID',  hasUuid(dataDef, uuidDef), `cone=${uuidDef?.slice(0,8)} not in default`);
+      // Cross-slot UUID isolation: box UUID must NOT be in slotB's or slotDef's DB
+      check('smokeA SdBox UUID NOT in smokeB',  !hasUuid(dataB,   uuidA),  `box leaked into smokeB`);
+      check('smokeA SdBox UUID NOT in default', !hasUuid(dataDef, uuidA),  `box leaked into default`);
+      // Sphere UUID not in slotA's DB
+      check('smokeB SdSphere UUID NOT in smokeA', !hasUuid(dataA, uuidB),  `sphere leaked into smokeA`);
+    } else {
+      console.warn('[smoke] WARNING: dispatch UUIDs missing — skipping identity checks. pA=', JSON.stringify(pA)?.slice(0,100));
+    }
 
     // Close isolation slots
     console.log('\n[smoke] Closing Phase 2 slots...');
