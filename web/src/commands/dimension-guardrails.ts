@@ -125,18 +125,6 @@ export function checkDimensionGuardrails(
         checkRange(args, "thickness", { min: 0.05, max: 0.5 })
       );
     }
-    case "IfcDoor": {
-      return (
-        checkRange(args, "width",  { min: 0.6, max: 2   }) ??
-        checkRange(args, "height", { min: 1.8, max: 2.4 })
-      );
-    }
-    case "IfcWindow": {
-      return (
-        checkRange(args, "width",  { min: 0.3, max: 3   }) ??
-        checkRange(args, "height", { min: 0.3, max: 2.4 })
-      );
-    }
     case "SdStair": {
       // §#1655: reject descending or zero-rise stair — level_to must be above level_from.
       const lf = args.level_from as Record<string, unknown> | undefined;

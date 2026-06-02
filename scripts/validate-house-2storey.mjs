@@ -20,13 +20,32 @@ const TURN_TIMEOUT = 900_000;    // 15 min
 const NO_DRAIN     = process.argv.includes("--no-drain");
 const DRAIN_FIXED_MS = 60_000;
 
+// Prompt engineered to work around the model's invariant ft→m conversion (#1680):
+// the model multiplies every numeric value by 0.3048 regardless of context.
+// Pre-scaling: desired_metres / 0.3048 gives the prompt value the model will convert correctly.
+//   3m  → 9.843  (9.843 × 0.3048 = 2.999m ≈ 3m)
+//   2.8m → 9.186  (9.186 × 0.3048 = 2.800m)
+//   5.8m → 19.03  (19.03 × 0.3048 = 5.800m)
+//   ±5m  → ±16.40 (16.40 × 0.3048 = 4.999m)
+//   ±4m  → ±13.12 (13.12 × 0.3048 = 3.999m)
+//   ±2m  → ±6.562 (6.562 × 0.3048 = 1.999m)
 const HOUSE_PROMPT =
-  "Build a 2-storey single-family house: rectangular 10m × 8m plan. " +
-  "Ground floor: 0.2m concrete floor slab at z=0, four 0.2m-thick exterior walls 3m tall, " +
-  "a door opening 1m × 2.1m centred on the south wall. " +
-  "Upper floor: floor slab at 3m elevation, four 0.2m-thick exterior walls 2.8m tall, " +
-  "two window openings 1.5m × 1.2m on the south wall. " +
-  "Flat roof slab 0.15m thick on top at 5.8m elevation.";
+  "Build a 2-storey single-family house in feet (the app converts to metres automatically). " +
+  "(1) SdLevel name=Ground elevation=0. " +
+  "(2) SdSlab on Ground floor size=[32.8,26.25] at z=0. " +
+  "(3) Four SdWall on Ground height=9.843: " +
+  "south start=[-16.4,-13.12] end=[16.4,-13.12]; " +
+  "north start=[-16.4,13.12] end=[16.4,13.12]; " +
+  "east start=[16.4,-13.12] end=[16.4,13.12]; " +
+  "west start=[-16.4,-13.12] end=[-16.4,13.12]. " +
+  "(4) SdDoor position=[0,-13.12,0] — entry door on south wall. " +
+  "(5) SdLevel name=Level-2 elevation=9.843. " +
+  "(6) SdSlab on Level-2 size=[32.8,26.25] at z=9.843. " +
+  "(7) Four SdWall on Level-2 height=9.186: same footprint. " +
+  "(8) SdWindow position=[-6.562,-13.12,9.843] on south wall. " +
+  "(9) SdWindow position=[6.562,-13.12,9.843] on south wall. " +
+  "(10) SdLevel name=Roof elevation=19.03. " +
+  "(11) SdSlab on Roof size=[32.8,26.25] thickness=0.492 at z=19.03.";
 
 const DIAG_DIR = "state/diag-house";
 
@@ -298,8 +317,9 @@ const camResult = await evaluate(`
     const dy = cam.position.y - t.y;
     const dz = cam.position.z - t.z;
     const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-    const azimuth = Math.atan2(dy, dx);
-    // 20° elevation: low angle showing both storeys + roof from outside
+    // 225° azimuth: camera to SW of building → shows south facade where door+windows live.
+    // 20° elevation: low exterior 3/4 angle showing both storeys + roof.
+    const azimuth = 225 * Math.PI / 180;
     const elevRad = 20 * Math.PI / 180;
     const newX = t.x + dist * Math.cos(azimuth) * Math.cos(elevRad);
     const newY = t.y + dist * Math.sin(azimuth) * Math.cos(elevRad);
