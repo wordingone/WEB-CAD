@@ -413,6 +413,15 @@ for (let i = 0; i < MAX_TURNS; i++) {
       console.log(`\n[281-val] T${turnNum}: ALIGN-RECYCLE`);
       outcome = "align_recycle"; break;
     }
+    // §#281 metric-fix: count real worker-recycled d3d12-oom events immediately.
+    // Old proxy (badge=ERROR+stuck 120s) missed non-fatal recoveries post-#418.
+    // Non-breaking — turn continues; recovery restores sendBtn via the stuck-READY reset.
+    if (curOom > lastOomCount) {
+      const _delta = curOom - lastOomCount;
+      lastOomCount = curOom;
+      oomCount += _delta;
+      console.log(`\n[281-val] T${turnNum}: D3D12-OOM×${_delta} (non-fatal recovery, continuing)`);
+    }
 
     const dis = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
     const txt = await evaluate(`document.querySelector('.chat-send-btn')?.textContent ?? ''`);
@@ -435,13 +444,8 @@ for (let i = 0; i < MAX_TURNS; i++) {
       if (String(badge).includes("ERROR")) {
         turnErrorMs += 5_000; turnStuckMs = 0;
         if (turnErrorMs >= 120_000) {
-          if (curOom > lastOomCount) {
-            lastOomCount = curOom; oomCount++;
-            outcome = "oom_d3d12";
-          } else {
-            outcome = "oom_d3d12";
-          }
-          console.warn(`\n[281-val] T${turnNum}: D3D12-OOM → reload`);
+          outcome = "oom_d3d12";
+          console.warn(`\n[281-val] T${turnNum}: badge=ERROR 120s → reload (FATAL path)`);
           const ok = await reloadAndReboot(`T${turnNum} D3D12-OOM`);
           if (!ok) { outcome = "oom_boot_fail"; }
           break;
