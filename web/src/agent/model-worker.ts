@@ -64,14 +64,7 @@ if (_gpuBufferCtor) {
           return await _origMapAsync.apply(this, args);
         } catch (_eN) {
           if (_i === _mapRetryDelays.length - 1) {
-            // §#281-diag: log error detail for D3D12 error code capture (Leo 12560).
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const _e0a = _e0 as any;
-            console.error("[#281] mapAsync exhausted retries", {
-              name: _e0a?.name, message: _e0a?.message,
-              type: Object.prototype.toString.call(_e0a),
-              bufferSize: (this as any)?.size,
-            }, _e0);
+            console.error("[#281] mapAsync exhausted retries — surfacing original error", _e0);
             throw _e0; // re-throw first error (preserves original stack)
           }
           _e0 = _eN; // update for next iteration's warn
@@ -99,9 +92,6 @@ let _coldCacheBoot = false;
 // §#307 diagnostic: count generate() calls in this worker session — proxy for WASM heap
 // fragmentation level (more turns → more alloc/free cycles → higher misalignment risk).
 let _generateCallCount = 0;
-// §#281-idle-test: wall-clock timestamp when from_pretrained() completes. Used for the
-// 90s idle-wait diagnostic: does waiting 90s after from_pretrained() prevent OOM?
-let _fromPretrainedCompletedAt = 0;
 
 const WEBGPU_CONTEXT_LIMIT = 16384;
 const GEMMA_ONNX_CPU_UNSUPPORTED =
@@ -644,7 +634,6 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
       post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - _workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource });
-      _fromPretrainedCompletedAt = Date.now(); // §#281-idle-test: anchor for pre-generate 90s wait
 
       // WebGPU sanity probe — same as main-thread path (#128/#133).
       // Skipped on recycle (noWarmup): GPU device is persistent, shaders already compiled.
@@ -1217,22 +1206,6 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       do_sample: false,
       streamer: _progressStreamer,
     });
-    // §#281-idle-test: on the FIRST generate() after from_pretrained(), idle-wait until
-    // 90s have elapsed since from_pretrained() completed. Leo directive: empirically test
-    // whether a wall-clock gap eliminates the D3D12 OOM (decides timing-fixable vs not).
-    // This is a DIAGNOSTIC — not a production fix — to resolve the re-diagnosis question.
-    if (_generateCallCount === 0 && _fromPretrainedCompletedAt > 0) {
-      const _IDLE_TEST_MS = 90_000;
-      const _elapsed = Date.now() - _fromPretrainedCompletedAt;
-      const _remaining = _IDLE_TEST_MS - _elapsed;
-      if (_remaining > 0) {
-        console.log(`[#281-idle-test] waiting ${_remaining}ms (${_elapsed}ms elapsed since from_pretrained — target 90000ms)`);
-        await new Promise<void>(r => setTimeout(r, _remaining));
-        console.log(`[#281-idle-test] 90s idle complete — firing first inference`);
-      } else {
-        console.log(`[#281-idle-test] 90s already elapsed (${_elapsed}ms since from_pretrained) — no extra wait`);
-      }
-    }
     // §#83: flush ORT GPU queue before initial attempt — ensures all buffer destructions
     // from warmup probes and prior turns are committed before this turn allocates.
     await _flushWgpuQueue("pre-generate");
