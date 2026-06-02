@@ -80,6 +80,20 @@ export function makeObjectChangeListener(
               edgeIndex: sub.userData.edgeIndex as number | undefined,
               vertexIndex: sub.userData.vertexIndex as number | undefined,
             });
+            // #294-D2: sync overlay geometry so the highlight tracks the moved vertex live.
+            const _srcPos = _found.geometry.getAttribute("position") as THREE.BufferAttribute;
+            const _ovGeom = (sub as THREE.Points | THREE.Line).geometry as THREE.BufferGeometry | undefined;
+            const _ovPos = _ovGeom?.getAttribute("position") as THREE.BufferAttribute | undefined;
+            if (_ovPos && affected.length >= 1) {
+              if (sub instanceof THREE.Points) {
+                _ovPos.setXYZ(0, _srcPos.getX(affected[0]), _srcPos.getY(affected[0]), _srcPos.getZ(affected[0]));
+                _ovPos.needsUpdate = true;
+              } else if (sub instanceof THREE.Line && affected.length >= 2) {
+                _ovPos.setXYZ(0, _srcPos.getX(affected[0]), _srcPos.getY(affected[0]), _srcPos.getZ(affected[0]));
+                _ovPos.setXYZ(1, _srcPos.getX(affected[affected.length - 1]), _srcPos.getY(affected[affected.length - 1]), _srcPos.getZ(affected[affected.length - 1]));
+                _ovPos.needsUpdate = true;
+              }
+            }
           }
         }
       } else {
@@ -544,7 +558,24 @@ export function selectSubObject(v: Viewer, handle: THREE.Object3D): void {
   v.relocate.active = false;
   updateRelocateBadge(v);
   if (!v.pivotProxy) return;
-  syncPivot(v);
+  // #294-D1: pivot at the sub-object's world-space centroid, not the parent's position.
+  const _affected = handle.userData.affectedVertexIndices as number[] | undefined;
+  const _parentUuid = handle.userData.parentUuid as string | undefined;
+  const _parentMesh = _parentUuid ? v.scene.getObjectByProperty("uuid", _parentUuid) as THREE.Mesh | undefined : undefined;
+  if (_affected && _affected.length > 0 && _parentMesh?.geometry) {
+    _parentMesh.updateMatrixWorld(true);
+    const _posAttr = _parentMesh.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const _c = new THREE.Vector3();
+    for (const vi of _affected) _c.add(new THREE.Vector3(_posAttr.getX(vi), _posAttr.getY(vi), _posAttr.getZ(vi)));
+    _c.divideScalar(_affected.length).applyMatrix4(_parentMesh.matrixWorld);
+    v.pivotProxy.position.copy(_c);
+    v.pivotProxy.quaternion.identity();
+    v.pivotProxy.scale.set(1, 1, 1);
+    v.pivotProxy.updateMatrix();
+    v.pivotProxy.matrixWorldNeedsUpdate = true;
+  } else {
+    syncPivot(v);
+  }
   for (const g of v.gizmos) g.attach(v.pivotProxy);
 }
 
