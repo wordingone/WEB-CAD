@@ -601,69 +601,89 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   // Skipped on recycle (noWarmup): compiled pipelines persist in GPU driver cache.
   post({ type: "phase_timing", phase: "warmup_start", elapsed_ms: Date.now() - _workerStartMs });
   if (!noWarmup) {
-    try {
-      post({ type: "progress", phase: "warmup", bytes: 0, total: 0, throughputBytesPerSec: 0 });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const proc = _processor as any;
-      // §C-warmup-context (#1362): include system prompt so the probe exercises the same
-      // KV cache buffer sizes as real inference (~1300 tokens). Without this, the probe
-      // uses ~6 tokens and leaves GPU buffers undersized, causing ORT buffer_manager.cc:553
-      // to crash (ERROR_CODE=1) on the first full-length inference call.
-      //
-      // §C-warmup-decode (#1362-B): generate 8 tokens (not 1) to exercise the GPU→CPU
-      // readback path (BufferManager::Download) across multiple decode steps. The cold-cache
-      // Schultz crash fires during multi-step decode — a 1-step warmup leaves the
-      // wgpuBufferMapAsync→unmap pipeline untested, letting the race condition manifest on
-      // the first real inference. 8 steps add ~1.5s to warmup and pre-allocate the decode
-      // buffer pool to steady-state before the user submits any prompt.
-      const warmupMessages: Array<{ role: string; content: string }> = warmupPrompt
-        ? [{ role: "system", content: warmupPrompt }, { role: "user", content: "." }]
-        : [{ role: "user", content: "." }];
-      const chatText = proc.apply_chat_template(
-        warmupMessages,
-        { add_generation_prompt: true, tokenize: false },
-      ) as string;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const inputs: any = await proc(chatText, null);
-      const tokCount: number = inputs.input_ids?.dims?.[1] ?? 0;
-      if (tokCount < WEBGPU_CONTEXT_LIMIT - 64) {
-        // §#1420: 30s timeout — best-effort; lets boot continue if WebGPU stalls.
-        // §#1469-revert: max_new_tokens 2048 → 8. Phase J runs on b336897→91bb931 (5 SHAs)
-        // confirmed max_new_tokens has no effect on +60s OOM — ORT does not pre-allocate
-        // KV pool based on max_new_tokens (lazy-allocates per decode step instead). 2048 added
-        // ~20s boot overhead with zero diagnostic value; reverting to minimize boot noise.
-        //
-        // §#1587: NOT the same issue as #1469. #1469 targeted +60s OOM (pool pre-sizing).
-        // #1587 targets `buffer_manager.cc:553` race (wgpuBufferMapAsync fires before buffer
-        // mapping resolves — a different mechanism). The lever here is running MORE DECODE
-        // STEPS during the safe warmup window, forcing lazy buffer-lifecycle allocations to
-        // settle before the first real inference. cold-cache Chrome path loads model in-memory
-        // (cache.put rejected → useBrowserCache=false fallback) → higher GPU buffer pressure
-        // → 8 steps insufficient. Cold-cache uses 64 steps (~12s extra); warm-cache stays at 8.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await Promise.race([
-          (_model as any).generate({ ...inputs, max_new_tokens: _coldCacheBoot ? 64 : 8, do_sample: false }),
-          new Promise<void>(r => setTimeout(r, 30_000)),
-        ]);
-        // §#1463: flush GPU command queue after warmup generate so all pending D3D12
-        // buffer destructions complete before turn 1's OrtRun allocates. Without this,
-        // async destroy() calls queue D3D12 commands that haven't executed by the time
-        // turn 1 allocates, causing buffer_manager.cc:553 OOM → recycle.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const _wgpuDev = (ort.env as any)?.webgpu?.device as
-          | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
-          | undefined;
-        if (_wgpuDev?.queue?.onSubmittedWorkDone) {
-          console.log("[#1463] warmup-flush fired");
-          await _wgpuDev.queue.onSubmittedWorkDone().catch(() => {/* non-fatal */});
-        } else {
+    post({ type: "progress", phase: "warmup", bytes: 0, total: 0, throughputBytesPerSec: 0 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proc = _processor as any;
+    // §C-warmup-context (#1362): include system prompt so the probe exercises the same
+    // KV cache buffer sizes as real inference (~1300 tokens). Without this, the probe
+    // uses ~6 tokens and leaves GPU buffers undersized, causing ORT buffer_manager.cc:553
+    // to crash (ERROR_CODE=1) on the first full-length inference call.
+    //
+    // §C-warmup-decode (#1362-B): generate 8 tokens (not 1) to exercise the GPU→CPU
+    // readback path (BufferManager::Download) across multiple decode steps. The cold-cache
+    // Schultz crash fires during multi-step decode — a 1-step warmup leaves the
+    // wgpuBufferMapAsync→unmap pipeline untested, letting the race condition manifest on
+    // the first real inference. 8 steps add ~1.5s to warmup and pre-allocate the decode
+    // buffer pool to steady-state before the user submits any prompt.
+    //
+    // §#281 warmup-retry: warmup itself can fail with buffer_manager.cc:553 because deferred
+    // GPU destructions from from_pretrained() are still in-flight when warmup fires. The fix:
+    // retry warmup with exponential backoff. Each retry + flush gives destructions time to
+    // settle. Once warmup succeeds, buffers are in steady-state before real inference.
+    const warmupMessages: Array<{ role: string; content: string }> = warmupPrompt
+      ? [{ role: "system", content: warmupPrompt }, { role: "user", content: "." }]
+      : [{ role: "user", content: "." }];
+    const chatText = proc.apply_chat_template(
+      warmupMessages,
+      { add_generation_prompt: true, tokenize: false },
+    ) as string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const _warmupInputs: any = await proc(chatText, null);
+    const tokCount: number = _warmupInputs.input_ids?.dims?.[1] ?? 0;
+    if (tokCount < WEBGPU_CONTEXT_LIMIT - 64) {
+      // §#1420: 30s timeout per attempt — best-effort; lets boot continue if WebGPU stalls.
+      // Retry delays: 2s, 3s, 5s, 8s (total 18s wait across 4 retries + 5 attempts).
+      const _warmupRetryDelays = [0, 2000, 3000, 5000, 8000];
+      for (let _wr = 0; _wr < _warmupRetryDelays.length; _wr++) {
+        if (_wr > 0) {
+          const _d = _warmupRetryDelays[_wr];
+          console.warn(`[model-worker] warmup-retry-${_wr} — flushing+waiting ${_d}ms`);
+          await new Promise(r => setTimeout(r, _d));
+          await _flushWgpuQueue(`warmup-retry-${_wr}`);
+        }
+        try {
+          // §#1469-revert: max_new_tokens 2048 → 8. Phase J runs on b336897→91bb931 (5 SHAs)
+          // confirmed max_new_tokens has no effect on +60s OOM — ORT does not pre-allocate
+          // KV pool based on max_new_tokens (lazy-allocates per decode step instead). 2048 added
+          // ~20s boot overhead with zero diagnostic value; reverting to minimize boot noise.
+          //
+          // §#1587: NOT the same issue as #1469. #1469 targeted +60s OOM (pool pre-sizing).
+          // #1587 targets `buffer_manager.cc:553` race (wgpuBufferMapAsync fires before buffer
+          // mapping resolves — a different mechanism). The lever here is running MORE DECODE
+          // STEPS during the safe warmup window, forcing lazy buffer-lifecycle allocations to
+          // settle before the first real inference. cold-cache Chrome path loads model in-memory
+          // (cache.put rejected → useBrowserCache=false fallback) → higher GPU buffer pressure
+          // → 8 steps insufficient. Cold-cache uses 64 steps (~12s extra); warm-cache stays at 8.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const _ortEnv = ort.env as any;
-          console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
+          await Promise.race([
+            (_model as any).generate({ ..._warmupInputs, max_new_tokens: _coldCacheBoot ? 64 : 8, do_sample: false }),
+            new Promise<void>(r => setTimeout(r, 30_000)),
+          ]);
+          // §#1463: flush GPU command queue after warmup generate so all pending D3D12
+          // buffer destructions complete before turn 1's OrtRun allocates. Without this,
+          // async destroy() calls queue D3D12 commands that haven't executed by the time
+          // turn 1 allocates, causing buffer_manager.cc:553 OOM → recycle.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const _wgpuDev = (ort.env as any)?.webgpu?.device as
+            | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
+            | undefined;
+          if (_wgpuDev?.queue?.onSubmittedWorkDone) {
+            console.log("[#1463] warmup-flush fired");
+            await _wgpuDev.queue.onSubmittedWorkDone().catch(() => {/* non-fatal */});
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const _ortEnv = ort.env as any;
+            console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
+          }
+          console.log(`[model-worker] warmup-settled after ${_wr} retries`);
+          break; // warmup succeeded — buffers settled
+        } catch (e) {
+          if (_wr === _warmupRetryDelays.length - 1) {
+            console.warn("[model-worker] warmup exhausted all retries:", (e as Error).message ?? e);
+          }
+          // else: continue retry loop (non-fatal on intermediate failures)
         }
       }
-    } catch (e) {
-      console.warn("[model-worker] warmup probe failed:", (e as Error).message ?? e);
     }
   }
   post({ type: "phase_timing", phase: "warmup_end", elapsed_ms: Date.now() - _workerStartMs });
@@ -1099,56 +1119,56 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       outputs = await _doGenerate();
     } catch (genErr) {
       const _msg = String(genErr);
-      if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_msg)) {
-        // §C-decode-retry (#1362-C, updated #1410, #83, #1632): buffer_manager race OR WASM
-        // alignment error — deferred GPU destructions from session-refresh dispose() fire during
-        // inference. Flush + delay lets destructions complete; retry with clean buffer state.
-        // §C-wasm-align (#1632): unaligned accesses needs 2000ms (not 500ms) — deferred
-        // destructions from from_pretrained's internal allocs outlast the post-warmup settle.
-        const _isAlignErr = /unaligned accesses/i.test(_msg);
-        const _delay1 = (_coldCacheBoot || _isAlignErr) ? 2000 : 500;
-        console.warn("[model-worker] buffer_manager race — flushing+retrying after " + _delay1 + "ms", _msg.slice(0, 120));
-        await new Promise(r => setTimeout(r, _delay1));
-        await _flushWgpuQueue("retry-1"); // §#83: flush failed-attempt destructions
+      if (!/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_msg)) {
+        throw genErr;
+      }
+      // §C-decode-retry (#1362-C, updated #1410, #83, #1632, #281): buffer_manager race OR WASM
+      // alignment error — deferred GPU destructions from from_pretrained() fire during inference.
+      // §#281: cold-cache extended to 4 retries [2s+3s+5s+8s=18s total]. T9 evidence: destructions
+      // settle within ~18s of boot. Warmup retry loop handles the common (noWarmup=false) path;
+      // this loop is the fallback for recycle-boot (noWarmup=true). Warm-cache: 1 retry [500ms].
+      const _isAlignErr0 = /unaligned accesses/i.test(_msg);
+      const _coldOrAlign = _coldCacheBoot || _isAlignErr0;
+      const _retryDelays = _coldOrAlign ? [2000, 3000, 5000, 8000] : [500];
+      for (let _ri = 0; _ri < _retryDelays.length; _ri++) {
+        const _d = _retryDelays[_ri];
+        console.warn(`[model-worker] buffer_manager retry-${_ri + 1} — flushing+waiting ${_d}ms`, _ri === 0 ? _msg.slice(0, 120) : "");
+        await new Promise(r => setTimeout(r, _d));
+        await _flushWgpuQueue(`retry-${_ri + 1}`); // §#83
         try {
           outputs = await _doGenerate();
+          break; // succeeded
         } catch (retryErr) {
-          // §#1410 + §C-wasm-align (#1632): second retry for cold-cache OR alignment errors.
-          // Alignment errors need the same long retry budget as cold-cache — both have large
-          // deferred-destruction windows that 500ms doesn't cover.
-          if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(String(retryErr)) &&
-              (_coldCacheBoot || /unaligned accesses/i.test(String(retryErr)))) {
-            console.warn("[model-worker] buffer_manager retry-2 — flushing+waiting 3000ms");
-            await new Promise(r => setTimeout(r, 3000));
-            await _flushWgpuQueue("retry-2"); // §#83
-            try {
-              outputs = await _doGenerate(); // final attempt — throws if still failing
-            } catch (finalErr) {
-              // §#307 diagnostic: capture alignment context on exhausted-retry fail.
-              if (/unaligned accesses/i.test(String(finalErr))) {
-                const _ortEnv = (ort as any).env ?? {};
-                const _diag = {
-                  generateCount:  _generateCallCount,
-                  inputTokens:    inputLength,
-                  inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
-                  // byteOffset of the typed-array backing buffer — alignment indicator
-                  inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
-                  ortBackend:     _ortEnv.webgpu?.device ? 'webgpu' : 'wasm',
-                  ortVersion:     String((ort as any).version ?? 'unknown'),
-                  errMsg:         String(finalErr).slice(0, 200),
-                  errStack:       ((finalErr as Error).stack ?? '').slice(0, 400),
-                };
-                console.warn('[align-diag-307]', JSON.stringify(_diag));
-                post({ type: 'align-diag-307', data: _diag });
-              }
-              throw finalErr;
+          const _retryMsg = String(retryErr);
+          if (!/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_retryMsg)) {
+            throw retryErr; // different error class — not retryable
+          }
+          const _isAlignErr = /unaligned accesses/i.test(_retryMsg);
+          // Warm-cache non-align path: only 1 retry — do not continue
+          if (!_coldOrAlign && !_isAlignErr) throw retryErr;
+          if (_ri === _retryDelays.length - 1) {
+            // §#307 diagnostic: capture alignment context on exhausted-retry fail.
+            if (_isAlignErr) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const _ortEnv = (ort as any).env ?? {};
+              const _diag = {
+                generateCount:  _generateCallCount,
+                inputTokens:    inputLength,
+                inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
+                // byteOffset of the typed-array backing buffer — alignment indicator
+                inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
+                ortBackend:     _ortEnv.webgpu?.device ? 'webgpu' : 'wasm',
+                ortVersion:     String((ort as any).version ?? 'unknown'),
+                errMsg:         _retryMsg.slice(0, 200),
+                errStack:       ((retryErr as Error).stack ?? '').slice(0, 400),
+              };
+              console.warn('[align-diag-307]', JSON.stringify(_diag));
+              post({ type: 'align-diag-307', data: _diag });
             }
-          } else {
             throw retryErr;
           }
+          // else: continue retry loop
         }
-      } else {
-        throw genErr;
       }
     }
   }
