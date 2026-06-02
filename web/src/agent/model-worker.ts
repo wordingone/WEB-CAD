@@ -974,14 +974,15 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
 async function handleGenerate(data: Record<string, unknown>): Promise<void> {
-  // §#281 pre-generate proactive-yield: inference output buffers (KV cache updates,
-  // logits) go into D3D12's deferred deletion queue after each generate() completes.
-  // Without a yield, the next generate() fires before D3D12 drains them → OOM.
-  // Yield 10s for inter-turn (smaller activation buffers than from_pretrained();
-  // post-warmup-settle covers the first generate; this handles all subsequent ones).
-  if (_generateCallCount > 0) {
-    console.log("[#281] pre-generate proactive-yield: 10s for inter-turn D3D12 drain");
-    await new Promise<void>(r => setTimeout(r, 10_000));
+  // §#281 pre-generate proactive-yield: drain D3D12 deferred deletion queue before
+  // every generate(). Turn 0 gets 30s (from_pretrained()+warmup destructions — large
+  // model-weight temp buffers). Turn N>0 gets 10s (smaller inference output buffers).
+  // Unconditional: does not depend on _coldCacheBoot, which can be false even on
+  // cold-cache validate runs when Cache API is re-populated during OPFS model load.
+  {
+    const _preGenYield = _generateCallCount === 0 ? 30_000 : 10_000;
+    console.log(`[#281] pre-generate proactive-yield: ${_preGenYield / 1000}s (turn ${_generateCallCount})`);
+    await new Promise<void>(r => setTimeout(r, _preGenYield));
     await _flushWgpuQueue("pre-generate-yield");
   }
   _generateCallCount++; // §#307: session-level counter for heap-fragmentation estimation
