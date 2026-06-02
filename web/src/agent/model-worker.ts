@@ -34,6 +34,44 @@ import { fetchDrafterCached } from "./drafter-cache.js";
 // hashes drifted between builds. Static import eliminates the separate chunk.
 import * as ort from "onnxruntime-web";
 
+// §#281-mapasync-retry: intercept GPUBuffer.prototype.mapAsync to retry on D3D12 OOM.
+// buffer_manager.cc:553 (wgpuBufferMapAsync) fires as async callback outside generate()'s
+// try/catch — OOM can't be caught by retry loops around generate(). Root cause: D3D12's
+// deferred buffer deletion queue hasn't drained between consecutive ORT inference calls.
+// Fix: monkey-patch mapAsync so each retry's setTimeout yields to the event loop, giving
+// D3D12 and JavaScript GC time to process pending buffer destructions before re-attempting.
+// Must install before any ORT WebGPU session is created (static import = module init).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const _gpuBufferCtor = (globalThis as any).GPUBuffer as (new(...a: unknown[]) => unknown) | undefined;
+if (_gpuBufferCtor) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _gbu = _gpuBufferCtor as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _origMapAsync = _gbu.prototype.mapAsync as (...args: unknown[]) => Promise<void>;
+  const _mapRetryDelays = [500, 1500, 3000, 6000] as const; // ms per retry (4 retries max)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _gbu.prototype.mapAsync = async function (...args: unknown[]): Promise<void> {
+    try {
+      return await _origMapAsync.apply(this, args);
+    } catch (_e0) {
+      // First attempt failed — retry with increasing delays so D3D12 can drain.
+      for (let _i = 0; _i < _mapRetryDelays.length; _i++) {
+        console.warn(`[#281] mapAsync retry ${_i + 1}/${_mapRetryDelays.length} in ${_mapRetryDelays[_i]}ms`, _e0);
+        await new Promise<void>(r => setTimeout(r, _mapRetryDelays[_i]));
+        try {
+          return await _origMapAsync.apply(this, args);
+        } catch (_eN) {
+          if (_i === _mapRetryDelays.length - 1) {
+            console.error("[#281] mapAsync exhausted retries — surfacing original error", _e0);
+            throw _e0; // re-throw first error (preserves original stack)
+          }
+          _e0 = _eN; // update for next iteration's warn
+        }
+      }
+    }
+  };
+}
+
 // §#1595-M2: module-level epoch for phase_timing elapsed_ms fields.
 const _workerStartMs = Date.now();
 // Sentinel: first OPFS write fires one phase_timing event then stays silent.
