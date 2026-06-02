@@ -548,6 +548,12 @@ async function captureHeroAndAerial(label) {
   // Side/gable-on elevation: camera pointing straight west→east at gable end.
   // Pitched roof shows unmistakable triangle above wall; flat roof shows rectangle.
   // Nearly orthographic: 80m standoff + computed FOV to frame building.
+  // Bbox baked from camData (hero capture) — avoids re-traverse race with second-turn SdClearScene.
+  const sbbMin = (camData.ok && camData.bbox) ? camData.bbox.min : [-5, -4, -0.2];
+  const sbbMax = (camData.ok && camData.bbox) ? camData.bbox.max : [5, 4, 8.6];
+  const sbCx = (sbbMin[0] + sbbMax[0]) / 2;
+  const sbCy = (sbbMin[1] + sbbMax[1]) / 2;
+  const sbCz = (sbbMin[2] + sbbMax[2]) / 2;
   const sideLogRaw = await evaluate(`
     (function() {
       var v = window.__viewer;
@@ -555,34 +561,17 @@ async function captureHeroAndAerial(label) {
       var cam = v.camera;
       var scene = v.scene || (v.getScene && v.getScene());
       if (!scene) return 'no-scene';
-      var bmin=[Infinity,Infinity,Infinity], bmax=[-Infinity,-Infinity,-Infinity];
-      scene.traverse(function(obj) {
-        if (!obj.isMesh || !obj.geometry) return;
-        if (!obj.userData || (!obj.userData.kind && !obj.userData.creator)) return;
-        obj.geometry.computeBoundingBox();
-        var bb = obj.geometry.boundingBox;
-        if (!bb) return;
-        obj.updateMatrixWorld(true);
-        var mat = obj.matrixWorld;
-        var lmin=bb.min, lmax=bb.max;
-        var xs=[lmin.x,lmax.x], ys=[lmin.y,lmax.y], zs=[lmin.z,lmax.z];
-        for(var xi=0;xi<2;xi++) for(var yi=0;yi<2;yi++) for(var zi=0;zi<2;zi++){
-          var c=lmin.clone().set(xs[xi],ys[yi],zs[zi]).applyMatrix4(mat);
-          if(c.x<bmin[0])bmin[0]=c.x; if(c.x>bmax[0])bmax[0]=c.x;
-          if(c.y<bmin[1])bmin[1]=c.y; if(c.y>bmax[1])bmax[1]=c.y;
-          if(c.z<bmin[2])bmin[2]=c.z; if(c.z>bmax[2])bmax[2]=c.z;
-        }
-      });
-      var cy=(bmin[1]+bmax[1])/2, cz=(bmin[2]+bmax[2])/2;
-      var sy=isFinite(bmax[1]) ? bmax[1]-bmin[1] : 10;
-      var sz=isFinite(bmax[2]) ? bmax[2]-bmin[2] : 10;
+      // Pre-computed bbox from hero capture — immune to second-turn SdClearScene race
+      var bmin = [${sbbMin[0]}, ${sbbMin[1]}, ${sbbMin[2]}];
+      var bmax = [${sbbMax[0]}, ${sbbMax[1]}, ${sbbMax[2]}];
+      var cy = ${sbCy.toFixed(4)}, cz = ${sbCz.toFixed(4)};
+      var sy = bmax[1]-bmin[1], sz = bmax[2]-bmin[2];
       var sideDist = 80;
       var halfSpan = Math.max(sy, sz, 4) * 0.65;
-      var origFov = cam.fov;
       cam.fov = 2 * Math.atan2(halfSpan, sideDist) * 180/Math.PI;
-      cam.position.set((isFinite(bmin[0]) ? bmin[0] : 0) - sideDist, cy, cz);
+      cam.position.set(bmin[0] - sideDist, cy, cz);
       cam.up.set(0,0,1);
-      cam.lookAt(0, cy, cz);
+      cam.lookAt(${sbCx.toFixed(4)}, cy, cz);
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld(true);
       if(v.renderer){ v.renderer.render(scene,cam); }
