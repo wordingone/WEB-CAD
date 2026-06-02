@@ -157,6 +157,43 @@ async function _flushWgpuQueue(tag: string): Promise<void> {
   await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
 }
 
+// §#281 adaptive drain-until-clear: probe a tiny GPU buffer mapAsync on ORT's device.
+// When the probe succeeds, D3D12's deferred deletion queue has been flushed — the fence
+// completion that resolves mapAsync forces D3D12 to process pending buffer destructions.
+// Loop yields a single macrotask between probes so D3D12 gets event-loop time.
+// Drains as fast as the machine allows; falls back to reactive mapAsync retry at budget.
+async function _drainUntilClear(label: string, budgetMs = 34_000): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const _dev = (ort.env as any)?.webgpu?.device as any;
+  if (!_dev?.createBuffer) {
+    await new Promise<void>(r => setTimeout(r, 0)); // no device — single yield
+    return;
+  }
+  const _COPY_DST  = (globalThis as any).GPUBufferUsage?.COPY_DST  ?? 0x0008;
+  const _MAP_READ  = (globalThis as any).GPUBufferUsage?.MAP_READ  ?? 0x0001;
+  const _READ_MODE = (globalThis as any).GPUMapMode?.READ          ?? 0x0001;
+  const _t0 = Date.now();
+  let _probes = 0;
+  for (;;) {
+    const _elapsed = Date.now() - _t0;
+    if (_elapsed >= budgetMs) {
+      console.warn(`[#281] ${label} drain-until-clear: budget ${budgetMs}ms elapsed after ${_probes} probes — proceeding`);
+      return;
+    }
+    try {
+      const _buf = _dev.createBuffer({ size: 4, usage: _COPY_DST | _MAP_READ });
+      await _buf.mapAsync(_READ_MODE);
+      _buf.unmap();
+      _buf.destroy();
+      console.log(`[#281] ${label} drained in ${_elapsed}ms after ${_probes} probes`);
+      return;
+    } catch {
+      _probes++;
+      await new Promise<void>(r => setTimeout(r, 0)); // yield one macrotask, retry
+    }
+  }
+}
+
 // §#88: conversation trimming — drop oldest turns when input token count exceeds the
 // VRAM-safe ceiling. Preserves system prompt (first message) + latest user message (last).
 // Uses char/token ratio from the current tokenization to estimate how many messages to drop.
@@ -727,18 +764,10 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
             console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
           }
           console.log(`[model-worker] warmup-settled after ${_wr} retries`);
-          // §#281 post-warmup settle (proactive-yield): from_pretrained() creates large
-          // GPU buffer allocations; D3D12's deferred deletion queue takes ~30s to drain
-          // these destructions. Validate-281 evidence: retries at ~30s after BOOT_COMPLETE
-          // always succeed; retries at <11s always fail. Yield the event loop for 30s so
-          // D3D12 drains BEFORE the first real inference (prevent, not recover-after-OOM).
-          // Applies to cold-cache boots (initial and post-D3D12_OOM recycle with
-          // nextInitNoWarmup=false, per agent-runtime-controller.ts D3D12_OOM case).
-          if (_coldCacheBoot) {
-            console.log("[#281] post-warmup settle: 30s proactive-yield for D3D12 destructions");
-            await new Promise(r => setTimeout(r, 30_000));
-            await _flushWgpuQueue("post-warmup-settle");
-          }
+          // §#281 post-warmup settle: adaptive drain-until-clear replaces blind 30s settle.
+          // from_pretrained()+warmup destructions go into D3D12's deferred deletion queue;
+          // probing mapAsync drains as fast as the machine allows (per Leo directive).
+          await _drainUntilClear("post-warmup-settle");
           break; // warmup succeeded — buffers settled
         } catch (e) {
           if (_wr === _warmupRetryDelays.length - 1) {
@@ -974,17 +1003,11 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
 async function handleGenerate(data: Record<string, unknown>): Promise<void> {
-  // §#281 pre-generate proactive-yield: drain D3D12 deferred deletion queue before
-  // every generate(). Turn 0 gets 30s (from_pretrained()+warmup destructions — large
-  // model-weight temp buffers). Turn N>0 gets 10s (smaller inference output buffers).
-  // Unconditional: does not depend on _coldCacheBoot, which can be false even on
-  // cold-cache validate runs when Cache API is re-populated during OPFS model load.
-  {
-    const _preGenYield = _generateCallCount === 0 ? 30_000 : 10_000;
-    console.log(`[#281] pre-generate proactive-yield: ${_preGenYield / 1000}s (turn ${_generateCallCount})`);
-    await new Promise<void>(r => setTimeout(r, _preGenYield));
-    await _flushWgpuQueue("pre-generate-yield");
-  }
+  // §#281 pre-generate adaptive drain: probe D3D12 deferred deletion queue on every
+  // generate(), not just inter-turn. Turn 0 has from_pretrained()+warmup destructions;
+  // turn N>0 has inference output buffer destructions. Unconditional — independent of
+  // _coldCacheBoot (which is false even on cold-cache runs per Cache API re-population).
+  await _drainUntilClear("pre-generate");
   _generateCallCount++; // §#307: session-level counter for heap-fragmentation estimation
   if (!_model || !_processor) {
     post({ type: "generate-error", turnId: data.turnId, error: "model not loaded" });
