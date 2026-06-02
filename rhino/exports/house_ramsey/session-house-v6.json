@@ -1,0 +1,632 @@
+{
+  "session": {
+    "id": "house-ramsey-v6-closed-loop-2026-06-02",
+    "captured_at": "2026-06-03T00:00:00Z",
+    "rhino_version": "8.x",
+    "grasshopper_version": "1.x (GH1)",
+    "schema_version": "1.0.1",
+    "session_intent": "Closed-loop session: generate Ramsey House massing from HABS measurements, bake from GH canvas so gh_graph and element_catalog describe the SAME geometry, capture South elevation, compare against HABS 00011a measured drawing. Closes #18/#447 correlation gap and exercises full design_target pipeline.",
+    "design_target": {
+      "corpus_item_id": "tn0094",
+      "habs_id": "HABS TN-104",
+      "building_name": "Ramsey House",
+      "sheet_code": "00011a",
+      "sheet_title": "South elevation",
+      "sheet_type": "elevation",
+      "compass_direction": "south",
+      "rhino_elevation_role": "elevation_front",
+      "drawing_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00011a.jpg",
+      "sha256_prefix": "326c7c8e873e",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/tn0094/",
+      "license": "Public domain (HABS/HAER/HALS, Library of Congress)",
+      "catalog_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/catalog.json",
+      "extracted_dims": {
+        "width_ft": 42.0,
+        "depth_ft": 48.0,
+        "gf_height_ft": 12.0,
+        "uf_height_ft": 11.0,
+        "total_height_to_eave_ft": 23.0,
+        "roof_type": "gable",
+        "roof_pitch_rise_per_foot_run": 0.6,
+        "south_facade_windows_gf": 3,
+        "south_facade_windows_uf": 3,
+        "south_facade_doors": 1,
+        "door_position": "center"
+      },
+      "notes": "Dims extracted by Haiku from HABS sheets. GH sliders set to: EW=12.8m, ED=14.6m, GFH=3.5m, NF=2, RP=0.3."
+    },
+    "source_files": [
+      "B:/M/WEB-CAD/rhino/gh_house_code.py"
+    ],
+    "rhino_doc_path": null,
+    "leo_gate_passes": 0
+  },
+  "event_log": [
+    {
+      "seq": 1,
+      "timestamp": "2026-06-02T23:45:00Z",
+      "kind": "decision",
+      "intent": "Close the loop: (1) all 5 GhPython inputs named+wired, (2) Ramsey House dims from HABS tn0094 Haiku extraction (width=12.8m depth=14.6m GFH=3.5m NF=2 pitch=0.6), (3) bake GH output so element_catalog and gh_graph describe same geometry, (4) capture South elevation, (5) Haiku-compare against HABS 00011a.",
+      "mutates_geometry": false,
+      "caused_by_seq": null
+    },
+    {
+      "seq": 2,
+      "timestamp": "2026-06-02T23:46:00Z",
+      "kind": "python_script",
+      "intent": "Haiku subagent analyzed HABS sheets 00001a+00011a+00013a. Extracted: width=42ft=12.8m, depth=48ft=14.6m, GF=12ft, UF=11ft, gable roof pitch=0.6 rise/run, 3+3 windows South, center door.",
+      "mutates_geometry": false,
+      "caused_by_seq": 1
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-06-02T23:50:00Z",
+      "kind": "python_script",
+      "intent": "Extend GhPython to 5 inputs. Wire all 5 sliders. Set Ramsey values. Delete old objects. Bake 6 GH breps to GH_FLOOR/GH_WALLS/GH_ROOF layers.",
+      "tool_name": "run_python",
+      "tool_result_summary": "6 breps baked. Wall bbox=12.8x14.6x7.0m, roof apex=10.84m. No errors/warnings.",
+      "mutates_geometry": true,
+      "caused_by_seq": 2
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-06-02T23:55:00Z",
+      "kind": "python_script",
+      "intent": "Capture 5 elevation views via _SetView + Zoom Extents + CaptureToBitmap(Shaded).",
+      "tool_name": "run_python",
+      "tool_result_summary": "5 JPEGs at 1600x1200, all IsParallelProjection=True.",
+      "mutates_geometry": false,
+      "caused_by_seq": 3
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-06-02T23:57:00Z",
+      "kind": "mcp_tool",
+      "intent": "g1_get_canvas_graph with all 5 sliders wired.",
+      "tool_name": "g1_get_canvas_graph",
+      "tool_result_summary": "6 objects, 5 wires (width/depth/flr_h/nfl/roof_p connected).",
+      "mutates_geometry": false,
+      "caused_by_seq": 3
+    },
+    {
+      "seq": 6,
+      "timestamp": "2026-06-03T00:05:00Z",
+      "kind": "haiku_comparison",
+      "intent": "Haiku subagent compares elev_front_shaded.jpg against HABS 00011a South elevation. First closed-loop comparison: parametric model vs ground-truth measured drawing.",
+      "tool_name": "Agent(haiku)",
+      "tool_result_summary": "Score 2/5. Storey count + gable roof correct. Proportions off: model too tall. No openings (expected). Main fix needed: verify aspect ratio and possibly split GF/UF floor heights.",
+      "mutates_geometry": false,
+      "caused_by_seq": 4
+    }
+  ],
+  "element_catalog": [
+    {
+      "id": "gh_floor_1",
+      "snapshot_label": null,
+      "ifc_class": "IfcSlab",
+      "layer": "GH_FLOOR",
+      "object_name": "Ground floor slab",
+      "rhino_guid": "34589bf4-2ba9-4233-a96f-9fa87002e65a",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.05,
+            "y": -0.05,
+            "z": -0.2
+          },
+          "max": {
+            "x": 12.85,
+            "y": 14.65,
+            "z": 0.0
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": -0.1
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "1797 Federal 2-storey massing"
+    },
+    {
+      "id": "gh_walls_1",
+      "snapshot_label": null,
+      "ifc_class": "IfcWall",
+      "layer": "GH_WALLS",
+      "object_name": "Exterior wall shell",
+      "rhino_guid": "996d1141-ac54-4bc9-b2d3-9af71b96c451",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 10,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": -0.0
+          },
+          "max": {
+            "x": 12.8,
+            "y": 14.6,
+            "z": 7.0
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": 3.5
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "BooleanDifference hollow box, 250mm wall thickness"
+    },
+    {
+      "id": "gh_roof_n",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "North gable end",
+      "rhino_guid": "0f3ded37-42d2-4967-a349-822fd9887e78",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": 15.1,
+            "z": 10.84
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": 8.92
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "Gable end triangular face, ridge=3.84m apex"
+    },
+    {
+      "id": "gh_roof_s",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "South gable end",
+      "rhino_guid": "6f9d3425-c20b-406f-b045-8fa6848bc049",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": 15.1,
+            "z": 10.84
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": 8.92
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "Gable end triangular face, ridge=3.84m apex"
+    },
+    {
+      "id": "gh_roof_e",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "East roof slope",
+      "rhino_guid": "c7ae1d63-e3e6-4dd5-bd58-0a0f1232d473",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 6.4,
+            "y": 15.1,
+            "z": 10.84
+          }
+        },
+        "centroid": {
+          "x": 2.95,
+          "y": 7.3,
+          "z": 8.92
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "Gable roof slope, 0.6 rise/run pitch"
+    },
+    {
+      "id": "gh_roof_w",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "West roof slope",
+      "rhino_guid": "497e6b67-e2ae-47b3-b9c5-359fd0848476",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 6.4,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": 15.1,
+            "z": 10.84
+          }
+        },
+        "centroid": {
+          "x": 9.85,
+          "y": 7.3,
+          "z": 8.92
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": "Gable roof slope, 0.6 rise/run pitch"
+    }
+  ],
+  "spatial_graph": {
+    "relationships": [
+      {
+        "subject_id": "gh_roof_e",
+        "predicate": "part_of",
+        "object_id": "gh_roof_w",
+        "notes": "East+West slopes form gable roof pair"
+      },
+      {
+        "subject_id": "gh_walls_1",
+        "predicate": "supports",
+        "object_id": "gh_roof_e",
+        "notes": "Wall top at eave height TH=7.0m"
+      },
+      {
+        "subject_id": "gh_floor_1",
+        "predicate": "grounds",
+        "object_id": "gh_walls_1",
+        "notes": "Slab at z=0"
+      }
+    ],
+    "storeys": [
+      {
+        "id": "GF",
+        "label": "Ground Floor",
+        "elevation_m": 0.0,
+        "height_m": 3.5
+      },
+      {
+        "id": "UF",
+        "label": "Upper Floor",
+        "elevation_m": 3.5,
+        "height_m": 3.5
+      },
+      {
+        "id": "ROOF",
+        "label": "Roof",
+        "elevation_m": 7.0,
+        "height_m": 3.84
+      }
+    ]
+  },
+  "gh_graph": {
+    "components": [
+      {
+        "id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "name": "GhPython Script",
+        "category": "Maths",
+        "x": 450,
+        "y": 300,
+        "inputs": [
+          {
+            "name": "width",
+            "nickname": "width"
+          },
+          {
+            "name": "depth",
+            "nickname": "depth"
+          },
+          {
+            "name": "flr_h",
+            "nickname": "flr_h"
+          },
+          {
+            "name": "nfl",
+            "nickname": "nfl"
+          },
+          {
+            "name": "roof_p",
+            "nickname": "roof_p"
+          }
+        ],
+        "outputs": [
+          {
+            "name": "out",
+            "nickname": "out"
+          },
+          {
+            "name": "a",
+            "nickname": "a"
+          }
+        ],
+        "messages": []
+      }
+    ],
+    "sliders": [
+      {
+        "id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+        "nickname": "width",
+        "value": 12.8,
+        "x": 100,
+        "y": 100
+      },
+      {
+        "id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+        "nickname": "depth",
+        "value": 14.6,
+        "x": 100,
+        "y": 200
+      },
+      {
+        "id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+        "nickname": "flr_h",
+        "value": 3.5,
+        "x": 100,
+        "y": 300
+      },
+      {
+        "id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+        "nickname": "nfl",
+        "value": 2.0,
+        "x": 100,
+        "y": 400
+      },
+      {
+        "id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+        "nickname": "roof_p",
+        "value": 0.3,
+        "x": 100,
+        "y": 500
+      }
+    ],
+    "connections": [
+      {
+        "from_id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+        "from_param": "Number Slider",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "to_param": "width"
+      },
+      {
+        "from_id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+        "from_param": "Number Slider",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "to_param": "depth"
+      },
+      {
+        "from_id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+        "from_param": "Number Slider",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "to_param": "flr_h"
+      },
+      {
+        "from_id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+        "from_param": "Number Slider",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "to_param": "nfl"
+      },
+      {
+        "from_id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+        "from_param": "Number Slider",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "to_param": "roof_p"
+      }
+    ],
+    "parameter_snapshots": null,
+    "notes": "All 5 sliders connected. Ramsey House params: width=12.8m depth=14.6m flr_h=3.5m nfl=2 roof_p=0.3. GH canvas bake -> element_catalog fully correlated."
+  },
+  "captures": [
+    {
+      "id": "elev_front",
+      "role": "elevation_front",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_front_shaded.jpg",
+      "sha256_prefix": "b2162f38fc1d",
+      "size_bytes": 93203,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Front",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_ROOF"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": {
+        "massing_ratio_match": "approximate",
+        "storey_count_match": true,
+        "roof_type_match": true,
+        "roof_pitch_match": "approximate",
+        "window_rhythm_match": "na_no_openings",
+        "overall_score": 2,
+        "overall_notes": "Captures basic 2-storey gable massing. Proportions off \u2014 model reads as taller/narrower than Ramsey squat horizontal profile. HABS: wide 42ft facade with compact horizontal character; generated: proportionally taller, narrower. Roof pitch slightly steeper. No window openings (expected for box model).",
+        "main_gap": "Proportions: generated too tall relative to width. GFH=3.5m avg per storey gives total eave=7.0m; roof apex=10.84m vs width=12.8m. Fix: split GF=3.66m / UF=3.35m, verify aspect ratio in capture framing.",
+        "evaluator": "haiku",
+        "evaluated_at": "2026-06-03T00:05:00Z",
+        "reference_sheet": "tn0094/00011a.jpg",
+        "type": "design_target_comparison"
+      }
+    },
+    {
+      "id": "elev_back",
+      "role": "elevation_back",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_back_shaded.jpg",
+      "sha256_prefix": "f9262248b012",
+      "size_bytes": 93597,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Back",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_ROOF"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "elev_right",
+      "role": "elevation_right",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_right_shaded.jpg",
+      "sha256_prefix": "978bb353a1f8",
+      "size_bytes": 95679,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Right",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_ROOF"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "elev_left",
+      "role": "elevation_left",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_left_shaded.jpg",
+      "sha256_prefix": "f38421eb21d2",
+      "size_bytes": 95587,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Left",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_ROOF"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "plan_top",
+      "role": "plan_top",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_top_shaded.jpg",
+      "sha256_prefix": "13ab0665d314",
+      "size_bytes": 104421,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Top",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_ROOF"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    }
+  ],
+  "document_state": {
+    "object_count": 6,
+    "layers": [
+      {
+        "name": "GH_FLOOR",
+        "object_count": 1
+      },
+      {
+        "name": "GH_WALLS",
+        "object_count": 1
+      },
+      {
+        "name": "GH_ROOF",
+        "object_count": 4
+      }
+    ],
+    "units": "meters",
+    "notes": "Geometry baked from GH canvas output. Same breps as gh_graph. Fully correlated."
+  }
+}
