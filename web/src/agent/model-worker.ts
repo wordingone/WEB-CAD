@@ -34,46 +34,6 @@ import { fetchDrafterCached } from "./drafter-cache.js";
 // hashes drifted between builds. Static import eliminates the separate chunk.
 import * as ort from "onnxruntime-web";
 
-// §#281-mapasync-retry: intercept GPUBuffer.prototype.mapAsync to retry on D3D12 OOM.
-// buffer_manager.cc:553 (wgpuBufferMapAsync) fires as async callback outside generate()'s
-// try/catch — OOM can't be caught by retry loops around generate(). Root cause: D3D12's
-// deferred buffer deletion queue hasn't drained between consecutive ORT inference calls.
-// Fix: monkey-patch mapAsync so each retry's setTimeout yields to the event loop, giving
-// D3D12 and JavaScript GC time to process pending buffer destructions before re-attempting.
-// Must install before any ORT WebGPU session is created (static import = module init).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const _gpuBufferCtor = (globalThis as any).GPUBuffer as (new(...a: unknown[]) => unknown) | undefined;
-if (_gpuBufferCtor) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const _gbu = _gpuBufferCtor as any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const _origMapAsync = _gbu.prototype.mapAsync as (...args: unknown[]) => Promise<void>;
-  // §#281: D3D12 deferred deletion queue drains ~30s after prior inference/from_pretrained().
-  // Early retries are optimistic; the 4th (15s) gives full drain time. Total budget: 34s.
-  const _mapRetryDelays = [3000, 6000, 10000, 15000] as const; // ms per retry (4 retries max)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _gbu.prototype.mapAsync = async function (...args: unknown[]): Promise<void> {
-    try {
-      return await _origMapAsync.apply(this, args);
-    } catch (_e0) {
-      // First attempt failed — retry with increasing delays so D3D12 can drain.
-      for (let _i = 0; _i < _mapRetryDelays.length; _i++) {
-        console.warn(`[#281] mapAsync retry ${_i + 1}/${_mapRetryDelays.length} in ${_mapRetryDelays[_i]}ms`, _e0);
-        await new Promise<void>(r => setTimeout(r, _mapRetryDelays[_i]));
-        try {
-          return await _origMapAsync.apply(this, args);
-        } catch (_eN) {
-          if (_i === _mapRetryDelays.length - 1) {
-            console.error("[#281] mapAsync exhausted retries — surfacing original error", _e0);
-            throw _e0; // re-throw first error (preserves original stack)
-          }
-          _e0 = _eN; // update for next iteration's warn
-        }
-      }
-    }
-  };
-}
-
 // §#1595-M2: module-level epoch for phase_timing elapsed_ms fields.
 const _workerStartMs = Date.now();
 // Sentinel: first OPFS write fires one phase_timing event then stays silent.
@@ -106,178 +66,6 @@ const GEMMA_ONNX_CPU_UNSUPPORTED =
 // Flip to false if verification is ever reverted to the "accept-all" placeholder.
 const MTP_VERIFICATION_WIRED = true;
 
-// ── §#420-d: StaticKVCache ──────────────────────────────────────────────────────
-// #438 freeDimensionOverrides caused ORT WebGPU session creation to fail → WASM
-// fallback → WASM has no GatherBlockQuantized kernel for Q4 graph → FATAL_ERROR.
-// freeDimensionOverrides removed (#441). Static KV is the direct OOM fix.
-//
-// Pre-allocates fixed-shape GPU buffers for KV so ORT WebGPU sees the SAME tensor
-// shapes every decode step and reuses its intermediate buffer pool instead of
-// reallocating (~15 MB) per step.
-//
-// Dims verified from onnx-community/gemma-4-E4B-it-ONNX config.json:
-//   num_hidden_layers=42, num_key_value_heads=2, head_dim=256, max_seq=2048
-//
-// Mechanism (2 patches, both reversed after generate()):
-//   1. DynamicCache.prototype.update() — instead of concatenating growing tensors,
-//      copies new [1,nh,1,hd] step into pre-allocated buf at pos seqLen, returns
-//      fixed [1,nh,MAX_SEQ,hd] ORT gpu-buffer tensor. ORT sees same shape every step.
-//   2. ORT decoder session.run() feed intercept — replaces growing attention_mask
-//      [1, seqLen] with fixed [1, MAX_SEQ] mask (1s for valid positions, 0s for padding).
-//      Both KV and mask become fixed shape → ORT reuses intermediates → no per-step alloc.
-//
-// GPU budget: 42L × 2(K+V) × [1,2,2048,256] × 2 B/elem ≈ 88 MB (within D3D12 budget).
-// ───────────────────────────────────────────────────────────────────────────────
-
-const STATIC_KV_CACHE_ENABLED_420D = true; // #438 freeDimensionOverrides caused ORT→WASM fallback; static KV is the OOM fix
-
-// §#420-d dims — verified from onnx-community/gemma-4-E4B-it-ONNX config.json:
-//   num_hidden_layers=42, num_key_value_heads=2, head_dim=256
-const _SKV_NUM_LAYERS   = 42;
-const _SKV_NUM_KV_HEADS = 2;
-const _SKV_HEAD_DIM     = 256;
-const _SKV_MAX_SEQ      = 2048;
-
-// §#420-d: Static KV cache manager.
-// Allocates GPU buffers on construction; call destroy() when generate() completes.
-class _StaticKVCache_420d {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly dev: any; // GPUDevice
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly keyBufs: any[]; // GPUBuffer[numLayers]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly valBufs: any[]; // GPUBuffer[numLayers]
-  seqLen = 0;           // valid entries written so far
-  prefillLen = 0;       // set after prefill run completes (before first decode step)
-  private readonly numLayers:   number;
-  private readonly numKvHeads:  number;
-  private readonly headDim:     number;
-  private readonly maxSeq:      number;
-  private readonly elemBytes = 2; // float16 = 2 B/elem
-
-  constructor(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dev: any,
-    numLayers: number, numKvHeads: number, headDim: number, maxSeq: number,
-  ) {
-    this.dev      = dev;
-    this.numLayers  = numLayers;
-    this.numKvHeads = numKvHeads;
-    this.headDim    = headDim;
-    this.maxSeq     = maxSeq;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const USAGE = (globalThis as any).GPUBufferUsage;
-    const bufBytes = numKvHeads * maxSeq * headDim * this.elemBytes; // batch=1 always
-    this.keyBufs = Array.from({ length: numLayers }, () =>
-      dev.createBuffer({ size: bufBytes, usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC })
-    );
-    this.valBufs = Array.from({ length: numLayers }, () =>
-      dev.createBuffer({ size: bufBytes, usage: USAGE.STORAGE | USAGE.COPY_DST | USAGE.COPY_SRC })
-    );
-  }
-
-  // Copy single decode-step KV tensors (shape [1, numKvHeads, 1, headDim]) into
-  // pre-allocated buffers at position seqLen. Advances seqLen after the last layer.
-  // §#420-d-fill: verify gpuBuffer property path — may be tensor._data?.gpuBuffer or tensor.data.gpuBuffer
-  // depending on ort version. Log tensor keys in [#420-c] run if not accessible.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  writeStep(newKey: any, newVal: any, layerIdx: number): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const keyGpu: unknown = (newKey as any).gpuBuffer ?? (newKey as any)._data?.gpuBuffer;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const valGpu: unknown = (newVal as any).gpuBuffer ?? (newVal as any)._data?.gpuBuffer;
-    if (!keyGpu || !valGpu) {
-      console.warn(`[#420-d] layer ${layerIdx}: gpuBuffer inaccessible on KV tensor — static cache non-functional`);
-      return;
-    }
-    const bpe = this.elemBytes;
-    const stepBytes   = this.numKvHeads * this.headDim * bpe;
-    const destOffset  = this.seqLen * this.numKvHeads * this.headDim * bpe;
-    const enc = this.dev.createCommandEncoder();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    enc.copyBufferToBuffer(keyGpu as any, 0, this.keyBufs[layerIdx], destOffset, stepBytes);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    enc.copyBufferToBuffer(valGpu as any, 0, this.valBufs[layerIdx], destOffset, stepBytes);
-    this.dev.queue.submit([enc.finish()]);
-    if (layerIdx === this.numLayers - 1) this.seqLen++;
-  }
-
-  // Return ORT gpu-buffer tensors backed by our fixed-size pre-allocated buffers.
-  // Shape is always [1, numKvHeads, maxSeq, headDim] — never changes across decode steps.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getOrtTensors(layerIdx: number): [any, any] {
-    const dims = [1, this.numKvHeads, this.maxSeq, this.headDim];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fromGpuBuf = (ort as any).Tensor?.fromGpuBuffer;
-    if (!fromGpuBuf) throw new Error("[#420-d] ort.Tensor.fromGpuBuffer not available — upgrade onnxruntime-web to ≥1.19");
-    return [
-      fromGpuBuf(this.keyBufs[layerIdx], { dataType: "float16", dims }),
-      fromGpuBuf(this.valBufs[layerIdx], { dataType: "float16", dims }),
-    ];
-  }
-
-  // Build a fixed-size attention mask for the current state.
-  // Shape: [1, maxSeq] — FIXED across all decode steps (no more growing shapes).
-  // Content: 1n at positions 0..seqLen-1 (valid KV entries), 0n elsewhere (padding).
-  // §#420-d-fill: verify attention_mask dtype expected by the ONNX model (int64 assumed here;
-  // check if [#420-c] run shows error on int64 → fall back to int32 / float32).
-  getAttentionMask(): ort.Tensor {
-    const data = new BigInt64Array(this.maxSeq); // int64
-    for (let i = 0; i < this.seqLen; i++) data[i] = 1n;
-    return new ort.Tensor("int64", data, [1, this.maxSeq]);
-  }
-
-  destroy(): void {
-    for (const b of this.keyBufs) { try { b.destroy(); } catch { /* non-fatal */ } }
-    for (const b of this.valBufs) { try { b.destroy(); } catch { /* non-fatal */ } }
-  }
-}
-
-// §#420-d: Install DynamicCache.prototype.update monkeypatch + decoder session.run intercept.
-// Returns cleanup thunk — call in finally{} to restore original behavior.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function _installStaticKvPatches(DynamicCacheClass: any, decoderSess: any, skv: _StaticKVCache_420d): () => void {
-  // Patch 1: DynamicCache.prototype.update
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const origUpdate = DynamicCacheClass.prototype.update as (...a: any[]) => any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  DynamicCacheClass.prototype.update = function(keyStates: any, valueStates: any, layerIdx: number) {
-    // keyStates / valueStates: new-step ORT gpu-buffer tensors, shape [1, nh, 1, hd]
-    // Write to pre-allocated buffer; return fixed-size tensors so ORT reuses pool.
-    skv.writeStep(keyStates, valueStates, layerIdx);
-    return skv.getOrtTensors(layerIdx);
-  };
-
-  // Patch 2: decoder session.run() feed intercept for attention_mask
-  // Without this patch, attention_mask grows by 1 each step → shape change → ORT reallocates.
-  // With this: mask is always [1, MAX_SEQ] → fixed shape → ORT reuses same-sized intermediates.
-  let _origSessRun: unknown = null;
-  if (decoderSess && typeof decoderSess.run === "function") {
-    _origSessRun = decoderSess.run.bind(decoderSess);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    decoderSess.run = async (feeds: Record<string, any>, ...rest: any[]) => {
-      // Only intercept decoder calls that carry past_key_values (decode steps, not prefill).
-      // Prefill (first call) has no past_key_values in feeds — let it run normally.
-      const hasPastKv = feeds["past_key_values.0.key"] !== undefined;
-      if (hasPastKv && feeds["attention_mask"]) {
-        // Replace growing attention_mask with our fixed-size version.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        feeds = { ...feeds, attention_mask: skv.getAttentionMask() as any };
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (_origSessRun as any)(feeds, ...rest);
-    };
-  } else {
-    console.warn("[#420-d] decoder session.run not patchable — attention_mask will still grow");
-  }
-
-  return () => {
-    // Restore both patches
-    DynamicCacheClass.prototype.update = origUpdate;
-    if (decoderSess && _origSessRun) decoderSess.run = _origSessRun;
-  };
-}
-
 // Boot-completion tracking — boot-complete fires when all three phases done.
 let _bootModelReady = false;
 let _bootWarmupDone = false;
@@ -305,93 +93,17 @@ function post(msg: Record<string, unknown>): void {
 
 // §#83: GPU command queue flush — drain ORT WebGPU buffer destructions before each generate.
 // buffer_manager.cc:553 race: wgpuBufferMapAsync fires before a prior destruction completes.
-//
-// §#281 enhanced flush: `onSubmittedWorkDone()` alone waits for submitted GPU COMMANDS but
-// does NOT drain D3D12's deferred buffer deletion queue (separate fence/GC path). After a
-// worker.terminate() recycle, the terminated worker's GPU resource destructions are still
-// in-flight in D3D12's deferred queue — the new worker's inference hits them. Fix: submit an
-// empty encoder before calling onSubmittedWorkDone(). An empty submit forces D3D12 to process
-// its pending cleanup backlog (including the deferred deletion queue) before the fence resolves.
+// onSubmittedWorkDone() ensures ALL pending GPU commands (incl. buffer destructions from
+// prior turn warmup or decode) are committed before new buffers are allocated for this turn.
 async function _flushWgpuQueue(tag: string): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const _dev = (ort.env as any)?.webgpu?.device as
-    | { createCommandEncoder?: () => { finish: () => unknown }; queue?: { submit?: (cmds: unknown[]) => void; onSubmittedWorkDone?: () => Promise<void> } }
+    | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
     | undefined;
-  if (!_dev?.queue?.onSubmittedWorkDone) return;
-  // Submit empty command list — forces D3D12 deferred deletion queue processing.
-  try {
-    if (_dev.createCommandEncoder && _dev.queue.submit) {
-      const _enc = _dev.createCommandEncoder();
-      _dev.queue.submit([_enc.finish()]);
-    }
-  } catch { /* non-fatal — device may be lost */ }
-  console.log(`[#83] wgpu-queue-flush ${tag}`);
-  await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
-}
-
-// §#281 adaptive drain-until-clear: probe a tiny GPU buffer mapAsync on ORT's device.
-// When the probe succeeds, D3D12's deferred deletion queue has been flushed — the fence
-// completion that resolves mapAsync forces D3D12 to process pending buffer destructions.
-// Loop yields a single macrotask between probes so D3D12 gets event-loop time.
-// Drains as fast as the machine allows; falls back to reactive mapAsync retry at budget.
-async function _drainUntilClear(label: string, budgetMs = 34_000): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const _dev = (ort.env as any)?.webgpu?.device as any;
-  if (!_dev?.createBuffer) {
-    await new Promise<void>(r => setTimeout(r, 0)); // no device — single yield
-    return;
+  if (_dev?.queue?.onSubmittedWorkDone) {
+    console.log(`[#83] wgpu-queue-flush ${tag}`);
+    await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
   }
-  const _COPY_DST  = (globalThis as any).GPUBufferUsage?.COPY_DST  ?? 0x0008;
-  const _MAP_READ  = (globalThis as any).GPUBufferUsage?.MAP_READ  ?? 0x0001;
-  const _READ_MODE = (globalThis as any).GPUMapMode?.READ          ?? 0x0001;
-  const _t0 = Date.now();
-  let _probes = 0;
-  for (;;) {
-    const _elapsed = Date.now() - _t0;
-    if (_elapsed >= budgetMs) {
-      console.warn(`[#281] ${label} drain-until-clear: budget ${budgetMs}ms elapsed after ${_probes} probes — proceeding`);
-      return;
-    }
-    try {
-      const _buf = _dev.createBuffer({ size: 4, usage: _COPY_DST | _MAP_READ });
-      await _buf.mapAsync(_READ_MODE);
-      _buf.unmap();
-      _buf.destroy();
-      console.log(`[#281] ${label} drained in ${_elapsed}ms after ${_probes} probes`);
-      return;
-    } catch {
-      _probes++;
-      await new Promise<void>(r => setTimeout(r, 0)); // yield one macrotask, retry
-    }
-  }
-}
-
-// §#420 (b): Pre-warm WDDM adapter budget BEFORE from_pretrained.
-// T8 evidence (validate-281 7f9a204): after 7 recycles accumulating ~10 GB committed VRAM,
-// WDDM expanded Chrome's device budget → T8 succeeded without OOM (vram_start=10111 MB).
-// Mechanism: allocate + immediately release large GPU buffers → force WDDM to commit
-// high-water-mark → budget expands. Run BEFORE from_pretrained (model weights not yet loaded
-// → full device budget available for the peak allocation). On recycle (noWarmup=true) the
-// budget was already expanded by prior cycles, so pre-warm is skipped.
-async function _preWarmWddmBudget(device: { createBuffer: Function; pushErrorScope: Function; popErrorScope: Function }): Promise<void> {
-  const _STORAGE = (globalThis as any).GPUBufferUsage?.STORAGE ?? 0x0080;
-  const TARGET_MB = 10_000; // replicate T8's ~10 GB WDDM high-water-mark
-  const CHUNK_MB  = 256;    // 256 MB per buffer — well under any maxBufferSize limit
-  const maxChunks = Math.ceil(TARGET_MB / CHUNK_MB);
-
-  const bufs: { destroy(): void }[] = [];
-  let allocMB = 0;
-  for (let i = 0; i < maxChunks; i++) {
-    device.pushErrorScope("out-of-memory");
-    const buf = device.createBuffer({ size: CHUNK_MB * 1024 * 1024, usage: _STORAGE });
-    const err = await device.popErrorScope();
-    if (err) { buf.destroy(); break; } // budget exhausted — stop, use what was allocated
-    bufs.push(buf);
-    allocMB += CHUNK_MB;
-  }
-  console.log(`[#420-prewarm] allocated ${allocMB} MB in ${bufs.length} chunks — releasing`);
-  for (const b of bufs) b.destroy();
-  await _drainUntilClear("prewarm-settle");
 }
 
 // §#88: conversation trimming — drop oldest turns when input token count exceeds the
@@ -792,12 +504,6 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     }
   } catch { /* navigator.gpu unavailable — fall through to CPU backend */ }
 
-  // §#420 (b): pre-warm WDDM budget before model weights load.
-  // Initial boot only (noWarmup=false) — recycle path already has expanded budget from prior cycles.
-  if (_preAcquiredGpuDevice && !noWarmup) {
-    await _preWarmWddmBudget(_preAcquiredGpuDevice);
-  }
-
   // §#1627-C: iGPU/software classification and forceWasm both bypass "auto" (which independently
   // calls navigator.gpu.requestAdapter internally and picks WebGPU when available). Use explicit
   // "cpu" to guarantee WASM ORT EP without any WebGPU probe inside transformers.js.
@@ -840,28 +546,6 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
       post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - _workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource });
-      // §#420-c diagnostic: dump session inputNames + KV cache inputMetadata so we can
-      // (a) verify freeDimensionOverrides key name is correct, and
-      // (b) gather exact KV dims for static-KV-cache fallback impl. Remove after OOM fix confirmed.
-      if (device === "webgpu") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        type _OrtSess = { inputNames?: string[]; outputNames?: string[]; inputMetadata?: Array<{ name: string; type: string; shape: Array<string | number> }> };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const _sessions = (model as any).sessions as Record<string, _OrtSess> | undefined;
-        if (_sessions) {
-          const _decoderSess = _sessions["decoder_model_merged"] ?? _sessions["model"];
-          console.log("[#420-c] ort-session-dims: inputNames=", _decoderSess?.inputNames, "outputNames=", _decoderSess?.outputNames);
-          // Log KV cache input metadata (name + type + shape) — shows symbolic dim names and fixed dims.
-          // Shape elements that are strings are symbolic/free dims; numbers are fixed constants.
-          const _kvMeta = (_decoderSess?.inputMetadata ?? [])
-            .filter(m => m.name.startsWith("past_key_values"));
-          if (_kvMeta.length > 0) {
-            console.log("[#420-c] kv-input-metadata (first 2 layers):", JSON.stringify(_kvMeta.slice(0, 4)));
-          } else {
-            console.log("[#420-c] kv-input-metadata: none found (names may differ from past_key_values.*)");
-          }
-        }
-      }
 
       // WebGPU sanity probe — same as main-thread path (#128/#133).
       // Skipped on recycle (noWarmup): GPU device is persistent, shaders already compiled.
@@ -917,106 +601,70 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   // Skipped on recycle (noWarmup): compiled pipelines persist in GPU driver cache.
   post({ type: "phase_timing", phase: "warmup_start", elapsed_ms: Date.now() - _workerStartMs });
   if (!noWarmup) {
-    post({ type: "progress", phase: "warmup", bytes: 0, total: 0, throughputBytesPerSec: 0 });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const proc = _processor as any;
-    // §C-warmup-context (#1362): include system prompt so the probe exercises the same
-    // KV cache buffer sizes as real inference (~1300 tokens). Without this, the probe
-    // uses ~6 tokens and leaves GPU buffers undersized, causing ORT buffer_manager.cc:553
-    // to crash (ERROR_CODE=1) on the first full-length inference call.
-    //
-    // §C-warmup-decode (#1362-B): generate 8 tokens (not 1) to exercise the GPU→CPU
-    // readback path (BufferManager::Download) across multiple decode steps. The cold-cache
-    // Schultz crash fires during multi-step decode — a 1-step warmup leaves the
-    // wgpuBufferMapAsync→unmap pipeline untested, letting the race condition manifest on
-    // the first real inference. 8 steps add ~1.5s to warmup and pre-allocate the decode
-    // buffer pool to steady-state before the user submits any prompt.
-    //
-    // §#281 warmup-retry: warmup itself can fail with buffer_manager.cc:553 because deferred
-    // GPU destructions from from_pretrained() are still in-flight when warmup fires. The fix:
-    // retry warmup with exponential backoff. Each retry + flush gives destructions time to
-    // settle. Once warmup succeeds, buffers are in steady-state before real inference.
-    const warmupMessages: Array<{ role: string; content: string }> = warmupPrompt
-      ? [{ role: "system", content: warmupPrompt }, { role: "user", content: "." }]
-      : [{ role: "user", content: "." }];
-    const chatText = proc.apply_chat_template(
-      warmupMessages,
-      { add_generation_prompt: true, tokenize: false },
-    ) as string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const _warmupInputs: any = await proc(chatText, null);
-    const tokCount: number = _warmupInputs.input_ids?.dims?.[1] ?? 0;
-    if (tokCount < WEBGPU_CONTEXT_LIMIT - 64) {
-      // §#1420: 30s timeout per attempt — best-effort; lets boot continue if WebGPU stalls.
-      // Retry delays: 2s, 3s, 5s, 8s (total 18s wait across 4 retries + 5 attempts).
-      const _warmupRetryDelays = [0, 2000, 3000, 5000, 8000];
-      for (let _wr = 0; _wr < _warmupRetryDelays.length; _wr++) {
-        if (_wr > 0) {
-          const _d = _warmupRetryDelays[_wr];
-          console.warn(`[model-worker] warmup-retry-${_wr} — flushing+waiting ${_d}ms`);
-          await new Promise(r => setTimeout(r, _d));
-          await _flushWgpuQueue(`warmup-retry-${_wr}`);
-        }
-        try {
-          // §#1469-revert: max_new_tokens 2048 → 8. Phase J runs on b336897→91bb931 (5 SHAs)
-          // confirmed max_new_tokens has no effect on +60s OOM — ORT does not pre-allocate
-          // KV pool based on max_new_tokens (lazy-allocates per decode step instead). 2048 added
-          // ~20s boot overhead with zero diagnostic value; reverting to minimize boot noise.
-          //
-          // §#1587: NOT the same issue as #1469. #1469 targeted +60s OOM (pool pre-sizing).
-          // #1587 targets `buffer_manager.cc:553` race (wgpuBufferMapAsync fires before buffer
-          // mapping resolves — a different mechanism). The lever here is running MORE DECODE
-          // STEPS during the safe warmup window, forcing lazy buffer-lifecycle allocations to
-          // settle before the first real inference. cold-cache Chrome path loads model in-memory
-          // (cache.put rejected → useBrowserCache=false fallback) → higher GPU buffer pressure
-          // → 8 steps insufficient. Cold-cache uses 64 steps (~12s extra); warm-cache stays at 8.
+    try {
+      post({ type: "progress", phase: "warmup", bytes: 0, total: 0, throughputBytesPerSec: 0 });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const proc = _processor as any;
+      // §C-warmup-context (#1362): include system prompt so the probe exercises the same
+      // KV cache buffer sizes as real inference (~1300 tokens). Without this, the probe
+      // uses ~6 tokens and leaves GPU buffers undersized, causing ORT buffer_manager.cc:553
+      // to crash (ERROR_CODE=1) on the first full-length inference call.
+      //
+      // §C-warmup-decode (#1362-B): generate 8 tokens (not 1) to exercise the GPU→CPU
+      // readback path (BufferManager::Download) across multiple decode steps. The cold-cache
+      // Schultz crash fires during multi-step decode — a 1-step warmup leaves the
+      // wgpuBufferMapAsync→unmap pipeline untested, letting the race condition manifest on
+      // the first real inference. 8 steps add ~1.5s to warmup and pre-allocate the decode
+      // buffer pool to steady-state before the user submits any prompt.
+      const warmupMessages: Array<{ role: string; content: string }> = warmupPrompt
+        ? [{ role: "system", content: warmupPrompt }, { role: "user", content: "." }]
+        : [{ role: "user", content: "." }];
+      const chatText = proc.apply_chat_template(
+        warmupMessages,
+        { add_generation_prompt: true, tokenize: false },
+      ) as string;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const inputs: any = await proc(chatText, null);
+      const tokCount: number = inputs.input_ids?.dims?.[1] ?? 0;
+      if (tokCount < WEBGPU_CONTEXT_LIMIT - 64) {
+        // §#1420: 30s timeout — best-effort; lets boot continue if WebGPU stalls.
+        // §#1469-revert: max_new_tokens 2048 → 8. Phase J runs on b336897→91bb931 (5 SHAs)
+        // confirmed max_new_tokens has no effect on +60s OOM — ORT does not pre-allocate
+        // KV pool based on max_new_tokens (lazy-allocates per decode step instead). 2048 added
+        // ~20s boot overhead with zero diagnostic value; reverting to minimize boot noise.
+        //
+        // §#1587: NOT the same issue as #1469. #1469 targeted +60s OOM (pool pre-sizing).
+        // #1587 targets `buffer_manager.cc:553` race (wgpuBufferMapAsync fires before buffer
+        // mapping resolves — a different mechanism). The lever here is running MORE DECODE
+        // STEPS during the safe warmup window, forcing lazy buffer-lifecycle allocations to
+        // settle before the first real inference. cold-cache Chrome path loads model in-memory
+        // (cache.put rejected → useBrowserCache=false fallback) → higher GPU buffer pressure
+        // → 8 steps insufficient. Cold-cache uses 64 steps (~12s extra); warm-cache stays at 8.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await Promise.race([
+          (_model as any).generate({ ...inputs, max_new_tokens: _coldCacheBoot ? 64 : 8, do_sample: false }),
+          new Promise<void>(r => setTimeout(r, 30_000)),
+        ]);
+        // §#1463: flush GPU command queue after warmup generate so all pending D3D12
+        // buffer destructions complete before turn 1's OrtRun allocates. Without this,
+        // async destroy() calls queue D3D12 commands that haven't executed by the time
+        // turn 1 allocates, causing buffer_manager.cc:553 OOM → recycle.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _wgpuDev = (ort.env as any)?.webgpu?.device as
+          | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
+          | undefined;
+        if (_wgpuDev?.queue?.onSubmittedWorkDone) {
+          console.log("[#1463] warmup-flush fired");
+          await _wgpuDev.queue.onSubmittedWorkDone().catch(() => {/* non-fatal */});
+        } else {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await Promise.race([
-            // §#431: unconditional 64-token warmup — exercises decode buffer pool to steady
-            // state regardless of _coldCacheBoot flag (which misdetects on OPFS boots).
-            // 64 steps force lazy ORT buffer-lifecycle allocations to settle before the first
-            // real inference, reducing peak VRAM pressure at turn-1 mapAsync.
-            (_model as any).generate({ ..._warmupInputs, max_new_tokens: 64, do_sample: false }),
-            new Promise<void>(r => setTimeout(r, 30_000)),
-          ]);
-          // §#1463: flush GPU command queue after warmup generate so all pending D3D12
-          // buffer destructions complete before turn 1's OrtRun allocates. Without this,
-          // async destroy() calls queue D3D12 commands that haven't executed by the time
-          // turn 1 allocates, causing buffer_manager.cc:553 OOM → recycle.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const _wgpuDev = (ort.env as any)?.webgpu?.device as
-            | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
-            | undefined;
-          if (_wgpuDev?.queue?.onSubmittedWorkDone) {
-            console.log("[#1463] warmup-flush fired");
-            await _wgpuDev.queue.onSubmittedWorkDone().catch(() => {/* non-fatal */});
-          } else {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const _ortEnv = ort.env as any;
-            console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
-          }
-          console.log(`[model-worker] warmup-settled after ${_wr} retries`);
-          // §#281 post-warmup settle: adaptive drain-until-clear replaces blind 30s settle.
-          // from_pretrained()+warmup destructions go into D3D12's deferred deletion queue;
-          // probing mapAsync drains as fast as the machine allows (per Leo directive).
-          await _drainUntilClear("post-warmup-settle");
-          break; // warmup succeeded — buffers settled
-        } catch (e) {
-          if (_wr === _warmupRetryDelays.length - 1) {
-            console.warn("[model-worker] warmup exhausted all retries:", (e as Error).message ?? e);
-          }
-          // else: continue retry loop (non-fatal on intermediate failures)
+          const _ortEnv = ort.env as any;
+          console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
         }
       }
+    } catch (e) {
+      console.warn("[model-worker] warmup probe failed:", (e as Error).message ?? e);
     }
-  }
-  if (noWarmup) {
-    // §#420: noWarmup path — drain from_pretrained deferred destructions before first inference.
-    // Without this, D3D12's deferred deletion queue is in-flight when turn 1 allocates →
-    // budget appears smaller → OOM. _drainUntilClear probes mapAsync until the queue drains.
-    // This replaces the warmup's implicit settle without filling the D3D12 pool with 64-token
-    // compute buffers (warmup pool fill was the cause of per-turn OOM; §#420 diagnosis).
-    await _drainUntilClear("noWarmup-settle");
   }
   post({ type: "phase_timing", phase: "warmup_end", elapsed_ms: Date.now() - _workerStartMs });
 
@@ -1114,9 +762,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   // after drafter init to flush the GPU command queue into steady state before
   // the first real inference. Only needed on cold-cache boot — warm-cache skips
   // the drafter WebGPU init path (ORT session is restored from OPFS cache).
-  // §#431: run drafter probe unconditionally — _coldCacheBoot misdetects on OPFS boots
-  // (false even on genuine cold-cache), so the guard was silently skipping the probe.
-  if (!noWarmup && _model && _processor) {
+  if (!noWarmup && _coldCacheBoot && _model && _processor) {
     try {
       const proc = _processor as any;
       const _syncText = proc.apply_chat_template(
@@ -1131,8 +777,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         // §#1587: second-pass deeper probe on cold-cache — same rationale as main warmup
         // increase above. 64 tokens exercises the buffer pool to cover first real inference.
         await Promise.race([
-          // §#431: unconditional 64-token drafter probe (same rationale as main warmup fix).
-          (_model as any).generate({ ..._syncIn, max_new_tokens: 64, do_sample: false }),
+          (_model as any).generate({ ..._syncIn, max_new_tokens: _coldCacheBoot ? 64 : 1, do_sample: false }),
           new Promise<void>(r => setTimeout(r, 30_000)),
         ]);
         // §#1463: same GPU queue flush as main warmup probe — ensures post-drafter
@@ -1246,11 +891,6 @@ async function _handleSessionRefreshInner(): Promise<void> {
 
 // ── Generate: apply_chat_template + tokenize + (MTP or standard) + decode ────
 async function handleGenerate(data: Record<string, unknown>): Promise<void> {
-  // §#281 pre-generate adaptive drain: probe D3D12 deferred deletion queue on every
-  // generate(), not just inter-turn. Turn 0 has from_pretrained()+warmup destructions;
-  // turn N>0 has inference output buffer destructions. Unconditional — independent of
-  // _coldCacheBoot (which is false even on cold-cache runs per Cache API re-population).
-  await _drainUntilClear("pre-generate");
   _generateCallCount++; // §#307: session-level counter for heap-fragmentation estimation
   if (!_model || !_processor) {
     post({ type: "generate-error", turnId: data.turnId, error: "model not loaded" });
@@ -1410,10 +1050,6 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
     }
   }
 
-  // §#420-d: declare at function scope so cleanup below can reach them after if(!outputs).
-  let _skv420d_outer: _StaticKVCache_420d | null = null;
-  let _skv420dUninstall_outer: (() => void) | null = null;
-
   // Standard generate fallback
   if (!outputs) {
     // Progress streamer — skip the initial prompt put, then post every 50 tokens generated.
@@ -1434,29 +1070,6 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
         }
       },
     };
-    // §#420-d: static KV cache — install before generate() so patches are active.
-    // Disabled by default (STATIC_KV_CACHE_ENABLED_420D = false); flip after [#420-c] confirms.
-    if (STATIC_KV_CACHE_ENABLED_420D) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const _gpuDev = (ort.env as any)?.webgpu?.device;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { DynamicCache: _DynCache } = await import("@huggingface/transformers") as any;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const _decoderSess = (_model as any)?.sessions?.["decoder_model_merged"] ?? (_model as any)?.sessions?.["model"];
-        if (_gpuDev && _DynCache && _decoderSess) {
-          _skv420d_outer = new _StaticKVCache_420d(_gpuDev, _SKV_NUM_LAYERS, _SKV_NUM_KV_HEADS, _SKV_HEAD_DIM, _SKV_MAX_SEQ);
-          _skv420dUninstall_outer = _installStaticKvPatches(_DynCache, _decoderSess, _skv420d_outer);
-          console.log(`[#420-d] static KV cache active: ${_SKV_NUM_LAYERS}L × ${_SKV_NUM_KV_HEADS}H × ${_SKV_MAX_SEQ}seq × ${_SKV_HEAD_DIM}dim`);
-        } else {
-          console.warn("[#420-d] static KV cache skipped — missing gpu device, DynamicCache, or decoder session");
-        }
-      } catch (e420d) {
-        console.warn("[#420-d] static KV cache install failed:", (e420d as Error).message);
-        _skv420d_outer?.destroy(); _skv420d_outer = null;
-      }
-    }
-
     // §C-decode-retry (#1362-C): buffer_manager.cc:553 "Buffer was unmapped before mapping
     // was resolved" is a D3D12 CPU/GPU sync race triggered during multi-step decode.
     // §#83: pre-generate GPU flush added — drains ORT buffer destructions from prior turn
@@ -1486,70 +1099,59 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       outputs = await _doGenerate();
     } catch (genErr) {
       const _msg = String(genErr);
-      if (!/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_msg)) {
-        throw genErr;
-      }
-      // §C-decode-retry (#1362-C, updated #1410, #83, #1632, #281): buffer_manager race OR WASM
-      // alignment error — deferred GPU destructions from from_pretrained() fire during inference.
-      // §#281: cold-cache extended to 4 retries [2s+3s+5s+8s=18s total]. T9 evidence: destructions
-      // settle within ~18s of boot. Warmup retry loop handles the common (noWarmup=false) path;
-      // this loop is the fallback for recycle-boot (noWarmup=true). Warm-cache: 1 retry [500ms].
-      const _isAlignErr0 = /unaligned accesses/i.test(_msg);
-      // §#431: always use extended retry delays — buffer_manager.cc:553 race applies on every
-      // worker session (each OOM-triggered recycle boots a fresh worker, so every turn-1 is
-      // effectively cold). _coldCacheBoot misdetects on OPFS boots, so the guard was using the
-      // 500ms warm-cache retry (single attempt) on every turn regardless of thermal state.
-      const _coldOrAlign = true;
-      const _retryDelays = _coldOrAlign ? [2000, 3000, 5000, 8000] : [500];
-      for (let _ri = 0; _ri < _retryDelays.length; _ri++) {
-        const _d = _retryDelays[_ri];
-        console.warn(`[model-worker] buffer_manager retry-${_ri + 1} — flushing+waiting ${_d}ms`, _ri === 0 ? _msg.slice(0, 120) : "");
-        await new Promise(r => setTimeout(r, _d));
-        await _flushWgpuQueue(`retry-${_ri + 1}`); // §#83
+      if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_msg)) {
+        // §C-decode-retry (#1362-C, updated #1410, #83, #1632): buffer_manager race OR WASM
+        // alignment error — deferred GPU destructions from session-refresh dispose() fire during
+        // inference. Flush + delay lets destructions complete; retry with clean buffer state.
+        // §C-wasm-align (#1632): unaligned accesses needs 2000ms (not 500ms) — deferred
+        // destructions from from_pretrained's internal allocs outlast the post-warmup settle.
+        const _isAlignErr = /unaligned accesses/i.test(_msg);
+        const _delay1 = (_coldCacheBoot || _isAlignErr) ? 2000 : 500;
+        console.warn("[model-worker] buffer_manager race — flushing+retrying after " + _delay1 + "ms", _msg.slice(0, 120));
+        await new Promise(r => setTimeout(r, _delay1));
+        await _flushWgpuQueue("retry-1"); // §#83: flush failed-attempt destructions
         try {
           outputs = await _doGenerate();
-          break; // succeeded
         } catch (retryErr) {
-          const _retryMsg = String(retryErr);
-          if (!/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(_retryMsg)) {
-            throw retryErr; // different error class — not retryable
-          }
-          const _isAlignErr = /unaligned accesses/i.test(_retryMsg);
-          // Warm-cache non-align path: only 1 retry — do not continue
-          if (!_coldOrAlign && !_isAlignErr) throw retryErr;
-          if (_ri === _retryDelays.length - 1) {
-            // §#307 diagnostic: capture alignment context on exhausted-retry fail.
-            if (_isAlignErr) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const _ortEnv = (ort as any).env ?? {};
-              const _diag = {
-                generateCount:  _generateCallCount,
-                inputTokens:    inputLength,
-                inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
-                // byteOffset of the typed-array backing buffer — alignment indicator
-                inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
-                ortBackend:     _ortEnv.webgpu?.device ? 'webgpu' : 'wasm',
-                ortVersion:     String((ort as any).version ?? 'unknown'),
-                errMsg:         _retryMsg.slice(0, 200),
-                errStack:       ((retryErr as Error).stack ?? '').slice(0, 400),
-              };
-              console.warn('[align-diag-307]', JSON.stringify(_diag));
-              post({ type: 'align-diag-307', data: _diag });
+          // §#1410 + §C-wasm-align (#1632): second retry for cold-cache OR alignment errors.
+          // Alignment errors need the same long retry budget as cold-cache — both have large
+          // deferred-destruction windows that 500ms doesn't cover.
+          if (/buffer_manager|BufferManager|unmapped before mapping|unaligned accesses/i.test(String(retryErr)) &&
+              (_coldCacheBoot || /unaligned accesses/i.test(String(retryErr)))) {
+            console.warn("[model-worker] buffer_manager retry-2 — flushing+waiting 3000ms");
+            await new Promise(r => setTimeout(r, 3000));
+            await _flushWgpuQueue("retry-2"); // §#83
+            try {
+              outputs = await _doGenerate(); // final attempt — throws if still failing
+            } catch (finalErr) {
+              // §#307 diagnostic: capture alignment context on exhausted-retry fail.
+              if (/unaligned accesses/i.test(String(finalErr))) {
+                const _ortEnv = (ort as any).env ?? {};
+                const _diag = {
+                  generateCount:  _generateCallCount,
+                  inputTokens:    inputLength,
+                  inputIdsDims:   (inputs as any)?.input_ids?.dims ?? [],
+                  // byteOffset of the typed-array backing buffer — alignment indicator
+                  inputIdsByteOffset: (inputs as any)?.input_ids?.data?.byteOffset ?? -1,
+                  ortBackend:     _ortEnv.webgpu?.device ? 'webgpu' : 'wasm',
+                  ortVersion:     String((ort as any).version ?? 'unknown'),
+                  errMsg:         String(finalErr).slice(0, 200),
+                  errStack:       ((finalErr as Error).stack ?? '').slice(0, 400),
+                };
+                console.warn('[align-diag-307]', JSON.stringify(_diag));
+                post({ type: 'align-diag-307', data: _diag });
+              }
+              throw finalErr;
             }
+          } else {
             throw retryErr;
           }
-          // else: continue retry loop
         }
+      } else {
+        throw genErr;
       }
     }
   }
-
-  // §#420-d cleanup: restore patches + free GPU buffers on the normal (non-throw) path.
-  // The throw path (exhausted retries) propagates without cleanup — acceptable since the
-  // flag is false by default and GPU buffers are GC'd on worker recycle anyway.
-  // §#420-d-fill: wrap the decode section in try-finally when enabling permanently.
-  if (_skv420dUninstall_outer) { _skv420dUninstall_outer(); _skv420dUninstall_outer = null; }
-  if (_skv420d_outer) { _skv420d_outer.destroy(); _skv420d_outer = null; }
 
   const tGen = performance.now();
 
