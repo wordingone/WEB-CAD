@@ -25,7 +25,7 @@
 //   {type:"error",       error}
 //   {type:"phase_timing", phase, elapsed_ms}     // §#1595-M2: boot-phase diagnostic timing
 
-import { Gemma4ForConditionalGeneration, AutoProcessor, RawImage, env as tfEnv } from "@huggingface/transformers";
+import { Gemma4ForCausalLM, AutoProcessor, RawImage, env as tfEnv } from "@huggingface/transformers";
 import { getMtpSessions, runMtpSpecDecode, MTP_CONFIG_E4B } from "./webgpu-mtp-backend.js";
 import { fetchDrafterCached } from "./drafter-cache.js";
 // §C-ort-static (#1375): static import bundles ORT directly into the worker chunk.
@@ -526,9 +526,9 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     if (device === "webgpu" && (!_preAcquiredGpuDevice || forceWasm)) continue;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let model: Awaited<ReturnType<typeof Gemma4ForConditionalGeneration.from_pretrained>>;
+      let model: Awaited<ReturnType<typeof Gemma4ForCausalLM.from_pretrained>>;
       try {
-        model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
+        model = await Gemma4ForCausalLM.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
         });
       } catch (loadErr) {
@@ -540,7 +540,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         if (!isExternalDataErr) throw loadErr;
         tfEnv.useBrowserCache = false;
         await new Promise<void>(r => setTimeout(r, 500));
-        model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
+        model = await Gemma4ForCausalLM.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
         });
       }
