@@ -1275,9 +1275,11 @@ export function buildRoof(
     // the inner sheathing face; putting it at rH + 0.06 placed it above
     // the panels (#1136 / #1161).
     // FZK First (ridge): 80mm × 160mm cross-section (IFC #40532 BoundingBox).
+    // Lighter ridge-cap color (0xd0b090) for aerial ridge-line discriminability (#281).
+    const ridgeCapMat = new THREE.MeshStandardMaterial({ color: 0xd0b090, roughness: 0.65, metalness: 0.01 });
     const ridgeBeam = landscape
-      ? member(ridgeLenHalf * 2, 0.08, 0.16, frameMat.clone())
-      : member(0.08, ridgeLenHalf * 2, 0.16, frameMat.clone());
+      ? member(ridgeLenHalf * 2, 0.08, 0.16, ridgeCapMat)
+      : member(0.08, ridgeLenHalf * 2, 0.16, ridgeCapMat);
     ridgeBeam.position.set(0, 0, rH - 0.08);
     ridgeBeam.userData.ifcClass = "IfcBeam";
     ridgeBeam.userData.name = "First";
@@ -1389,9 +1391,11 @@ export function buildRoof(
     // slopeRx (π/2+pitch) is correct for rafters (local Z = length) but wrong for
     // the slab (local Y = slope length). With rotation.x = pitchRad, local Y →
     // (0, cos(pitch), sin(pitch)) = slope direction; eave/ridge endpoints verified.
+    // Two-tone slopes: front (0x7a5035) slightly lighter than back (0x5a3a2a) for aerial ridge-line contrast (#281).
+    const sheathFrontMat = new THREE.MeshStandardMaterial({ color: 0x7a5035, roughness: 0.85, metalness: 0.00 });
     const sheathA = landscape
-      ? new THREE.Mesh(new THREE.BoxGeometry(ridgeLenHalf * 2, rafterLen, sheathThick), sheathMat.clone())
-      : new THREE.Mesh(new THREE.BoxGeometry(rafterLen, ridgeLenHalf * 2, sheathThick), sheathMat.clone());
+      ? new THREE.Mesh(new THREE.BoxGeometry(ridgeLenHalf * 2, rafterLen, sheathThick), sheathFrontMat)
+      : new THREE.Mesh(new THREE.BoxGeometry(rafterLen, ridgeLenHalf * 2, sheathThick), sheathFrontMat);
     sheathA.userData.ifcClass = "IfcSlab";
     sheathA.userData.name = "Dach";
     if (landscape) {
@@ -1404,7 +1408,7 @@ export function buildRoof(
     group.add(sheathA);
 
     const sheathB = sheathA.clone();
-    (sheathB.material as THREE.Material) = (sheathA.material as THREE.Material).clone();
+    (sheathB.material as THREE.Material) = sheathMat.clone(); // back slope: darker shade for ridge contrast
     sheathB.userData.name = "Dach";
     if (landscape) {
       sheathB.rotation.x = -pitchRad;
