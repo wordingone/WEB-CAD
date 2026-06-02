@@ -48,7 +48,9 @@ if (_gpuBufferCtor) {
   const _gbu = _gpuBufferCtor as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const _origMapAsync = _gbu.prototype.mapAsync as (...args: unknown[]) => Promise<void>;
-  const _mapRetryDelays = [500, 1500, 3000, 6000] as const; // ms per retry (4 retries max)
+  // §#281: D3D12 deferred deletion queue drains ~30s after prior inference/from_pretrained().
+  // Early retries are optimistic; the 4th (15s) gives full drain time. Total budget: 34s.
+  const _mapRetryDelays = [3000, 6000, 10000, 15000] as const; // ms per retry (4 retries max)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   _gbu.prototype.mapAsync = async function (...args: unknown[]): Promise<void> {
     try {
