@@ -24,6 +24,9 @@ const BOOT_TIMEOUT = 1_200_000; // 20 min
 const TURN_TIMEOUT = 2_700_000; // 45 min
 const MAX_TURNS    = parseInt(process.argv.find((_,i,a) => a[i-1]==="--max-turns") ?? "25");
 const COLD_CACHE   = process.argv.includes("--cold-cache");
+// --drain: wait 90s on about:blank before navigating to Pages, allowing D3D12 deferred
+// deletions from a prior run to process. Prevents VRAM contamination spiral across consecutive runs.
+const DRAIN        = process.argv.includes("--drain");
 
 const SHA      = execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
 const SHA_FULL = execSync("git rev-parse HEAD",       { encoding: "utf8" }).trim();
@@ -169,6 +172,23 @@ await send("Storage.clearDataForOrigin", {
 });
 const modeLabel = COLD_CACHE ? "cold-cache: cookies+localStorage+cache+SW cleared; OPFS preserved" : "warm-OPFS: cookies+localStorage cleared; OPFS+cache preserved";
 console.log(`[281-val] ${modeLabel}`);
+
+// VRAM drain: D3D12 deferred deletions from prior runs stack on about:blank.
+// With --drain: GC + 90s wait before Pages navigate to get clean VRAM floor.
+if (DRAIN) {
+  console.log("[281-val] --drain: V8 GC + 90s wait for D3D12 deletions to process...");
+  try { await send("Runtime.collectGarbage"); } catch {}
+  const drainStart = Date.now();
+  const drainTick = setInterval(() => {
+    const elapsed = Math.round((Date.now() - drainStart) / 1000);
+    process.stdout.write(`\r[281-val] drain: ${elapsed}s/90s...`);
+  }, 1000);
+  await delay(90_000);
+  clearInterval(drainTick);
+  try { await send("Runtime.collectGarbage"); } catch {}
+  process.stdout.write("\n");
+  console.log("[281-val] drain complete");
+}
 
 // Navigate to Pages for the run
 console.log(`[281-val] navigating → ${PAGES_URL}`);
