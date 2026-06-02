@@ -782,6 +782,14 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       }
     }
   }
+  if (noWarmup) {
+    // §#420: noWarmup path — drain from_pretrained deferred destructions before first inference.
+    // Without this, D3D12's deferred deletion queue is in-flight when turn 1 allocates →
+    // budget appears smaller → OOM. _drainUntilClear probes mapAsync until the queue drains.
+    // This replaces the warmup's implicit settle without filling the D3D12 pool with 64-token
+    // compute buffers (warmup pool fill was the cause of per-turn OOM; §#420 diagnosis).
+    await _drainUntilClear("noWarmup-settle");
+  }
   post({ type: "phase_timing", phase: "warmup_end", elapsed_ms: Date.now() - _workerStartMs });
 
   _bootWarmupDone = true;
