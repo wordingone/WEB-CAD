@@ -98,6 +98,21 @@ function _disposeMaterial(mat: THREE.Material): void {
   mat.dispose();
 }
 
+// #294-D3: collect all vertex indices co-located with any seed index (weld tolerance 1e-6).
+// Non-indexed BRep geometry duplicates vertices per face; every copy must be moved together.
+function collectWeldedVertices(pos: THREE.BufferAttribute, seeds: number[]): number[] {
+  const EPS = 1e-6;
+  const result = new Set<number>(seeds);
+  for (const seed of seeds) {
+    const sx = pos.getX(seed), sy = pos.getY(seed), sz = pos.getZ(seed);
+    for (let vi = 0; vi < pos.count; vi++) {
+      if (!result.has(vi) && Math.abs(pos.getX(vi) - sx) <= EPS && Math.abs(pos.getY(vi) - sy) <= EPS && Math.abs(pos.getZ(vi) - sz) <= EPS)
+        result.add(vi);
+    }
+  }
+  return [...result];
+}
+
 export function disposeMeshTree(obj: THREE.Object3D): void {
   obj.traverse((child) => {
     const m = child as THREE.Mesh;
@@ -727,7 +742,10 @@ export class Viewer {
       ]);
       const mat = new THREE.LineBasicMaterial({ color: opts.color, depthTest: false });
       const edgeOverlay = applyWorldMatrix(new THREE.Line(geo, mat));
-      edgeOverlay.userData.affectedVertexIndices = [ia, ib];
+      // #294-D3: collect ALL co-located copies of each endpoint — non-indexed brep
+      // geometry duplicates vertices per face; we must move every copy together.
+      const weldedEdge = collectWeldedVertices(pos, [ia, ib]);
+      edgeOverlay.userData.affectedVertexIndices = weldedEdge;
       return edgeOverlay;
     }
     if (sel.topology === "vertex" && sel.vertexIndex !== undefined) {
@@ -736,7 +754,9 @@ export class Viewer {
       ]);
       const mat = new THREE.PointsMaterial({ color: opts.color, size: 14, sizeAttenuation: false, depthTest: false });
       const vertOverlay = applyWorldMatrix(new THREE.Points(geo, mat));
-      vertOverlay.userData.affectedVertexIndices = [sel.vertexIndex];
+      // #294-D3: collect ALL co-located copies — moving only one leaves the brep open.
+      const weldedVert = collectWeldedVertices(pos, [sel.vertexIndex]);
+      vertOverlay.userData.affectedVertexIndices = weldedVert;
       return vertOverlay;
     }
     return null;
@@ -1271,7 +1291,7 @@ function _deserializeSceneObj(s: SerializedSceneObj, canonicalStore?: CanonicalG
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(s.geometry.position), 3));
     if (s.geometry.normal) geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(s.geometry.normal), 3));
     if (s.geometry.index) geo.setIndex(new THREE.BufferAttribute(new Uint32Array(s.geometry.index), 1));
-    const mat = new THREE.MeshStandardMaterial({ color: s.color ?? 0x888888, roughness: 0.6, metalness: 0.1 });
+    const mat = new THREE.MeshStandardMaterial({ color: s.color ?? 0x888888, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide });
     obj = new THREE.Mesh(geo, mat);
   } else {
     const canonicalId = s.userData?.[CANONICAL_GEOMETRY_USERDATA_KEY];
