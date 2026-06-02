@@ -1,0 +1,43 @@
+{
+  "listing": {
+    "title": "WEB-CAD",
+    "tagline": "Parametric CAD in the browser, driven by Claude Code",
+    "description": "WEB-CAD is a browser-based experimental parametric CAD workbench. This MCP server lets Claude Code agents dispatch geometry verbs (walls, slabs, NURBS surfaces, booleans), inspect the scene, and capture viewport screenshots — with a dedicated slot system for isolated parallel sessions.",
+    "tags": ["cad", "architecture", "3d-modeling", "ifc", "bim", "geometry", "nurbs", "parametric"],
+    "categories": ["Design & CAD"],
+    "features": [
+      "323 geometry verbs across 21 categories (architectural, NURBS, boolean, annotation, …)",
+      "Isolated slot sessions — multiple parallel WEB-CAD tabs with per-slot IDB state",
+      "Viewport screenshot capture with browser-lock protocol",
+      "Scene inspection (list all objects, UUIDs, layers)",
+      "Verb schema introspection before dispatch"
+    ],
+    "requirements": [
+      "Node.js >= 18",
+      "Chromium or Chrome with remote debugging enabled on port 9222 (for default :9222 mode)",
+      "WEB-CAD page open at https://wordingone.github.io/WEB-CAD/ (or slots launch their own dedicated browser)"
+    ],
+    "slashCommands": [
+      {
+        "command": "scene",
+        "description": "List all objects in the active WEB-CAD scene",
+        "skill": ".claude/skills/scene/SKILL.md"
+      },
+      {
+        "command": "snapshot",
+        "description": "Capture the WEB-CAD viewport as a PNG",
+        "skill": ".claude/skills/snapshot/SKILL.md"
+      },
+      {
+        "command": "launch-rhino",
+        "description": "N/A — WEB-CAD is a browser application. Rhino launching does not apply. Use the RhinoMCP plugin for Rhino integration.",
+        "na": true
+      },
+      {
+        "command": "launch-rhinos",
+        "description": "N/A — WEB-CAD is a browser application. Use the RhinoMCP plugin for Rhino integration.",
+        "na": true
+      }
+    ]
+  }
+}
