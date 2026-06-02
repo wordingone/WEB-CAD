@@ -93,17 +93,28 @@ function post(msg: Record<string, unknown>): void {
 
 // §#83: GPU command queue flush — drain ORT WebGPU buffer destructions before each generate.
 // buffer_manager.cc:553 race: wgpuBufferMapAsync fires before a prior destruction completes.
-// onSubmittedWorkDone() ensures ALL pending GPU commands (incl. buffer destructions from
-// prior turn warmup or decode) are committed before new buffers are allocated for this turn.
+//
+// §#281 enhanced flush: `onSubmittedWorkDone()` alone waits for submitted GPU COMMANDS but
+// does NOT drain D3D12's deferred buffer deletion queue (separate fence/GC path). After a
+// worker.terminate() recycle, the terminated worker's GPU resource destructions are still
+// in-flight in D3D12's deferred queue — the new worker's inference hits them. Fix: submit an
+// empty encoder before calling onSubmittedWorkDone(). An empty submit forces D3D12 to process
+// its pending cleanup backlog (including the deferred deletion queue) before the fence resolves.
 async function _flushWgpuQueue(tag: string): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const _dev = (ort.env as any)?.webgpu?.device as
-    | { queue?: { onSubmittedWorkDone?: () => Promise<void> } }
+    | { createCommandEncoder?: () => { finish: () => unknown }; queue?: { submit?: (cmds: unknown[]) => void; onSubmittedWorkDone?: () => Promise<void> } }
     | undefined;
-  if (_dev?.queue?.onSubmittedWorkDone) {
-    console.log(`[#83] wgpu-queue-flush ${tag}`);
-    await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
-  }
+  if (!_dev?.queue?.onSubmittedWorkDone) return;
+  // Submit empty command list — forces D3D12 deferred deletion queue processing.
+  try {
+    if (_dev.createCommandEncoder && _dev.queue.submit) {
+      const _enc = _dev.createCommandEncoder();
+      _dev.queue.submit([_enc.finish()]);
+    }
+  } catch { /* non-fatal — device may be lost */ }
+  console.log(`[#83] wgpu-queue-flush ${tag}`);
+  await _dev.queue.onSubmittedWorkDone().catch(() => { /* non-fatal */ });
 }
 
 // §#88: conversation trimming — drop oldest turns when input token count exceeds the
