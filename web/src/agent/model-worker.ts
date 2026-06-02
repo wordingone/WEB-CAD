@@ -677,14 +677,26 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
       post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - _workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource });
-      // §#420-c diagnostic: dump session inputNames so we can verify freeDimensionOverrides
-      // applied to the correct symbolic dims. Remove after OOM fix is confirmed.
+      // §#420-c diagnostic: dump session inputNames + KV cache inputMetadata so we can
+      // (a) verify freeDimensionOverrides key name is correct, and
+      // (b) gather exact KV dims for static-KV-cache fallback impl. Remove after OOM fix confirmed.
       if (device === "webgpu") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const _sessions = (model as any).sessions as Record<string, { inputNames?: string[]; outputNames?: string[] }> | undefined;
+        type _OrtSess = { inputNames?: string[]; outputNames?: string[]; inputMetadata?: Array<{ name: string; type: string; shape: Array<string | number> }> };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _sessions = (model as any).sessions as Record<string, _OrtSess> | undefined;
         if (_sessions) {
           const _decoderSess = _sessions["decoder_model_merged"] ?? _sessions["model"];
           console.log("[#420-c] ort-session-dims: inputNames=", _decoderSess?.inputNames, "outputNames=", _decoderSess?.outputNames);
+          // Log KV cache input metadata (name + type + shape) — shows symbolic dim names and fixed dims.
+          // Shape elements that are strings are symbolic/free dims; numbers are fixed constants.
+          const _kvMeta = (_decoderSess?.inputMetadata ?? [])
+            .filter(m => m.name.startsWith("past_key_values"));
+          if (_kvMeta.length > 0) {
+            console.log("[#420-c] kv-input-metadata (first 2 layers):", JSON.stringify(_kvMeta.slice(0, 4)));
+          } else {
+            console.log("[#420-c] kv-input-metadata: none found (names may differ from past_key_values.*)");
+          }
         }
       }
 
