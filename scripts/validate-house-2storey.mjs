@@ -483,6 +483,88 @@ async function captureHeroAndAerial(label) {
     process.stdout.write(`[house] ${label} hero EMPTY\n`);
   }
 
+  // Side/gable-on elevation: camera pointing straight west→east at gable end.
+  // Pitched roof shows unmistakable triangle above wall; flat roof shows rectangle.
+  // Captured BEFORE aerial: SdClearScene (second-turn auto-clear) fires ~1s after gate;
+  // side capture at ~0.3s (before aerial) beats the race window.
+  // Bbox baked from hero camData — no scene traversal needed (immune to clear race).
+  // sideDist=30m (closer than 80m to stay within app camera far-plane limits).
+  // canvas.toDataURL() inline: captures immediately after render(), before RAF re-renders.
+  const sbbMin = (camData.ok && camData.bbox) ? camData.bbox.min : [-5, -4, -0.2];
+  const sbbMax = (camData.ok && camData.bbox) ? camData.bbox.max : [5, 4, 8.6];
+  const sbCx = (sbbMin[0] + sbbMax[0]) / 2;
+  const sbCy = (sbbMin[1] + sbbMax[1]) / 2;
+  const sbCz = (sbbMin[2] + sbbMax[2]) / 2;
+  const sideCapRaw = await evaluate(`
+    (function() {
+      var v = window.__viewer;
+      if (!v) return JSON.stringify({err:'no-viewer'});
+      var cam = v.camera;
+      var scene = v.scene || (v.getScene && v.getScene());
+      if (!scene) return JSON.stringify({err:'no-scene'});
+      // Pre-computed bbox — immune to second-turn SdClearScene race
+      var bmin = [${sbbMin[0]}, ${sbbMin[1]}, ${sbbMin[2]}];
+      var bmax = [${sbbMax[0]}, ${sbbMax[1]}, ${sbbMax[2]}];
+      var cy = ${sbCy.toFixed(4)}, cz = ${sbCz.toFixed(4)};
+      var sy = bmax[1]-bmin[1], sz = bmax[2]-bmin[2];
+      var sideDist = 30;
+      cam.fov = 30;
+      cam.position.set(bmin[0] - sideDist, cy, cz);
+      cam.up.set(0,0,1);
+      cam.lookAt(${sbCx.toFixed(4)}, cy, cz);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      if(v.renderer){ v.renderer.render(scene,cam); }
+      var children = scene.children ? scene.children.length : -1;
+      var log = 'ok|side-west|fov=30|dist='+sideDist+'|cy='+Math.round(cy*10)/10+'|cz='+Math.round(cz*10)/10+'|near='+Math.round(cam.near*100)/100+'|far='+cam.far+'|children='+children;
+      // Inline canvas capture — synchronous, before RAF can re-render cleared scene
+      var png = null;
+      try { png = v.renderer.domElement.toDataURL('image/png'); } catch(e) {}
+      return JSON.stringify({log:log, png:png});
+    })()
+  `);
+
+  let sideLogStr = 'eval-failed';
+  let sideBuf = null;
+  try {
+    const sideCapData = JSON.parse(String(sideCapRaw));
+    if (sideCapData.err) {
+      sideLogStr = 'err:' + sideCapData.err;
+    } else {
+      sideLogStr = sideCapData.log;
+      if (sideCapData.png && sideCapData.png.length > 200) {
+        const b64 = sideCapData.png.replace(/^data:image\/png;base64,/, '');
+        const decoded = Buffer.from(b64, 'base64');
+        // Only use inline capture if it's non-trivial (> 10KB; blank PNG = ~1KB)
+        if (decoded.length > 10000) { sideBuf = decoded; }
+      }
+    }
+  } catch(e) { sideLogStr = 'parse-err'; }
+
+  // Fallback: Page.captureScreenshot if inline capture didn't work
+  // (happens when preserveDrawingBuffer=false on the WebGL renderer)
+  if (!sideBuf) {
+    const sideShotParams = { format: "png" };
+    if (canvasRect && canvasRect.w > 0 && canvasRect.h > 0) {
+      sideShotParams.clip = { x: canvasRect.x, y: canvasRect.y, width: canvasRect.w, height: canvasRect.h, scale: 1 };
+    }
+    const sideFbResult = await send("Page.captureScreenshot", sideShotParams);
+    if (sideFbResult.data) sideBuf = Buffer.from(sideFbResult.data, "base64");
+  }
+
+  if (sideBuf) {
+    const sideTs = Date.now();
+    const sidePath = `${DIAG_DIR}/house-side-${sideTs}.png`;
+    writeFileSync(sidePath, sideBuf);
+    const sideSha = createHash("sha256").update(sideBuf).digest("hex").slice(0, 12);
+    process.stdout.write(`[house] ${label} side saved: ${sidePath} sha256[:12]=${sideSha} cam=${sideLogStr} bytes=${sideBuf.length}\n`);
+    earlySideBuf = sideBuf;
+    earlySideSha256Short = sideSha;
+    earlySidePathSaved = sidePath;
+  } else {
+    process.stdout.write(`[house] ${label} side EMPTY cam=${sideLogStr}\n`);
+  }
+
   // Aerial: top-down, fit bbox horizontally, NO controls.update
   const aerialLogRaw = await evaluate(`
     (function() {
@@ -543,59 +625,6 @@ async function captureHeroAndAerial(label) {
     earlyAerialPathSaved = aerialPath;
   } else {
     process.stdout.write(`[house] ${label} aerial EMPTY\n`);
-  }
-
-  // Side/gable-on elevation: camera pointing straight west→east at gable end.
-  // Pitched roof shows unmistakable triangle above wall; flat roof shows rectangle.
-  // Nearly orthographic: 80m standoff + computed FOV to frame building.
-  // Bbox baked from camData (hero capture) — avoids re-traverse race with second-turn SdClearScene.
-  const sbbMin = (camData.ok && camData.bbox) ? camData.bbox.min : [-5, -4, -0.2];
-  const sbbMax = (camData.ok && camData.bbox) ? camData.bbox.max : [5, 4, 8.6];
-  const sbCx = (sbbMin[0] + sbbMax[0]) / 2;
-  const sbCy = (sbbMin[1] + sbbMax[1]) / 2;
-  const sbCz = (sbbMin[2] + sbbMax[2]) / 2;
-  const sideLogRaw = await evaluate(`
-    (function() {
-      var v = window.__viewer;
-      if (!v) return 'no-viewer';
-      var cam = v.camera;
-      var scene = v.scene || (v.getScene && v.getScene());
-      if (!scene) return 'no-scene';
-      // Pre-computed bbox from hero capture — immune to second-turn SdClearScene race
-      var bmin = [${sbbMin[0]}, ${sbbMin[1]}, ${sbbMin[2]}];
-      var bmax = [${sbbMax[0]}, ${sbbMax[1]}, ${sbbMax[2]}];
-      var cy = ${sbCy.toFixed(4)}, cz = ${sbCz.toFixed(4)};
-      var sy = bmax[1]-bmin[1], sz = bmax[2]-bmin[2];
-      var sideDist = 80;
-      var halfSpan = Math.max(sy, sz, 4) * 0.65;
-      cam.fov = 2 * Math.atan2(halfSpan, sideDist) * 180/Math.PI;
-      cam.position.set(bmin[0] - sideDist, cy, cz);
-      cam.up.set(0,0,1);
-      cam.lookAt(${sbCx.toFixed(4)}, cy, cz);
-      cam.updateProjectionMatrix();
-      cam.updateMatrixWorld(true);
-      if(v.renderer){ v.renderer.render(scene,cam); }
-      return 'ok|side-west|fov='+Math.round(cam.fov*10)/10+'|dist='+sideDist+'|cy='+Math.round(cy*10)/10+'|cz='+Math.round(cz*10)/10;
-    })()
-  `);
-
-  const sideShotParams = { format: "png" };
-  if (canvasRect && canvasRect.w > 0 && canvasRect.h > 0) {
-    sideShotParams.clip = { x: canvasRect.x, y: canvasRect.y, width: canvasRect.w, height: canvasRect.h, scale: 1 };
-  }
-  const sideResult = await send("Page.captureScreenshot", sideShotParams);
-  const sideBuf = sideResult.data ? Buffer.from(sideResult.data, "base64") : null;
-  if (sideBuf) {
-    const sideTs = Date.now();
-    const sidePath = `${DIAG_DIR}/house-side-${sideTs}.png`;
-    writeFileSync(sidePath, sideBuf);
-    const sideSha = createHash("sha256").update(sideBuf).digest("hex").slice(0, 12);
-    process.stdout.write(`[house] ${label} side saved: ${sidePath} sha256[:12]=${sideSha} cam=${String(sideLogRaw)}\n`);
-    earlySideBuf = sideBuf;
-    earlySideSha256Short = sideSha;
-    earlySidePathSaved = sidePath;
-  } else {
-    process.stdout.write(`[house] ${label} side EMPTY\n`);
   }
 }
 
