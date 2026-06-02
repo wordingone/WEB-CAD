@@ -1,0 +1,25 @@
+{
+  "name": "webcad",
+  "displayName": "WEB-CAD",
+  "version": "0.2.0",
+  "description": "Drive the WEB-CAD browser-based parametric CAD workbench from Claude Code. Dispatch 323 geometry verbs, inspect the scene, and capture viewport screenshots — all via MCP stdio.",
+  "author": "wordingone",
+  "homepage": "https://wordingone.github.io/WEB-CAD/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wordingone/WEB-CAD.git"
+  },
+  "license": "Source-Available",
+  "categories": ["Design", "CAD", "3D Modeling"],
+  "keywords": ["cad", "ifc", "bim", "nurbs", "3d", "architecture", "geometry", "parametric"],
+  "engines": {
+    "node": ">=18"
+  },
+  "mcp": {
+    "server": "tools/mcp/webcad-mcp.mjs",
+    "transport": "stdio",
+    "runtime": "node",
+    "documentation": "docs/webcad-agent.md",
+    "samplePrompts": "docs/sample-prompts.md"
+  }
+}

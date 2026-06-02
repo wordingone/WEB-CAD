@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "webcad": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["tools/mcp/webcad-mcp.mjs"],
+      "env": {}
+    }
+  }
+}

@@ -45,6 +45,31 @@ Open the live URL above. No account required.
 
 ---
 
+## MCP server (Claude Code)
+
+The `webcad` MCP server lets Claude Code agents dispatch geometry verbs, inspect the scene, and capture viewport screenshots.
+
+```bash
+# Add to your .mcp.json:
+{
+  "mcpServers": {
+    "webcad": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["tools/mcp/webcad-mcp.mjs"]
+    }
+  }
+}
+```
+
+**Tools:** `dispatch` · `list_verbs` · `get_verb_schema` · `list_scene_objects` · `get_viewport_image` · `slot_create/list/close`
+
+**Slash commands:** `/scene` (list scene objects) · `/snapshot` (capture viewport)
+
+See [docs/webcad-agent.md](docs/webcad-agent.md) for behavior rules and [docs/sample-prompts.md](docs/sample-prompts.md) for example prompts.
+
+---
+
 ## Quick start (dev)
 
 ```bash
