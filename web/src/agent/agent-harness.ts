@@ -770,6 +770,7 @@ function initWorkerIfNeeded(): Worker {
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
             _generateCallbacks.clear();
             setGpuHealthTier("red", "GPU memory exhausted — refresh to continue");
+            (window as unknown as Record<string, unknown>).__ghostPath = "P1-d3d12-oom-fatal"; // §diag-ghost
             updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
             window.dispatchEvent(new CustomEvent("agentmodel:fatal", {
               detail: { reason: "recycle-limit", recycleCount: _arc.recycleCount },
@@ -845,6 +846,7 @@ function initWorkerIfNeeded(): Worker {
         _arc.dispatch({ type: "FATAL_ERROR", error: _errMsg }); // #1036 — sets webgpuFallbackEngaged, bootComplete, modelLoadError
         console.error("[gemma] model load failed:", _errMsg); // #1036 DevTools AC1
         setGpuHealthTier("red", "GPU error — model load failed");
+        (window as unknown as Record<string, unknown>).__ghostPath = `P2-case-error-fatal:${_errMsg.slice(0, 80)}`; // §diag-ghost
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
         window.dispatchEvent(new CustomEvent("agentmodel:error", { detail: msg.error }));
         for (const [, cb] of _generateCallbacks) cb.reject(new Error(_errMsg));
@@ -887,6 +889,7 @@ function initWorkerIfNeeded(): Worker {
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
             _generateCallbacks.clear();
             setGpuHealthTier("red", "GPU unavailable — refresh to continue");
+            (window as unknown as Record<string, unknown>).__ghostPath = "P3-device-lost-fatal"; // §diag-ghost
             updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
             window.dispatchEvent(new CustomEvent("agentmodel:fatal", {
               detail: { reason: "device-lost-recycle-limit", recycleCount: _arc.recycleCount },
@@ -940,6 +943,7 @@ function initWorkerIfNeeded(): Worker {
       setTimeout(() => { _w?.terminate(); initWorkerIfNeeded(); }, 400);
     } else {
       setGpuHealthTier("red", "GPU error — worker crashed");
+      (window as unknown as Record<string, unknown>).__ghostPath = `P4-onerror-else:hadActive=${_hadActiveGeneration}`; // §diag-ghost
       updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
       window.dispatchEvent(new CustomEvent("agentmodel:boot-complete")); // re-enable UI
     }

@@ -343,7 +343,8 @@ for (let i = 0; i < MAX_TURNS; i++) {
   // ── Pre-click ghost check ────────────────────────────────────────────────────
   const preBadge = await evaluate(`document.getElementById('ai-model-badge')?.textContent ?? ''`);
   if (String(preBadge).includes("ERROR")) {
-    console.warn(`[281-val] T${turnNum}: badge ERROR before send — ghost detected, reloading`);
+    const ghostPath = await evaluate(`window.__ghostPath ?? "unknown"`);
+    console.warn(`[281-val] T${turnNum}: badge ERROR before send — ghost detected (path: ${ghostPath}), reloading`);
     ghostCount++;
     turns.push({ turn: turnNum, prompt, outcome: "ghost_pre_badge", gpu_vram_mb_start: null, gpu_vram_mb_end: null, elapsed_s: 0, ai_msgs_delta: 0 });
     const ok = await reloadAndReboot("ghost pre-badge ERROR");
