@@ -18,6 +18,7 @@
 // parseDispatches() extracts these; remaining text becomes the response text.
 
 import { getDictionary } from "../commands/dictionary";
+import { type AgentRole, matchesRole } from "./agent-roles";
 import { listHandlers } from "../commands/dispatch";
 import { getState } from "../app-state";
 import { makeAgentInstanceFactory } from "./agent-instance";
@@ -100,6 +101,7 @@ export type AgentRequest = {
   skillsTotal?: number; // total registered skills before keyword filtering
   model?: string;
   maxNewTokens?: number; // default 4096 (#1048)
+  role?: AgentRole;     // verb filter: reduces 323-verb system prompt to role-relevant subset (#395 gap #5)
 };
 
 export type AgentResponse = {
@@ -1029,12 +1031,13 @@ async function prefillSystemPromptAsync(): Promise<void> {
 
 // ---- System prompt --------------------------------------------------------
 
-function summariseDictionary(): string {
+function summariseDictionary(role?: AgentRole): string {
   const dict = getDictionary();
   const implemented = new Set(listHandlers());
   // Show only verbs that have a registered handler (native or shim).
   // Falls back to full dictionary if dispatch hasn't initialized yet.
-  const available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.name)) : dict;
+  let available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.name)) : dict;
+  if (role !== undefined) available = available.filter((e) => matchesRole(e, role));
   const lines = available.map((e) => {
     const argList = e.args
       .map((a) => {
@@ -1462,7 +1465,7 @@ Assistant: Undoing last action.
 <tool_call>{"command":"SdUndo","parameters":{}}</tool_call>
 `.trim();
 
-export function buildSystemPrompt(skills?: Skill[]): string {
+export function buildSystemPrompt(skills?: Skill[], role?: AgentRole): string {
   return [
     "You are Gemma, a parametric CAD assistant. Be direct — no preamble, no performative filler ('certainly!', 'I'll help you with that!', 'Great!' and similar are forbidden).",
     "PLAN BEFORE DISPATCH: For every request that emits tool calls, first emit a compact <plan> block, then the tool_call blocks.\n<plan> format — EXACTLY this structure, no prose:\n<plan>\n1. VerbName — key_arg=value, …\n2. VerbName — key_arg=value\n</plan>",
@@ -1473,7 +1476,7 @@ export function buildSystemPrompt(skills?: Skill[]): string {
     BUILDING_DEFAULTS,
     MULTI_LEVEL_NOTES,
     FEW_SHOT_EXAMPLES,
-    summariseDictionary(),
+    summariseDictionary(role),
     `Current scene: ${buildSceneContext()}`,
     "SCENE QUERY RESPONSE: when asked to describe the scene, what you see, what is in the scene, or what the default scene looks like — respond with PLAIN TEXT ONLY. Do NOT emit <plan> or <tool_call> blocks. Instead: (1) describe the viewport image visually: shapes, colors, materials, arrangement, scale (2-3 sentences); (2) narrate the object inventory from the \'Current scene:\' line above in plain English. Combine into ONE natural prose paragraph. No bullet lists. No Sd* names in prose — verb chips are shown separately in the UI.",
     'GOAL COMPLETION: when all requested elements are placed and the task is done, signal completion: <tool_call>{"name":"update_goal","arguments":{"status":"complete"},"metadata":{"source":"agent"}}</tool_call>',
@@ -1628,7 +1631,7 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
     : req.prompt;
 
   const messages = [
-    { role: "system" as const, content: buildSystemPrompt(req.skills) },
+    { role: "system" as const, content: buildSystemPrompt(req.skills, req.role) },
     ...trimmedHistory.map((m) => ({ role: m.role, content: m.content })),
     { role: "user" as const, content: userContent },
   ];
@@ -1680,7 +1683,7 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
       decode_ms: 0,
       tokens_in: 0,
       tokens_out: compJson.tokens_predicted ?? 0,
-      system_prompt_chars: buildSystemPrompt(req.skills).length,
+      system_prompt_chars: buildSystemPrompt(req.skills, req.role).length,
       skills_total: req.skillsTotal ?? req.skills?.length ?? 0,
       skills_matched: req.skills?.length ?? 0,
       tg_tps: 0,
@@ -1704,7 +1707,7 @@ async function runRemoteAgentTurn(req: AgentRequest): Promise<AgentResponse> {
     decode_ms: json._latency_ms ?? 0,
     tokens_in: json.usage?.prompt_tokens ?? 0,
     tokens_out: json.usage?.completion_tokens ?? 0,
-    system_prompt_chars: buildSystemPrompt(req.skills).length,
+    system_prompt_chars: buildSystemPrompt(req.skills, req.role).length,
     skills_total: req.skillsTotal ?? req.skills?.length ?? 0,
     skills_matched: req.skills?.length ?? 0,
     tg_tps: json._tps ?? 0,
@@ -1773,7 +1776,7 @@ async function runWasmBackendTurn(req: AgentRequest): Promise<AgentResponse> {
   const MAX_HISTORY_MSGS = 20;
   const trimmedHistory = (req.history ?? []).slice(-MAX_HISTORY_MSGS);
   const messages = [
-    { role: "system" as const, content: buildSystemPrompt(req.skills) },
+    { role: "system" as const, content: buildSystemPrompt(req.skills, req.role) },
     ...trimmedHistory,
     { role: "user" as const, content: req.prompt },
   ];
@@ -1795,7 +1798,7 @@ async function runWasmBackendTurn(req: AgentRequest): Promise<AgentResponse> {
     decode_ms:            json._latency_ms,
     tokens_in:            0,
     tokens_out:           0,
-    system_prompt_chars:  buildSystemPrompt(req.skills).length,
+    system_prompt_chars:  buildSystemPrompt(req.skills, req.role).length,
     skills_total:         req.skillsTotal ?? req.skills?.length ?? 0,
     skills_matched:       req.skills?.length ?? 0,
     tg_tps:               json._tps,
