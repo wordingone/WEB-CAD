@@ -229,6 +229,10 @@ let _sessionRefreshResolve: (() => void) | null = null; // resolved by "session-
 const ORT_SESSION_REFRESH_INTERVAL = 1; // flush GPU queue before every turn
 let _lastRefreshTurnCount = 0;           // turnCount at last flush (0 = on init, fires before T2)
 let _ortSessionRefreshDone = false;      // skip flushes on post-recycle workers (they start clean)
+// §#403/#281: onerror idempotency — each worker gets a unique serial captured at spawn time.
+// Dying workers can fire onerror multiple times; all but the first are stale and must be ignored
+// or they accumulate unplannedOomCount past the recovery threshold → spurious badge=ERROR ghost.
+let _inferenceWorkerSerial = 0;
 
 // §#156 Layer 2: inference-boundary memory pressure monitoring.
 // Checked after each ONNX WebGPU turn (not polled on RAF). Chrome-only (performance.memory).
@@ -494,6 +498,7 @@ function initWorkerIfNeeded(): Worker {
     new URL("./model-worker.ts", import.meta.url),
     { type: "module" },
   );
+  const _thisWorkerSerial = ++_inferenceWorkerSerial; // §#403/#281: unique per-worker slot
   _telWorkerBootMs = Date.now(); // §#1628: epoch for boot_complete elapsed_ms
   _telBootLoadSource = "unknown"; // reset per worker spawn
   // §P0-ARC: signal boot start only from quiescent states; recovering path skips BOOT_REQUESTED
@@ -906,18 +911,25 @@ function initWorkerIfNeeded(): Worker {
   };
 
   _inferenceWorker.onerror = (e) => {
+    // §#403/#281: idempotency guard — only the FIRST onerror from each worker processes.
+    // Dying workers fire multiple onerror events; each would dispatch D3D12_OOM and
+    // accumulate unplannedOomCount past the < 2 threshold → spurious badge=ERROR ghost.
+    // Consuming the serial here makes all subsequent fires from this worker no-ops.
+    if (_inferenceWorkerSerial !== _thisWorkerSerial) return;
+    ++_inferenceWorkerSerial;
     _arc.webgpuFallbackEngaged = true; // direct assignment — onerror can fire from any state
     const errMsg = e.message ?? "worker error";
     // §#403: capture before clear — size is 0 after clear, so check must precede it.
     const _hadActiveGeneration = _generateCallbacks.size > 0;
     for (const [, cb] of _generateCallbacks) cb.reject(new Error(errMsg));
     _generateCallbacks.clear();
-    // §#403: between-turn worker crash (no active generation) → recovery path, not fatal.
-    // Deferred GPU destructions from session-refresh can crash the worker after turn completion;
-    // the adapter is recoverable — spawn a fresh worker instead of surfacing ERROR permanently.
+    // §#403/#281: between-turn worker crash (no active generation) → always recover.
+    // GPU destructions from the prior turn's tensor.dispose() + post-dispose flush trigger a
+    // D3D12 state error that crashes the worker after generate-done is already posted; this is
+    // a predictable hardware cleanup artifact, not a GPU death spiral — always spawn fresh.
     const _w = _inferenceWorker;
     _inferenceWorker = null;
-    if (!_hadActiveGeneration && _arc.unplannedOomCount < 2) {
+    if (!_hadActiveGeneration) {
       _arc.dispatch({ type: "D3D12_OOM" }); // increments unplannedOomCount, → recycling
       _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "worker-onerror" }); // → recovering
       setGpuHealthTier("yellow", "GPU error, recovering");
