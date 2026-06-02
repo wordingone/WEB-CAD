@@ -1502,16 +1502,17 @@ export function buildSystemPrompt(skills?: Skill[], role?: AgentRole): string {
   ].filter(Boolean).join("\n\n");
 }
 
-// On-device WebGPU system prompt. TRIAGE: uses WEBGPU_HOUSE_FEW_SHOT (one example,
-// ~450 tok) instead of full FEW_SHOT_EXAMPLES (~1375 tok) to stay under the 2048-position
-// ONNX bake limit (SafeInt overflow at safeint.h:17 confirmed 2026-05-18). Real fix: #998.
+// On-device WebGPU system prompt. #281 fix: WEBGPU_HOUSE_FEW_SHOT removed (7574 chars / ~1894 tok;
+// triage comment incorrectly said ~450 tok). Role default changed from all-verbs to 'architectural':
+// all-verbs (~1011 tok verbList) OOMs at 6230MB clean-boot floor; architectural (135 verbs, ~439 tok)
+// keeps peak VRAM ~7743MB at clean boot — 449MB under 8192MB WebGPU budget.
 export function buildWebGPUSystemPrompt(skills?: Skill[], role?: AgentRole): string {
   const dict = getDictionary();
   const implemented = new Set(listHandlers());
   const available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.name)) : dict;
-  // Role filter: when role is known, narrow verb list to role-relevant topology_roles.
-  // Falls back to all verbs when role is undefined (ambiguous or warmup).
-  const filtered = role != null ? available.filter((e) => matchesRole(e, role)) : available;
+  // Role filter: default to 'architectural' for undefined — all-verbs path OOMs at 6230MB boot floor.
+  // Warmup (no role passed) and ambiguous prompts both get architectural (135 verbs, ~439 tok verbList).
+  const filtered = available.filter((e) => matchesRole(e, role ?? 'architectural'));
   const verbNames = filtered.map((e) => e.name).join(", ");
   const verbList = verbNames.length > 0
     ? `Available verbs (use ONLY these exact names): ${verbNames}`
@@ -1524,14 +1525,13 @@ export function buildWebGPUSystemPrompt(skills?: Skill[], role?: AgentRole): str
 
   return [
     "You are Gemma, a parametric CAD assistant. Be direct — no preamble.",
-    "DISPATCH DIRECTLY: emit <tool_call> blocks immediately — no <plan> block. State ONE assumption on one line if needed, then emit tool calls. Level names are always 'Level 1', 'Level 2', 'Level 3' — never 'Ground', 'Floor 2', or custom names.",
+    'DISPATCH: emit <tool_call>{"command":"VerbName","parameters":{...}}</tool_call> blocks directly — no <plan> block. State ONE assumption if needed, then emit. Level names: always \'Level 1\', \'Level 2\', \'Level 3\'.',
     "AMBIGUITY: infer defaults, state ONE assumption, execute. Do NOT ask questions.",
     unitHint,
-    "UNITS: prompt-stated units are authoritative. '12m' → 12.0 always — never apply ft→m conversion when the prompt specifies 'm'. '12ft' → 3.66. Prompt unit overrides active unit system.",
-    "BUILDINGS: For houses/buildings use SdLevel+SdWall+SdSlab+SdRoof+SdWindow+SdDoor+SdStair. Never use SdBox for a building — SdBox is raw geometry only.",
-    "SCENE QUERY RESPONSE: when asked to describe the scene, what you see, what is in the scene, or what the default scene looks like — respond with PLAIN TEXT ONLY. Do NOT emit <plan> or <tool_call> blocks. Describe what you see: shapes, materials, arrangement. One natural prose paragraph.",
-    'GOAL COMPLETION: when all requested elements are placed and the task is done, signal completion: <tool_call>{"name":"update_goal","arguments":{"status":"complete"},"metadata":{"source":"agent"}}</tool_call>',
-    WEBGPU_HOUSE_FEW_SHOT,
+    "UNITS: prompt-stated units are authoritative. '12m' → 12.0; '12ft' → 3.66. Prompt unit overrides active unit system.",
+    "BUILDINGS: use SdLevel+SdWall+SdSlab+SdRoof+SdWindow+SdDoor+SdStair. Never use SdBox for a building.",
+    "SCENE QUERY: respond PLAIN TEXT only — no tool calls.",
+    'DONE: <tool_call>{"name":"update_goal","arguments":{"status":"complete"},"metadata":{"source":"agent"}}</tool_call>',
     verbList,
   ].filter(Boolean).join("\n\n");
 }
