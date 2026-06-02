@@ -1173,14 +1173,10 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
   for (const v of Object.values(inputs ?? {})) {
     try { (v as any)?.dispose?.(); } catch { /* non-fatal */ }
   }
-  // §#403: drain deferred GPU destructions from §A tensor dispose() within the turn boundary.
-  // Without this flush, D3D12 buffer release callbacks fire async in the between-turn window
-  // (after generate-done is posted but before the next turn's pre-generate flush). Those async
-  // OOMs cascade through multiple onerror events, accumulating unplannedOomCount to ≥2 and
-  // triggering badge=ERROR at the next turn's pre-gate (ghost). Draining here ensures
-  // destructions complete before generate-done is visible to the harness.
-  await _flushWgpuQueue("post-dispose");
-
+  // §#412-reverted: post-dispose flush removed. The ghost (#281) was caused by
+  // unplannedOomCount not resetting in recovery path (fixed in #418 via BOOT_COMPLETE reset),
+  // not by between-turn async destructions. Flush was dead weight — OOMs fire mid-inference
+  // (confirmed: window.__agent_d3d12_recycles=8/8 turns on deployed receipt).
   post({
     type: "generate-done",
     turnId,
