@@ -93,6 +93,16 @@ ws.on("message", raw => {
     if (msg.error) reject(new Error(JSON.stringify(msg.error)));
     else resolve(msg.result ?? {});
   }
+  // §#420-c diagnostic capture: log kv-input-metadata and session dims from model-worker console.
+  // Note: Web Worker console may surface via Runtime.consoleAPICalled on the page context in
+  // Chrome 118+ (worker console forwarded to page runtime). Capture regardless.
+  if (msg.method === "Runtime.consoleAPICalled") {
+    const args = msg.params?.args ?? [];
+    const text = args.map(a => String(a.value ?? a.description ?? "")).join(" ");
+    if (text.includes("[#420-c]")) {
+      process.stdout.write(`\n[281-val] [#420-c] ${text.slice(0, 600)}\n`);
+    }
+  }
 });
 
 const send = (method, params = {}) => new Promise((resolve, reject) => {
@@ -214,15 +224,18 @@ if (!booted) { console.error("[281-val] boot timeout"); ws.close(); process.exit
 console.log(`[281-val] booted in ${Math.round((Date.now()-bootStart)/1000)}s`);
 
 // ── Turn loop ─────────────────────────────────────────────────────────────────
+// §#420-c validate: first 8 prompts replaced with long-decode answers (Leo gate: must include
+// 81-136s class — short prompts can false-pass if OOM fires early and recovers fast).
+// These prompts force 150-300+ token responses, exercising the full decode path per turn.
 const PROMPTS = [
-  "What is 2+2?",
-  "Name a color.",
-  "What is the capital of France?",
-  "How many sides does a triangle have?",
-  "What is water made of?",
-  "Name a planet.",
-  "What is 5×5?",
-  "What color is the sky?",
+  "Explain how the human immune system detects and fights a bacterial infection, step by step.",
+  "Describe the water cycle in detail, including evaporation, condensation, precipitation, and runoff.",
+  "What are the main causes of climate change, and what steps can individuals and governments take to address them?",
+  "How does a modern CPU execute instructions? Explain pipelining and branch prediction.",
+  "Describe the life cycle of a star from nebula to its final state, covering all major stages.",
+  "Explain the difference between aerobic and anaerobic respiration and when each occurs in the body.",
+  "How does the internet work? Describe the journey of a web request from browser to server and back.",
+  "What is photosynthesis and why is it important? Explain the light-dependent and light-independent reactions.",
   "How many days in a week?",
   "Name a common household tool.",
   "What is the boiling point of water?",
