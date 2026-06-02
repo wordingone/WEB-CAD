@@ -131,12 +131,16 @@ export function registerOpeningHandlers(viewer: Viewer): void {
       if (voidGroup) {
         pushReplaceAction(voidGroup, [hostObjDoor], "wall-void-cut");
         mesh.userData.hostExpressID = (hostObjDoor.userData as Record<string, unknown>).expressID as string ?? hostObjDoor.uuid;
+        voidCut = true;
       }
-      voidCut = true;
     }
     pushAction(mesh, chain);
     endTransaction();
     onElementCommitted(mesh, viewer.getScene());
+    // §Leo-gate: host wall found but void didn't cut → hard failure so model retries.
+    if (hostObjDoor && !voidCut) {
+      throw new Error(`door-void-failed: wall ${hostObjDoor.uuid} found but addVoidToWallObject returned null — door center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(elevation + doorH / 2).toFixed(2)}) may not overlap wall geometry`);
+    }
     // §#1678: width/height ignored — handler uses doorType preset dimensions.
     const ignoredDoor: string[] = [];
     if (args.width !== undefined) ignoredDoor.push("width");
@@ -228,12 +232,16 @@ export function registerOpeningHandlers(viewer: Viewer): void {
       if (voidGroup) {
         pushReplaceAction(voidGroup, [hostObjWin], "wall-void-cut");
         mesh.userData.hostExpressID = (hostObjWin.userData as Record<string, unknown>).expressID as string ?? hostObjWin.uuid;
+        voidCut = true;
       }
-      voidCut = true;
     }
     pushAction(mesh, chain);
     endTransaction();
     onElementCommitted(mesh, viewer.getScene());
+    // §Leo-gate: host wall found but void didn't cut → hard failure so model retries.
+    if (hostObjWin && !voidCut) {
+      throw new Error(`window-void-failed: wall ${hostObjWin.uuid} found but addVoidToWallObject returned null — window center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(elevation + winSill + winH / 2).toFixed(2)}) may not overlap wall geometry`);
+    }
     // §#1678: width/height ignored — handler uses windowType preset dimensions.
     const ignoredWin: string[] = [];
     if (args.width !== undefined) ignoredWin.push("width");
