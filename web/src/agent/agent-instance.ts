@@ -14,12 +14,14 @@
 //   // a.history and b.history are completely isolated
 
 import type { AgentRequest, AgentResponse } from "./agent-harness";
+import type { AgentRole } from "./agent-roles";
 
 export type AgentTurn = { role: "user" | "assistant"; content: string };
 
 export type AgentInstance = {
   readonly id: string;
   readonly name: string;
+  readonly role: AgentRole | undefined;
   readonly history: AgentTurn[];
   ask(prompt: string, options?: Partial<AgentRequest>): Promise<AgentResponse>;
   reset(): void;
@@ -31,17 +33,19 @@ type AgentRunner = (req: AgentRequest) => Promise<AgentResponse>;
  *  Production code uses `makeAgentInstanceFactory(runAgentTurn)`.
  *  Tests inject a mock runner to avoid loading WebGPU/ONNX deps. */
 export function makeAgentInstanceFactory(runner: AgentRunner) {
-  return function createAgentInstance(name: string): AgentInstance {
+  return function createAgentInstance(name: string, role?: AgentRole): AgentInstance {
     const id = `agent-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const _history: AgentTurn[] = [];
     return {
       get id() { return id; },
       get name() { return name; },
+      get role() { return role; },
       // Returns the live array — callers may read but should not mutate externally.
       get history() { return _history; },
       async ask(prompt: string, options?: Partial<AgentRequest>): Promise<AgentResponse> {
         const prior = _history.slice(); // snapshot before appending
-        const response = await runner({ ...options, prompt, history: prior });
+        // Baked-in role is the default; per-call options.role overrides if provided.
+        const response = await runner({ role, ...options, prompt, history: prior });
         _history.push({ role: "user", content: prompt });
         _history.push({ role: "assistant", content: response.text });
         return response;
