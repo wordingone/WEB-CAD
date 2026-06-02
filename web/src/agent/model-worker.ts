@@ -676,6 +676,18 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
             console.log("[#1463] warmup-flush skipped — webgpu device unavailable", { hasWebgpu: !!_ortEnv?.webgpu, hasDevice: !!_ortEnv?.webgpu?.device });
           }
           console.log(`[model-worker] warmup-settled after ${_wr} retries`);
+          // §#281 post-warmup settle: `onSubmittedWorkDone()` waits for GPU command
+          // execution but NOT D3D12 deferred buffer deletions — those drain through a
+          // separate fence/GC path. The warmup generate() (64 tokens cold-cache) creates
+          // significant buffer churn; 5s lets D3D12 process its deferred deletion queue
+          // before the first real inference fires. Applies to both initial cold-cache boot
+          // and D3D12_OOM recycle-boot (which now runs warmup via nextInitNoWarmup=false,
+          // see agent-runtime-controller.ts D3D12_OOM case).
+          if (_coldCacheBoot) {
+            console.log("[#281] post-warmup settle: 5s for D3D12 destructions");
+            await new Promise(r => setTimeout(r, 5_000));
+            await _flushWgpuQueue("post-warmup-settle");
+          }
           break; // warmup succeeded — buffers settled
         } catch (e) {
           if (_wr === _warmupRetryDelays.length - 1) {
