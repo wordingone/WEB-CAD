@@ -164,6 +164,11 @@ export class AgentRuntimeController {
         this.bootComplete = true;
         // Clear nextInitNoWarmup after it was consumed
         this.nextInitNoWarmup = false;
+        // §#281: reset after each successful boot (initial or recovery). BOOT_REQUESTED
+        // resets count for first-boot (idle→ready), but recovery skips BOOT_REQUESTED
+        // (recovering→ready path). Without this reset, T1 OOM (count=1) + T2 OOM
+        // (count=2) triggers P1 FATAL → badge=ERROR ghost every 3rd turn.
+        this.unplannedOomCount = 0;
         break;
       case "GENERATE_REQUESTED":
         this.activeTurnId = ev.turnId;
