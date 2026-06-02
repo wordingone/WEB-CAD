@@ -110,3 +110,48 @@ describe("AgentInstance — gemma-verify S128", () => {
     expect(resp.dispatches).toHaveLength(0);
   });
 });
+
+describe("AgentInstance — role wiring (#395 gap #5 PR 2)", () => {
+  test("role set at creation is forwarded to runner on every ask()", async () => {
+    const captured: AgentRequest[] = [];
+    const captureRunner = async (req: AgentRequest): Promise<AgentResponse> => {
+      captured.push(req);
+      return { dispatches: [], text: "ok" };
+    };
+    const factory = makeAgentInstanceFactory(captureRunner);
+
+    const arch = factory("arch-agent", "architectural");
+    await arch.ask("draw a 16-foot wall");
+    await arch.ask("add a door");
+    expect(captured[0].role).toBe("architectural");
+    expect(captured[1].role).toBe("architectural");
+
+    const geo = factory("geo-agent", "geometry");
+    await geo.ask("create a 6-foot sphere");
+    expect(captured[2].role).toBe("geometry");
+
+    const ana = factory("ana-agent", "analysis");
+    await ana.ask("measure the room area");
+    expect(captured[3].role).toBe("analysis");
+  });
+
+  test("role is accessible as a read-only property on the instance", () => {
+    const factory = makeAgentInstanceFactory(echoRunner);
+    expect(factory("arch", "architectural").role).toBe("architectural");
+    expect(factory("geo", "geometry").role).toBe("geometry");
+    expect(factory("ana", "analysis").role).toBe("analysis");
+    expect(factory("none").role).toBeUndefined();
+  });
+
+  test("per-call options.role overrides instance-level role", async () => {
+    const captured: AgentRequest[] = [];
+    const captureRunner = async (req: AgentRequest): Promise<AgentResponse> => {
+      captured.push(req);
+      return { dispatches: [], text: "ok" };
+    };
+    const factory = makeAgentInstanceFactory(captureRunner);
+    const arch = factory("arch", "architectural");
+    await arch.ask("measure area", { role: "analysis" });
+    expect(captured[0].role).toBe("analysis"); // per-call wins over baked-in
+  });
+});
