@@ -18,7 +18,7 @@
 // parseDispatches() extracts these; remaining text becomes the response text.
 
 import { getDictionary } from "../commands/dictionary";
-import { type AgentRole, matchesRole } from "./agent-roles";
+import { type AgentRole, matchesRole, selectAgentRole } from "./agent-roles";
 import { listHandlers } from "../commands/dispatch";
 import { getState } from "../app-state";
 import { makeAgentInstanceFactory } from "./agent-instance";
@@ -1505,11 +1505,14 @@ export function buildSystemPrompt(skills?: Skill[], role?: AgentRole): string {
 // On-device WebGPU system prompt. TRIAGE: uses WEBGPU_HOUSE_FEW_SHOT (one example,
 // ~450 tok) instead of full FEW_SHOT_EXAMPLES (~1375 tok) to stay under the 2048-position
 // ONNX bake limit (SafeInt overflow at safeint.h:17 confirmed 2026-05-18). Real fix: #998.
-export function buildWebGPUSystemPrompt(skills?: Skill[]): string {
+export function buildWebGPUSystemPrompt(skills?: Skill[], role?: AgentRole): string {
   const dict = getDictionary();
   const implemented = new Set(listHandlers());
   const available = implemented.size > 0 ? dict.filter((e) => implemented.has(e.name)) : dict;
-  const verbNames = available.map((e) => e.name).join(", ");
+  // Role filter: when role is known, narrow verb list to role-relevant topology_roles.
+  // Falls back to all verbs when role is undefined (ambiguous or warmup).
+  const filtered = role != null ? available.filter((e) => matchesRole(e, role)) : available;
+  const verbNames = filtered.map((e) => e.name).join(", ");
   const verbList = verbNames.length > 0
     ? `Available verbs (use ONLY these exact names): ${verbNames}`
     : "No verbs currently available. Do not emit function calls.";
@@ -1744,7 +1747,7 @@ async function runStandardBackendTurn(req: AgentRequest): Promise<AgentResponse>
   const sb = _standardBackend!;
   const MAX_HISTORY_MSGS = 60;
   const trimmedHistory = (req.history ?? []).slice(-MAX_HISTORY_MSGS);
-  const _sysPrompt = buildWebGPUSystemPrompt(req.skills);
+  const _sysPrompt = buildWebGPUSystemPrompt(req.skills, req.role ?? selectAgentRole(req.prompt ?? ""));
   const messages = [
     { role: "system" as const, content: _sysPrompt },
     ...trimmedHistory,
@@ -1943,7 +1946,7 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
       detail: { preTurns: _historyIn.length, postTurns: trimmedHistory.length },
     }));
   }
-  const _sysPrompt = buildWebGPUSystemPrompt(req.skills);
+  const _sysPrompt = buildWebGPUSystemPrompt(req.skills, req.role ?? selectAgentRole(req.prompt ?? ""));
   const messages = [
     { role: "system" as const, content: _sysPrompt },
     ...trimmedHistory,
