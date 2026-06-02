@@ -744,7 +744,11 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
           // → 8 steps insufficient. Cold-cache uses 64 steps (~12s extra); warm-cache stays at 8.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await Promise.race([
-            (_model as any).generate({ ..._warmupInputs, max_new_tokens: _coldCacheBoot ? 64 : 8, do_sample: false }),
+            // §#431: unconditional 64-token warmup — exercises decode buffer pool to steady
+            // state regardless of _coldCacheBoot flag (which misdetects on OPFS boots).
+            // 64 steps force lazy ORT buffer-lifecycle allocations to settle before the first
+            // real inference, reducing peak VRAM pressure at turn-1 mapAsync.
+            (_model as any).generate({ ..._warmupInputs, max_new_tokens: 64, do_sample: false }),
             new Promise<void>(r => setTimeout(r, 30_000)),
           ]);
           // §#1463: flush GPU command queue after warmup generate so all pending D3D12
@@ -874,7 +878,9 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   // after drafter init to flush the GPU command queue into steady state before
   // the first real inference. Only needed on cold-cache boot — warm-cache skips
   // the drafter WebGPU init path (ORT session is restored from OPFS cache).
-  if (!noWarmup && _coldCacheBoot && _model && _processor) {
+  // §#431: run drafter probe unconditionally — _coldCacheBoot misdetects on OPFS boots
+  // (false even on genuine cold-cache), so the guard was silently skipping the probe.
+  if (!noWarmup && _model && _processor) {
     try {
       const proc = _processor as any;
       const _syncText = proc.apply_chat_template(
@@ -889,7 +895,8 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         // §#1587: second-pass deeper probe on cold-cache — same rationale as main warmup
         // increase above. 64 tokens exercises the buffer pool to cover first real inference.
         await Promise.race([
-          (_model as any).generate({ ..._syncIn, max_new_tokens: _coldCacheBoot ? 64 : 1, do_sample: false }),
+          // §#431: unconditional 64-token drafter probe (same rationale as main warmup fix).
+          (_model as any).generate({ ..._syncIn, max_new_tokens: 64, do_sample: false }),
           new Promise<void>(r => setTimeout(r, 30_000)),
         ]);
         // §#1463: same GPU queue flush as main warmup probe — ensures post-drafter
@@ -1225,7 +1232,11 @@ async function handleGenerate(data: Record<string, unknown>): Promise<void> {
       // settle within ~18s of boot. Warmup retry loop handles the common (noWarmup=false) path;
       // this loop is the fallback for recycle-boot (noWarmup=true). Warm-cache: 1 retry [500ms].
       const _isAlignErr0 = /unaligned accesses/i.test(_msg);
-      const _coldOrAlign = _coldCacheBoot || _isAlignErr0;
+      // §#431: always use extended retry delays — buffer_manager.cc:553 race applies on every
+      // worker session (each OOM-triggered recycle boots a fresh worker, so every turn-1 is
+      // effectively cold). _coldCacheBoot misdetects on OPFS boots, so the guard was using the
+      // 500ms warm-cache retry (single attempt) on every turn regardless of thermal state.
+      const _coldOrAlign = true;
       const _retryDelays = _coldOrAlign ? [2000, 3000, 5000, 8000] : [500];
       for (let _ri = 0; _ri < _retryDelays.length; _ri++) {
         const _d = _retryDelays[_ri];
