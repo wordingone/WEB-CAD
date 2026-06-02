@@ -518,7 +518,7 @@
     required: [a, b]
   topology_role: compound
   kg_predicates: []
-  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add]
+  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add, sdfuse, "sd-fuse", "sd fuse"]
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
