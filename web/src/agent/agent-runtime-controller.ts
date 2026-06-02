@@ -187,7 +187,12 @@ export class AgentRuntimeController {
         this.bootComplete = false;
         this.prefillDone  = false;
         this.turnCount    = 0;
-        this.nextInitNoWarmup = true;
+        // §#281: run warmup after D3D12_OOM recycle so the new from_pretrained()'s deferred
+        // buffer destructions settle before the next inference fires. The warmup retry loop
+        // (#281-warmup) handles buffer_manager.cc:553 during warmup itself. Previously
+        // noWarmup=true here (#1377 fast-recovery), but that left destructions in-flight →
+        // OOM cycle every turn. noWarmup=false lets the settle path run.
+        this.nextInitNoWarmup = false;
         this.recycleCount++;
         // §#1505: planned recycles (reason="planned") do not indicate GPU adapter corruption.
         // §#307: WASM-heap-alignment recycles (reason="align-recycle") are not GPU corruption either.

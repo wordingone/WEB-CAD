@@ -56,10 +56,13 @@ describe("AgentRuntimeController — #1868 ARC event unit tests", () => {
       expect(c.bootComplete).toBe(false);
     });
 
-    test("D3D12_OOM sets nextInitNoWarmup", () => {
+    test("D3D12_OOM sets nextInitNoWarmup=false (warmup runs on recycle, §#281)", () => {
       const c = generatingCtrl();
       c.dispatch({ type: "D3D12_OOM" });
-      expect(c.nextInitNoWarmup).toBe(true);
+      // §#281: warmup must run after D3D12_OOM recycle so from_pretrained() buffer
+      // destructions settle before next inference. Changed from true (#1377 fast-recovery)
+      // to false; warmup retry loop handles buffer_manager.cc:553 during warmup itself.
+      expect(c.nextInitNoWarmup).toBe(false);
     });
 
     test("recycling + WORKER_RECYCLED → recovering (recycleCount unchanged)", () => {
