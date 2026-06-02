@@ -753,7 +753,11 @@ function initWorkerIfNeeded(): Worker {
           // §#1505: FATAL_ERROR only when ≥2 *unplanned* OOMs occur consecutively.
           // Planned recycling (scene-vram / turn-count flushes) resets unplannedOomCount to 0
           // via BOOT_REQUESTED on the new worker, preventing false FATAL_ERROR.
-          if (_arc.unplannedOomCount >= 2) {
+          // §#403: between-turn OOMs (no active generate callbacks) are always recoverable —
+          // the §C-recycle-limit fatal applies only to torn GPU adapter during active inference.
+          // Deferred GPU destructions from session-refresh fire after turn completion and must
+          // not trigger the FATAL path (the adapter is intact; only cleanup state is dirty).
+          if (_arc.unplannedOomCount >= 2 && _generateCallbacks.size > 0) {
             const _fatalMsg = "GPU memory exhausted after multiple resets — please refresh the page to continue.";
             _arc.dispatch({ type: "FATAL_ERROR", error: _fatalMsg }); // sets webgpuFallbackEngaged, bootComplete, modelLoadError
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
@@ -768,7 +772,8 @@ function initWorkerIfNeeded(): Worker {
             setTimeout(() => { _w.terminate(); }, 400);
             break;
           }
-          // Normal first recycle (count === 1): respawn worker without warmup (#1377).
+          // Recovery path: respawn worker without warmup (#1377).
+          // Covers both first recycle (count=1) and between-turn recycles (§#403).
           _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "d3d12-oom" }); // → recovering
           setGpuHealthTier("yellow", "GPU reset, recovering");
           updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
@@ -868,7 +873,8 @@ function initWorkerIfNeeded(): Worker {
             detail: { recycleCount: _arc.recycleCount, reason: "device-lost-dgpu" },
           }));
           emitRecycle(_arc.recycleCount, "device-lost-dgpu"); // §#1628
-          if (_arc.unplannedOomCount >= 2) {
+          // §#403: same between-turn guard as D3D12_OOM path above.
+          if (_arc.unplannedOomCount >= 2 && _generateCallbacks.size > 0) {
             const _fatalMsg = "GPU device lost after multiple resets — please refresh the page to continue.";
             _arc.dispatch({ type: "FATAL_ERROR", error: _fatalMsg });
             for (const [, cb] of _generateCallbacks) cb.reject(new Error(_fatalMsg));
@@ -900,10 +906,29 @@ function initWorkerIfNeeded(): Worker {
   _inferenceWorker.onerror = (e) => {
     _arc.webgpuFallbackEngaged = true; // direct assignment — onerror can fire from any state
     const errMsg = e.message ?? "worker error";
-    setGpuHealthTier("red", "GPU error — worker crashed");
-    updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
+    // §#403: capture before clear — size is 0 after clear, so check must precede it.
+    const _hadActiveGeneration = _generateCallbacks.size > 0;
     for (const [, cb] of _generateCallbacks) cb.reject(new Error(errMsg));
     _generateCallbacks.clear();
+    // §#403: between-turn worker crash (no active generation) → recovery path, not fatal.
+    // Deferred GPU destructions from session-refresh can crash the worker after turn completion;
+    // the adapter is recoverable — spawn a fresh worker instead of surfacing ERROR permanently.
+    const _w = _inferenceWorker;
+    _inferenceWorker = null;
+    if (!_hadActiveGeneration && _arc.unplannedOomCount < 2) {
+      _arc.dispatch({ type: "D3D12_OOM" }); // increments unplannedOomCount, → recycling
+      _arc.dispatch({ type: "WORKER_RECYCLED", recycleCount: _arc.recycleCount, reason: "worker-onerror" }); // → recovering
+      setGpuHealthTier("yellow", "GPU error, recovering");
+      updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  LIVE · ${_arc.deviceLabel} · ⟳`);
+      window.dispatchEvent(new CustomEvent("agentmodel:worker-recycled", {
+        detail: { recycleCount: _arc.recycleCount, reason: "worker-onerror" },
+      }));
+      setTimeout(() => { _w?.terminate(); initWorkerIfNeeded(); }, 400);
+    } else {
+      setGpuHealthTier("red", "GPU error — worker crashed");
+      updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
+      window.dispatchEvent(new CustomEvent("agentmodel:boot-complete")); // re-enable UI
+    }
   };
 
   // §#156 Layer 3: register visibilitychange listener once (persists across worker respawns).
