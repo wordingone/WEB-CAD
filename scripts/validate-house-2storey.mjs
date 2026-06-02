@@ -597,6 +597,7 @@ async function captureHeroAndAerial(label) {
         var span=Math.max(bmax[0]-bmin[0],bmax[1]-bmin[1],2);
         h=span*1.5;
       }
+      cam.fov = 60; cam.updateProjectionMatrix(); // reset from side capture's 30° FOV
       cam.position.set(cx, cy, maxZ+h);
       cam.up.set(0,1,0);
       cam.lookAt(cx,cy,maxZ);
