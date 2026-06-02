@@ -137,7 +137,14 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     pushAction(mesh, chain);
     endTransaction();
     onElementCommitted(mesh, viewer.getScene());
-    return { created: "door", voidCut };
+    // §#1678: width/height ignored — handler uses doorType preset dimensions.
+    const ignoredDoor: string[] = [];
+    if (args.width !== undefined) ignoredDoor.push("width");
+    if (args.height !== undefined) ignoredDoor.push("height");
+    const noteDoor = ignoredDoor.length > 0
+      ? `${ignoredDoor.join("/")} ignored — preset used (${doorW.toFixed(3)}m×${doorH.toFixed(3)}m)`
+      : undefined;
+    return { created: "door", voidCut, ...(noteDoor ? { note: noteDoor } : {}) };
   });
 
   registerHandler("SdWindow", (args) => {
@@ -227,7 +234,14 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     pushAction(mesh, chain);
     endTransaction();
     onElementCommitted(mesh, viewer.getScene());
-    return { created: "window", voidCut };
+    // §#1678: width/height ignored — handler uses windowType preset dimensions.
+    const ignoredWin: string[] = [];
+    if (args.width !== undefined) ignoredWin.push("width");
+    if (args.height !== undefined) ignoredWin.push("height");
+    const noteWin = ignoredWin.length > 0
+      ? `${ignoredWin.join("/")} ignored — preset used (${winW.toFixed(3)}m×${winH.toFixed(3)}m)`
+      : undefined;
+    return { created: "window", voidCut, ...(noteWin ? { note: noteWin } : {}) };
   });
 
   registerHandler("SdOpening", (args) => {

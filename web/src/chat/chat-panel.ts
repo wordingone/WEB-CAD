@@ -867,6 +867,13 @@ export class ChatPanel {
           if (dr && !dr.ok) return `${dr.error}${dr.detail ? `: ${dr.detail}` : ""}`;
           return out.summary ?? "error";
         })(),
+        note: (() => {
+          const dr = out.dispatchResult;
+          if (dr && dr.ok && dr.result) {
+            return (dr.result as Record<string, unknown>).note ?? null;
+          }
+          return null;
+        })(),
         sceneChildrenBefore, sceneChildrenAfter,
         sceneChildrenDelta: sceneChildrenAfter - sceneChildrenBefore,
       });
