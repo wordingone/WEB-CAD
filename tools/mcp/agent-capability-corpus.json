@@ -35,11 +35,11 @@
       "id": "G1",
       "type": "geometry",
       "expectedRole": "geometry",
-      "prompt": "Create a 6ft-diameter sphere and a 3ft cube as two separate objects in the scene.",
+      "prompt": "Create a 6ft-diameter sphere at the origin. Then subtract a 2ft-diameter cylinder from its center to hollow it out.",
       "visualCheck": true,
       "assertions": {
-        "minObjectCount": 2,
-        "anyObjectContains": ["sphere", "Sphere", "SdSphere", "box", "Box", "SdBox", "cube", "Cube"]
+        "minObjectCount": 1,
+        "dispatchMustInclude": ["SdSphere", "SdCylinder", "SdBooleanDifference"]
       }
     },
     {
@@ -56,10 +56,10 @@
       "id": "G3",
       "type": "geometry",
       "expectedRole": "geometry",
-      "prompt": "Create a box 10ft long, 4ft wide, and 8ft tall.",
+      "prompt": "Create a box 10ft long, 4ft wide, and 8ft tall. Then apply a 3-inch fillet to all vertical edges.",
       "assertions": {
         "minObjectCount": 1,
-        "anyObjectContains": ["box", "Box", "SdBox", "solid", "extrude"]
+        "dispatchMustInclude": ["SdBox", "SdFillet"]
       }
     },
     {
@@ -93,13 +93,12 @@
     },
     {
       "id": "X2",
-      "type": "cross-role",
-      "expectedRole": null,
-      "prompt": "Create a 5ft-diameter sphere. Then list all objects in the scene and report the count.",
+      "type": "geometry",
+      "expectedRole": "geometry",
+      "prompt": "Create a 5ft sphere and a 3ft cube. Boolean-union them into a single solid object.",
       "assertions": {
         "minObjectCount": 1,
-        "anyObjectContains": ["sphere", "Sphere", "SdSphere"],
-        "agentTextContainsAny": ["1", "object", "count", "found", "sphere"]
+        "dispatchMustInclude": ["SdSphere", "SdBox", "SdBooleanUnion"]
       }
     }
   ]

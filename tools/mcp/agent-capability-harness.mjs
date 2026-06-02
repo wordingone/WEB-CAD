@@ -207,12 +207,17 @@ function selectAgentRole(prompt) {
 // Geometry assertions
 // ---------------------------------------------------------------------------
 
-function assertGeometry(goal, sceneResult, agentFinalText) {
+function assertGeometry(goal, sceneResult, agentFinalText, dispatchSequence) {
   const result  = sceneResult?.result ?? sceneResult ?? {};
   const objects = result.objects ?? (Array.isArray(sceneResult) ? sceneResult : []);
   const count   = typeof result.count === 'number' ? result.count : objects.length;
   const a       = goal.assertions ?? {};
   const checks  = [];
+
+  // Mis-specified goal — no assertions is a test bug, not a pass
+  if (Object.keys(a).length === 0) {
+    checks.push({ check: 'assertions_present', pass: false, actual: 'goal has no assertions — test mis-specified' });
+  }
 
   if (a.minObjectCount !== undefined) {
     const pass = count >= a.minObjectCount;
@@ -231,7 +236,16 @@ function assertGeometry(goal, sceneResult, agentFinalText) {
     checks.push({ check: `agentTextContainsAny(${a.agentTextContainsAny.slice(0, 3).join('|')})`, pass, actual: lower.slice(0, 200) });
   }
 
-  const pass = checks.length === 0 || checks.every(c => c.pass);
+  // Hard-op probe: verify the agent actually called the required verbs (boolean/fillet)
+  if (a.dispatchMustInclude) {
+    const dispatchedVerbs = (dispatchSequence ?? []).map(d => d.verb);
+    for (const required of a.dispatchMustInclude) {
+      const found = dispatchedVerbs.includes(required);
+      checks.push({ check: `dispatchMustInclude(${required})`, pass: found, actual: `dispatched: [${dispatchedVerbs.join(', ')}]` });
+    }
+  }
+
+  const pass = checks.length > 0 && checks.every(c => c.pass);
   return { pass, checks, objectCount: count };
 }
 
@@ -395,7 +409,7 @@ Complete the entire goal, then respond with your summary.`;
     try { await mcp.call('slot_close', { slotId }); } catch {}
   }
 
-  const geo = assertGeometry(goal, sceneResult, agentFinalText);
+  const geo = assertGeometry(goal, sceneResult, agentFinalText, dispatchSequence);
 
   return {
     goalId:          goal.id,
@@ -423,35 +437,44 @@ Complete the entire goal, then respond with your summary.`;
 async function runIsolationTest(mcp) {
   console.log('\n[iso] Sequential slot isolation test');
 
-  // Step 1: Create slot A, dispatch SdBox, capture UUID
+  // Step 1: Create slot A, dispatch SdBox with real args, hard-assert UUID
   console.log('[iso] Creating slot A...');
   const sA    = unwrap(await mcp.call('slot_create', { url: `${WC_URL}?slot=cap-iso-A` }));
-  const boxR  = unwrap(await mcp.call('dispatch', { verb: 'SdBox', args: {}, slotId: sA.slotId }));
-  const uuidA = boxR?.result?.created ?? boxR?.result?.object_id ?? null;
-  console.log(`[iso] Slot A: SdBox → uuid=${uuidA?.slice(0, 8) ?? 'null'}`);
+  // Explicit args (not {}): SdBox params are SI — 1m x 1m x 1m is the default but we pass explicitly
+  const boxR  = unwrap(await mcp.call('dispatch', { verb: 'SdBox', args: { width: 1, depth: 1, height: 1 }, slotId: sA.slotId }));
+  // result.created is the canonical UUID field for solid primitives (confirmed: nurbs.ts L378)
+  const uuidA = boxR?.result?.created ?? null;
+  if (!uuidA) {
+    throw new Error(`SdBox dispatch did not return result.created — isolation test is broken. dispatch result: ${JSON.stringify(boxR)}`);
+  }
+  console.log(`[iso] Slot A: SdBox → uuid=${uuidA.slice(0, 8)}`);
 
-  // Step 2: Create slot B, dispatch SdSphere, capture UUID
+  // Step 2: Create slot B, dispatch SdSphere with real args, hard-assert UUID
   console.log('[iso] Creating slot B...');
   const sB    = unwrap(await mcp.call('slot_create', { url: `${WC_URL}?slot=cap-iso-B` }));
-  const sphR  = unwrap(await mcp.call('dispatch', { verb: 'SdSphere', args: {}, slotId: sB.slotId }));
-  const uuidB = sphR?.result?.created ?? sphR?.result?.object_id ?? null;
-  console.log(`[iso] Slot B: SdSphere → uuid=${uuidB?.slice(0, 8) ?? 'null'}`);
+  const sphR  = unwrap(await mcp.call('dispatch', { verb: 'SdSphere', args: { radius: 0.5 }, slotId: sB.slotId }));
+  // result.created confirmed: nurbs.ts L393
+  const uuidB = sphR?.result?.created ?? null;
+  if (!uuidB) {
+    throw new Error(`SdSphere dispatch did not return result.created — isolation test is broken. dispatch result: ${JSON.stringify(sphR)}`);
+  }
+  console.log(`[iso] Slot B: SdSphere → uuid=${uuidB.slice(0, 8)}`);
 
   // Step 3: Cross-read scene from each slot
   const obj1 = unwrap(await mcp.call('list_scene_objects', { slotId: sA.slotId }));
   const obj2 = unwrap(await mcp.call('list_scene_objects', { slotId: sB.slotId }));
   const objs1 = obj1?.result?.objects ?? [];
   const objs2 = obj2?.result?.objects ?? [];
-  const hasUuid = (objs, uuid) => uuid && objs.some(o => o?.uuid === uuid);
+  const hasUuid = (objs, uuid) => objs.some(o => o?.uuid === uuid);
 
   const checks = [
-    { check: 'slotA has objects',              pass: objs1.length > 0 },
-    { check: 'slotB has objects',              pass: objs2.length > 0 },
-    { check: 'slotA SdBox UUID NOT in slotB',  pass: !uuidA || !hasUuid(objs2, uuidA) },
-    { check: 'slotB sphere UUID NOT in slotA', pass: !uuidB || !hasUuid(objs1, uuidB) },
+    { check: 'slotA has objects',                  pass: objs1.length > 0 },
+    { check: 'slotB has objects',                  pass: objs2.length > 0 },
+    { check: 'slotA contains SdBox UUID',          pass: hasUuid(objs1, uuidA) },
+    { check: 'slotB contains SdSphere UUID',       pass: hasUuid(objs2, uuidB) },
+    { check: 'slotA SdBox UUID NOT in slotB',      pass: !hasUuid(objs2, uuidA) },
+    { check: 'slotB SdSphere UUID NOT in slotA',   pass: !hasUuid(objs1, uuidB) },
   ];
-  if (uuidA) checks.push({ check: 'slotA contains SdBox UUID',   pass: hasUuid(objs1, uuidA) });
-  if (uuidB) checks.push({ check: 'slotB contains SdSphere UUID', pass: hasUuid(objs2, uuidB) });
 
   for (const c of checks) {
     console.log(`[iso] ${c.pass ? 'PASS' : 'FAIL'}  ${c.check}`);
