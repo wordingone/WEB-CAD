@@ -78,6 +78,43 @@ const GOALS = [
     prompt: 'Create a 5ft sphere and a 3ft cube. Boolean-union them into a single solid object.',
     assertions: { minObjectCount: 1, dispatchMustInclude: ['SdSphere','SdBox','SdBooleanUnion'] },
   },
+  // L6: loft — #400 row 'loft'. SdLoftRebuild and SdLoftRefit are both LIVE; accept either.
+  {
+    id: 'L6', type: 'geometry', expectedRole: 'geometry',
+    prompt: 'Create a smooth shape by lofting between a 6ft-diameter circle at z=0 and a 4ft-diameter circle at z=8ft.',
+    assertions: {
+      minObjectCount: 1,
+      dispatchMustIncludeAnyOf: [['SdLoftRebuild', 'SdLoftRefit']],
+    },
+  },
+  // L7: sweep — #400 row 'sweep'. SdSweep2 / SdSweepMultiProfile / SdSweepSegmented all LIVE.
+  {
+    id: 'L7', type: 'geometry', expectedRole: 'geometry',
+    prompt: 'Sweep a circular 6-inch radius cross-section along a 20ft curved arc rail to create a pipe.',
+    assertions: {
+      minObjectCount: 1,
+      dispatchMustIncludeAnyOf: [['SdSweep2', 'SdSweepMultiProfile', 'SdSweepSegmented']],
+    },
+  },
+  // S8: fillet-nonplanar stub — agent should attempt SdFilletCurved; it returns STUB_NIY.
+  // No minObjectCount: object creation will fail (stub). Assertion verifies correct verb choice.
+  {
+    id: 'S8', type: 'geometry', expectedRole: 'geometry',
+    prompt: 'Create a cylinder and a sphere that intersect. Apply a curved fillet along the non-planar intersection edges.',
+    assertions: { dispatchMustInclude: ['SdFilletCurved'] },
+  },
+  // S9: shell-offset stub — agent should attempt SdSurfaceOffset; it returns STUB_NIY.
+  {
+    id: 'S9', type: 'geometry', expectedRole: 'geometry',
+    prompt: 'Take a 4ft box and offset all its exterior surfaces outward by 6 inches to create a shell.',
+    assertions: { dispatchMustInclude: ['SdSurfaceOffset'] },
+  },
+  // S11: cross-section stub — agent should attempt SdSection; it returns STUB_NIY.
+  {
+    id: 'S11', type: 'geometry', expectedRole: 'geometry',
+    prompt: 'Create a box 8ft wide, 8ft deep, and 10ft tall. Then cut a cross-section through it at z=5ft and extract the resulting surface.',
+    assertions: { dispatchMustInclude: ['SdSection'] },
+  },
 ]
 
 // ============================================================================
@@ -130,6 +167,13 @@ function assertGeometry(goal, objects, agentText, dispatchedVerbs) {
       checks.push({ check: `dispatchMustInclude(${required})`, pass: found, actual: `dispatched:[${(dispatchedVerbs||[]).join(',')}]` })
     }
   }
+  if (a.dispatchMustIncludeAnyOf) {
+    // Each inner array is an alternative group: at least one from each group must be dispatched.
+    for (const alternatives of a.dispatchMustIncludeAnyOf) {
+      const found = alternatives.some(v => (dispatchedVerbs || []).includes(v))
+      checks.push({ check: `dispatchMustIncludeAnyOf(${alternatives.join('|')})`, pass: found, actual: `dispatched:[${(dispatchedVerbs||[]).join(',')}]` })
+    }
+  }
   return { pass: checks.length > 0 && checks.every(c => c.pass), checks, objectCount: (objects || []).length }
 }
 
@@ -139,13 +183,37 @@ function assertGeometry(goal, objects, agentText, dispatchedVerbs) {
 function classifyFailure(dispatchResults) {
   if (!dispatchResults || dispatchResults.length === 0)
     return { class: 'agent-decomposition', detail: 'No dispatch calls made — agent did not use tools' }
-  const stubKws = ['notimplemented','not yet implemented','not implemented','stub','todo']
+
+  // UnknownVerb / NoHandler: verb is in list_verbs (advertised) but not deployed at dispatch.
+  // Distinct from STUB_NIY (handler runs, returns NotYetImplemented). Both are arch-gap but
+  // different remediation: not-in-build → #422 surface honesty; stub-niy → #400 kernel work.
+  const notInBuildKws = ['unknownverb', 'unknown verb', 'nohandler', 'no handler']
+  const notInBuildEntries = dispatchResults.filter(d => {
+    const err = (d.error || '').toLowerCase()
+    return !d.ok && notInBuildKws.some(k => err.includes(k))
+  })
+  if (notInBuildEntries.length > 0)
+    return {
+      class: 'arch-gap',
+      subtype: 'not-in-build',
+      detail: `Not in deployed build: ${notInBuildEntries.map(d => d.verb).join(', ')}`,
+      note: 'Cross-reference with #422 — advertised by list_verbs but no deployed handler.',
+    }
+
+  // 'notyetimplemented' = 'NotYetImplemented'.toLowerCase() — actual value returned by app handlers
+  const stubKws = ['notyetimplemented','notimplemented','not yet implemented','not implemented','stub','todo']
   const stubEntries = dispatchResults.filter(d => {
     const err = (d.error || '').toLowerCase()
     return !d.ok && stubKws.some(k => err.includes(k))
   })
   if (stubEntries.length > 0)
-    return { class: 'arch-gap', detail: `Stub/unimplemented: ${stubEntries.map(d => d.verb).join(', ')}`, note: 'Cross-reference with #400.' }
+    return {
+      class: 'arch-gap',
+      subtype: 'stub-niy',
+      detail: `Stub/unimplemented: ${stubEntries.map(d => d.verb).join(', ')}`,
+      note: 'Cross-reference with #400.',
+    }
+
   if (dispatchResults.every(d => !d.ok))
     return { class: 'arch-gap', detail: `All dispatches errored: ${(dispatchResults[0]?.error||'').slice(0,200)}` }
   return { class: 'agent-decomposition', detail: 'Dispatches made but geometry assertions failed — wrong verb sequence or args' }
