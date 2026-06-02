@@ -194,6 +194,34 @@ async function _drainUntilClear(label: string, budgetMs = 34_000): Promise<void>
   }
 }
 
+// §#420 (b): Pre-warm WDDM adapter budget BEFORE from_pretrained.
+// T8 evidence (validate-281 7f9a204): after 7 recycles accumulating ~10 GB committed VRAM,
+// WDDM expanded Chrome's device budget → T8 succeeded without OOM (vram_start=10111 MB).
+// Mechanism: allocate + immediately release large GPU buffers → force WDDM to commit
+// high-water-mark → budget expands. Run BEFORE from_pretrained (model weights not yet loaded
+// → full device budget available for the peak allocation). On recycle (noWarmup=true) the
+// budget was already expanded by prior cycles, so pre-warm is skipped.
+async function _preWarmWddmBudget(device: { createBuffer: Function; pushErrorScope: Function; popErrorScope: Function }): Promise<void> {
+  const _STORAGE = (globalThis as any).GPUBufferUsage?.STORAGE ?? 0x0080;
+  const TARGET_MB = 10_000; // replicate T8's ~10 GB WDDM high-water-mark
+  const CHUNK_MB  = 256;    // 256 MB per buffer — well under any maxBufferSize limit
+  const maxChunks = Math.ceil(TARGET_MB / CHUNK_MB);
+
+  const bufs: { destroy(): void }[] = [];
+  let allocMB = 0;
+  for (let i = 0; i < maxChunks; i++) {
+    device.pushErrorScope("out-of-memory");
+    const buf = device.createBuffer({ size: CHUNK_MB * 1024 * 1024, usage: _STORAGE });
+    const err = await device.popErrorScope();
+    if (err) { buf.destroy(); break; } // budget exhausted — stop, use what was allocated
+    bufs.push(buf);
+    allocMB += CHUNK_MB;
+  }
+  console.log(`[#420-prewarm] allocated ${allocMB} MB in ${bufs.length} chunks — releasing`);
+  for (const b of bufs) b.destroy();
+  await _drainUntilClear("prewarm-settle");
+}
+
 // §#88: conversation trimming — drop oldest turns when input token count exceeds the
 // VRAM-safe ceiling. Preserves system prompt (first message) + latest user message (last).
 // Uses char/token ratio from the current tokenization to estimate how many messages to drop.
@@ -591,6 +619,12 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       }
     }
   } catch { /* navigator.gpu unavailable — fall through to CPU backend */ }
+
+  // §#420 (b): pre-warm WDDM budget before model weights load.
+  // Initial boot only (noWarmup=false) — recycle path already has expanded budget from prior cycles.
+  if (_preAcquiredGpuDevice && !noWarmup) {
+    await _preWarmWddmBudget(_preAcquiredGpuDevice);
+  }
 
   // §#1627-C: iGPU/software classification and forceWasm both bypass "auto" (which independently
   // calls navigator.gpu.requestAdapter internally and picks WebGPU when available). Use explicit
