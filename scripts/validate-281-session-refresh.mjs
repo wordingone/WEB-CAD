@@ -408,6 +408,9 @@ for (let i = 0; i < MAX_TURNS; i++) {
     // OOM or align-recycle detection
     const curOom   = await evaluate(`window.__val281OomCount   ?? 0`);
     const curAlign = await evaluate(`window.__val281AlignCount ?? 0`);
+    // §#420 metric-fix: also track the two raw CDP counters to confirm the event counter matches.
+    const curHarnessRecycles  = await evaluate(`window.__agent_d3d12_recycles         ?? 0`);
+    const curWorkerRecycles   = await evaluate(`window.__model_worker_recycle_count    ?? 0`);
     if (curAlign > lastAlignCount) {
       lastAlignCount = curAlign; alignCount++;
       console.log(`\n[281-val] T${turnNum}: ALIGN-RECYCLE`);
@@ -420,7 +423,7 @@ for (let i = 0; i < MAX_TURNS; i++) {
       const _delta = curOom - lastOomCount;
       lastOomCount = curOom;
       oomCount += _delta;
-      console.log(`\n[281-val] T${turnNum}: D3D12-OOM×${_delta} (non-fatal recovery, continuing)`);
+      console.log(`\n[281-val] T${turnNum}: D3D12-OOM×${_delta} (event) harness-recycles=${curHarnessRecycles} worker-recycles=${curWorkerRecycles} (non-fatal recovery, continuing)`);
     }
 
     const dis = await evaluate(`document.querySelector('.chat-send-btn')?.disabled ?? true`);
@@ -498,15 +501,21 @@ const gpuVramMin   = gpuSamples.length ? Math.min(...gpuSamples) : null;
 const gpuVramMax   = gpuSamples.length ? Math.max(...gpuSamples) : null;
 const gpuVramDiff  = (gpuVramMin !== null && gpuVramMax !== null) ? gpuVramMax - gpuVramMin : null;
 
+// §#420 metric-fix: final read of all 3 CDP counters for artifact summary.
+const finalHarnessRecycles = await evaluate(`window.__agent_d3d12_recycles      ?? 0`).catch(() => 0);
+const finalWorkerRecycles  = await evaluate(`window.__model_worker_recycle_count ?? 0`).catch(() => 0);
+
 console.log(`\n[281-val] ── VALIDATION COMPLETE ─────────────────────────────────────`);
-console.log(`  SHA:          ${SHA}`);
-console.log(`  Turns total:  ${turns.length}`);
-console.log(`  Real success: ${realSuccessCount}`);
-console.log(`  Ghost:        ${ghostCount}`);
-console.log(`  D3D12-OOM:    ${oomCount}`);
-console.log(`  Align-recycle:${alignCount}`);
-console.log(`  GPU VRAM:     ${gpuVramMin}–${gpuVramMax} MB (delta=${gpuVramDiff}) [nvidia-smi]`);
-console.log(`  Gate PASS:    ${gatePass}`);
+console.log(`  SHA:                ${SHA}`);
+console.log(`  Turns total:        ${turns.length}`);
+console.log(`  Real success:       ${realSuccessCount}`);
+console.log(`  Ghost:              ${ghostCount}`);
+console.log(`  D3D12-OOM (event):  ${oomCount}`);
+console.log(`  Harness-recycles:   ${finalHarnessRecycles}`);
+console.log(`  Worker-recycles:    ${finalWorkerRecycles}`);
+console.log(`  Align-recycle:      ${alignCount}`);
+console.log(`  GPU VRAM:           ${gpuVramMin}–${gpuVramMax} MB (delta=${gpuVramDiff}) [nvidia-smi]`);
+console.log(`  Gate PASS:          ${gatePass}`);
 console.log(`  Artifact:     ${outPath}`);
 
 ws.close();

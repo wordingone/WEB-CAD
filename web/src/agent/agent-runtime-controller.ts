@@ -192,7 +192,13 @@ export class AgentRuntimeController {
         // (#281-warmup) handles buffer_manager.cc:553 during warmup itself. Previously
         // noWarmup=true here (#1377 fast-recovery), but that left destructions in-flight →
         // OOM cycle every turn. noWarmup=false lets the settle path run.
-        this.nextInitNoWarmup = false;
+        // §#420: noWarmup=true — skip warmup on D3D12_OOM recycle to avoid warmup pool fill.
+        // noWarmup=false was tried (#424) but warmup itself fills the D3D12 pool → next turn OOMs.
+        // noWarmup=true was reverted (#424) because it "left destructions in-flight" — BUT that
+        // in-flight problem is now solved by an explicit _drainUntilClear in the noWarmup path
+        // (model-worker.ts handleInit). Drain settles from_pretrained destructions without warmup
+        // pool fill, leaving maximum D3D12 headroom for the first real inference turn.
+        this.nextInitNoWarmup = true;
         this.recycleCount++;
         // §#1505: planned recycles (reason="planned") do not indicate GPU adapter corruption.
         // §#307: WASM-heap-alignment recycles (reason="align-recycle") are not GPU corruption either.
