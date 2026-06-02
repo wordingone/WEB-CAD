@@ -238,6 +238,10 @@ async function runSmoke() {
     console.log('[smoke] IDB names slotDef:', idbDef);
 
     // Core namespacing assertions — all 3 IDB databases (require PR B deployed)
+    // Note: indexedDB.databases() is origin-scoped — all tabs on the same origin
+    // (wordingone.github.io) share the full DB list. Presence of smokeA/smokeB DBs
+    // in ALL tabs is expected Chrome behavior, not contamination. Real isolation is
+    // proven by the autosave-data assertions below.
     for (const [label, idb, id] of [['slotA', idbA, ID_A], ['slotB', idbB, ID_B]]) {
       check(`${label} has web-cad-scene-${id}`,
         idb.includes(`web-cad-scene-${id}`), `got: ${JSON.stringify(idb)}`);
@@ -246,13 +250,6 @@ async function runSmoke() {
       check(`${label} has gemma-level-meta-${id}`,
         idb.includes(`gemma-level-meta-${id}`), `got: ${JSON.stringify(idb)}`);
     }
-    // Cross-contamination: slot A and B must not share any slot-namespaced DBs
-    check('slotA does NOT have slotB scene DB',
-      !idbA.includes(`web-cad-scene-${ID_B}`),
-      `cross-contamination: slotA has slotB DB`);
-    check('slotB does NOT have slotA scene DB',
-      !idbB.includes(`web-cad-scene-${ID_A}`),
-      `cross-contamination: slotB has slotA DB`);
 
     // Safety-critical: default session (no ?slot=) keeps ALL 3 original DB names unchanged
     check('slotDef has web-cad-scene (no suffix — default preserved)',
@@ -264,9 +261,61 @@ async function runSmoke() {
     check('slotDef has gemma-level-meta (no suffix)',
       idbDef.some(n => n === 'gemma-level-meta'),
       `got: ${JSON.stringify(idbDef)}`);
-    check('slotDef has NO slot-namespaced DBs',
-      !idbDef.some(n => n.includes('-smoke')),
-      `namespaced DB leaked into default session: ${JSON.stringify(idbDef)}`);
+
+    // ---- Data-isolation assertions ----
+    // Reads autosave data from each slot's own DB to confirm it WROTE to the correct DB.
+    // If SLOT_SUFFIX was broken and slotA wrote to the wrong DB, web-cad-scene-smokeA
+    // would have null/empty data. This is the real contamination gate.
+
+    async function readIdbAutosave(port, targetId, dbName) {
+      const expr = `(async () => {
+        try {
+          const db = await new Promise((res, rej) => {
+            const req = indexedDB.open(${JSON.stringify(dbName)}, 1);
+            req.onsuccess = e => res(e.target.result);
+            req.onerror = () => rej(new Error('open failed'));
+          });
+          return JSON.stringify(await new Promise((res, rej) => {
+            if (!db.objectStoreNames.contains('autosave')) { res(null); return; }
+            const tx = db.transaction('autosave', 'readonly');
+            const req = tx.objectStore('autosave').get('scene');
+            req.onsuccess = e => res(e.target.result ?? null);
+            req.onerror = () => res(null);
+          }));
+        } catch { return 'null'; }
+      })()`;
+      const raw = await cdpEval(port, targetId, expr);
+      try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+    }
+
+    console.log('\n[smoke] Verifying autosave data isolation...');
+    const dataA = await readIdbAutosave(sA.cdpPort, sA.targetId, `web-cad-scene-${ID_A}`);
+    const dataB = await readIdbAutosave(sB.cdpPort, sB.targetId, `web-cad-scene-${ID_B}`);
+    const dataDef = await readIdbAutosave(sDef.cdpPort, sDef.targetId, 'web-cad-scene');
+    // Safety: slotA's tab — default DB should be empty (slotA never wrote to web-cad-scene)
+    const dataA_default = await readIdbAutosave(sA.cdpPort, sA.targetId, 'web-cad-scene');
+    // Safety: slotDef's tab — slotA's namespaced DB should be empty (slotDef never wrote there)
+    const dataDef_slotA = await readIdbAutosave(sDef.cdpPort, sDef.targetId, `web-cad-scene-${ID_A}`);
+
+    console.log('[smoke] dataA (smokeA own-DB):', dataA ? `v${dataA.version} objects:${dataA.objects?.length}` : 'null');
+    console.log('[smoke] dataB (smokeB own-DB):', dataB ? `v${dataB.version} objects:${dataB.objects?.length}` : 'null');
+    console.log('[smoke] dataDef (default own-DB):', dataDef ? `v${dataDef.version} objects:${dataDef.objects?.length}` : 'null');
+    // Note: dataA_default and dataDef_slotA are read-only diagnostics; not asserted.
+    // indexedDB.databases() is origin-scoped — any tab on the same origin can READ any DB.
+    // Absence-of-data checks would fail because other slots write to their own DBs on the
+    // same origin. The positive "wrote to own DB" assertions below are the correct isolation gate.
+    console.log('[smoke] dataA_default (slotA tab reads web-cad-scene, diagnostic only):', dataA_default ? `objects:${dataA_default.objects?.length}` : 'null');
+    console.log('[smoke] dataDef_slotA (slotDef tab reads web-cad-scene-smokeA, diagnostic only):', dataDef_slotA ? `objects:${dataDef_slotA.objects?.length}` : 'null');
+
+    // Contamination proof: each slot WROTE to its own correctly-namespaced DB.
+    // If SLOT_SUFFIX were broken (e.g., '' for slotA instead of 'smokeA'),
+    // slotA would write to web-cad-scene instead — and web-cad-scene-smokeA would be empty.
+    check('slotA wrote to web-cad-scene-smokeA (autosave data present)',
+      dataA?.objects?.length > 0, `got: ${JSON.stringify(dataA)?.slice(0, 80)}`);
+    check('slotB wrote to web-cad-scene-smokeB (autosave data present)',
+      dataB?.objects?.length > 0, `got: ${JSON.stringify(dataB)?.slice(0, 80)}`);
+    check('slotDef wrote to web-cad-scene (autosave data present)',
+      dataDef?.objects?.length > 0, `got: ${JSON.stringify(dataDef)?.slice(0, 80)}`);
 
     // Close isolation slots
     console.log('\n[smoke] Closing Phase 2 slots...');
