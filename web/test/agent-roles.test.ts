@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { getDictionary } from "../src/commands/dictionary";
-import { type AgentRole, matchesRole } from "../src/agent/agent-roles";
+import { type AgentRole, matchesRole, selectAgentRole } from "../src/agent/agent-roles";
 
 // Known verbs per topology_role
 const ARCHITECTURAL_INCLUDE = "SdWall";      // topology_role: host
@@ -87,5 +87,50 @@ describe("agent-roles — verb filter", () => {
     // transform topology_role — should not appear in analysis
     expect(names).not.toContain("SdTranslate");
     expect(names).not.toContain("SdMove");
+  });
+});
+
+describe("selectAgentRole — classifier (#395 gap #5 PR 3)", () => {
+  test("architectural prompts", () => {
+    expect(selectAgentRole("draw a 16-foot wall on level 2")).toBe("architectural");
+    expect(selectAgentRole("add a door to the north facade")).toBe("architectural");
+    expect(selectAgentRole("place a window in the east wall")).toBe("architectural");
+  });
+
+  test("geometry prompts", () => {
+    expect(selectAgentRole("boolean-union these solids")).toBe("geometry");
+    expect(selectAgentRole("create a nurbs surface from the grid")).toBe("geometry");
+    expect(selectAgentRole("extrude this profile 10 feet")).toBe("geometry");
+    expect(selectAgentRole("add a 3-inch fillet to this edge")).toBe("geometry");
+  });
+
+  test("analysis prompts", () => {
+    expect(selectAgentRole("measure the floor area")).toBe("analysis");
+    expect(selectAgentRole("how many objects are in the scene")).toBe("analysis");
+    expect(selectAgentRole("list all objects")).toBe("analysis");
+    expect(selectAgentRole("query the volume of this solid")).toBe("analysis");
+  });
+
+  test("ambiguous or empty prompts return undefined (all-verbs fallback)", () => {
+    expect(selectAgentRole("")).toBeUndefined();
+    expect(selectAgentRole("create something")).toBeUndefined();
+    expect(selectAgentRole("help me with this")).toBeUndefined();
+  });
+
+  test("multi-role prompts return undefined (safe: don't drop verbs the agent will need)", () => {
+    // arch + analysis hit → undefined (keep SdWall available)
+    expect(selectAgentRole("draw a wall then measure its length")).toBeUndefined();
+    // arch + analysis hit → undefined
+    expect(selectAgentRole("create a room and report its volume")).toBeUndefined();
+    // geometry + analysis hit → undefined
+    expect(selectAgentRole("extrude this profile and measure the area")).toBeUndefined();
+    // all 3 roles hit → undefined
+    expect(selectAgentRole("draw a wall, extrude the slab, and measure the volume")).toBeUndefined();
+  });
+
+  test("case-insensitive matching", () => {
+    expect(selectAgentRole("DRAW A WALL")).toBe("architectural");
+    expect(selectAgentRole("EXTRUDE This Profile")).toBe("geometry");
+    expect(selectAgentRole("MEASURE the area")).toBe("analysis");
   });
 });

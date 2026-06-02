@@ -14,7 +14,7 @@
 //   // a.history and b.history are completely isolated
 
 import type { AgentRequest, AgentResponse } from "./agent-harness";
-import type { AgentRole } from "./agent-roles";
+import { selectAgentRole, type AgentRole } from "./agent-roles";
 
 export type AgentTurn = { role: "user" | "assistant"; content: string };
 
@@ -44,8 +44,9 @@ export function makeAgentInstanceFactory(runner: AgentRunner) {
       get history() { return _history; },
       async ask(prompt: string, options?: Partial<AgentRequest>): Promise<AgentResponse> {
         const prior = _history.slice(); // snapshot before appending
-        // Baked-in role is the default; per-call options.role overrides if provided.
-        const response = await runner({ role, ...options, prompt, history: prior });
+        // Priority: per-call options.role > baked-in role > classifier > undefined (all-verbs).
+        const effectiveRole = role ?? selectAgentRole(prompt);
+        const response = await runner({ role: effectiveRole, ...options, prompt, history: prior });
         _history.push({ role: "user", content: prompt });
         _history.push({ role: "assistant", content: response.text });
         return response;
