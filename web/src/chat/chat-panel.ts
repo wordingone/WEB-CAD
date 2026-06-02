@@ -860,7 +860,13 @@ export class ChatPanel {
       const sceneChildrenAfter = (window as unknown as { __viewer?: { scene?: { children?: unknown[] } } }).__viewer?.scene?.children?.length ?? -1;
       ledger.push({
         verb: d.name, args: effectiveArgs,
-        status: out.status, error: (out as Record<string, unknown>).error ?? null,
+        status: out.status,
+        error: (() => {
+          if (out.status === "success") return null;
+          const dr = out.dispatchResult;
+          if (dr && !dr.ok) return `${dr.error}${dr.detail ? `: ${dr.detail}` : ""}`;
+          return out.summary ?? "error";
+        })(),
         sceneChildrenBefore, sceneChildrenAfter,
         sceneChildrenDelta: sceneChildrenAfter - sceneChildrenBefore,
       });
