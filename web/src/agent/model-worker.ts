@@ -106,21 +106,19 @@ const GEMMA_ONNX_CPU_UNSUPPORTED =
 // Flip to false if verification is ever reverted to the "accept-all" placeholder.
 const MTP_VERIFICATION_WIRED = true;
 
-// ── §#420-d: StaticKVCache scaffold ────────────────────────────────────────────
-// Companion to freeDimensionOverrides (#438). Pre-allocates fixed-shape GPU buffers
-// for KV so ORT WebGPU sees the SAME tensor shapes every decode step and reuses its
-// intermediate buffer pool instead of reallocating (~15 MB) per step.
+// ── §#420-d: StaticKVCache ──────────────────────────────────────────────────────
+// #438 freeDimensionOverrides caused ORT WebGPU session creation to fail → WASM
+// fallback → WASM has no GatherBlockQuantized kernel for Q4 graph → FATAL_ERROR.
+// freeDimensionOverrides removed (#441). Static KV is the direct OOM fix.
 //
-// Activate: flip STATIC_KV_CACHE_ENABLED_420D = true once [#420-c] diagnostic:
-//   (a) confirms freeDimensionOverrides key matched the real symbolic dim name, AND
-//   (b) OOM still fires (i.e., #438 alone insufficient).
-//   OR: if [#420-c] shows key was WRONG — fix key name, re-deploy, then enable this.
+// Pre-allocates fixed-shape GPU buffers for KV so ORT WebGPU sees the SAME tensor
+// shapes every decode step and reuses its intermediate buffer pool instead of
+// reallocating (~15 MB) per step.
 //
-// Parameters: _SKV_NUM_KV_HEADS, _SKV_HEAD_DIM — fill from [#420-c] kv-input-metadata.
-//   Example expected log: "[#420-c] kv-input-metadata (first 2 layers): [{"name":"past_key_values.0.key","shape":[1,2,"past_sequence_length",256]}]"
-//   → NUM_KV_HEADS=2, HEAD_DIM=256, symbolic dim name = "past_sequence_length" (matches freeDimensionOverrides key if correct).
+// Dims verified from onnx-community/gemma-4-E4B-it-ONNX config.json:
+//   num_hidden_layers=42, num_key_value_heads=2, head_dim=256, max_seq=2048
 //
-// Mechanism (2 patches, both reversed in finally):
+// Mechanism (2 patches, both reversed after generate()):
 //   1. DynamicCache.prototype.update() — instead of concatenating growing tensors,
 //      copies new [1,nh,1,hd] step into pre-allocated buf at pos seqLen, returns
 //      fixed [1,nh,MAX_SEQ,hd] ORT gpu-buffer tensor. ORT sees same shape every step.
@@ -131,14 +129,14 @@ const MTP_VERIFICATION_WIRED = true;
 // GPU budget: 42L × 2(K+V) × [1,2,2048,256] × 2 B/elem ≈ 88 MB (within D3D12 budget).
 // ───────────────────────────────────────────────────────────────────────────────
 
-const STATIC_KV_CACHE_ENABLED_420D = false; // flip after [#420-c] confirms + OOM persists
+const STATIC_KV_CACHE_ENABLED_420D = true; // #438 freeDimensionOverrides caused ORT→WASM fallback; static KV is the OOM fix
 
-// §#420-d dims — PLACEHOLDER; verify from [#420-c] kv-input-metadata log before enabling.
-// The shape array's number elements give the fixed dims; strings are the symbolic ones.
-const _SKV_NUM_LAYERS   = 42;    // Gemma 4 decoder layers (from config.json)
-const _SKV_NUM_KV_HEADS = 2;    // §#420-d-fill: verify from [#420-c] shape[1] (first number after batch=1)
-const _SKV_HEAD_DIM     = 256;  // §#420-d-fill: verify from [#420-c] shape[3] (last fixed dim)
-const _SKV_MAX_SEQ      = 2048; // must match freeDimensionOverrides.past_sequence_length (#438)
+// §#420-d dims — verified from onnx-community/gemma-4-E4B-it-ONNX config.json:
+//   num_hidden_layers=42, num_key_value_heads=2, head_dim=256
+const _SKV_NUM_LAYERS   = 42;
+const _SKV_NUM_KV_HEADS = 2;
+const _SKV_HEAD_DIM     = 256;
+const _SKV_MAX_SEQ      = 2048;
 
 // §#420-d: Static KV cache manager.
 // Allocates GPU buffers on construction; call destroy() when generate() completes.
@@ -823,17 +821,9 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let model: Awaited<ReturnType<typeof Gemma4ForConditionalGeneration.from_pretrained>>;
-      // §#420-c: pin the KV-cache time dimension so ORT WebGPU can reuse intermediate buffers
-      // across decode steps instead of reallocating for every new past_sequence_length value.
-      // Dimension name 'past_sequence_length' is the optimum-exporter convention for the KV
-      // time axis. batch_size=1 matches our single-sequence inference mode.
-      const _webgpuSessionOpts = device === "webgpu"
-        ? { freeDimensionOverrides: { batch_size: 1, past_sequence_length: 2048 } }
-        : undefined;
       try {
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
-          ...(device === "webgpu" && { session_options: _webgpuSessionOpts }),
         });
       } catch (loadErr) {
         // §B-cache-retry (#1316): Cache.put() failure on fresh chromium profiles causes
@@ -846,7 +836,6 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         await new Promise<void>(r => setTimeout(r, 500));
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
           dtype, device, progress_callback: progressCb,
-          ...(device === "webgpu" && { session_options: _webgpuSessionOpts }),
         });
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
