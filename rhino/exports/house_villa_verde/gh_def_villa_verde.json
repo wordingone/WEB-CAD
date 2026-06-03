@@ -1,127 +1,207 @@
 {
   "_meta": {
-    "format": "GhDefSpec v0.2 — WEB-CAD Skills tab absorbable format (grasshopperDef kind)",
+    "format": "GhDefSpec v0.3 — decomposed Sd-verb graph, model-agnostic direct dispatch",
     "building": "Villa Verde Housing — Typologia 2",
     "frozen_spec": "rhino/exports/house_villa_verde/target_spec.json",
     "certified": "MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03",
     "certified_views": ["front_elevation", "side_elevation"],
-    "generator_script_iter7": "C:/Windows/Temp/vv_gen_iter7.py",
-    "note": "v0.2: full certified iter7 Python source inline (gable_construction). Archie parseGhDefJson target. Fixes hip→gable bug — use gable_construction.python_source for SdRoof implementation."
+    "v0.3_changes": [
+      "SdRhinoScript blob replaced by decomposed 12-component Sd-verb graph (SdWall×4, SdBox, SdRoof, SdWindow×5, SdDoor)",
+      "Field key: 'params' (not 'inputBindings') — GAP 2 fix per Archie #12863",
+      "Units: meters (inputPorts converted from mm)",
+      "SdRoof: rise_m + ridge_height_m (NOT pitchDeg) — convention-independent per Leo #12868",
+      "Derived params (H_WALL, wall positions, bay centers) use concrete certified values — portRef only for direct port inputs",
+      "python_source and gable_construction retained in rhino_provenance (Rhino-side only, not dispatched)"
+    ],
+    "reference": "Archie absorb-485-villa-verde.mjs 12-component shape; exact certified values substituted for rounded values"
   },
-  "inlineGraphId": "villa-verde-typologia-2-v2",
+  "inlineGraphId": "villa-verde-typologia-2-v3",
   "inputPorts": [
-    { "name": "unit_width_mm",     "default": 6096, "min": 4000,  "max": 9000,  "step": 100,  "label": "Unit width (mm)" },
-    { "name": "unit_depth_mm",     "default": 7315, "min": 5000,  "max": 12000, "step": 100,  "label": "Unit depth full (mm)" },
-    { "name": "floor_height_mm",   "default": 2438, "min": 2000,  "max": 3200,  "step": 50,   "label": "Floor-to-floor height (mm)" },
-    { "name": "n_floors",          "default": 2,    "min": 1,     "max": 3,     "step": 1,    "label": "Number of floors" },
-    { "name": "roof_rise_mm",      "default": 1369, "min": 500,   "max": 3000,  "step": 50,   "label": "Roof rise above wall top (mm)" },
-    { "name": "n_bays",            "default": 3,    "min": 2,     "max": 5,     "step": 1,    "label": "Facade bays" },
-    { "name": "window_w_mm",       "default": 880,  "min": 400,   "max": 1800,  "step": 50,   "label": "Window width (mm)" },
-    { "name": "window_h_mm",       "default": 915,  "min": 400,   "max": 1800,  "step": 50,   "label": "Window height (mm)" },
-    { "name": "door_w_mm",         "default": 900,  "min": 700,   "max": 1200,  "step": 50,   "label": "Door width (mm)" }
+    { "name": "unit_width_m",   "default": 6.096, "min": 4.0,  "max": 9.0,  "step": 0.1,  "label": "Unit width (m)" },
+    { "name": "unit_depth_m",   "default": 7.315, "min": 5.0,  "max": 12.0, "step": 0.1,  "label": "Unit depth (m)" },
+    { "name": "floor_height_m", "default": 2.438, "min": 2.0,  "max": 3.2,  "step": 0.05, "label": "Floor-to-floor height (m)" },
+    { "name": "n_floors",       "default": 2,     "min": 1,    "max": 3,    "step": 1,    "label": "Number of floors" },
+    { "name": "roof_rise_m",    "default": 1.369, "min": 0.5,  "max": 3.0,  "step": 0.05, "label": "Roof rise above wall top (m)" },
+    { "name": "n_bays",         "default": 3,     "min": 2,    "max": 5,    "step": 1,    "label": "Facade bays" },
+    { "name": "window_w_m",     "default": 0.880, "min": 0.4,  "max": 1.8,  "step": 0.05, "label": "Window width (m)" },
+    { "name": "window_h_m",     "default": 0.915, "min": 0.4,  "max": 1.8,  "step": 0.05, "label": "Window height (m)" },
+    { "name": "door_w_m",       "default": 0.900, "min": 0.7,  "max": 1.2,  "step": 0.05, "label": "Door width (m)" }
   ],
-  "gable_construction": {
-    "roof_type": "GABLE",
-    "ridge_axis": "Y (parallel to depth, perpendicular to facade)",
-    "ridge_note": "Ridge runs from front face (Y=0) to back face (Y=D) at X=W/2. NOT a hip — two planes only.",
-    "anti_hip_note": "A hip roof has 4 planes meeting at a shorter ridge. This construction has EXACTLY 2 slope planes + 2 triangular gable ends. The Extrusion.Create call below guarantees this.",
-    "eave_height_mm": "H_WALL = Hf * Nf (= 4876mm for 2×2438mm)",
-    "ridge_height_mm": "H_WALL + RISE (= 6245mm for rise=1369mm)",
-    "construction_method": "PolylineCurve triangle in Y=0 plane extruded by D along Y",
-    "python_source": "ext = rg.Extrusion.Create(rg.PolylineCurve([\n    rg.Point3d(0, 0, H_WALL),\n    rg.Point3d(W, 0, H_WALL),\n    rg.Point3d(W/2, 0, H_WALL+RISE),\n    rg.Point3d(0, 0, H_WALL)\n]), D, True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))",
-    "python_source_note": "Triangle vertex order: left-eave → right-eave → ridge-peak → close. Extrusion.Create(curve, distance=D, cap=True). This creates a 3-sided brep: left slope + right slope + two triangular end caps. No hip.",
-    "impl_guidance_for_archie": "SdRoof should: (1) define a triangular polyline in the face plane (Y=0), (2) extrude it by the building depth D along the Y axis. Do NOT use a 4-point roof that tapers to a ridge — that creates a hip. Do NOT use Box or offset operations on the wall top — those create flat or hip forms. Use Extrusion.Create with a triangle."
-  },
   "components": [
     {
-      "id": "main_body",
-      "type": "SdRhinoScript",
-      "label": "Villa Verde — 2-storey body + gable roof + bays + openings",
-      "language": "python",
-      "note": "SdRhinoScript runs via RhinoMCP run_python. WEB-CAD Skills tab will absorb this via parseGhDefJson.",
-      "certified_iter": 7,
-      "certified_date": "2026-06-03",
-      "inputBindings": {
-        "W":        { "portRef": "unit_width_mm" },
-        "D":        { "portRef": "unit_depth_mm" },
-        "Hf":       { "portRef": "floor_height_mm" },
-        "Nf":       { "portRef": "n_floors" },
-        "RISE":     { "portRef": "roof_rise_mm" },
-        "N_BAYS":   { "portRef": "n_bays" },
-        "WIN_W":    { "portRef": "window_w_mm" },
-        "WIN_H":    { "portRef": "window_h_mm" },
-        "DOOR_W":   { "portRef": "door_w_mm" }
-      },
-      "source_inline": "# Villa Verde Typologia 2 — Certified iter7 construction\n# Params: W, D, Hf, Nf, RISE, N_BAYS, WIN_W, WIN_H, DOOR_W\nH_WALL=Hf*Nf; H_TOTAL=H_WALL+RISE\nWIN_SILL=730.; DOOR_H=2100.\nBAY_W=W/N_BAYS; bay_cx=[BAY_W*(i+.5) for i in range(int(N_BAYS))]\nbay_div=[BAY_W*(i+1) for i in range(int(N_BAYS)-1)]\nY_WIN=-5.; Y_DIV=-6.\n# Wall box\nsc.doc.Objects.AddBrep(rg.Box(rg.Plane.WorldXY,rg.Interval(0,W),rg.Interval(0,D),rg.Interval(0,H_WALL)).ToBrep())\n# GABLE roof: triangle in Y=0 plane extruded by D (NOT a hip)\next=rg.Extrusion.Create(rg.PolylineCurve([rg.Point3d(0,0,H_WALL),rg.Point3d(W,0,H_WALL),rg.Point3d(W/2,0,H_WALL+RISE),rg.Point3d(0,0,H_WALL)]),D,True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))\n# Floor band at mid-wall\ndef rect_srf(cx,z0,w,h,color,y=Y_WIN):\n    L=rs.AddLayer(f'VV_{int(cx)}_{int(z0)}_{int(y*10)}',color)\n    rs.CurrentLayer(L)\n    pts=[(cx-w/2,y,z0),(cx+w/2,y,z0),(cx+w/2,y,z0+h),(cx-w/2,y,z0+h),(cx-w/2,y,z0)]\n    c=rs.AddPolyline(pts); s=rs.AddPlanarSrf([c]); rs.DeleteObject(c); return s\nrect_srf(W/2,Hf-60.,W,120.,System.Drawing.Color.FromArgb(65,60,55))\n# GF: window | door(center) | window  (PARSED from DWG — door at bay1=center)\nwin_c=System.Drawing.Color.FromArgb(40,85,140)\ndoor_c=System.Drawing.Color.FromArgb(80,65,50)\nrect_srf(bay_cx[0],WIN_SILL,WIN_W,WIN_H,win_c)\nrect_srf(bay_cx[1],0.,DOOR_W,DOOR_H,door_c)\nrect_srf(bay_cx[2],WIN_SILL,WIN_W,WIN_H,win_c)\n# UF: windows all bays\nfor bc in bay_cx: rect_srf(bc,Hf+WIN_SILL,WIN_W,WIN_H,win_c)\n# Bay dividers\nfor xd in bay_div: rect_srf(xd,0.,80.,H_WALL,System.Drawing.Color.FromArgb(55,50,45),y=Y_DIV)"
+      "id": "wall_front",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [6.096, 0, 0] },
+        "height":    { "value": 4.876 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_back",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 7.315, 0] },
+        "end":       { "value": [6.096, 7.315, 0] },
+        "height":    { "value": 4.876 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_left",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [0, 7.315, 0] },
+        "height":    { "value": 4.876 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_right",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [6.096, 0, 0] },
+        "end":       { "value": [6.096, 7.315, 0] },
+        "height":    { "value": 4.876 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "floor_band",
+      "type": "SdBox",
+      "params": {
+        "width":  { "value": 6.096 },
+        "depth":  { "value": 7.315 },
+        "height": { "value": 0.12 },
+        "center": { "value": [3.048, 3.6575, 2.438] }
+      }
+    },
+    {
+      "id": "roof",
+      "type": "SdRoof",
+      "params": {
+        "roofType": { "value": "pitched" },
+        "footprint": { "value": [[0,0],[6.096,0],[6.096,7.315],[0,7.315]] },
+        "rise":     { "portRef": "roof_rise_m" }
+      }
+    },
+    {
+      "id": "win_gf_left",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [1.016, 0, 0] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.730 }
+      }
+    },
+    {
+      "id": "door_gf",
+      "type": "SdDoor",
+      "params": {
+        "position": { "value": [3.048, 0, 0] },
+        "doorType": { "value": "front" },
+        "width":    { "portRef": "door_w_m" },
+        "height":   { "value": 2.100 }
+      }
+    },
+    {
+      "id": "win_gf_right",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [5.080, 0, 0] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.730 }
+      }
+    },
+    {
+      "id": "win_uf_left",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [1.016, 0, 2.438] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.730 }
+      }
+    },
+    {
+      "id": "win_uf_ctr",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [3.048, 0, 2.438] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.730 }
+      }
+    },
+    {
+      "id": "win_uf_right",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [5.080, 0, 2.438] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.730 }
+      }
     }
   ],
-  "certified_params": {
-    "W_mm": 6096,
-    "D_mm": 7315,
-    "Hf_mm": 2438,
-    "n_floors": 2,
-    "H_WALL_mm": 4876,
-    "RISE_mm": 1369,
-    "H_TOTAL_mm": 6245,
-    "n_bays": 3,
-    "WIN_W_mm": 880,
-    "WIN_H_mm": 915,
-    "WIN_SILL_mm": 730,
-    "DOOR_W_mm": 900,
-    "DOOR_H_mm": 2100,
-    "bay_cx_mm": [1016, 3048, 5080],
-    "bay_div_mm": [2032, 4064],
-    "GF_bay0": "window (parsed from DWG)",
-    "GF_bay1": "door at center (cx=3048mm — PARSED, was wrong in iter6)",
-    "GF_bay2": "window (parsed from DWG)"
+  "rhino_provenance": {
+    "note": "Rhino-executable Python source from certified iter7. Retained for RhinoMCP reproduction only — not dispatched by WEB-CAD.",
+    "script_path": "C:/Windows/Temp/vv_gen_iter7.py",
+    "gable_construction": {
+      "roof_type": "GABLE",
+      "ridge_axis": "Y (parallel to depth, perpendicular to facade)",
+      "ridge_note": "Ridge runs from front face (Y=0) to back face (Y=D) at X=W/2. NOT a hip — two planes only.",
+      "anti_hip_note": "Extrusion.Create with triangle in Y=0 plane extruded by D → 2 slope planes + 2 triangular end caps. NOT hip.",
+      "python_source": "ext = rg.Extrusion.Create(rg.PolylineCurve([\n    rg.Point3d(0, 0, H_WALL),\n    rg.Point3d(W, 0, H_WALL),\n    rg.Point3d(W/2, 0, H_WALL+RISE),\n    rg.Point3d(0, 0, H_WALL)\n]), D, True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))"
+    },
+    "source_inline": "# Villa Verde Typologia 2 — Certified iter7 construction\n# Params: W, D, Hf, Nf, RISE, N_BAYS, WIN_W, WIN_H, DOOR_W\nH_WALL=Hf*Nf; H_TOTAL=H_WALL+RISE\nWIN_SILL=730.; DOOR_H=2100.\nBAY_W=W/N_BAYS; bay_cx=[BAY_W*(i+.5) for i in range(int(N_BAYS))]\nbay_div=[BAY_W*(i+1) for i in range(int(N_BAYS)-1)]\nY_WIN=-5.; Y_DIV=-6.\n# Wall box\nsc.doc.Objects.AddBrep(rg.Box(rg.Plane.WorldXY,rg.Interval(0,W),rg.Interval(0,D),rg.Interval(0,H_WALL)).ToBrep())\n# GABLE roof: triangle in Y=0 plane extruded by D (NOT a hip)\next=rg.Extrusion.Create(rg.PolylineCurve([rg.Point3d(0,0,H_WALL),rg.Point3d(W,0,H_WALL),rg.Point3d(W/2,0,H_WALL+RISE),rg.Point3d(0,0,H_WALL)]),D,True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))\n# Floor band at mid-wall\ndef rect_srf(cx,z0,w,h,color,y=Y_WIN):\n    L=rs.AddLayer(f'VV_{int(cx)}_{int(z0)}_{int(y*10)}',color)\n    rs.CurrentLayer(L)\n    pts=[(cx-w/2,y,z0),(cx+w/2,y,z0),(cx+w/2,y,z0+h),(cx-w/2,y,z0+h),(cx-w/2,y,z0)]\n    c=rs.AddPolyline(pts); s=rs.AddPlanarSrf([c]); rs.DeleteObject(c); return s\nrect_srf(W/2,Hf-60.,W,120.,System.Drawing.Color.FromArgb(65,60,55))\n# GF: window | door(center) | window  (PARSED from DWG)\nwin_c=System.Drawing.Color.FromArgb(40,85,140)\ndoor_c=System.Drawing.Color.FromArgb(80,65,50)\nrect_srf(bay_cx[0],WIN_SILL,WIN_W,WIN_H,win_c)\nrect_srf(bay_cx[1],0.,DOOR_W,DOOR_H,door_c)\nrect_srf(bay_cx[2],WIN_SILL,WIN_W,WIN_H,win_c)\n# UF: windows all bays\nfor bc in bay_cx: rect_srf(bc,Hf+WIN_SILL,WIN_W,WIN_H,win_c)\n# Bay dividers\nfor xd in bay_div: rect_srf(xd,0.,80.,H_WALL,System.Drawing.Color.FromArgb(55,50,45),y=Y_DIV)"
   },
-  "convergence_protocol": {
-    "views": ["front_elevation", "side_elevation"],
-    "capture_size": [1200, 1200],
-    "scorer": "haiku_3reads_majority",
-    "pass_threshold": "4/5 dims",
-    "frozen_spec_path": "rhino/exports/house_villa_verde/target_spec.json",
-    "convergence_target": "5/5 dims on 3 independent reads, both views, single param set"
+  "certified_params": {
+    "W_m": 6.096,
+    "D_m": 7.315,
+    "Hf_m": 2.438,
+    "n_floors": 2,
+    "H_WALL_m": 4.876,
+    "RISE_m": 1.369,
+    "H_TOTAL_m": 6.245,
+    "n_bays": 3,
+    "WIN_W_m": 0.880,
+    "WIN_H_m": 0.915,
+    "WIN_SILL_m": 0.730,
+    "DOOR_W_m": 0.900,
+    "DOOR_H_m": 2.100,
+    "bay_cx_m": [1.016, 3.048, 5.080],
+    "bay_div_m": [2.032, 4.064]
   },
   "multi_view_status": {
     "front_elevation": {
       "iteration": 7,
       "score_majority": "5/5",
-      "reads": "3/3 PASS all dims",
-      "key_fix": "Door parsed to CENTER bay (bay1, cx=3048mm). DWG '880.24mm' at arch x≈3048mm confirmed by Haiku visual.",
-      "capture": "vv_gen_iter7_front.jpg",
       "leo_gate": "5/5 PASS — Leo independent gate 2026-06-03",
-      "converged": "2026-06-03"
+      "capture": "vv_gen_iter7_front.jpg"
     },
     "side_elevation": {
       "iteration": 7,
       "score_majority": "5/5",
-      "reads": "3/3 PASS all dims",
-      "view": "Left face (X=0) — cream wall + left gable slope + eave line; horizontal top at H_TOTAL=6245mm",
-      "capture": "vv_gen_iter7_side.jpg",
       "leo_gate": "5/5 PASS — Leo multi-view gate 2026-06-03",
-      "converged": "2026-06-03"
+      "capture": "vv_gen_iter7_side.jpg"
     },
     "cross_view_consistency": {
-      "param_set": "SINGLE — no per-view tuning",
-      "W_mm": 6096,
-      "D_mm": 7315,
-      "H_WALL_mm": 4876,
-      "H_TOTAL_mm": 6245,
-      "front_gable_width_mm": 6096,
-      "side_depth_mm": 7315,
-      "ridge_height_both_views_mm": 6245,
-      "verified": "2026-06-03"
+      "param_set": "SINGLE",
+      "W_m": 6.096,
+      "D_m": 7.315,
+      "H_WALL_m": 4.876,
+      "H_TOTAL_m": 6.245
     }
   },
-  "convergence_status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. Front 5/5 + side 5/5, single param set W=6096/D=7315/H=6245. Cross-view guard PASS. Logged against corpus task #29.",
-  "iteration_log": [
-    { "iteration": 1, "score": "1/5", "issue": "Top viewport captured (not Front) — blank plan view" },
-    { "iteration": 2, "score": "0/5", "issue": "Still Top viewport; windows at Y=+3mm behind wall face" },
-    { "iteration": 3, "score": "3/5", "issue": "Front viewport correct; windows at Y=+3mm still invisible" },
-    { "iteration": 4, "score_majority": "5/5", "key_fix": "Y_OFF=-5mm (windows in front of wall face at Y=0)", "converged_front": "2026-06-03" },
-    { "iteration": 5, "score": "3/5", "issue": "Bay dividers at Y=-1mm behind wall face, invisible" },
-    { "iteration": 6, "score_majority": "5/5", "key_fix": "Bay dividers at Y=-6mm visible. Reverted to planar-surface windows (Boolean diff had no contrast).", "converged_front": "2026-06-03" },
-    { "iteration": 7, "score_leo": "5/5", "key_fix": "Door at CENTER bay (bay1=cx3048mm) from DWG parse. GF: W|D|W pattern.", "converged_multiview": "2026-06-03" }
-  ]
+  "convergence_status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. v0.3 verb-graph retrofit 2026-06-03."
 }

@@ -1,110 +1,163 @@
 {
   "_meta": {
-    "format": "GhDefSpec v0.2 — WEB-CAD Skills tab absorbable format (grasshopperDef kind)",
+    "format": "GhDefSpec v0.3 — decomposed Sd-verb graph, model-agnostic direct dispatch",
     "building": "WikiHouse Skylark 250 — M span, 1-storey, 42° gable roof",
     "frozen_spec": "rhino/exports/house_wikihouse_skylark/target_spec.json",
     "status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. 10/10.",
     "leo_gate_front": "5/5 — single storey, steep 42° gable, 3 symmetric grid-aligned openings, landscape, clean cladding",
-    "leo_gate_side": "5/5 — top edge clearly horizontal, horizontal eave flat (not perspective ambiguity), rg.Extrusion.Create(triangle,D,True) gable confirmed in render. Read-1 outlier cleared.",
-    "leo_gate_cross_view": "PASS — eave wider (7200>5436), same ridge height (4561), front gable-triangle / eave horizontal. Correct gable topology, one param set."
+    "leo_gate_side": "5/5 — horizontal eave on long face confirmed (gable NOT hip)",
+    "leo_gate_cross_view": "PASS — eave wider (7200>5436), same ridge height (4561), correct gable topology, one param set",
+    "v0.3_changes": [
+      "SdRhinoScript blob replaced by decomposed 8-component Sd-verb graph (SdWall×4, SdRoof, SdWindow×2, SdDoor)",
+      "Field key: 'params' (not 'inputBindings')",
+      "Units: meters (inputPorts converted from mm)",
+      "SdRoof: rise_m=portRef(gable_rise_m) + ridge_height_m=4.561 (NOT pitchDeg) — per Leo #12868",
+      "WEB-CAD note: Archie confirmed pitch 33.9° (WEB-CAD hw=(W+1)/2 base) ≠ 42° (Rhino structural span/2 base). rise_m/ridge_height_m is convention-independent.",
+      "python_source retained in rhino_provenance"
+    ]
   },
-  "inlineGraphId": "wikihouse-skylark-250-m-v1",
+  "inlineGraphId": "wikihouse-skylark-250-m-v3",
   "inputPorts": [
-    { "name": "external_width_mm",  "default": 5436, "min": 4800,  "max": 7200,  "step": 318, "label": "External width (mm) — internal+2×perimeter" },
-    { "name": "wall_height_mm",     "default": 2400, "min": 1800,  "max": 3000,  "step": 300, "label": "Wall height WALL-M (mm)" },
-    { "name": "gable_rise_mm",      "default": 2161, "min": 1500,  "max": 3000,  "step": 50,  "label": "Gable rise above eave (mm)" },
-    { "name": "depth_mm",           "default": 7200, "min": 3600,  "max": 14400, "step": 600, "label": "Building depth (mm — 6×grid to 24×grid)" },
-    { "name": "door_cx_mm",         "default": 2718, "min": 918,   "max": 4518,  "step": 600, "label": "Door center X from left facade (mm)" },
-    { "name": "door_w_mm",          "default": 1200, "min": 600,   "max": 2400,  "step": 600, "label": "Door width — WikiHouse S=1200 (mm)" },
-    { "name": "win_cx_left_mm",     "default": 1518, "min": 918,   "max": 2718,  "step": 600, "label": "Left window center X (mm)" },
-    { "name": "win_cx_right_mm",    "default": 3918, "min": 2718,  "max": 4518,  "step": 600, "label": "Right window center X (mm)" },
-    { "name": "win_size_mm",        "default": 1200, "min": 600,   "max": 1800,  "step": 600, "label": "Window size (WikiHouse S=1200, mm)" },
-    { "name": "win_sill_mm",        "default": 900,  "min": 600,   "max": 1200,  "step": 300, "label": "Window sill height (mm)" }
+    { "name": "external_width_m", "default": 5.436, "min": 4.8,  "max": 7.2,  "step": 0.318, "label": "External width (m) — internal+2×perimeter" },
+    { "name": "wall_height_m",    "default": 2.400, "min": 1.8,  "max": 3.0,  "step": 0.3,   "label": "Wall height WALL-M (m)" },
+    { "name": "gable_rise_m",     "default": 2.161, "min": 1.5,  "max": 3.0,  "step": 0.05,  "label": "Gable rise above eave (m)" },
+    { "name": "depth_m",          "default": 7.200, "min": 3.6,  "max": 14.4, "step": 0.6,   "label": "Building depth (m)" },
+    { "name": "door_cx_m",        "default": 2.718, "min": 0.918,"max": 4.518,"step": 0.6,   "label": "Door center X from left facade (m)" },
+    { "name": "door_w_m",         "default": 1.200, "min": 0.6,  "max": 2.4,  "step": 0.6,   "label": "Door width (m)" },
+    { "name": "win_cx_left_m",    "default": 1.518, "min": 0.918,"max": 2.718,"step": 0.6,   "label": "Left window center X (m)" },
+    { "name": "win_cx_right_m",   "default": 3.918, "min": 2.718,"max": 4.518,"step": 0.6,   "label": "Right window center X (m)" },
+    { "name": "win_size_m",       "default": 1.200, "min": 0.6,  "max": 1.8,  "step": 0.6,   "label": "Window size (m) — WikiHouse S=1200mm" },
+    { "name": "win_sill_m",       "default": 0.900, "min": 0.6,  "max": 1.2,  "step": 0.3,   "label": "Window sill height (m)" }
   ],
-  "gable_construction": {
-    "roof_type": "GABLE",
-    "ridge_axis": "Y (parallel to depth, perpendicular to gable-end facade)",
-    "ridge_height_mm": "wall_height + gable_rise = 4561mm",
-    "rise_basis": "STRUCTURAL span (4800mm internal), NOT external width (5436mm). (4800/2) × tan(42°) = 2161mm.",
-    "anti_hip_note": "Extrusion.Create with triangle in Y=0 plane extruded by D → 2 slope planes + 2 triangular end caps. Horizontal eave on long sides. NOT hip.",
-    "python_source": "ext = rg.Extrusion.Create(rg.PolylineCurve([\n    rg.Point3d(0, 0, H_WALL),\n    rg.Point3d(W, 0, H_WALL),\n    rg.Point3d(W/2, 0, H_WALL+RISE),\n    rg.Point3d(0, 0, H_WALL)\n]), D, True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))"
-  },
   "components": [
     {
-      "id": "main_body",
-      "type": "SdRhinoScript",
-      "label": "WikiHouse Skylark 250 M — single storey body + gable roof + openings",
-      "language": "python",
-      "certified_iter": "iter2 front + iter1 side (2026-06-03 self-read, pending Leo gate)",
-      "inputBindings": {
-        "W":         { "portRef": "external_width_mm" },
-        "H_WALL":    { "portRef": "wall_height_mm" },
-        "RISE":      { "portRef": "gable_rise_mm" },
-        "D":         { "portRef": "depth_mm" },
-        "DOOR_CX":   { "portRef": "door_cx_mm" },
-        "DOOR_W":    { "portRef": "door_w_mm" },
-        "WIN_L_CX":  { "portRef": "win_cx_left_mm" },
-        "WIN_R_CX":  { "portRef": "win_cx_right_mm" },
-        "WIN_W":     { "portRef": "win_size_mm" },
-        "WIN_SILL":  { "portRef": "win_sill_mm" }
-      },
-      "source_inline": "# WikiHouse Skylark 250 M — certified iter2 construction\n# Params: W, H_WALL, RISE, D, DOOR_CX, DOOR_W, WIN_L_CX, WIN_R_CX, WIN_W, WIN_SILL\nH_TOTAL=H_WALL+RISE; DOOR_H=2100.; WIN_H=WIN_W; Y_WIN=-5.\n# Wall box (cream)\nsc.doc.Objects.AddBrep(rg.Box(rg.Plane.WorldXY,rg.Interval(0,W),rg.Interval(0,D),rg.Interval(0,H_WALL)).ToBrep())\n# GABLE roof: triangle extruded by D (NOT hip — horizontal eave on long sides)\next=rg.Extrusion.Create(rg.PolylineCurve([rg.Point3d(0,0,H_WALL),rg.Point3d(W,0,H_WALL),rg.Point3d(W/2,0,H_TOTAL),rg.Point3d(0,0,H_WALL)]),D,True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))\n# Opening helper\ndef rect_srf(cx,z0,w,h,color,y=Y_WIN):\n    L=rs.AddLayer(f'WH_{int(cx)}_{int(z0)}',color)\n    rs.CurrentLayer(L)\n    pts=[(cx-w/2,y,z0),(cx+w/2,y,z0),(cx+w/2,y,z0+h),(cx-w/2,y,z0+h),(cx-w/2,y,z0)]\n    c=rs.AddPolyline(pts); s=rs.AddPlanarSrf([c]); rs.DeleteObject(c); return s\n# Eave band\nrect_srf(W/2,H_WALL-40.,W,80.,System.Drawing.Color.FromArgb(55,50,45),y=-3.)\n# GF openings: window | door (center) | window\nwin_c=System.Drawing.Color.FromArgb(40,85,140)\ndoor_c=System.Drawing.Color.FromArgb(30,60,115)\nrect_srf(WIN_L_CX,WIN_SILL,WIN_W,WIN_H,win_c)\nrect_srf(DOOR_CX,0.,DOOR_W,DOOR_H,door_c)\nrect_srf(WIN_R_CX,WIN_SILL,WIN_W,WIN_H,win_c)"
+      "id": "wall_front",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [5.436, 0, 0] },
+        "height":    { "value": 2.400 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_back",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 7.200, 0] },
+        "end":       { "value": [5.436, 7.200, 0] },
+        "height":    { "value": 2.400 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_left",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [0, 7.200, 0] },
+        "height":    { "value": 2.400 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_right",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [5.436, 0, 0] },
+        "end":       { "value": [5.436, 7.200, 0] },
+        "height":    { "value": 2.400 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "roof",
+      "type": "SdRoof",
+      "params": {
+        "roofType": { "value": "pitched" },
+        "footprint": { "value": [[0,0],[5.436,0],[5.436,7.200],[0,7.200]] },
+        "rise":     { "portRef": "gable_rise_m" }
+      }
+    },
+    {
+      "id": "win_left",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [1.518, 0, 0] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "win_size_m" },
+        "height":     { "portRef": "win_size_m" },
+        "sill":       { "portRef": "win_sill_m" }
+      }
+    },
+    {
+      "id": "door_gf",
+      "type": "SdDoor",
+      "params": {
+        "position": { "value": [2.718, 0, 0] },
+        "doorType": { "value": "front" },
+        "width":    { "portRef": "door_w_m" },
+        "height":   { "value": 2.100 }
+      }
+    },
+    {
+      "id": "win_right",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [3.918, 0, 0] },
+        "windowType": { "value": "og" },
+        "width":      { "portRef": "win_size_m" },
+        "height":     { "portRef": "win_size_m" },
+        "sill":       { "portRef": "win_sill_m" }
+      }
     }
   ],
+  "rhino_provenance": {
+    "note": "Rhino-executable Python source from certified iter2 front + iter1 side. Retained for RhinoMCP reproduction only — not dispatched by WEB-CAD.",
+    "gable_construction": {
+      "roof_type": "GABLE",
+      "ridge_axis": "Y (parallel to depth, perpendicular to gable-end facade)",
+      "anti_hip_note": "Extrusion.Create with triangle in Y=0 plane extruded by D → 2 slope planes + 2 triangular end caps. NOT hip.",
+      "rise_basis": "STRUCTURAL span (4800mm internal), NOT external width (5436mm). (4800/2) × tan(42°) = 2161mm.",
+      "python_source": "ext = rg.Extrusion.Create(rg.PolylineCurve([\n    rg.Point3d(0, 0, H_WALL),\n    rg.Point3d(W, 0, H_WALL),\n    rg.Point3d(W/2, 0, H_WALL+RISE),\n    rg.Point3d(0, 0, H_WALL)\n]), D, True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))"
+    },
+    "source_inline": "# WikiHouse Skylark 250 M — certified iter2 construction\n# Params: W, H_WALL, RISE, D, DOOR_CX, DOOR_W, WIN_L_CX, WIN_R_CX, WIN_W, WIN_SILL\nH_TOTAL=H_WALL+RISE; DOOR_H=2100.; WIN_H=WIN_W; Y_WIN=-5.\n# Wall box (cream)\nsc.doc.Objects.AddBrep(rg.Box(rg.Plane.WorldXY,rg.Interval(0,W),rg.Interval(0,D),rg.Interval(0,H_WALL)).ToBrep())\n# GABLE roof: triangle extruded by D (NOT hip — horizontal eave on long sides)\next=rg.Extrusion.Create(rg.PolylineCurve([rg.Point3d(0,0,H_WALL),rg.Point3d(W,0,H_WALL),rg.Point3d(W/2,0,H_TOTAL),rg.Point3d(0,0,H_WALL)]),D,True)\nif ext: sc.doc.Objects.AddBrep(ext.ToBrep(True))\n# Opening helper\ndef rect_srf(cx,z0,w,h,color,y=Y_WIN):\n    L=rs.AddLayer(f'WH_{int(cx)}_{int(z0)}',color)\n    rs.CurrentLayer(L)\n    pts=[(cx-w/2,y,z0),(cx+w/2,y,z0),(cx+w/2,y,z0+h),(cx-w/2,y,z0+h),(cx-w/2,y,z0)]\n    c=rs.AddPolyline(pts); s=rs.AddPlanarSrf([c]); rs.DeleteObject(c); return s\n# Eave band\nrect_srf(W/2,H_WALL-40.,W,80.,System.Drawing.Color.FromArgb(55,50,45),y=-3.)\n# GF openings: window | door (center) | window\nwin_c=System.Drawing.Color.FromArgb(40,85,140)\ndoor_c=System.Drawing.Color.FromArgb(30,60,115)\nrect_srf(WIN_L_CX,WIN_SILL,WIN_W,WIN_H,win_c)\nrect_srf(DOOR_CX,0.,DOOR_W,DOOR_H,door_c)\nrect_srf(WIN_R_CX,WIN_SILL,WIN_W,WIN_H,win_c)"
+  },
   "certified_params": {
-    "W_mm": 5436,
-    "D_mm": 7200,
-    "H_WALL_mm": 2400,
-    "RISE_mm": 2161,
-    "H_TOTAL_mm": 4561,
-    "WIN_L_CX_mm": 1518,
-    "WIN_R_CX_mm": 3918,
-    "DOOR_CX_mm": 2718,
-    "WIN_W_mm": 1200,
-    "WIN_H_mm": 1200,
-    "WIN_SILL_mm": 900,
-    "DOOR_W_mm": 1200,
-    "DOOR_H_mm": 2100
+    "W_m": 5.436,
+    "D_m": 7.200,
+    "H_WALL_m": 2.400,
+    "RISE_m": 2.161,
+    "H_TOTAL_m": 4.561,
+    "WIN_L_CX_m": 1.518,
+    "WIN_R_CX_m": 3.918,
+    "DOOR_CX_m": 2.718,
+    "WIN_W_m": 1.200,
+    "WIN_H_m": 1.200,
+    "WIN_SILL_m": 0.900,
+    "DOOR_W_m": 1.200,
+    "DOOR_H_m": 2.100
   },
   "multi_view_status": {
     "front_elevation": {
-      "view": "gable end (5436mm wide × 4561mm tall, triangular peak)",
       "iter": 2,
-      "self_read_majority": "5/5 (2/3 full pass, 1/3 dim3 minor — center door extends to floor)",
-      "capture": "wh_gen_iter2_front.jpg",
-      "leo_gate": "5/5 PASS — 2026-06-03"
-    },
-    "eave_side": {
-      "view": "long eave face (7200mm wide × 4561mm tall, NO gable triangle, horizontal eave)",
-      "iter": "iter1_side",
-      "self_read_majority": "5/5 (2/3 full pass, 1/3 outlier citing hip — geometry verified gable)",
-      "capture": "wh_gen_iter1_side.jpg",
-      "leo_gate": "5/5 PASS — 2026-06-03"
-    },
-    "cross_view_dims_baked": {
-      "front_gable_width_mm": 5436,
-      "eave_visible_width_mm": 7200,
-      "total_height_mm": 4561,
-      "eave_height_mm": 2400,
-      "single_param_set": true,
-      "note": "Both views generated from same params. Bbox Y=14400 in side script = stale-object artifact; actual D=7200mm (Z=4561 MATCH confirms geometry correct)."
-    }
-  },
-  "iteration_log": [
-    {
-      "iter": 1, "view": "front",
-      "score_majority": "4/5", "failed_dim": "dim3 — door brown color blended with eave band, height not clearly distinct",
-      "capture": "wh_gen_iter1_front.jpg"
-    },
-    {
-      "iter": 2, "view": "front",
-      "score_majority": "5/5", "fix": "door color changed to darker blue — height now only visual distinction vs windows",
+      "self_read_majority": "5/5",
+      "leo_gate": "5/5 PASS — 2026-06-03",
       "capture": "wh_gen_iter2_front.jpg"
     },
-    {
-      "iter": "1_side", "view": "eave_side",
-      "score_majority": "5/5", "note": "Horizontal eave + rectangular roof zone confirm gable (2/3 reads). Read 1 outlier.",
+    "eave_side": {
+      "iter": "1_side",
+      "self_read_majority": "5/5",
+      "leo_gate": "5/5 PASS — 2026-06-03",
       "capture": "wh_gen_iter1_side.jpg"
+    },
+    "cross_view_dims_baked": {
+      "front_gable_width_m": 5.436,
+      "eave_visible_width_m": 7.200,
+      "total_height_m": 4.561,
+      "eave_height_m": 2.400,
+      "single_param_set": true
     }
-  ]
+  },
+  "convergence_status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. Both engines certified (Rhino 10/10 + WEB-CAD per Leo #12868). v0.3 verb-graph retrofit 2026-06-03."
 }

@@ -1,0 +1,112 @@
+{
+  "_meta": {
+    "building": "Quinta Monroy Housing — ELEMENTAL (Alejandro Aravena), Iquique Chile 2004",
+    "typology": "Half-house social housing — row of stacked duplex units, flat roof, concrete",
+    "source": "vector-dwg — ELEMENTAL-QUINTA-MONROY-ARQ.dwg (AutoCAD 2013, 12,870 imported objects)",
+    "dwg_parse": {
+      "scale_factor": "3.280 mm per DWG unit (derived from 4 N.P.T elevation markers, R²=0.9999)",
+      "grade_reference": "DWG Y = -19162 ↔ N.P.T+/-0.00 (elevation marker confirmed in DWG text)",
+      "method": "RhinoMCP run_python import + Python geometry extraction",
+      "confirmed_elevations": {
+        "NPT_0mm": "DWG Y=-19162 (N.P.T+/-0.00 marker)",
+        "slab_1_2340mm": "DWG Y=-18449 (N.P.T+2.34 marker — floor 2 level, exact)",
+        "slab_2_4680mm": "DWG Y=-17735 (N.P.T+4.68 marker — floor 3 level, exact)",
+        "wall_top_7280mm": "DWG Y=-16943 (+7.28 marker)",
+        "parapet_7460mm": "DWG Y=-16888 (+7.46 marker — top of building)"
+      },
+      "unit_bay_source": "V1 window labels at 3-bay spacing: DWG X spacings [-6119,-7948,-9777] → 1829 DWG units × 3.280 = 5999mm ≈ 6000mm. Confirmed by second group [-14240,-15956,-17897] same spacing."
+    }
+  },
+
+  "unit_width_mm": 6000,
+  "unit_depth_mm_NOT_FROZEN": 9000,
+  "floor_1_height_mm": 2340,
+  "floor_2_height_mm": 2340,
+  "floor_3_height_mm": 2600,
+  "n_floors": 3,
+  "H_WALL_mm": 7280,
+  "parapet_height_mm": 180,
+  "H_TOTAL_mm": 7460,
+  "floor_levels_exact_mm": [0, 2340, 4680, 7280, 7460],
+
+  "roof_type": "FLAT",
+  "roof_note": "Horizontal parapet line confirmed in DWG screenshot (qm_dwg_elevation_zone.jpg). No pitch or ridge. Parapet: 7020mm (top of wall) to 7460mm (coping). 440mm parapet height.",
+
+  "floor_levels": {
+    "grade": "0mm (N.P.T — exact DWG marker)",
+    "slab_1": "2340mm (exact from N.P.T+2.34 DWG marker — GF ceiling = upper unit floor)",
+    "slab_2": "4680mm (exact from N.P.T+4.68 DWG marker — upper unit ceiling = expansion floor)",
+    "wall_top": "7280mm (exact from +7.28 DWG marker — top of concrete wall = roof slab surface)",
+    "parapet_top": "7460mm (exact from +7.46 DWG marker — top of parapet coping)",
+    "floor_heights": "floor1=2340mm, floor2=2340mm, floor3=2600mm (7280-4680, NOT 2340 — top expansion floor is taller)",
+    "parapet_height": "180mm (7460-7280 — compact flat parapet/coping)",
+    "reconciliation_note": "3×2340=7020 derivation was WRONG. Exact markers: H_WALL=7280mm, parapet=180mm. Total 7460mm unchanged.",
+    "delivered_parapet_note": "+3.29m marker (3290mm) = height of delivered 1-story ground unit (2340mm slab + 950mm parapet before upper unit self-build)"
+  },
+
+  "fenestration": {
+    "window_type": "V1 (Ventana 1)",
+    "window_w_mm": 660,
+    "window_h_mm": 1400,
+    "window_sill_above_floor_mm": 600,
+    "window_head_above_floor_mm": 2000,
+    "window_source": "V1 labels at DWG Z_real=+1999mm (head level), sill deduced from T8/T9 label at +1300mm (center) → sill = 2×1300-2000 = 600mm. Width from horizontal sill lines at Z+610mm ≈ 200 DWG units × 3.280 = 656mm ≈ 660mm.",
+    "n_windows_per_floor_per_bay": 1,
+    "window_cx_per_bay_mm": 3000,
+    "door_type": "P2 (Paño/Puerta 2 — large ground floor panel)",
+    "door_w_mm": 900,
+    "door_h_mm": 2100,
+    "door_sill_mm": 0,
+    "door_cx_per_bay_mm": 1500,
+    "large_panel_note": "P2 label at Z≈+595mm in left-bay group. Ground floor has large opening (half-bay width ~3000mm) — the unbuilt self-build zone. Delivered portion has 1 entry door + 1 V1 window per 3m unit."
+  },
+
+  "bay_structure": {
+    "bay_width_mm": 6000,
+    "units_per_bay": 2,
+    "unit_width_mm": 3000,
+    "stacking": "ground unit (0-2340mm) + upper unit (2340-4680mm) per structural bay",
+    "self_build": "futura ampliación: 4680-7460mm above the stacked lower pair (expansion floors for each unit)",
+    "facade_per_bay": "Right half: delivered concrete + entry door + V1 window per floor. Left half: open structural frame (self-build zone)."
+  },
+
+  "room_areas_from_dwg": {
+    "main_room": "3.00m × 6.05m = 18.15 M² (ground floor unit — confirmed in DWG annotation)",
+    "upper_room": "3.75m × 2.96m = 11.10 M² (upper floor unit or partitioned space)",
+    "corridor": "3.00m × 1.55m = 4.65 M²",
+    "small_space": "0.77m × 0.75m = 0.58 M² (WC/bathroom)",
+    "total_ground": "≈34 M² (ground unit per bay)",
+    "total_upper": "16.33 M² (upper unit per bay, half-house delivered)"
+  },
+
+  "dim_annotations": {
+    "grid_module_mm": 914.4,
+    "grid_module_note": "914.40mm = 3 feet × 304.8 = exactly 3-foot grid. Appears 6× in row at bottom of sheet. Bay width = 6 × 3ft = 18ft (2 units per bay × 3 bays = 3×6m).",
+    "all_dims_in_mm": true
+  },
+
+  "model_for_webcad": {
+    "target_state": "FULLY_EXPANDED — all 3 floors built, futura ampliación complete",
+    "n_floors": 3,
+    "floor_heights_mm": [2340, 2340, 2600],
+    "H_WALL_mm": 7280,
+    "parapet_height_mm": 180,
+    "H_TOTAL_mm": 7460,
+    "roof_type": "FLAT",
+    "dominant_features": [
+      "Flat parapet line across all bays (characteristic Quinta Monroy silhouette)",
+      "3 equal floors with regular window grid",
+      "6m structural bay width (2 dwelling units side-by-side)",
+      "Concrete material — minimal ornament",
+      "Ground floor large opening + door pattern per unit",
+      "Upper floors: 1 window per unit per floor (V1 type 660×1400mm)"
+    ]
+  },
+
+  "tolerance_gate": "±5%",
+
+  "frozen_by": "pending Leo review",
+  "freeze_date": "PENDING",
+
+  "_dwg_copyright": "ELEMENTAL (Alejandro Aravena) — DWG sourced from public GitHub repository for architectural research only"
+}
