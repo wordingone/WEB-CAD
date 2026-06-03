@@ -1189,10 +1189,21 @@
         type: point3
       profile:
         type: polyline_or_circle
-      height:
+      face_m:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[optional unit=m default=0.3] Section width (X face). Farnsworth W8: 0.203"
+      depth_m:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[optional unit=m default=0.3] Section depth (Y face). Farnsworth W8: 0.210"
+      height_m:
         type: number
         unit: m
         default: 4
+        description: "[optional unit=m default=4] Column height. Farnsworth W8: 4.543"
       level:
         type: string
         description: "Level ID or name."
@@ -1507,6 +1518,16 @@
         type: number
         unit: m
         default: 3
+      height_m:
+        type: number
+        unit: m
+        default: 3
+        description: "[optional unit=m default=3] Glazing height (floor-to-soffit). Farnsworth: 2.743"
+      elevation_m:
+        type: number
+        unit: m
+        default: 0
+        description: "[optional unit=m default=0] Bottom Z of glazing above active level. Farnsworth raised floor: 1.600"
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."

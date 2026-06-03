@@ -7,7 +7,7 @@ import {
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
   buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
   type RoofParams, type CurtainWallParams, type StairParams,
-  DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
+  DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT,
 } from "../tools/structural";
 import { buildRamp, buildRailing } from "../tools/sketch";
 import { resolveCPlane } from "../viewer/cplane";
@@ -526,15 +526,21 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdColumn", (args) => {
     const cplane = resolveCPlane("SdColumn", args as Record<string, unknown>, viewer);
     const posArr = args.position as [number, number] | undefined;
-    const p = { x: posArr?.[0] ?? 0, y: posArr?.[1] ?? 0 };
+    const facePx = (args.face_m as number | undefined);
+    const depthPx = (args.depth_m as number | undefined);
+    const heightPx = (args.height_m as number | undefined);
+    const p = { x: posArr?.[0] ?? 0, y: posArr?.[1] ?? 0, face: facePx, depth: depthPx, height: heightPx };
     const { mesh, chain } = buildColumn(p);
+    const colFace = facePx ?? 0.3;
+    const colDepth = depthPx ?? 0.3;
+    const colH = heightPx ?? DEFAULT_COLUMN_HEIGHT;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.cplaneKind = cplane.kind;
     mesh.userData.layerId = resolveLayerId("SdColumn", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkExtrudedRectangleBrep(viewer, mesh, -0.15, 0.15, -0.15, 0.15, 4, "SdColumn");
+    linkExtrudedRectangleBrep(viewer, mesh, -colFace / 2, colFace / 2, -colDepth / 2, colDepth / 2, colH, "SdColumn");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "column" };
@@ -1000,12 +1006,15 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       a = { x: 0, y: 0 };
       b = { x: wallLen, y: 0 };
     }
+    const cwHeight = (args.height_m as number | undefined) ?? DEFAULT_WALL_HEIGHT;
+    const cwElevation = (args.elevation_m as number | undefined) ?? 0;
     const cwParams: CurtainWallParams = {
       mullionSpacing:  (args.mullionSpacing  as number | undefined) ?? undefined,
       transomSpacing:  (args.transomSpacing  as number | undefined) ?? undefined,
+      height_m: cwHeight,
     };
     const { mesh, chain } = buildCurtainWall(a, b, cwParams);
-    mesh.position.z = getActiveLevelElevation();
+    mesh.position.z = getActiveLevelElevation() + cwElevation;
     mesh.userData.layerId = resolveLayerId("SdCurtainWall", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
@@ -1017,7 +1026,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       _joinShell.userData.levelId = getActiveLevelId();
       _joinShell.userData.layerId = resolveLayerId("SdCurtainWall", args);
     }
-    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, DEFAULT_WALL_HEIGHT, "SdCurtainWall");
+    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, cwHeight, "SdCurtainWall");
     const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(mesh);
     if (canonical && _joinShell instanceof THREE.Mesh) {
       viewer.getCanonicalGeometryStore().linkObject(_joinShell, canonical.id);
