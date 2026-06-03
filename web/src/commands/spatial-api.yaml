@@ -3009,6 +3009,22 @@
   kernel: replicad
   alias_source: generic_cad_vocabulary
 
+- name: SdRunBuilding
+  kernel_op: runBuilding
+  args:
+    - {name: id, type: string, required: true, description: "Building identifier — one of: farnsworth"}
+    - {name: pavilion_length_m, type: number, required: false, description: "[optional unit=m default=23.571] Override pavilion length"}
+    - {name: pavilion_depth_m,  type: number, required: false, description: "[optional unit=m default=8.738]  Override pavilion depth"}
+    - {name: floor_raise_m,     type: number, required: false, description: "[optional unit=m default=1.600]  Override floor raise above grade"}
+    - {name: interior_height_m, type: number, required: false, description: "[optional unit=m default=2.743]  Override interior clear height"}
+    - {name: bay_spacing_m,     type: number, required: false, description: "[optional unit=m default=6.706]  Override column bay spacing"}
+    - {name: cantilever_m,      type: number, required: false, description: "[optional unit=m default=1.7265] Override end cantilever"}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [runbuilding, "run building", "place building", "load building", "build farnsworth", "farnsworth house"]
+  kernel: replicad
+  alias_source: generic_cad_vocabulary
+
 # ============================================================
 # §15 Agent goal meta-tools (#980)
 # These are NOT geometry producers. They manage the goal state machine
