@@ -1336,6 +1336,7 @@
         type: solid
       position:
         type: point3
+        description: "XY wall position. position[2] (Z) sets floor elevation for multi-storey placement; defaults to active level elevation."
       windowType:
         type: string
         enum: [eg, og]
