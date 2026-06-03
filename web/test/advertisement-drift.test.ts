@@ -13,6 +13,7 @@
 
 import { describe, test, expect, beforeAll } from "bun:test";
 import { dispatch, registerHandler } from "../src/commands/dispatch";
+import { getDictionary } from "../src/commands/dictionary";
 import type { Viewer } from "../src/viewer/viewer";
 import { registerSurface325Handlers } from "../src/handlers/s325-impl";
 import { handle_SdBooleanSplit } from "../src/handlers/s326-impl";
@@ -108,5 +109,26 @@ describe("#422 — advertisement drift: stub verbs return NotYetImplemented", ()
   test("SdIgesWrite: resolves + returns NotYetImplemented", async () => {
     const r = await dispatch("SdIgesWrite", {});
     assertNotImplemented(r, "SdIgesWrite");
+  });
+});
+
+describe("#422 — full-sweep: no advertised verb returns UnknownVerb", () => {
+  // Guards against future parser regressions silently dropping dictionary entries.
+  // Asserts every verb in getDictionary() is resolvable by dispatch —
+  // result may be NoHandler / ArgValidationError / ok:true, but never UnknownVerb.
+  test("all dictionary verbs dispatch without UnknownVerb", async () => {
+    const verbs = getDictionary().map((e) => e.name);
+    expect(verbs.length, "dictionary must be non-empty").toBeGreaterThan(0);
+    const failures: string[] = [];
+    for (const verb of verbs) {
+      const r = await dispatch(verb, {});
+      if (!r.ok && (r as { error: string }).error === "UnknownVerb") {
+        failures.push(verb);
+      }
+    }
+    expect(
+      failures,
+      `${failures.length} verb(s) returned UnknownVerb: ${failures.join(", ")}`,
+    ).toHaveLength(0);
   });
 });
