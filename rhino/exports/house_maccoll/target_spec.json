@@ -1,0 +1,140 @@
+{
+  "corpus_item_id": "sc1182",
+  "habs_id": "HABS SC-876",
+  "building_name": "MacColl House",
+  "sheet_code": "00003",
+  "sheet_title": "South Elevation",
+  "drawing_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00003_crop_facade.jpg",
+  "sha256_prefix": "3cd831f6025f",
+  "frozen_at": "2026-06-02",
+  "freeze_method": "crop_facade + 3-read majority vote (haiku-a, haiku-b, haiku-c)",
+  "reads": {
+    "haiku_a": {
+      "gf_bay_count": 5,
+      "uf_bay_count": 5,
+      "door_type": "double",
+      "door_bay_position": 2,
+      "gf_window_count": 4,
+      "uf_window_count": 4,
+      "storey_count": 2.5,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "moderate",
+      "wing_present": false,
+      "wing_side": null,
+      "wing_storeys": null,
+      "chimney_count": 2,
+      "chimney_position": "end_walls",
+      "confidence_note": "5-bay read, wing_present=false, notes center UF bay possibly blank"
+    },
+    "haiku_b": {
+      "gf_bay_count": 5,
+      "uf_bay_count": 5,
+      "door_type": "double",
+      "door_bay_position": 2,
+      "gf_window_count": 4,
+      "uf_window_count": 4,
+      "storey_count": 2,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "moderate",
+      "wing_present": false,
+      "wing_side": null,
+      "wing_storeys": null,
+      "chimney_count": 2,
+      "chimney_position": "end_walls",
+      "confidence_note": "5-bay read, clean 2-storey"
+    },
+    "haiku_c": {
+      "gf_bay_count": 3,
+      "uf_bay_count": 3,
+      "door_type": "double",
+      "door_bay_position": 1,
+      "gf_window_count": 2,
+      "uf_window_count": 2,
+      "storey_count": 2,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "moderate",
+      "wing_present": false,
+      "wing_side": null,
+      "wing_storeys": null,
+      "chimney_count": 2,
+      "chimney_position": "end_walls",
+      "porch_note": "full-width front porch with vertical balusters and steps",
+      "confidence_note": "3-bay outlier, notes full-width porch \u2014 likely porch visible behind 5-bay facade"
+    }
+  },
+  "spec": {
+    "gf_bay_count": 5,
+    "uf_bay_count": 5,
+    "door_type": "double",
+    "door_bay_position": 2,
+    "gf_window_count": 4,
+    "uf_window_count": 4,
+    "storey_count": 2,
+    "roof_type": "gable",
+    "roof_pitch_estimate": "moderate",
+    "wing_present": false,
+    "wing_side": null,
+    "wing_storeys": null,
+    "chimney_count": 2,
+    "chimney_position": "end_walls"
+  },
+  "confidence": {
+    "gf_bay_count": "high",
+    "uf_bay_count": "high",
+    "door_type": "high",
+    "door_bay_position": "high",
+    "gf_window_count": "high",
+    "uf_window_count": "medium",
+    "storey_count": "high",
+    "roof_type": "high",
+    "roof_pitch_estimate": "high",
+    "wing_present": "high",
+    "chimney_count": "high",
+    "chimney_position": "high"
+  },
+  "generator_gaps": {
+    "porch": "Read C notes full-width front porch with balusters. Current generator has no porch primitive.",
+    "uf_window_center_bay": "Read A notes possible blank/solid center bay UF above entrance (Palladian window?). Frozen as 4 UF windows.",
+    "storey_detail": "Read A noted 2.5 storeys (gable dormers visible?). Majority voted 2. Frozen as 2."
+  },
+  "scoring_rubric": {
+    "dimensions": 5,
+    "pass_threshold": 4,
+    "score_dimensions": [
+      {
+        "name": "storey_count",
+        "target": "2 full storeys",
+        "coarse": true
+      },
+      {
+        "name": "roof_type_pitch",
+        "target": "gable, moderate pitch",
+        "coarse": true
+      },
+      {
+        "name": "fenestration",
+        "target": "5-bay, double door center (bay 2), 4 GF windows + 4-5 UF windows",
+        "coarse": false
+      },
+      {
+        "name": "massing_wing",
+        "target": "NO wing \u2014 pure rectangular block",
+        "coarse": true
+      },
+      {
+        "name": "chimney",
+        "target": "2 end-wall chimneys",
+        "coarse": false
+      }
+    ],
+    "notes": "MacColl is 5-bay symmetric (no wing). Main structural differences from Ramsey: bay_count (5 vs 3) and wing_absent (False vs True). Scoring proves generalization across these two dimensions."
+  },
+  "structural_diff_from_ramsey": {
+    "bay_count": "5 vs 3 \u2014 DIFFERENT",
+    "wing": "absent vs right-wing \u2014 DIFFERENT",
+    "chimneys": "end_walls vs end_walls \u2014 SAME",
+    "roof": "gable moderate vs gable moderate \u2014 SAME",
+    "storeys": "2 vs 2 \u2014 SAME"
+  },
+  "generalization_claim": "If generator achieves \u22654/5 on MacColl AND Ramsey, it proves the parametric vocabulary generalizes to different bay counts and massing configurations \u2014 not just a Ramsey-specific tuning."
+}
