@@ -130,9 +130,14 @@ function _buildFromGlb(
     const container = new THREE.Group();
     container.add(clone);
 
-    // Tag userData on each child mesh for S130 assertion
+    // Tag userData and set DoubleSide so windows are visible from both exterior and interior.
     container.traverse((obj) => {
-      if ((obj as THREE.Mesh).isMesh) obj.userData.source = source;
+      if ((obj as THREE.Mesh).isMesh) {
+        obj.userData.source = source;
+        const mat = (obj as THREE.Mesh).material;
+        if (Array.isArray(mat)) mat.forEach((m) => { if (m) (m as THREE.MeshStandardMaterial).side = THREE.DoubleSide; });
+        else if (mat) (mat as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+      }
     });
 
     // Return container as a Mesh (callers use mesh.add/position/userData)
@@ -249,10 +254,10 @@ function _buildWindowFromFzkData(
       return {
         geom,
         mat: [
-          new THREE.MeshStandardMaterial({ color: 0xc8b89a, roughness: 0.55, metalness: 0.05 }),
+          new THREE.MeshStandardMaterial({ color: 0xc8b89a, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }),
           new THREE.MeshPhysicalMaterial({
             color: 0x88aacc, transparent: true, opacity: 0.30,
-            transmission: 0.85, roughness: 0.05, metalness: 0.0,
+            transmission: 0.85, roughness: 0.05, metalness: 0.0, side: THREE.DoubleSide,
           }),
         ],
       };
@@ -261,7 +266,7 @@ function _buildWindowFromFzkData(
     // Fallback: old JSON without groups — single vertex-colored material
     return {
       geom,
-      mat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 }),
+      mat: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide }),
     };
   } catch {
     return null;
@@ -292,8 +297,8 @@ function _syntheticWindow(w: number, t: number, h: number): { geom: THREE.Buffer
   const g4 = new THREE.BoxGeometry(w - 2 * fw, t * 0.3, h - 2 * fw); g4.translate(0, 0, h / 2);
   const geom = mergeGeometries([g0, g1, g2, g3, g4], true);
   const mat  = [
-    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.4, metalness: 0.2 }),
-    new THREE.MeshStandardMaterial({ color: 0x88c4e8, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide }),
+    new THREE.MeshStandardMaterial({ color: 0x88c4e8, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0, side: THREE.DoubleSide }),
   ];
   return { geom, mat };
 }
