@@ -6970,6 +6970,23 @@
   kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
+- name: Sd3dmWrite
+  kernel_op: 3dmWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.3dm"
+    required: []
+  topology_role: io
+  kg_predicates: []
+  synonyms: [export 3dm, save 3dm, rhino export, write rhino, save as rhino, download 3dm]
+  note: "Exports scene geometry to Rhino .3dm via rhino3dm.js WASM. Canonical NURBS where available; Rhino Mesh fallback. Void topology preserved as face-absence on mesh path."
+  kernel: nurbs-ts
+  alias_source: generic_cad_vocabulary
+
 - name: SdDxfRead
   kernel_op: dxfRead
   parameters:
