@@ -19,7 +19,19 @@
   },
 
   "unit_width_mm": 6000,
-  "unit_depth_mm_NOT_FROZEN": 9000,
+  "unit_depth_mm": 6048,
+  "unit_depth_confidence": "CONFIRMED",
+  "unit_depth_evidence": "LinearDimension '1844.04'×3 ×3.280mm/DWG=6048mm; area texts '3.00 X 6.05=18.15M' and '6.00 X 6.05=36.3M' (depth=6.05m=6050mm ±2mm). QM expands in WIDTH not depth.",
+  "unit_depth_tolerance_pct": 2,
+  "outer_envelope_incl_futura_mm": 7550,
+  "outer_envelope_note": "room 6048mm + futura-ampliación frame 1502mm (back inner Y=-28637 to futura front Y=-26335, 2302 DWG×3.280); context only, not gated depth",
+  "footprint_crosscheck": {
+    "width_mm": 6000,
+    "depth_mm": 6048,
+    "area_m2": 36.3,
+    "witness": "annotation '6.00 X 6.05 = 36.3 M'",
+    "status": "PASS — non-tautological, 3 independent parses (width, depth, area)"
+  },
   "floor_1_height_mm": 2340,
   "floor_2_height_mm": 2340,
   "floor_3_height_mm": 2600,
@@ -30,7 +42,7 @@
   "floor_levels_exact_mm": [0, 2340, 4680, 7280, 7460],
 
   "roof_type": "FLAT",
-  "roof_note": "Horizontal parapet line confirmed in DWG screenshot (qm_dwg_elevation_zone.jpg). No pitch or ridge. Parapet: 7020mm (top of wall) to 7460mm (coping). 440mm parapet height.",
+  "roof_note": "Horizontal parapet line confirmed in DWG screenshot (qm_dwg_elevation_zone.jpg). No pitch or ridge. Wall top: 7280mm (exact +7.28 DWG marker). Parapet: 7280mm to 7460mm = 180mm. H_TOTAL=7460mm exact (+7.46 DWG marker). NOTE: prior roof_note erroneously stated 7020/440 — those were the wrong 3×2340 derivation values.",
 
   "floor_levels": {
     "grade": "0mm (N.P.T — exact DWG marker)",
@@ -105,8 +117,8 @@
 
   "tolerance_gate": "±5%",
 
-  "frozen_by": "pending Leo review",
-  "freeze_date": "PENDING",
+  "frozen_by": "Leo (mail #12887 geometry; mail #12894 depth)",
+  "freeze_date": "2026-06-03",
 
   "_dwg_copyright": "ELEMENTAL (Alejandro Aravena) — DWG sourced from public GitHub repository for architectural research only"
 }

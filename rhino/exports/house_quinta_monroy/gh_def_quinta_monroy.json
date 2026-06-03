@@ -1,0 +1,208 @@
+{
+  "_meta": {
+    "format": "GhDefSpec v0.3 — decomposed Sd-verb graph, model-agnostic direct dispatch",
+    "building": "Quinta Monroy Housing — ELEMENTAL (Alejandro Aravena), Iquique Chile 2004",
+    "typology": "Half-house social housing — stacked duplex, flat roof, concrete, FULLY_EXPANDED state",
+    "frozen_spec": "rhino/exports/house_quinta_monroy/target_spec.json",
+    "certified": "MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03",
+    "certified_views": ["front_elevation", "side_elevation"],
+    "v0.3_notes": [
+      "SdRoof: roofType='flat', rise=0 — QM is the first flat-roof corpus entry; methodology generalizes from VV/WH pitched",
+      "Parapet modeled as separate SdBox (H_WALL=7.28 → parapet cap 7.28-7.46m); distinct from structural wall",
+      "Two floor_band SdBoxes (F2 at 2.34m, F3 at 4.68m) — 3-floor unit, VV had 1 band for 2 floors",
+      "Fenestration: GF = door_cx=1.5m + V1_win_cx=4.5m; UF1+UF2 = V1_win_cx=3.0m (DWG-parsed positions)",
+      "Field key: 'params' (not 'inputBindings') — GAP 2 convention per VV/WH precedent",
+      "Units: meters throughout",
+      "PARITY GATE: H_TOTAL wall-top must render at 7.46m (7280mm structural + 180mm parapet). Flat roof = no gable fill — overshoot is immediately visible. Gate against certified Rhino build (qm_gen_iter1_front.jpg, H_TOTAL=7460 PASS)."
+    ]
+  },
+  "inlineGraphId": "quinta-monroy-v3",
+  "inputPorts": [
+    { "name": "unit_width_m",    "default": 6.000,  "min": 4.0,  "max": 9.0,  "step": 0.1,  "label": "Unit width (m)" },
+    { "name": "unit_depth_m",    "default": 6.048,  "min": 4.0,  "max": 10.0, "step": 0.1,  "label": "Unit depth (m)" },
+    { "name": "floor_1_height_m","default": 2.340,  "min": 2.0,  "max": 3.2,  "step": 0.05, "label": "Floor 1 height (m)" },
+    { "name": "floor_2_height_m","default": 2.340,  "min": 2.0,  "max": 3.2,  "step": 0.05, "label": "Floor 2 height (m)" },
+    { "name": "floor_3_height_m","default": 2.600,  "min": 2.0,  "max": 3.5,  "step": 0.05, "label": "Floor 3 (expansion) height (m)" },
+    { "name": "parapet_height_m","default": 0.180,  "min": 0.1,  "max": 0.5,  "step": 0.02, "label": "Parapet height (m)" },
+    { "name": "window_w_m",      "default": 0.660,  "min": 0.4,  "max": 1.2,  "step": 0.05, "label": "Window width V1 (m)" },
+    { "name": "window_h_m",      "default": 1.400,  "min": 0.6,  "max": 2.0,  "step": 0.05, "label": "Window height V1 (m)" },
+    { "name": "door_w_m",        "default": 0.900,  "min": 0.7,  "max": 1.2,  "step": 0.05, "label": "Door width P2 (m)" }
+  ],
+  "components": [
+    {
+      "id": "wall_front",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [6.0, 0, 0] },
+        "height":    { "value": 7.28 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_back",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 6.048, 0] },
+        "end":       { "value": [6.0, 6.048, 0] },
+        "height":    { "value": 7.28 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_left",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [0, 0, 0] },
+        "end":       { "value": [0, 6.048, 0] },
+        "height":    { "value": 7.28 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "wall_right",
+      "type": "SdWall",
+      "params": {
+        "start":     { "value": [6.0, 0, 0] },
+        "end":       { "value": [6.0, 6.048, 0] },
+        "height":    { "value": 7.28 },
+        "thickness": { "value": 0.2 }
+      }
+    },
+    {
+      "id": "parapet",
+      "type": "SdBox",
+      "params": {
+        "width":  { "value": 6.0 },
+        "depth":  { "value": 6.048 },
+        "height": { "value": 0.18 },
+        "center": { "value": [3.0, 3.024, 7.37] }
+      }
+    },
+    {
+      "id": "roof",
+      "type": "SdRoof",
+      "params": {
+        "roofType": { "value": "flat" },
+        "footprint": { "value": [[0,0],[6.0,0],[6.0,6.048],[0,6.048]] },
+        "rise":      { "value": 0 }
+      }
+    },
+    {
+      "id": "floor_band_f2",
+      "type": "SdBox",
+      "params": {
+        "width":  { "value": 6.0 },
+        "depth":  { "value": 6.048 },
+        "height": { "value": 0.12 },
+        "center": { "value": [3.0, 3.024, 2.34] }
+      }
+    },
+    {
+      "id": "floor_band_f3",
+      "type": "SdBox",
+      "params": {
+        "width":  { "value": 6.0 },
+        "depth":  { "value": 6.048 },
+        "height": { "value": 0.12 },
+        "center": { "value": [3.0, 3.024, 4.68] }
+      }
+    },
+    {
+      "id": "door_gf",
+      "type": "SdDoor",
+      "params": {
+        "position": { "value": [1.5, 0, 0] },
+        "doorType": { "value": "P2" },
+        "width":    { "portRef": "door_w_m" },
+        "height":   { "value": 2.10 }
+      }
+    },
+    {
+      "id": "win_gf_v1",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [4.5, 0, 0] },
+        "windowType": { "value": "V1" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.60 }
+      }
+    },
+    {
+      "id": "win_f2_v1",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [3.0, 0, 2.34] },
+        "windowType": { "value": "V1" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.60 }
+      }
+    },
+    {
+      "id": "win_f3_v1",
+      "type": "SdWindow",
+      "params": {
+        "position":   { "value": [3.0, 0, 4.68] },
+        "windowType": { "value": "V1" },
+        "width":      { "portRef": "window_w_m" },
+        "height":     { "portRef": "window_h_m" },
+        "sill":       { "value": 0.60 }
+      }
+    }
+  ],
+  "rhino_provenance": {
+    "note": "Rhino-executable Python sources from certified iter1. Retained for RhinoMCP reproduction only — not dispatched by WEB-CAD.",
+    "front_script": "C:/Windows/Temp/qm_gen_iter1_front.py",
+    "side_script": "C:/Windows/Temp/qm_gen_iter1_side.py",
+    "flat_roof_construction": {
+      "roof_type": "FLAT",
+      "implementation": "SdBox main_wall Z=[0,7280] + SdBox parapet Z=[7280,7460]. No gable/hip. Top is flat plane at Z=7460.",
+      "python_front": "add_box(0,0,0,W,D,H_WALL,wall_c); add_box(0,0,H_WALL,W,D,H_TOTAL,paret_c)",
+      "slab_bands": "rect_srf(W/2, F2_Z-60, W, 120, slab_c, y=-4.0); rect_srf(W/2, F3_Z-60, W, 120, slab_c, y=-4.0)"
+    }
+  },
+  "certified_params": {
+    "W_m": 6.0,
+    "D_m": 6.048,
+    "F2_Z_m": 2.34,
+    "F3_Z_m": 4.68,
+    "H_WALL_m": 7.28,
+    "PARAPET_m": 0.18,
+    "H_TOTAL_m": 7.46,
+    "floor_heights_m": [2.34, 2.34, 2.60],
+    "n_floors": 3,
+    "WIN_W_m": 0.66,
+    "WIN_H_m": 1.40,
+    "WIN_SILL_m": 0.60,
+    "DOOR_W_m": 0.90,
+    "DOOR_H_m": 2.10,
+    "door_gf_cx_m": 1.5,
+    "win_gf_cx_m": 4.5,
+    "win_uf_cx_m": 3.0
+  },
+  "multi_view_status": {
+    "front_elevation": {
+      "iteration": 1,
+      "score_majority": "5/5",
+      "leo_gate": "5/5 PASS — Leo independent gate mail #12887",
+      "capture": "qm_gen_iter1_front.jpg"
+    },
+    "side_elevation": {
+      "iteration": 1,
+      "score_majority": "5/5",
+      "leo_gate": "5/5 PASS — Leo independent gate mail #12897",
+      "capture": "qm_gen_iter1_side.jpg"
+    },
+    "cross_view_consistency": {
+      "param_set": "SINGLE",
+      "W_m": 6.0,
+      "D_m": 6.048,
+      "H_WALL_m": 7.28,
+      "H_TOTAL_m": 7.46,
+      "note": "front_width(6000)==plan_width ✓; side_depth(6048)==frozen_depth ✓; both flat-topped (no ridge) ✓"
+    }
+  },
+  "convergence_status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. GhDefSpec v0.3 authored 2026-06-03. 3rd corpus entry (1st flat-roof)."
+}

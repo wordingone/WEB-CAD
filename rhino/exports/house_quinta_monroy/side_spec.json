@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "building": "Quinta Monroy Housing — ELEMENTAL (Alejandro Aravena), Iquique Chile 2004",
+    "view": "side_elevation",
+    "derived_from": "rhino/exports/house_quinta_monroy/target_spec.json (FROZEN 2026-06-03)",
+    "note": "Side dims from frozen spec — same building, different camera. unit_depth_mm (6048) is the side view WIDTH; H_TOTAL_mm is the side view HEIGHT. Flat roof: no ridge height / eave split — parapet top IS the total height."
+  },
+  "freeze_status": "FROZEN — 2026-06-03. Leo independent gate mail #12897. IMMUTABLE ground truth for side elevation scoring.",
+  "camera": {
+    "direction": "-X (Right viewport: camera at X=+dist, target at X=W, looking in -X direction)",
+    "projection": "orthographic (parallel)",
+    "face_shown": "X=6000 face — right end wall (party wall in row housing, MIDDLE-unit assumption)"
+  },
+  "exact_dims": {
+    "visible_width_mm": 6048,
+    "visible_height_mm": 7460,
+    "wall_height_mm": 7280,
+    "parapet_height_mm": 180,
+    "H_TOTAL_mm": 7460,
+    "source": {
+      "visible_width_mm": "unit_depth_mm from frozen spec (1844.04 DWG×3.280=6048mm, CONFIRMED)",
+      "wall_height_mm": "H_WALL from frozen spec (+7.28 DWG marker, exact)",
+      "parapet_height_mm": "parapet from frozen spec (7460-7280=180mm)",
+      "H_TOTAL_mm": "H_TOTAL from frozen spec (+7.46 DWG marker, exact)"
+    }
+  },
+  "visual_description": {
+    "main_zone": "wall (warm gray ~RGB 205,198,188): Z=0 to Z=7280mm — blank end wall, NO windows",
+    "parapet_zone": "parapet cap (darker gray ~RGB 175,168,158): Z=7280 to Z=7460mm",
+    "floor_bands": ["slab band at Z=2340mm (F2, ~31% height)", "slab band at Z=4680mm (F3, ~63% height)"],
+    "top_silhouette": "HORIZONTAL straight line at Z=7460mm — flat roof, no gable, no ridge, no hip",
+    "no_windows": true,
+    "end_wall_confidence": "DESIGNED — party-wall assumption. Representative MIDDLE unit scored. An END unit would have a fenestrated exposed end wall. This is explicitly a middle-unit party wall.",
+    "aspect_ratio": "6048mm wide × 7460mm tall ≈ 0.81:1 (portrait orientation, taller than wide)"
+  },
+  "scoring_rubric": {
+    "D1": "FLAT_ROOF_PARAPET — top edge is a horizontal straight line (no gable/peak/ridge); parapet cap visible as thin darker band at top",
+    "D2": "OVERALL_PROPORTIONS — taller than wide, aspect ~0.81 (6048w × 7460h)",
+    "D3": "FLOOR_SLAB_BANDS — 2 visible horizontal bands at ~31% and ~63% height, dividing wall into 3 zones",
+    "D4": "END_WALL_BLANK — no windows, no doors (party wall); solid concrete",
+    "D5": "ORTHOGRAPHIC_CLEAN — parallel lines, no perspective distortion"
+  },
+  "cross_view_consistency": {
+    "same_param_set": "Front and side generated from SAME geometry (W=6000, D=6048, H_WALL=7280, PARAPET=180, H_TOTAL=7460) — no per-view tuning",
+    "front_width_check": "Front view facade width = W = 6000mm; side view visible width = D = 6048mm — different axes, consistent params",
+    "parapet_top_check": "Front view parapet top = 7460mm; side view parapet top = 7460mm — SAME value, same geometry",
+    "flat_roof_check": "Both views show horizontal top edge — no front/side roof-type mismatch possible"
+  },
+  "futura_note": "futura-ampliación frame (1502mm beyond room) NOT modeled. Depth=6048 = room only. Outer envelope 7550mm is context; not gated."
+}
