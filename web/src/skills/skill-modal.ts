@@ -207,14 +207,17 @@ export function openImportGhDefModal(onImport: (spec: import("../gh/gh-def-inges
   okBtn.addEventListener("click", () => {
     const raw = srcEl.value.trim();
     if (!raw) { errEl.textContent = "Paste a JSON spec or enter a .gh file path."; return; }
-    let spec = parseGhDefJson(raw);
-    if (!spec) {
-      if (raw.endsWith(".gh") || raw.endsWith(".ghx")) {
-        spec = { ghPath: raw, inputPorts: [] };
-      } else {
-        errEl.textContent = "Not valid JSON or a .gh path. Check format.";
-        return;
-      }
+    if (raw.endsWith(".gh") || raw.endsWith(".ghx")) {
+      onImport({ ghPath: raw, inputPorts: [] });
+      close();
+      return;
+    }
+    let spec: import("../gh/gh-def-ingester").GhDefSpec;
+    try {
+      spec = parseGhDefJson(raw);
+    } catch (e) {
+      errEl.textContent = (e as Error).message;
+      return;
     }
     onImport(spec);
     close();
