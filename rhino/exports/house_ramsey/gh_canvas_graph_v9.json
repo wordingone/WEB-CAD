@@ -1,0 +1,577 @@
+{
+  "Objects": [
+    {
+      "Id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": 100,
+      "Y": 100,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "width",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "12.8"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "12.8"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": 100,
+      "Y": 200,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "depth",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "14.6"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "14.6"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": 100,
+      "Y": 300,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "flr_h",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "3.5"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "3.5"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": 100,
+      "Y": 400,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "nfl",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "2"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": 100,
+      "Y": 500,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "roof_p",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "0.2"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "0.2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "Name": "GhPython Script",
+      "Kind": "Component",
+      "Category": "Maths",
+      "SubCategory": "Script",
+      "X": 450,
+      "Y": 300,
+      "Messages": [],
+      "Inputs": [
+        {
+          "Name": "width",
+          "NickName": "width",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "12.8"
+            ]
+          }
+        },
+        {
+          "Name": "depth",
+          "NickName": "depth",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "14.6"
+            ]
+          }
+        },
+        {
+          "Name": "flr_h",
+          "NickName": "flr_h",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "3.5"
+            ]
+          }
+        },
+        {
+          "Name": "nfl",
+          "NickName": "nfl",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "2"
+            ]
+          }
+        },
+        {
+          "Name": "roof_p",
+          "NickName": "roof_p",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "0.2"
+            ]
+          }
+        },
+        {
+          "Name": "wing_w",
+          "NickName": "wing_w",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "e7033203-b089-4048-a273-6082e5c905c8",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "5.5"
+            ]
+          }
+        },
+        {
+          "Name": "chim_n",
+          "NickName": "chim_n",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "e55e206e-8988-4b37-84d0-3fba4db4f1e0",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "2"
+            ]
+          }
+        },
+        {
+          "Name": "n_bays",
+          "NickName": "n_bays",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "86e42f54-eee7-4e05-9e69-60089ac404eb",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "3"
+            ]
+          }
+        },
+        {
+          "Name": "door_bay",
+          "NickName": "door_bay",
+          "TypeName": "Generic Data",
+          "Sources": [
+            {
+              "Id": "7abddc2a-fb78-46a6-af0d-227e54732ff0",
+              "Param": "Number Slider"
+            }
+          ],
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "1"
+            ]
+          }
+        }
+      ],
+      "Outputs": [
+        {
+          "Name": "out",
+          "NickName": "out",
+          "TypeName": "Text",
+          "Data": {
+            "Branches": 1,
+            "Items": 0,
+            "Sample": []
+          },
+          "DisplaySummary": null
+        },
+        {
+          "Name": "a",
+          "NickName": "a",
+          "TypeName": "Generic Data",
+          "Data": {
+            "Branches": 1,
+            "Items": 10,
+            "Sample": [
+              "Closed Brep",
+              "Closed Brep",
+              "Closed Brep"
+            ]
+          },
+          "DisplaySummary": null
+        }
+      ]
+    },
+    {
+      "Id": "e7033203-b089-4048-a273-6082e5c905c8",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": -600,
+      "Y": 250,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "wing_w",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "5.5"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "5.5"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "e55e206e-8988-4b37-84d0-3fba4db4f1e0",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": -600,
+      "Y": 380,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "chim_n",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "2"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "86e42f54-eee7-4e05-9e69-60089ac404eb",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": -600,
+      "Y": 480,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "n_bays",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "3"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "3"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "Id": "7abddc2a-fb78-46a6-af0d-227e54732ff0",
+      "Name": "Number Slider",
+      "Kind": "Slider",
+      "Category": "Params",
+      "SubCategory": "Input",
+      "X": -600,
+      "Y": 560,
+      "Messages": [],
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Name": "Number Slider",
+          "NickName": "door_bay",
+          "TypeName": "Number",
+          "Data": {
+            "Branches": 1,
+            "Items": 1,
+            "Sample": [
+              "1"
+            ]
+          },
+          "DisplaySummary": {
+            "Count": 1,
+            "Sample": [
+              "1"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "Wires": [
+    {
+      "From": {
+        "Id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "width"
+      }
+    },
+    {
+      "From": {
+        "Id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "depth"
+      }
+    },
+    {
+      "From": {
+        "Id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "flr_h"
+      }
+    },
+    {
+      "From": {
+        "Id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "nfl"
+      }
+    },
+    {
+      "From": {
+        "Id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "roof_p"
+      }
+    },
+    {
+      "From": {
+        "Id": "e7033203-b089-4048-a273-6082e5c905c8",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "wing_w"
+      }
+    },
+    {
+      "From": {
+        "Id": "e55e206e-8988-4b37-84d0-3fba4db4f1e0",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "chim_n"
+      }
+    },
+    {
+      "From": {
+        "Id": "86e42f54-eee7-4e05-9e69-60089ac404eb",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "n_bays"
+      }
+    },
+    {
+      "From": {
+        "Id": "7abddc2a-fb78-46a6-af0d-227e54732ff0",
+        "Param": "Number Slider"
+      },
+      "To": {
+        "Id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "Param": "door_bay"
+      }
+    }
+  ]
+}
