@@ -187,7 +187,7 @@ if (boxEntry) {
   fail("T_LEDGER_BOX", `no SdBox success in ledger. Entries: [${all || "none"}]`);
 }
 
-// T_PARAMS: custom inputValues produce a second box
+// T_PARAMS: custom inputValues produce a second box AND bbox dims ≈ {w:2,h:1,d:3}
 await evaluate(`window.__dispatchLedger = [];`);
 const before2 = await evaluate(`window.__viewer?.scene?.children.length ?? -1`).catch(() => -1);
 const T_PARAMS_RAW = await evaluate(`
@@ -202,10 +202,54 @@ const T_PARAMS_RAW = await evaluate(`
 `).catch(e => ({ error: e.message }));
 const after2 = await evaluate(`window.__viewer?.scene?.children.length ?? -1`).catch(() => -1);
 
-if (T_PARAMS_RAW?.ok === true && !T_PARAMS_RAW?.error && after2 > before2) {
-  pass("T_PARAMS", `custom inputValues {w:2,h:1,d:3} → delta=${after2 - before2}`);
+// Read bounding box of the newly added child to verify params actually drove geometry dims.
+const bboxSnap = before2 >= 0 ? before2 : 0;
+const T_PARAMS_BBOX = await evaluate(`
+  (() => {
+    const scene = window.__viewer?.scene;
+    if (!scene) return { error: "no viewer scene" };
+    const obj = scene.children[${bboxSnap}];
+    if (!obj) return { error: "no child at index ${bboxSnap}" };
+    // BoxGeometry carries exact dimensions in .parameters (no external THREE global needed).
+    if (obj.geometry?.parameters?.width != null) {
+      const p = obj.geometry.parameters;
+      return { ok: true, method: "geom-params", w: p.width, h: p.height, d: p.depth };
+    }
+    // Fallback: walk vertex positions manually.
+    try {
+      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+      const traverse = n => {
+        const pos = n.geometry?.attributes?.position;
+        if (pos) for (let i=0;i<pos.count;i++) {
+          const x=pos.getX(i),y=pos.getY(i),z=pos.getZ(i);
+          if(x<minX)minX=x;if(x>maxX)maxX=x;
+          if(y<minY)minY=y;if(y>maxY)maxY=y;
+          if(z<minZ)minZ=z;if(z>maxZ)maxZ=z;
+        }
+        n.children?.forEach(traverse);
+      };
+      traverse(obj);
+      return { ok: true, method: "traverse",
+        w: +(maxX-minX).toFixed(4), h: +(maxY-minY).toFixed(4), d: +(maxZ-minZ).toFixed(4) };
+    } catch(e) { return { error: String(e) }; }
+  })()
+`).catch(e => ({ error: e.message }));
+
+// Axis-agnostic sorted comparison: SdBox maps depth→Three.js Y (height param), so per-axis ordering
+// differs from input param order. Assert the SET of dimensions is {1,2,3}, not the per-axis binding.
+const EPS = 0.05;
+const measured = T_PARAMS_BBOX?.ok
+  ? [T_PARAMS_BBOX.w, T_PARAMS_BBOX.h, T_PARAMS_BBOX.d].sort((a, b) => a - b)
+  : null;
+const expected = [1, 2, 3]; // sorted input dims {w:2, h:1, d:3}
+const bboxOk = measured !== null && measured.every((v, i) => Math.abs(v - expected[i]) < EPS);
+
+if (T_PARAMS_RAW?.ok === true && !T_PARAMS_RAW?.error && after2 > before2 && bboxOk) {
+  pass("T_PARAMS", `custom inputValues {w:2,h:1,d:3} → delta=${after2-before2}, bbox dims sorted=[${measured.join(",")}] ≈ [1,2,3] (method:${T_PARAMS_BBOX.method})`);
+} else if (T_PARAMS_RAW?.ok === true && !T_PARAMS_RAW?.error && after2 > before2 && !bboxOk) {
+  fail("T_PARAMS", `delta=${after2-before2} ok but bbox mismatch: sorted measured=[${measured?.join(",")}] want≈[1,2,3]; raw ${JSON.stringify(T_PARAMS_BBOX)}`);
 } else {
-  fail("T_PARAMS", `unexpected: ${JSON.stringify(T_PARAMS_RAW)} before=${before2} after=${after2}`);
+  fail("T_PARAMS", `dispatch: ${JSON.stringify(T_PARAMS_RAW)} before=${before2} after=${after2}; bbox: ${JSON.stringify(T_PARAMS_BBOX)}`);
 }
 
 // T_NO_SPEC: unknown graphId returns error, not a crash
@@ -236,6 +280,7 @@ writeFileSync(ledgerPath, JSON.stringify({
   results,
   ledger,
   sceneChildrenDeltas: { t_eval: delta, t_params: after2 - before2 },
+  bboxAssert: { inputValues: { w: 2, h: 1, d: 3 }, measured: T_PARAMS_BBOX ?? null },
 }, null, 2));
 console.log(`[verify-480] ledger written: ${ledgerPath}`);
 
