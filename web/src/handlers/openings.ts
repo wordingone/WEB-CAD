@@ -64,6 +64,8 @@ export function registerOpeningHandlers(viewer: Viewer): void {
       doorW = DEFAULT_DOOR_W;
       doorH = DEFAULT_DOOR_H;
     }
+    if (typeof args.width  === "number") doorW = args.width  as number;
+    if (typeof args.height === "number") doorH = args.height as number;
     // §#1516,#1546,#1665,#1725: auto-find nearest wall when hostUuid absent.
     // §#1725: use closest-point-on-bbox XY distance (not center) — active level first pass.
     if (!hostObjDoor) {
@@ -141,14 +143,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     if (hostObjDoor && !voidCut) {
       throw new Error(`door-void-failed: wall ${hostObjDoor.uuid} found but addVoidToWallObject returned null — door center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(elevation + doorH / 2).toFixed(2)}) may not overlap wall geometry`);
     }
-    // §#1678: width/height ignored — handler uses doorType preset dimensions.
-    const ignoredDoor: string[] = [];
-    if (args.width !== undefined) ignoredDoor.push("width");
-    if (args.height !== undefined) ignoredDoor.push("height");
-    const noteDoor = ignoredDoor.length > 0
-      ? `${ignoredDoor.join("/")} ignored — preset used (${doorW.toFixed(3)}m×${doorH.toFixed(3)}m)`
-      : undefined;
-    return { created: "door", voidCut, ...(noteDoor ? { note: noteDoor } : {}) };
+    return { created: "door", voidCut };
   });
 
   registerHandler("SdWindow", (args) => {
@@ -159,9 +154,11 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     const elevation = getActiveLevelElevation();
     const winType = (args.windowType as string | undefined);
     const isOG = winType === "og";
-    const winW    = isOG ? FZK_OG_WINDOW_W : FZK_WINDOW_W;
-    const winH    = isOG ? FZK_OG_WINDOW_H : FZK_WINDOW_H;
-    const winSill = FZK_WINDOW_SILL;
+    const presetW = isOG ? FZK_OG_WINDOW_W : FZK_WINDOW_W;
+    const presetH = isOG ? FZK_OG_WINDOW_H : FZK_WINDOW_H;
+    const winW    = typeof args.width  === "number" ? (args.width  as number) : presetW;
+    const winH    = typeof args.height === "number" ? (args.height as number) : presetH;
+    const winSill = typeof args.sill   === "number" ? (args.sill   as number) : FZK_WINDOW_SILL;
     // §#485: position[2] overrides active-level elevation for multi-storey placement.
     const _posArrZ = (args.position as number[] | undefined)?.[2];
     const floorElev = _posArrZ !== undefined ? _posArrZ : elevation;
@@ -245,14 +242,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     if (hostObjWin && !voidCut) {
       throw new Error(`window-void-failed: wall ${hostObjWin.uuid} found but addVoidToWallObject returned null — window center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(floorElev + winSill + winH / 2).toFixed(2)}) may not overlap wall geometry`);
     }
-    // §#1678: width/height ignored — handler uses windowType preset dimensions.
-    const ignoredWin: string[] = [];
-    if (args.width !== undefined) ignoredWin.push("width");
-    if (args.height !== undefined) ignoredWin.push("height");
-    const noteWin = ignoredWin.length > 0
-      ? `${ignoredWin.join("/")} ignored — preset used (${winW.toFixed(3)}m×${winH.toFixed(3)}m)`
-      : undefined;
-    return { created: "window", voidCut, ...(noteWin ? { note: noteWin } : {}) };
+    return { created: "window", voidCut };
   });
 
   registerHandler("SdOpening", (args) => {
