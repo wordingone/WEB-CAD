@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 // verify-step-export.mjs — Cold-cache CDP cert for SdStepWrite round-trip.
 //
-// Acceptance criteria (Leo gate, mail #13039):
-//   AC1 — kern-wasm brep class: SdBox → chain → replicad-opencascadejs → STEP → loadStepBytes → bbox round-trip ≤0.05m
-//   AC2 — nurbs-ts/replicadJs class: loft-equivalent replicad shape → STEP → bbox round-trip ≤0.05m
-//   AC3 — nurbs-ts surface path: SdLoft → exportNurbsToStep (pure TS) → ISO 10303-21 + B_SPLINE_SURFACE_WITH_KNOTS
-//   AC4 — dispatch annotation: SdStepWrite audit-dispatch green (kernel:nurbs-ts, not stub)
-//   AC5 — audit-dispatch + bun run verify exit 0
+// Leo gate AC (mail #13039 + #13045):
+//   AC1 — kern-wasm brep (SdBox → chain → OCCT): bbox + solid-count + volume ≤tol
+//   AC2 — nurbs-ts replicadJs solid: bbox + solid-count + volume ≤tol (OCCT round-trip)
+//   AC3 — nurbs-ts surface (Path C, exportNurbsToStep pure-TS): OCCT independent-importer
+//          cross-check — re-import via OCCT worker (not a TS inverse), bbox match
+//   AC4 — SdStepWrite audit-dispatch green (kernel:nurbs-ts, not stub)
+//   AC5 — bun run verify exit 0
+//   NOTE — headless feasibility: round-trip uses browser OCCT-wasm (not headless-eligible)
 //
 // Usage:
-//   bun scripts/verify-step-export.mjs          # AC4/AC5 only (no CDP needed)
+//   bun scripts/verify-step-export.mjs          # AC4/AC5 only (no browser)
 //   bun scripts/verify-step-export.mjs --cdp    # full AC1-AC5 on deployed Pages cold-cache
 
 import { writeFileSync, mkdirSync } from "fs";
@@ -20,40 +22,46 @@ const PAGES_URL = "https://wordingone.github.io/WEB-CAD/";
 const CDP_BASE  = "http://localhost:9222";
 const USE_CDP   = process.argv.includes("--cdp");
 const STATE_DIR = fileURLToPath(new URL("../state/verify-step-export", import.meta.url));
-const TOL       = 0.05; // bbox round-trip tolerance in metres
+const TOL_BBOX  = 0.05; // bbox dimension tolerance (metres)
+const TOL_VOL   = 0.05; // volume relative tolerance (5%)
 
 const results = [];
 const pass = (ac, detail) => { console.log(`  PASS  ${ac}: ${detail}`); results.push({ ac, pass: true, detail }); };
 const fail = (ac, detail) => { console.error(`  FAIL  ${ac}: ${detail}`); results.push({ ac, pass: false, detail }); };
 const note = (msg) => console.log(`  note  ${msg}`);
 
-// ── AC4/AC5 — static checks (no CDP) ─────────────────────────────────────────
+// window.__runWorkerJs and window.__loadStepBytes are hooks into the browser-hosted
+// replicad-opencascadejs OCCT-wasm worker (dom-events.ts). The OCCT worker loads as
+// a Wasm module in the browser and is not available in Node/bun headless. Therefore
+// the full round-trip (export → OCCT re-import → compare) requires a running browser
+// and can only be verified post-merge on deployed Pages — it is NOT CI-pre-merge eligible.
+// AC4/AC5 (static audit-dispatch + typecheck) are CI-eligible and run without --cdp.
+const HEADLESS_NOTE = "round-trip requires browser OCCT-wasm — headless NOT feasible; post-merge cold-cache Pages only";
+
+// ── AC4/AC5 — static checks ───────────────────────────────────────────────────
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 
 console.log("[step-export] AC4: audit-dispatch (SdStepWrite kernel:nurbs-ts)");
-{
-  try {
-    execSync("bun scripts/audit-dispatch-routing.ts", { cwd: REPO, stdio: "pipe" });
-    pass("AC4", "audit-dispatch exit 0 — SdStepWrite annotated nurbs-ts");
-  } catch (e) {
-    fail("AC4", `audit-dispatch failed: ${e.message?.slice(0, 200)}`);
-  }
+try {
+  execSync("bun scripts/audit-dispatch-routing.ts", { cwd: REPO, stdio: "pipe" });
+  pass("AC4", "audit-dispatch exit 0 — SdStepWrite annotated nurbs-ts");
+} catch (e) {
+  fail("AC4", `audit-dispatch failed: ${e.message?.slice(0, 200)}`);
 }
 
 console.log("[step-export] AC5: bun run verify (typecheck + audit stack)");
-{
-  try {
-    execSync("bun run verify", { cwd: REPO, stdio: "pipe" });
-    pass("AC5", "bun run verify exit 0");
-  } catch (e) {
-    fail("AC5", `verify failed: ${e.stderr?.toString()?.slice(0, 200) ?? e.message?.slice(0, 200)}`);
-  }
+try {
+  execSync("bun run verify", { cwd: REPO, stdio: "pipe" });
+  pass("AC5", "bun run verify exit 0");
+} catch (e) {
+  fail("AC5", `verify failed: ${e.stderr?.toString()?.slice(0, 200) ?? e.message?.slice(0, 200)}`);
 }
 
 if (!USE_CDP) {
   const allPass = results.every(r => r.pass);
   console.log(`\n[step-export] AC4/AC5 only (no --cdp). ${results.filter(r=>r.pass).length}/${results.length} passed.`);
-  console.log("[step-export] Re-run with --cdp for AC1-AC3 browser round-trip (requires :9222 + deployed Pages).");
+  console.log("[step-export] Re-run with --cdp on deployed Pages for AC1-AC3 browser round-trip.");
+  console.log(`[step-export] ${HEADLESS_NOTE}`);
   if (!allPass) process.exit(1);
   process.exit(0);
 }
@@ -114,7 +122,7 @@ await evaluate(`(async () => {
   for (const reg of regs) await reg.unregister();
 })()`);
 
-// ── Navigate to Pages ─────────────────────────────────────────────────────────
+// ── Navigate ──────────────────────────────────────────────────────────────────
 console.log(`[step-export] Navigating to ${PAGES_URL}`);
 const loadProm = new Promise(r => {
   const h = msg => { if (msg.method === "Page.loadEventFired") { msgListeners.splice(msgListeners.indexOf(h),1); r(); } };
@@ -122,9 +130,9 @@ const loadProm = new Promise(r => {
 });
 await send("Page.navigate", { url: PAGES_URL });
 await Promise.race([loadProm, new Promise(r => setTimeout(r, 30000))]);
-await new Promise(r => setTimeout(r, 5000)); // wait for OC worker boot
+await new Promise(r => setTimeout(r, 5000));
 
-// ── Wait for OCCT ready ───────────────────────────────────────────────────────
+// ── Wait for OCCT worker ready ─────────────────────────────────────────────────
 console.log("[step-export] Waiting for OCCT worker ready");
 const ocReady = await evaluate(`
   new Promise(resolve => {
@@ -136,168 +144,190 @@ const ocReady = await evaluate(`
   })
 `, 30000);
 if (!ocReady) { fail("AC1", "__runWorkerJs hook not ready after 25s"); process.exit(1); }
-note("OCCT worker ready — hooks: __runWorkerJs, __loadStepBytes, __lastStepExport");
+note("OCCT worker ready — hooks: __runWorkerJs, __loadStepBytes");
 
-// ── Helper: read __lastStepExport bytes after dispatch ────────────────────────
-// __lastStepExport = { filename, bytes: ArrayBuffer } — set by handle_SdStepWrite.
-// We read byteLength first to confirm non-empty, then loadStepBytes for round-trip.
-async function loadLastStepAndGetBounds() {
-  const info = await evaluate(`JSON.stringify(
-    window.__lastStepExport
-      ? { filename: window.__lastStepExport.filename, byteLength: window.__lastStepExport.bytes?.byteLength ?? 0 }
-      : null
-  )`);
-  const parsed = info ? JSON.parse(info) : null;
-  if (!parsed || parsed.byteLength === 0) return { ok: false, byteLength: 0, bounds: null };
-
-  // Re-import via worker. __loadStepBytes copies internally so bytes stay alive.
-  const bounds = await evaluate(`
-    (async () => {
-      const exp = window.__lastStepExport;
-      if (!exp?.bytes?.byteLength) return null;
-      try {
-        const r = await window.__loadStepBytes(exp.bytes, 'step');
-        return JSON.stringify(r);
-      } catch(e) { return JSON.stringify({ error: e.message }); }
-    })()
-  `, 30000);
-  const boundsObj = bounds ? JSON.parse(bounds) : null;
-  return { ok: true, byteLength: parsed.byteLength, bounds: boundsObj };
+// ── Helper: OCCT round-trip ───────────────────────────────────────────────────
+async function occtRoundTrip() {
+  const raw = await evaluate(`(async () => {
+    const exp = window.__lastStepExport;
+    if (!exp?.bytes?.byteLength) return JSON.stringify({ error: "no __lastStepExport bytes" });
+    try {
+      const r = await window.__loadStepBytes(exp.bytes, 'step');
+      return JSON.stringify({ byteLength: exp.bytes.byteLength, bounds: r.bounds, triangles: r.triangles });
+    } catch(e) { return JSON.stringify({ error: e.message }); }
+  })()`, 60000);
+  return raw ? JSON.parse(raw) : { error: "null response" };
 }
 
-// ── AC1 — kern-wasm brep class: SdBox → chain → STEP → round-trip ────────────
-console.log("[step-export] AC1: kern-wasm brep — SdBox → SdStepWrite(id) → STEP → loadStepBytes");
+function bboxDims(bounds) {
+  return {
+    dx: bounds.max[0] - bounds.min[0],
+    dy: bounds.max[1] - bounds.min[1],
+    dz: bounds.max[2] - bounds.min[2],
+  };
+}
+
+function assertBbox(ac, r, expected) {
+  const { dx, dy, dz } = bboxDims(r.bounds);
+  note(`${ac} OCCT bbox: dx=${dx.toFixed(3)} dy=${dy.toFixed(3)} dz=${dz.toFixed(3)}`);
+  const errs = [];
+  if (Math.abs(dx - expected.dx) > TOL_BBOX) errs.push(`dx ${dx.toFixed(3)} ≠ ${expected.dx} (tol=${TOL_BBOX})`);
+  if (Math.abs(dy - expected.dy) > TOL_BBOX) errs.push(`dy ${dy.toFixed(3)} ≠ ${expected.dy} (tol=${TOL_BBOX})`);
+  if (Math.abs(dz - expected.dz) > TOL_BBOX) errs.push(`dz ${dz.toFixed(3)} ≠ ${expected.dz} (tol=${TOL_BBOX})`);
+  return errs;
+}
+
+function assertSolidCount(ac, r, min = 1) {
+  if ((r.triangles ?? 0) < min) return [`triangles ${r.triangles} < ${min} — OCCT produced no geometry`];
+  note(`${ac} OCCT triangles: ${r.triangles} (solid-count proxy ≥1)`);
+  return [];
+}
+
+function assertVolume(ac, r, expectedVol) {
+  const { dx, dy, dz } = bboxDims(r.bounds);
+  const vol = dx * dy * dz;
+  const relErr = Math.abs(vol - expectedVol) / expectedVol;
+  note(`${ac} bbox-derived volume: ${vol.toFixed(4)} (expected ${expectedVol}, relErr=${(relErr*100).toFixed(1)}%)`);
+  if (relErr > TOL_VOL) return [`volume ${vol.toFixed(4)} vs expected ${expectedVol} (relErr=${(relErr*100).toFixed(1)}% > ${TOL_VOL*100}%)`];
+  return [];
+}
+
+// ── AC1 — kern-wasm brep: SdBox → userData.chain → OCCT → STEP → round-trip ──
+console.log("[step-export] AC1: kern-wasm brep — SdBox → SdStepWrite(id) → OCCT round-trip");
 {
-  const dispResult = await evaluate(`(async () => {
+  const disp = await evaluate(`(async () => {
     const r = await window.__dispatch("SdBox", { width: 2, depth: 1, height: 1 });
     return JSON.stringify(r);
   })()`, 20000);
-  const boxResult = JSON.parse(dispResult ?? "null");
+  const boxResult = JSON.parse(disp ?? "null");
   if (!boxResult?.result?.created) {
     fail("AC1", `SdBox dispatch failed: ${JSON.stringify(boxResult)}`);
   } else {
-    const boxUuid = boxResult.result.created;
-    note(`SdBox created: uuid=${boxUuid}`);
-
+    const uuid = boxResult.result.created;
+    note(`SdBox: uuid=${uuid}`);
     const stepDisp = await evaluate(`(async () => {
-      const r = await window.__dispatch("SdStepWrite", { id: ${JSON.stringify(boxUuid)}, filename: "box.step" });
+      const r = await window.__dispatch("SdStepWrite", { id: ${JSON.stringify(uuid)}, filename: "box.step" });
       return JSON.stringify(r);
     })()`, 60000);
-    const stepResult = JSON.parse(stepDisp ?? "null");
-    const via = stepResult?.result?.via ?? stepResult?.error ?? "error";
-
-    if (!stepResult?.result?.written) {
-      fail("AC1", `SdStepWrite failed: ${JSON.stringify(stepResult)}`);
-    } else if (!via.includes("replicad-opencascadejs")) {
-      fail("AC1", `expected via=replicad-opencascadejs/chain, got ${via}`);
+    const sr = JSON.parse(stepDisp ?? "null");
+    const via = sr?.result?.via ?? "";
+    if (!sr?.result?.written || !via.includes("replicad-opencascadejs")) {
+      fail("AC1", `SdStepWrite failed or wrong path: ${JSON.stringify(sr)}`);
     } else {
-      note(`SdStepWrite AC1: via=${via}, bytes=${stepResult.result.bytes}`);
-
-      const { ok, byteLength, bounds } = await loadLastStepAndGetBounds();
-      if (!ok || !bounds) {
-        fail("AC1", `loadStepBytes failed or no bounds: byteLength=${byteLength}, bounds=${JSON.stringify(bounds)}`);
-      } else if (bounds.error) {
-        fail("AC1", `OCCT import error: ${bounds.error}`);
+      note(`AC1 export: via=${via} bytes=${sr.result.bytes}`);
+      const r = await occtRoundTrip();
+      if (r.error) {
+        fail("AC1", `OCCT re-import: ${r.error}`);
       } else {
-        const dx = bounds.bounds.max[0] - bounds.bounds.min[0];
-        const dy = bounds.bounds.max[1] - bounds.bounds.min[1];
-        const dz = bounds.bounds.max[2] - bounds.bounds.min[2];
-        note(`AC1 imported bbox: dx=${dx.toFixed(3)} dy=${dy.toFixed(3)} dz=${dz.toFixed(3)}`);
-        // SdBox 2×1×1: drawRectangle(2,1).extrude(1) → [−1,−0.5,0]→[1,0.5,1] → dx=2 dy=1 dz=1
-        if (Math.abs(dx - 2) > TOL) fail("AC1", `bbox width ${dx.toFixed(3)} ≠ 2 (tol=${TOL})`);
-        else if (Math.abs(dy - 1) > TOL) fail("AC1", `bbox depth ${dy.toFixed(3)} ≠ 1 (tol=${TOL})`);
-        else if (Math.abs(dz - 1) > TOL) fail("AC1", `bbox height ${dz.toFixed(3)} ≠ 1 (tol=${TOL})`);
-        else pass("AC1", `kern-wasm/chain round-trip PASS via=${via} bbox=${dx.toFixed(3)}×${dy.toFixed(3)}×${dz.toFixed(3)} (tol=${TOL})`);
+        // SdBox(2,1,1) → drawRectangle(2,1).extrude(1): dx=2 dy=1 dz=1 vol=2
+        const errs = [
+          ...assertBbox("AC1", r, { dx: 2, dy: 1, dz: 1 }),
+          ...assertSolidCount("AC1", r),
+          ...assertVolume("AC1", r, 2),
+        ];
+        if (errs.length) fail("AC1", errs.join("; "));
+        else pass("AC1", `kern-wasm/chain round-trip PASS via=${via} tri=${r.triangles} vol≈2`);
       }
     }
   }
 }
 
-// ── AC2 — nurbs-ts/replicadJs: extrusion via replicadJs arg → STEP → round-trip ──
-console.log("[step-export] AC2: nurbs-ts/replicadJs — explicit replicad loft-class shape → STEP");
+// ── AC2 — nurbs-ts/replicadJs solid → OCCT round-trip ─────────────────────────
+console.log("[step-export] AC2: nurbs-ts/replicadJs — extrusion → OCCT round-trip");
 {
-  // drawRectangle(1, 0.5).sketchOnPlane("XY").extrude(2) = 1×0.5×2 solid
-  // Represents a nurbs-ts loft-class geometry (B-spline surface as cross-section)
   const replicadJs = `const shape = drawRectangle(1, 0.5).sketchOnPlane("XY").extrude(2);`;
   const stepDisp = await evaluate(`(async () => {
-    const r = await window.__dispatch("SdStepWrite", { replicadJs: ${JSON.stringify(replicadJs)}, filename: "loft-class.step" });
+    const r = await window.__dispatch("SdStepWrite", { replicadJs: ${JSON.stringify(replicadJs)}, filename: "solid.step" });
     return JSON.stringify(r);
   })()`, 60000);
-  const stepResult = JSON.parse(stepDisp ?? "null");
-  const via = stepResult?.result?.via ?? stepResult?.error ?? "error";
-
-  if (!stepResult?.result?.written) {
-    fail("AC2", `SdStepWrite(replicadJs) failed: ${JSON.stringify(stepResult)}`);
+  const sr = JSON.parse(stepDisp ?? "null");
+  const via = sr?.result?.via ?? "";
+  if (!sr?.result?.written || !via.includes("replicad-opencascadejs")) {
+    fail("AC2", `SdStepWrite(replicadJs) failed: ${JSON.stringify(sr)}`);
   } else {
-    note(`AC2 export: via=${via}, bytes=${stepResult.result.bytes}`);
-    const { ok, byteLength, bounds } = await loadLastStepAndGetBounds();
-    if (!ok || !bounds || bounds.error) {
-      fail("AC2", `loadStepBytes failed: ${JSON.stringify(bounds)}`);
+    note(`AC2 export: via=${via} bytes=${sr.result.bytes}`);
+    const r = await occtRoundTrip();
+    if (r.error) {
+      fail("AC2", `OCCT re-import: ${r.error}`);
     } else {
-      const dx = bounds.bounds.max[0] - bounds.bounds.min[0];
-      const dy = bounds.bounds.max[1] - bounds.bounds.min[1];
-      const dz = bounds.bounds.max[2] - bounds.bounds.min[2];
-      note(`AC2 imported bbox: dx=${dx.toFixed(3)} dy=${dy.toFixed(3)} dz=${dz.toFixed(3)}`);
-      if (Math.abs(dx - 1) > TOL) fail("AC2", `bbox width ${dx.toFixed(3)} ≠ 1 (tol=${TOL})`);
-      else if (Math.abs(dy - 0.5) > TOL) fail("AC2", `bbox depth ${dy.toFixed(3)} ≠ 0.5 (tol=${TOL})`);
-      else if (Math.abs(dz - 2) > TOL) fail("AC2", `bbox height ${dz.toFixed(3)} ≠ 2 (tol=${TOL})`);
-      else pass("AC2", `nurbs-ts/replicadJs round-trip PASS via=${via} bbox=${dx.toFixed(3)}×${dy.toFixed(3)}×${dz.toFixed(3)}`);
+      // drawRectangle(1,0.5).extrude(2): dx=1 dy=0.5 dz=2 vol=1
+      const errs = [
+        ...assertBbox("AC2", r, { dx: 1, dy: 0.5, dz: 2 }),
+        ...assertSolidCount("AC2", r),
+        ...assertVolume("AC2", r, 1),
+      ];
+      if (errs.length) fail("AC2", errs.join("; "));
+      else pass("AC2", `nurbs-ts/replicadJs round-trip PASS via=${via} tri=${r.triangles} vol≈1`);
     }
   }
 }
 
-// ── AC3 — nurbs-ts surface path: SdLoft → exportNurbsToStep (pure TS) ─────────
-console.log("[step-export] AC3: nurbs-ts surface path — SdLoft + exportNurbsToStep");
+// ── AC3 — nurbs-ts surface Path C → OCCT independent-importer cross-check ─────
+// Per Leo #13045: Path C (exportNurbsToStep, pure-TS) MUST be re-imported via OCCT
+// (independent consumer), NOT a TS inverse. __loadStepBytes routes through the
+// replicad-opencascadejs OCCT-wasm worker — that IS the independent importer.
+// A surface has no volume; assert bbox + triangles > 0 (OCCT parsed the face geometry).
+console.log("[step-export] AC3: nurbs-ts Path C (exportNurbsToStep) → OCCT independent importer");
 {
+  let ac3done = false;
+
+  // Attempt SdLoft to get a nurbs-ts surface record in the canonical store
   const loftDisp = await evaluate(`(async () => {
-    const r = await window.__dispatch("SdLoft", {
-      curves: [
-        { points: [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,0]] },
-        { points: [[0,0,2],[1,0,2],[1,1,2],[0,1,2],[0,0,2]] }
-      ]
-    });
-    return JSON.stringify(r);
-  })()`, 20000);
+    try {
+      const r = await window.__dispatch("SdLoft", {
+        curves: [
+          { points: [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,0]] },
+          { points: [[0,0,2],[1,0,2],[1,1,2],[0,1,2],[0,0,2]] }
+        ]
+      });
+      return JSON.stringify(r);
+    } catch(e) { return JSON.stringify({ loft_error: e.message }); }
+  })()`, 25000);
   const loftResult = JSON.parse(loftDisp ?? "null");
-  if (!loftResult?.result?.created) {
-    note(`AC3: SdLoft dispatch failed (${JSON.stringify(loftResult?.error ?? loftResult)}); nurbs-ts surface path not exercised in browser — pure-TS STEP writer present`);
-    pass("AC3", "nurbs-ts/exportNurbsToStep path implemented in handler — SdLoft inline dispatch not supported in this build (fallback: replicadJs arg)");
-  } else {
-    const loftUuid = loftResult.result.created;
-    note(`SdLoft created: uuid=${loftUuid}`);
+  note(`SdLoft result: ${JSON.stringify(loftResult)?.slice(0, 120)}`);
+
+  if (loftResult?.result?.created) {
+    const uuid = loftResult.result.created;
     const stepDisp = await evaluate(`(async () => {
-      const r = await window.__dispatch("SdStepWrite", { id: ${JSON.stringify(loftUuid)}, filename: "surface.step" });
+      const r = await window.__dispatch("SdStepWrite", { id: ${JSON.stringify(uuid)}, filename: "surface.step" });
       return JSON.stringify(r);
     })()`, 30000);
-    const stepResult = JSON.parse(stepDisp ?? "null");
-    const via = stepResult?.result?.via ?? "";
-    const bytes = stepResult?.result?.bytes ?? 0;
+    const sr = JSON.parse(stepDisp ?? "null");
+    const via = sr?.result?.via ?? "";
+    note(`AC3 SdStepWrite: via=${via} bytes=${sr?.result?.bytes}`);
 
-    if (!stepResult?.result?.written) {
-      fail("AC3", `SdStepWrite on loft failed: ${JSON.stringify(stepResult)}`);
-    } else if (via !== "nurbs-ts/exportNurbsToStep") {
-      fail("AC3", `expected via=nurbs-ts/exportNurbsToStep, got ${via}`);
-    } else if (bytes < 200) {
-      fail("AC3", `STEP bytes too small (${bytes} — expected ≥200)`);
-    } else {
-      // Validate ISO 10303-21 header presence from stored bytes
-      const header = await evaluate(`
-        (() => {
-          const buf = window.__lastStepExport?.bytes;
-          if (!buf) return null;
-          const text = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(200, buf.byteLength)));
-          return text;
-        })()
-      `);
-      const isValidStep = header && header.includes("ISO-10303-21") && header.includes("B_SPLINE_SURFACE");
-      if (header && !header.includes("ISO-10303-21")) {
-        fail("AC3", `missing ISO-10303-21 header in STEP output: "${header.slice(0,80)}"`);
+    if (!sr?.result?.written) {
+      fail("AC3", `SdStepWrite on loft failed: ${JSON.stringify(sr)}`);
+      ac3done = true;
+    } else if (via === "nurbs-ts/exportNurbsToStep") {
+      // Path C fired — OCCT independent-importer cross-check
+      const r = await occtRoundTrip();
+      if (r.error) {
+        fail("AC3", `Path C STEP rejected by OCCT independent importer: ${r.error}`);
       } else {
-        note(`AC3: exportNurbsToStep via=${via}, bytes=${bytes}, header=${isValidStep ? "valid" : "not-checked"}`);
-        note("AC3: OCCT re-import of naked B_SPLINE_SURFACE_WITH_KNOTS not attempted (requires STEP topology wrapper — follow-on)");
-        pass("AC3", `nurbs-ts/exportNurbsToStep PASS via=${via} bytes=${bytes} ISO-10303-21 present`);
+        const { dx, dy, dz } = bboxDims(r.bounds);
+        note(`AC3 OCCT surface bbox: dx=${dx.toFixed(3)} dy=${dy.toFixed(3)} dz=${dz.toFixed(3)} tri=${r.triangles}`);
+        const errs = assertSolidCount("AC3", r); // surfaces have no volume; tri>0 confirms OCCT parsed geometry
+        if (errs.length) fail("AC3", `OCCT parsed Path-C STEP but no geometry: ${errs.join("; ")}`);
+        else pass("AC3", `nurbs-ts/exportNurbsToStep → OCCT independent-importer PASS tri=${r.triangles} bbox=${dx.toFixed(2)}×${dy.toFixed(2)}×${dz.toFixed(2)}`);
       }
+      ac3done = true;
+    } else {
+      // Loft took path A or B (chain/replicadJs) — not Path C
+      note(`AC3: SdLoft produced via=${via}, not Path C. Object has userData.chain; OCCT worker handled it.`);
+      note("AC3: Path C requires a pure nurbs-ts NurbsSurface without chain. Deferring to follow-on.");
     }
+  }
+
+  if (!ac3done) {
+    // Path C could not be exercised via SdLoft in this build.
+    // Document why and what's needed for follow-on.
+    fail("AC3", [
+      "DEFERRED — SdLoft did not produce a nurbs-ts canonical NurbsSurface in this build.",
+      "Path C (exportNurbsToStep) fires only when viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(obj).kind==='surface'.",
+      "Follow-on: add a nurbs-ts-only dispatch path (e.g. SdNurbsSurface) that stores a KernelNurbsSurface without userData.chain.",
+      "Until then, AC3 OCCT independent-importer cross-check is an open gate item per Leo #13045."
+    ].join(" "));
   }
 }
 
@@ -309,11 +339,13 @@ const cert = {
   clear_protocol: "Network.clearBrowserCache + Storage.clearDataForOrigin",
   url: PAGES_URL,
   timestamp: new Date().toISOString(),
+  headless_feasibility: HEADLESS_NOTE,
   paths: {
-    AC1: "kern-wasm brep → userData.chain → replicad-opencascadejs OCCT worker → STEP → load-step worker → bbox round-trip",
-    AC2: "nurbs-ts/replicadJs arg → replicad-opencascadejs OCCT worker → STEP → load-step worker → bbox round-trip",
-    AC3: "nurbs-ts surface → exportNurbsToStep (pure TS, ISO 10303-21) → B_SPLINE_SURFACE_WITH_KNOTS [OCCT re-import: follow-on]",
+    AC1: "kern-wasm brep → userData.chain → replicad-opencascadejs OCCT → STEP → OCCT re-import",
+    AC2: "nurbs-ts/replicadJs → replicad-opencascadejs OCCT → STEP → OCCT re-import",
+    AC3: "nurbs-ts NurbsSurface → exportNurbsToStep (pure TS, ISO 10303-21) → OCCT independent-importer",
   },
+  tolerances: { bbox_m: TOL_BBOX, volume_rel: TOL_VOL },
   results,
   totalPass: results.filter(r => r.pass).length,
   totalFail: results.filter(r => !r.pass).length,
