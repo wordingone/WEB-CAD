@@ -3,10 +3,10 @@
     "format": "GhDefSpec v0.2 — WEB-CAD Skills tab absorbable format (grasshopperDef kind)",
     "building": "WikiHouse Skylark 250 — M span, 1-storey, 42° gable roof",
     "frozen_spec": "rhino/exports/house_wikihouse_skylark/target_spec.json",
-    "status": "PENDING Leo multi-view gate — 2026-06-03",
-    "self_read_front": "5/5 majority (iter2, 2/3 full pass, 1/3 dim3 minor)",
-    "self_read_side": "5/5 majority (3 reads: 2 full pass, 1 outlier citing hip — geometry is verified gable prism)",
-    "note": "Eave-side view gates GABLE vs HIP. Read 1 called hip; geometry is rg.Extrusion.Create(triangle, D, True) which is a TRUE 2-plane gable. Reads 2+3 confirm horizontal eave + rectangular roof zone."
+    "status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. 10/10.",
+    "leo_gate_front": "5/5 — single storey, steep 42° gable, 3 symmetric grid-aligned openings, landscape, clean cladding",
+    "leo_gate_side": "5/5 — top edge clearly horizontal, horizontal eave flat (not perspective ambiguity), rg.Extrusion.Create(triangle,D,True) gable confirmed in render. Read-1 outlier cleared.",
+    "leo_gate_cross_view": "PASS — eave wider (7200>5436), same ridge height (4561), front gable-triangle / eave horizontal. Correct gable topology, one param set."
   },
   "inlineGraphId": "wikihouse-skylark-250-m-v1",
   "inputPorts": [
@@ -72,14 +72,14 @@
       "iter": 2,
       "self_read_majority": "5/5 (2/3 full pass, 1/3 dim3 minor — center door extends to floor)",
       "capture": "wh_gen_iter2_front.jpg",
-      "leo_gate": "PENDING"
+      "leo_gate": "5/5 PASS — 2026-06-03"
     },
     "eave_side": {
       "view": "long eave face (7200mm wide × 4561mm tall, NO gable triangle, horizontal eave)",
       "iter": "iter1_side",
       "self_read_majority": "5/5 (2/3 full pass, 1/3 outlier citing hip — geometry verified gable)",
       "capture": "wh_gen_iter1_side.jpg",
-      "leo_gate": "PENDING"
+      "leo_gate": "5/5 PASS — 2026-06-03"
     },
     "cross_view_dims_baked": {
       "front_gable_width_mm": 5436,
