@@ -1041,6 +1041,14 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Surface — selected curve has insufficient points  [Escape = cancel]");
       return true;
     }
+    // CCW guard: earcut (SdSurface handler) requires CCW outer ring.
+    // SdCircle emits CW vertices; signed-area check + reverse when CW.
+    // Mirror of hover-preview guard at opUpdateSurfacePickPreview.
+    const signedArea = pts.reduce((s, p, i, a) => {
+      const q = a[(i + 1) % a.length];
+      return s + (p[0] * q[1] - q[0] * p[1]);
+    }, 0);
+    if (signedArea < 0) pts.reverse();
     const result = dispatchSync("SdSurface", { profile: { points: pts } });
     const failure = dispatchFailure(result);
     if (failure) {
