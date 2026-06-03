@@ -1,24 +1,68 @@
 #!/usr/bin/env node
 // verify-333-rt.mjs — #333 AC#2: untrimmed NurbsSurface round-trip cert.
-// Deployed Pages cold-cache (no localhost per ban).
-// AC: export KernelNurbsSurface → .3dm → re-import → userData.canonical
+// Deployed Pages cold-cache ONLY (no localhost per ban).
+// AC: export KernelNurbsSurface → .3dm → re-import via Sd3dmRead → userData.canonical
 //     control points + knot vectors + degree within ε = 1e-6.
+//
+// Strategy: rhino3dm runs in Node.js (avoids browser bare-specifier resolution);
+// .3dm bytes are injected into browser via CDP as base64; Sd3dmRead handler
+// decodes and imports. PAGES_URL is the only navigation target.
 
 import { WebSocket }               from "ws";
 import { mkdirSync, writeFileSync } from "fs";
 import { execSync }                from "child_process";
 import { fileURLToPath }           from "url";
+import rhino3dmInit                from "rhino3dm";
 
 const CDP_PORT  = 9222;
 const PAGES_URL = "https://wordingone.github.io/WEB-CAD/";
-const LOCAL_URL = "http://localhost:5175/";
 const EPS       = 1e-6;
 const RUNS      = 3;
 const OUT_DIR   = fileURLToPath(new URL("../state/cert-333-rt", import.meta.url));
 mkdirSync(OUT_DIR, { recursive: true });
 
+// ── 1. Build reference .3dm bytes in Node.js ──────────────────────────────────
+// Reference surface: 3×3 bilinear patch (degree 1 in both directions)
+const rh = await rhino3dmInit();
+const deg = 1, n = 3;
+const refCP = [
+  [0,0,0],[1,0,0],[2,0,0],
+  [0,1,0],[1,1,1],[2,1,0],
+  [0,2,0],[1,2,0],[2,2,0],
+];
+// Full clamped knots for degree=1, n=3: [0,0,1,2,2]
+const fullKnots = [0, 0, 1, 2, 2];
+// Truncated knots for rhino3dm (strips first + last): [0, 1, 2]
+const truncKnots = fullKnots.slice(1, fullKnots.length - 1);
+
+const orderU = deg + 1, orderV = deg + 1;
+const ns = rh.NurbsSurface.create(3, false, orderU, orderV, n, n);
+if (!ns) throw new Error("NurbsSurface.create returned null");
+
+const pts = ns.points();
+for (let i = 0; i < n; i++) {
+  for (let j = 0; j < n; j++) {
+    const p = refCP[i * n + j];
+    pts.set(i, j, [p[0], p[1], p[2]]);
+  }
+}
+const ku = ns.knotsU(), kv = ns.knotsV();
+for (let i = 0; i < truncKnots.length; i++) {
+  ku.set(i, truncKnots[i]);
+  kv.set(i, truncKnots[i]);
+}
+
+const file3dm = new rh.File3dm();
+file3dm.objects().addSurface(ns);
+ns.delete();
+const dmBytes = file3dm.toByteArray();
+file3dm.delete();
+const dmBase64 = Buffer.from(dmBytes).toString("base64");
+console.log(`[rt] .3dm built in Node.js: ${dmBytes.length} bytes, ${refCP.length} control points`);
+
+// ── 2. Connect to CDP ─────────────────────────────────────────────────────────
 const targets = JSON.parse(execSync(`curl -s http://localhost:${CDP_PORT}/json`, { encoding: "utf8" }));
-const target  = targets.find(t => t.type === "page");
+const target  = targets.find(t => t.type === "page" && !t.url.startsWith("devtools://"));
 if (!target) { console.error("No page tab at :9222"); process.exit(1); }
 console.log(`[rt] tab: ${target.url}`);
 
@@ -57,7 +101,7 @@ await send("Page.enable");
 await send("Runtime.enable");
 await send("Network.enable");
 
-// Initial nav
+// Navigate to deployed Pages
 const initLoad = new Promise(res => onEvent("Page.loadEventFired", res));
 await send("Page.navigate", { url: PAGES_URL });
 await initLoad;
@@ -68,12 +112,13 @@ const runResults = [];
 for (let run = 1; run <= RUNS; run++) {
   console.log(`\n[rt] ── Run ${run}/${RUNS} ──────────────────────────`);
   const runExceptions = [];
-  onEvent("Runtime.exceptionThrown", (p) => {
+  const exListener = (p) => {
     const desc = p.exceptionDetails?.exception?.description ?? "";
     if (!desc.includes("AbortError") && !desc.includes("NetworkError") && !desc.includes("Failed to fetch")) {
       runExceptions.push(desc);
     }
-  });
+  };
+  onEvent("Runtime.exceptionThrown", exListener);
 
   // Cold-cache clear
   await send("Network.clearBrowserCache");
@@ -89,7 +134,7 @@ for (let run = 1; run <= RUNS; run++) {
   let shellReady = false;
   for (let t = 0; t < 90; t++) {
     await delay(1000);
-    const ok = await evaluate(`!!(window.__viewer && window.__dispatchSync && window.__ghRegisterGraph)`).catch(()=>false);
+    const ok = await evaluate(`!!(window.__viewer && window.__dispatchSync)`).catch(()=>false);
     if (ok) { shellReady = true; console.log(`[rt]   shell ready ~${t+1}s`); break; }
   }
   if (!shellReady) {
@@ -97,62 +142,26 @@ for (let run = 1; run <= RUNS; run++) {
     continue;
   }
 
-  // Round-trip: create KernelNurbsSurface in-page, export to .3dm bytes, re-import via Sd3dmRead
+  // Inject .3dm bytes (built Node.js-side) as base64, decode in browser, dispatch Sd3dmRead
   const rtResult = await evaluate(`
     (async () => {
-      // Reference surface: a simple 3x3 bilinear patch (degree 1 in both directions)
-      const EPS = ${EPS};
-      const deg = 1, n = 3;
-      const cp = [
-        [0,0,0],[1,0,0],[2,0,0],
-        [0,1,0],[1,1,1],[2,1,0],
-        [0,2,0],[1,2,0],[2,2,0],
-      ];
-      const weights = new Array(9).fill(1);
-      const knots = [0,0,1,2,2]; // degree=1, n=3 → length=5
-
-      // Expose these as in-page globals for comparison
-      window.__rt333_ref = { degreeU: deg, degreeV: deg, controlPoints: cp, weights, countU: n, countV: n, knotsU: knots, knotsV: knots };
-
-      // 1. Build rhino3dm NurbsSurface and export to .3dm bytes
       try {
-        const rhino3dmInit = (await import("rhino3dm")).default;
-        const rh = await rhino3dmInit();
+        const EPS = ${EPS};
+        const refCP = ${JSON.stringify(refCP)};
+        const fullKnots = ${JSON.stringify(fullKnots)};
+        const dmBase64 = "${dmBase64}";
 
-        const orderU = deg + 1, orderV = deg + 1;
-        const ns = rh.NurbsSurface.create(3, false, orderU, orderV, n, n);
-        if (!ns) return { ok: false, error: "NurbsSurface.create returned null" };
+        // Decode base64 → ArrayBuffer
+        const binStr = atob(dmBase64);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        const arrayBuf = bytes.buffer;
 
-        // Write control points
-        const pts = ns.points();
-        for (let i = 0; i < n; i++) {
-          for (let j = 0; j < n; j++) {
-            const p = cp[i * n + j];
-            pts.set(i, j, [p[0], p[1], p[2]]);
-          }
-        }
+        // Dispatch Sd3dmRead
+        const result = await window.__dispatchSync("Sd3dmRead", { bytes: arrayBuf, filename: "rt-test.3dm" });
+        if (!result?.loaded) return { ok: false, error: "Sd3dmRead failed: " + JSON.stringify(result?.error) };
 
-        // Write truncated knots (rhino3dm convention: strip first/last)
-        const trunc = knots.slice(1, knots.length - 1); // [0,1,2]
-        const ku = ns.knotsU(), kv = ns.knotsV();
-        for (let i = 0; i < trunc.length; i++) { ku.set(i, trunc[i]); kv.set(i, trunc[i]); }
-
-        // Create file and add surface
-        const file = new rh.File3dm();
-        file.objects().addSurface(ns);
-        ns.delete();
-
-        // Get bytes
-        const bytes = file.toByteArray();
-        file.delete();
-
-        // 2. Re-import via Sd3dmRead handler
-        const arrayBuf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        const ds = window.__dispatchSync;
-        const result = await ds("Sd3dmRead", { bytes: arrayBuf, filename: "rt-test.3dm" });
-        if (!result?.loaded) return { ok: false, error: "Sd3dmRead failed: " + result?.error };
-
-        // 3. Find the imported mesh with canonical userData
+        // Find imported mesh with canonical userData
         let canonical = null;
         window.__viewer.scene.traverse(obj => {
           if (obj.userData?.format === "3dm" && obj.userData?.canonical && !canonical) {
@@ -161,25 +170,21 @@ for (let run = 1; run <= RUNS; run++) {
         });
         if (!canonical) return { ok: false, error: "no canonical userData on imported mesh" };
 
-        // 4. Deterministic geometry diff
-        const ref = window.__rt333_ref;
+        // Deterministic geometry diff
         const errors = [];
+        if (canonical.degreeU !== 1) errors.push("degreeU=" + canonical.degreeU + " want 1");
+        if (canonical.degreeV !== 1) errors.push("degreeV=" + canonical.degreeV + " want 1");
+        if (canonical.countU !== 3) errors.push("countU=" + canonical.countU + " want 3");
+        if (canonical.countV !== 3) errors.push("countV=" + canonical.countV + " want 3");
 
-        if (canonical.degreeU !== ref.degreeU) errors.push("degreeU mismatch: " + canonical.degreeU + " vs " + ref.degreeU);
-        if (canonical.degreeV !== ref.degreeV) errors.push("degreeV mismatch: " + canonical.degreeV + " vs " + ref.degreeV);
-        if (canonical.countU !== ref.countU) errors.push("countU mismatch");
-        if (canonical.countV !== ref.countV) errors.push("countV mismatch");
-
-        // Control point diff
-        for (let i = 0; i < ref.controlPoints.length; i++) {
-          const a = ref.controlPoints[i], b = canonical.controlPoints[i];
-          if (!b) { errors.push("missing CP " + i); continue; }
+        for (let i = 0; i < refCP.length; i++) {
+          const a = refCP[i], b = canonical.controlPoints?.[i];
+          if (!b) { errors.push("missing CP[" + i + "]"); continue; }
           const d = Math.max(Math.abs(a[0]-b[0]), Math.abs(a[1]-b[1]), Math.abs(a[2]-b[2]));
           if (d > EPS) errors.push("CP[" + i + "] delta=" + d.toExponential(2));
         }
 
-        // Knot vector diff
-        const kuRef = ref.knotsU, kuImp = canonical.knotsU;
+        const kuRef = fullKnots, kuImp = canonical.knotsU ?? [];
         if (kuRef.length !== kuImp.length) {
           errors.push("knotsU length: " + kuImp.length + " vs " + kuRef.length);
         } else {
@@ -187,12 +192,17 @@ for (let run = 1; run <= RUNS; run++) {
             if (Math.abs(kuRef[i] - kuImp[i]) > EPS) errors.push("knotsU[" + i + "] delta=" + Math.abs(kuRef[i]-kuImp[i]).toExponential(2));
           }
         }
-        const kvRef = ref.knotsV, kvImp = canonical.knotsV;
-        if (kvRef.length !== kvImp.length) {
-          errors.push("knotsV length mismatch");
-        }
+        const kvRef = fullKnots, kvImp = canonical.knotsV ?? [];
+        if (kvRef.length !== kvImp.length) errors.push("knotsV length: " + kvImp.length + " vs " + kvRef.length);
 
-        return { ok: errors.length === 0, errors, canonical: { degreeU: canonical.degreeU, degreeV: canonical.degreeV, countU: canonical.countU, countV: canonical.countV, knotsU: canonical.knotsU, knotsV: canonical.knotsV } };
+        return {
+          ok: errors.length === 0, errors,
+          canonical: {
+            degreeU: canonical.degreeU, degreeV: canonical.degreeV,
+            countU: canonical.countU, countV: canonical.countV,
+            knotsU: canonical.knotsU, knotsV: canonical.knotsV
+          }
+        };
       } catch (e) {
         return { ok: false, error: String(e?.message ?? e) };
       }
@@ -201,26 +211,24 @@ for (let run = 1; run <= RUNS; run++) {
 
   console.log("[rt]   round-trip result:", JSON.stringify(rtResult));
 
-  // Screenshot
   const shot = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(`${OUT_DIR}/run${run}.png`, Buffer.from(shot.data, "base64"));
 
   const crashFree = runExceptions.length === 0;
   const rtOK = rtResult?.ok === true;
   console.log(`[rt]   (b) round-trip: ${rtOK ? "✓ PASS" : "✗ FAIL"}`);
-  if (!rtOK && rtResult?.errors) console.log(`[rt]   errors: ${JSON.stringify(rtResult.errors)}`);
+  if (!rtOK && rtResult?.errors?.length) console.log(`[rt]   errors: ${JSON.stringify(rtResult.errors)}`);
   if (!rtOK && rtResult?.error) console.log(`[rt]   error: ${rtResult.error}`);
   console.log(`[rt]   (c) crash-free: ${crashFree ? "✓ YES" : "✗ NO"}`);
 
   const pass = rtOK && crashFree;
   console.log(`[rt]   Run ${run}: ${pass ? "✓ PASS" : "✗ FAIL"}`);
   runResults.push({ run, pass, rtOK, crashFree, canonical: rtResult?.canonical, errors: rtResult?.errors });
-}
 
-// Return to local dev
-const backLoad = new Promise(res => onEvent("Page.loadEventFired", res));
-await send("Page.navigate", { url: LOCAL_URL });
-await backLoad;
+  // Remove this run's exception listener
+  const idx = (evListeners.get("Runtime.exceptionThrown") ?? []).indexOf(exListener);
+  if (idx >= 0) evListeners.get("Runtime.exceptionThrown").splice(idx, 1);
+}
 
 const allPass = runResults.every(r => r.pass);
 const certPath = `${OUT_DIR}/cert-333-rt.json`;
@@ -230,7 +238,8 @@ writeFileSync(certPath, JSON.stringify({
   cold_cache: true,
   clear_protocol: "Storage.clearDataForOrigin(all) + Network.clearBrowserCache + SW unregister + Page.reload(ignoreCache:true)",
   eps: EPS,
-  surface: "3x3 bilinear patch, degree 1, 9 control points",
+  surface: "3x3 bilinear patch, degree 1, 9 control points, fullKnots=[0,0,1,2,2]",
+  dm_bytes: dmBytes.length,
   runs: runResults,
   allPass,
 }, null, 2));
