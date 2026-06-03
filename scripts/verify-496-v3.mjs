@@ -9,7 +9,7 @@
 //   AC1: SURFACE mode → active-tool=surface (no frameDelta: renderer.info.render.frame
 //        resets to 0 then increments to 1 on every render call via autoReset=true)
 //   AC2: hover circle → noSnap Mesh + canvas diff > 15 changed pixels
-//   AC3: click circle → surface geometry added
+//   AC3: click circle → surface geometry added + canvas diff > 15px (Leo #12980)
 //   AC4: plane pt2 → noSnap Line + canvas diff > 15 changed pixels
 //   AC5: plane pt3 → noSnap Group + canvas diff > 15 changed pixels
 //   AC6: zero JS exceptions
@@ -328,19 +328,45 @@ results.push({ id: "AC2", desc: "surface hover → fill preview (noSnap Mesh + c
   detail: `meshDelta=${postMesh2-preMesh2} diffChanged=${diff2?.changed ?? "?"} blueGain=${diff2?.blueGain ?? "?"} hasDiff=${ac2_visible}` });
 console.log(`[v496v3]   AC2: ${ac2 ? "PASS" : "FAIL"} (meshAdded=${ac2_meshAdded} visible=${ac2_visible})`);
 
-// ── AC3: SURFACE click → geometry ─────────────────────────────────────────────
+// ── AC3: SURFACE click → geometry + visible render ────────────────────────────
+// Leo #12980: committed surface must show non-zero render-diff (not just scene-graph +1).
+// CW-wound commit produces 0 triangles → mesh present but invisible.
 console.log("\n[v496v3] ── AC3: SURFACE click ────────────────────────────");
 const geomPre3 = await countGeomChildren();
+const b64Before3 = await captureCanvasJpeg();    // before commit click
+
 await clickXY(cx, cy);
 await delay(700);
-const geomPost3 = await countGeomChildren();
+
+const geomPost3  = await countGeomChildren();
+const b64After3  = await captureCanvasJpeg();    // after committed surface added
+const diff3      = await diffCanvasJpeg(b64Before3, b64After3);
 console.log(`[v496v3]   geom: ${geomPre3}→${geomPost3}`);
+console.log(`[v496v3]   canvas diff: ${JSON.stringify(diff3)}`);
 await screenshot("ac3-surface-click");
 
-const ac3 = geomPost3 > geomPre3;
-results.push({ id: "AC3", desc: "surface click → geometry added", pass: ac3,
-  detail: `geomDelta=${geomPost3-geomPre3}` });
-console.log(`[v496v3]   AC3: ${ac3 ? "PASS" : "FAIL"}`);
+// Diagnostic if committed surface invisible
+if (!(diff3?.hasDiff)) {
+  const meshInfo3 = await evaluate(`(function() {
+    const s = window.__viewer?.getScene?.();
+    if (!s) return null;
+    const m = s.children.filter(c => !c.userData?.noSnap && c.userData?.kind === 'surface').slice(-1)[0];
+    if (!m) return null;
+    const pos = m.geometry?.getAttribute('position');
+    const first3 = pos ? [[pos.getX(0),pos.getY(0),pos.getZ(0)],[pos.getX(1),pos.getY(1),pos.getZ(1)],[pos.getX(2),pos.getY(2),pos.getZ(2)]] : null;
+    return { vertCount: pos?.count, first3verts: first3, visible: m.visible,
+             matOpacity: m.material?.opacity, matSide: m.material?.side };
+  })()`);
+  console.log(`[v496v3]   DIAG committed surface: ${JSON.stringify(meshInfo3)}`);
+}
+
+const ac3_geomAdded = geomPost3 > geomPre3;
+const ac3_visible   = diff3?.hasDiff ?? false;
+const ac3 = ac3_geomAdded && ac3_visible;
+results.push({ id: "AC3", desc: "surface click → geometry added + visible render",
+  pass: ac3,
+  detail: `geomDelta=${geomPost3-geomPre3} diffChanged=${diff3?.changed ?? "?"} hasDiff=${ac3_visible}` });
+console.log(`[v496v3]   AC3: ${ac3 ? "PASS" : "FAIL"} (geomAdded=${ac3_geomAdded} visible=${ac3_visible})`);
 
 // ── AC4: PLANE pt2 line preview ────────────────────────────────────────────────
 console.log("\n[v496v3] ── AC4: PLANE pt2 preview ────────────────────────");
