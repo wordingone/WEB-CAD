@@ -132,9 +132,31 @@
       "read3": "4/5 — FAIL dim3 (GF/UF windows same size — spec has no hierarchy requirement)",
       "majority": "4/5 self-read (dim3 fails majority on spurious points not in pass criteria)"
     },
+    "leo_gate": "5/5 PASS — dim3 door-in-center-bay correct per frozen rubric",
     "capture": "vv_gen_iter7_front.jpg",
-    "status": "PENDING Leo independent gate — door position now PARSED (center bay)",
+    "status": "CONVERGED — Leo gate 5/5 2026-06-03",
     "date": "2026-06-03"
   },
-  "convergence_status": "MULTI-VIEW iter6 converged (side 5/5). Front iter7 pending Leo independent gate — dim3 position fix applied (door → center bay per DWG parse). 2026-06-03."
+  "iter7_side": {
+    "iteration": 7,
+    "param_set": "SAME as iter7 front — single param set confirmed",
+    "self_reads": {
+      "read1": "5/5 PASS all dims",
+      "read2": "5/5 PASS all dims",
+      "read3": "5/5 PASS all dims",
+      "majority": "5/5 (3/3 reads unanimous)"
+    },
+    "capture": "vv_gen_iter7_side.jpg",
+    "status": "PENDING Leo multi-view gate",
+    "date": "2026-06-03"
+  },
+  "cross_view_dims_baked": {
+    "front_gable_width_mm": 6096,
+    "side_visible_width_mm": 7315,
+    "total_height_mm": 6245,
+    "eave_height_mm": 4876,
+    "source": "Model params W/D/H_TOTAL — confirmed via bbox Z=6245mm MATCH",
+    "agreement": "FRONT and SIDE generated from SAME script, SAME params — no per-view tuning. Single param set."
+  },
+  "convergence_status": "MULTI-VIEW iter7 — front 5/5 (Leo gate), side 5/5 (3/3 reads). Single param set. Cross-view dims baked. Pending Leo multi-view gate. 2026-06-03."
 }
