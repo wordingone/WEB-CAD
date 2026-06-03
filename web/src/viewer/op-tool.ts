@@ -649,6 +649,13 @@ export function opUpdateSurfacePickPreview(viewer: Viewer, clientX: number, clie
     if (i === 0) z = v.z;
     pts2d.push(new THREE.Vector2(v.x, v.y));
   }
+  // earcut (THREE.ShapeGeometry) requires CCW outer ring. SdCircle emits CW
+  // vertices (decreasing angle from 0°); signed-area check + reverse when CW.
+  const signedArea = pts2d.reduce((s, p, i, a) => {
+    const q = a[(i + 1) % a.length];
+    return s + (p.x * q.y - q.x * p.y);
+  }, 0);
+  if (signedArea < 0) pts2d.reverse();
   const shape = new THREE.Shape(pts2d);
   const geo = new THREE.ShapeGeometry(shape);
   const mat = new THREE.MeshBasicMaterial({
