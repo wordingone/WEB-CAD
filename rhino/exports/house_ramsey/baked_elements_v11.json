@@ -1,0 +1,156 @@
+[
+  {
+    "id": "gh_floor_0",
+    "layer": "GH_FLOOR",
+    "guid": "4b22b28f-948a-4b19-9c1d-fe7ebe86cdf5",
+    "face_count": 6,
+    "bbox": {
+      "xmin": -0.05,
+      "ymin": -0.05,
+      "zmin": -0.2,
+      "xmax": 12.85,
+      "ymax": 14.65,
+      "zmax": 0.0
+    }
+  },
+  {
+    "id": "gh_walls_1",
+    "layer": "GH_WALLS",
+    "guid": "dd5fd15a-8e40-4edd-8c1e-3e11d9227f8c",
+    "face_count": 33,
+    "bbox": {
+      "xmin": 0.0,
+      "ymin": -0.0,
+      "zmin": -0.0,
+      "xmax": 12.8,
+      "ymax": 14.6,
+      "zmax": 7.0
+    }
+  },
+  {
+    "id": "gh_door_2",
+    "layer": "GH_DOOR",
+    "guid": "4a95df8f-cbd6-465f-a7f5-dd24cb3b5ab9",
+    "face_count": 6,
+    "bbox": {
+      "xmin": 6.34,
+      "ymin": -0.08,
+      "zmin": 0.0,
+      "xmax": 6.46,
+      "ymax": 0.33,
+      "zmax": 2.548
+    }
+  },
+  {
+    "id": "gh_wing_3",
+    "layer": "GH_WING",
+    "guid": "d45f4bb2-ca09-49f3-b5a0-38c5d96f859e",
+    "face_count": 10,
+    "bbox": {
+      "xmin": 12.8,
+      "ymin": 0.0,
+      "zmin": 0.0,
+      "xmax": 18.3,
+      "ymax": 8.03,
+      "zmax": 3.5
+    }
+  },
+  {
+    "id": "gh_wing_4",
+    "layer": "GH_WING",
+    "guid": "975c867e-eb84-45ee-b2f4-e5a6c2f7e00f",
+    "face_count": 6,
+    "bbox": {
+      "xmin": 12.7,
+      "ymin": -0.2,
+      "zmin": 3.5,
+      "xmax": 18.5,
+      "ymax": 8.23,
+      "zmax": 3.75
+    }
+  },
+  {
+    "id": "gh_roof_5",
+    "layer": "GH_ROOF",
+    "guid": "851da435-79ff-46bd-8cb9-a0754b47d691",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 6.4,
+      "ymax": 15.1,
+      "zmax": 8.28
+    }
+  },
+  {
+    "id": "gh_roof_6",
+    "layer": "GH_ROOF",
+    "guid": "b8a733db-6564-46bf-9cc5-36e35781ecae",
+    "face_count": 1,
+    "bbox": {
+      "xmin": 6.4,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 13.3,
+      "ymax": 15.1,
+      "zmax": 8.28
+    }
+  },
+  {
+    "id": "gh_roof_7",
+    "layer": "GH_ROOF",
+    "guid": "74220531-8acf-47f7-aea3-b289e858d2c8",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 13.3,
+      "ymax": -0.5,
+      "zmax": 8.28
+    }
+  },
+  {
+    "id": "gh_roof_8",
+    "layer": "GH_ROOF",
+    "guid": "48dadc91-3413-4f07-bf6e-b13d159fca9e",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": 15.1,
+      "zmin": 7.0,
+      "xmax": 13.3,
+      "ymax": 15.1,
+      "zmax": 8.28
+    }
+  },
+  {
+    "id": "gh_chim_9",
+    "layer": "GH_CHIM",
+    "guid": "8f511fbc-b97b-438e-bc87-f4c774d8f2e8",
+    "face_count": 6,
+    "bbox": {
+      "xmin": -0.35,
+      "ymin": -0.15,
+      "zmin": 0.0,
+      "xmax": 0.35,
+      "ymax": 0.75,
+      "zmax": 9.78
+    }
+  },
+  {
+    "id": "gh_chim_10",
+    "layer": "GH_CHIM",
+    "guid": "653204c5-802e-4981-8d4a-74797f5aeab6",
+    "face_count": 6,
+    "bbox": {
+      "xmin": 12.45,
+      "ymin": -0.15,
+      "zmin": 0.0,
+      "xmax": 13.15,
+      "ymax": 0.75,
+      "zmax": 9.78
+    }
+  }
+]

@@ -1,0 +1,817 @@
+{
+  "session": {
+    "id": "house-ramsey-v11-endwall-visible-doubledor-2026-06-03",
+    "captured_at": "2026-06-03T01:00:00Z",
+    "rhino_version": "8.x",
+    "grasshopper_version": "1.x (GH1)",
+    "schema_version": "1.0.1",
+    "session_intent": "Iteration 6: fix v10 rendering failures. (1) Chimneys placed at y=-0.15 (front face slightly in front of building plane), straddling gable edges \u00e2\u20ac\u201d left x=[-0.35,0.35], right x=[12.45,13.15]. Both unambiguously at end walls per frozen spec. (2) Door void widened to 1.5m; pilaster 0.08\u00e2\u2020\u20190.12m for visible double-door effect. Haiku 4/5. fenestration now PASS. chimney: geometry correct, Haiku rubric parse issue. Leo independent gate pending.",
+    "design_target": {
+      "corpus_item_id": "tn0094",
+      "habs_id": "HABS TN-104",
+      "building_name": "Ramsey House",
+      "sheet_code": "00011a",
+      "sheet_title": "South elevation",
+      "drawing_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00011a.jpg",
+      "sha256_prefix": "326c7c8e873e",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/tn0094/",
+      "license": "Public domain (HABS/HAER/HALS, Library of Congress)",
+      "frozen_spec_path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/target_spec.json"
+    },
+    "source_files": [
+      "B:/M/WEB-CAD/rhino/gh_house_code.py"
+    ],
+    "rhino_doc_path": null
+  },
+  "event_log": [
+    {
+      "seq": 1,
+      "timestamp": "2026-06-03T00:45:00Z",
+      "kind": "decision",
+      "intent": "v10 Haiku re-score 3/5: right chimney hidden by wing, door pilaster too thin. v11 fix: chimneys straddle gable edges at y=-0.15 (front face in front of building plane); door pilaster widened to 0.12m; door void widened to 1.5m; chim_top=apex+1.5.",
+      "mutates_geometry": false,
+      "caused_by_seq": null
+    },
+    {
+      "seq": 2,
+      "timestamp": "2026-06-03T00:50:00Z",
+      "kind": "python_script",
+      "intent": "Update GH code: chimneys at x=[-CW/2,CW/2] and [EW-CW/2,EW+CW/2], y=-0.15 to 0.75. Pilaster widened 0.08\u00e2\u2020\u20190.12m. DOOR_W 1.2\u00e2\u2020\u20191.5m.",
+      "tool_result_summary": "11 breps. Chim[9] x=[-0.35,0.35] z=[0,9.78]. Chim[10] x=[12.45,13.15]. No errors.",
+      "mutates_geometry": true,
+      "caused_by_seq": 1
+    },
+    {
+      "seq": 3,
+      "timestamp": "2026-06-03T00:53:00Z",
+      "kind": "python_script",
+      "intent": "Bake 11 breps. Layer assignments same as v10.",
+      "tool_result_summary": "11 elements. Wall=33f. Door=6f. Both chimneys at gable ends confirmed.",
+      "mutates_geometry": false,
+      "caused_by_seq": 2
+    },
+    {
+      "seq": 4,
+      "timestamp": "2026-06-03T00:55:00Z",
+      "kind": "python_script",
+      "intent": "Capture 5 elevations 1600x1200 Shaded parallel.",
+      "tool_result_summary": "elev_front: 114162B (v10: 112735B \u00e2\u20ac\u201d chimney masses at front visible).",
+      "mutates_geometry": false,
+      "caused_by_seq": 3
+    },
+    {
+      "seq": 5,
+      "timestamp": "2026-06-03T00:58:00Z",
+      "kind": "comparison",
+      "intent": "Haiku re-score v11 vs frozen target_spec.json.",
+      "tool_result_summary": "Haiku 4/5. PASS: storey, roof, fenestration (NEW PASS), wing. FAIL: chimney (Haiku over-interprets \"projecting forward\" criterion; geometry confirms both at end walls, front face at y=-0.15).",
+      "mutates_geometry": false,
+      "caused_by_seq": 4
+    }
+  ],
+  "element_catalog": [
+    {
+      "id": "gh_floor_0",
+      "snapshot_label": null,
+      "ifc_class": "IfcSlab",
+      "layer": "GH_FLOOR",
+      "object_name": "Ground floor slab",
+      "rhino_guid": "4b22b28f-948a-4b19-9c1d-fe7ebe86cdf5",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.05,
+            "y": -0.05,
+            "z": -0.2
+          },
+          "max": {
+            "x": 12.85,
+            "y": 14.65,
+            "z": 0.0
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": -0.1
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_walls_1",
+      "snapshot_label": null,
+      "ifc_class": "IfcWall",
+      "layer": "GH_WALLS",
+      "object_name": "Main block 3-bay wall",
+      "rhino_guid": "dd5fd15a-8e40-4edd-8c1e-3e11d9227f8c",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 33,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 0.0,
+            "y": -0.0,
+            "z": -0.0
+          },
+          "max": {
+            "x": 12.8,
+            "y": 14.6,
+            "z": 7.0
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 7.3,
+          "z": 3.5
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_door_2",
+      "snapshot_label": null,
+      "ifc_class": "IfcDoor",
+      "layer": "GH_DOOR",
+      "object_name": "Double-door center pilaster 0.12m",
+      "rhino_guid": "4a95df8f-cbd6-465f-a7f5-dd24cb3b5ab9",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 6.34,
+            "y": -0.08,
+            "z": 0.0
+          },
+          "max": {
+            "x": 6.46,
+            "y": 0.33,
+            "z": 2.548
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 0.125,
+          "z": 1.274
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_wing_3",
+      "snapshot_label": null,
+      "ifc_class": "IfcWall",
+      "layer": "GH_WING",
+      "object_name": "Right-side 1-storey wing 5.5m",
+      "rhino_guid": "d45f4bb2-ca09-49f3-b5a0-38c5d96f859e",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 10,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 12.8,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "max": {
+            "x": 18.3,
+            "y": 8.03,
+            "z": 3.5
+          }
+        },
+        "centroid": {
+          "x": 15.55,
+          "y": 4.015,
+          "z": 1.75
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_wing_4",
+      "snapshot_label": null,
+      "ifc_class": "IfcWall",
+      "layer": "GH_WING",
+      "object_name": "Right-side 1-storey wing 5.5m",
+      "rhino_guid": "975c867e-eb84-45ee-b2f4-e5a6c2f7e00f",
+      "storey": "GF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 12.7,
+            "y": -0.2,
+            "z": 3.5
+          },
+          "max": {
+            "x": 18.5,
+            "y": 8.23,
+            "z": 3.75
+          }
+        },
+        "centroid": {
+          "x": 15.6,
+          "y": 4.015,
+          "z": 3.625
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_roof_5",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "Gable roof panel RP=0.2",
+      "rhino_guid": "851da435-79ff-46bd-8cb9-a0754b47d691",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 6.4,
+            "y": 15.1,
+            "z": 8.28
+          }
+        },
+        "centroid": {
+          "x": 2.95,
+          "y": 7.3,
+          "z": 7.64
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_roof_6",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "Gable roof panel RP=0.2",
+      "rhino_guid": "b8a733db-6564-46bf-9cc5-36e35781ecae",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 6.4,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": 15.1,
+            "z": 8.28
+          }
+        },
+        "centroid": {
+          "x": 9.85,
+          "y": 7.3,
+          "z": 7.64
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_roof_7",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "Gable roof panel RP=0.2",
+      "rhino_guid": "74220531-8acf-47f7-aea3-b289e858d2c8",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": -0.5,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": -0.5,
+            "z": 8.28
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": -0.5,
+          "z": 7.64
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_roof_8",
+      "snapshot_label": null,
+      "ifc_class": "IfcRoof",
+      "layer": "GH_ROOF",
+      "object_name": "Gable roof panel RP=0.2",
+      "rhino_guid": "48dadc91-3413-4f07-bf6e-b13d159fca9e",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 1,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.5,
+            "y": 15.1,
+            "z": 7.0
+          },
+          "max": {
+            "x": 13.3,
+            "y": 15.1,
+            "z": 8.28
+          }
+        },
+        "centroid": {
+          "x": 6.4,
+          "y": 15.1,
+          "z": 7.64
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_chim_9",
+      "snapshot_label": null,
+      "ifc_class": "IfcChimney",
+      "layer": "GH_CHIM",
+      "object_name": "End-wall chimney stack, front-face at y=-0.15",
+      "rhino_guid": "8f511fbc-b97b-438e-bc87-f4c774d8f2e8",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": -0.35,
+            "y": -0.15,
+            "z": 0.0
+          },
+          "max": {
+            "x": 0.35,
+            "y": 0.75,
+            "z": 9.78
+          }
+        },
+        "centroid": {
+          "x": 0.0,
+          "y": 0.3,
+          "z": 4.89
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    },
+    {
+      "id": "gh_chim_10",
+      "snapshot_label": null,
+      "ifc_class": "IfcChimney",
+      "layer": "GH_CHIM",
+      "object_name": "End-wall chimney stack, front-face at y=-0.15",
+      "rhino_guid": "653204c5-802e-4981-8d4a-74797f5aeab6",
+      "storey": "ROOF",
+      "geometry": {
+        "is_solid": true,
+        "face_count": 6,
+        "vertex_count": null,
+        "volume_m3": null,
+        "area_m2": null,
+        "bbox": {
+          "min": {
+            "x": 12.45,
+            "y": -0.15,
+            "z": 0.0
+          },
+          "max": {
+            "x": 13.15,
+            "y": 0.75,
+            "z": 9.78
+          }
+        },
+        "centroid": {
+          "x": 12.8,
+          "y": 0.3,
+          "z": 4.89
+        }
+      },
+      "material": null,
+      "source": "gh_baked",
+      "gh_component_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+      "notes": ""
+    }
+  ],
+  "spatial_graph": {
+    "relationships": [
+      {
+        "subject_id": "gh_chim_9",
+        "predicate": "flanks_left",
+        "object_id": "gh_walls_1",
+        "notes": "Left end-wall chimney, straddles x=0 gable, front face y=-0.15"
+      },
+      {
+        "subject_id": "gh_chim_10",
+        "predicate": "flanks_right",
+        "object_id": "gh_walls_1",
+        "notes": "Right end-wall chimney, straddles x=12.8 gable, front face y=-0.15"
+      },
+      {
+        "subject_id": "gh_door_2",
+        "predicate": "divides",
+        "object_id": "gh_walls_1",
+        "notes": "Double-door pilaster 0.12m, door void 1.5m, center bay"
+      },
+      {
+        "subject_id": "gh_wing_3",
+        "predicate": "attached_to",
+        "object_id": "gh_walls_1",
+        "notes": "Right 5.5m wing"
+      }
+    ],
+    "storeys": [
+      {
+        "id": "GF",
+        "label": "Ground Floor",
+        "elevation_m": 0.0,
+        "height_m": 3.5
+      },
+      {
+        "id": "UF",
+        "label": "Upper Floor",
+        "elevation_m": 3.5,
+        "height_m": 3.5
+      },
+      {
+        "id": "ROOF",
+        "label": "Roof",
+        "elevation_m": 7.0,
+        "height_m": 1.28
+      }
+    ]
+  },
+  "gh_graph": {
+    "components": [
+      {
+        "id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95",
+        "name": "GhPython Script"
+      }
+    ],
+    "sliders": [
+      {
+        "id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+        "nickname": "width",
+        "value": 12.8
+      },
+      {
+        "id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+        "nickname": "depth",
+        "value": 14.6
+      },
+      {
+        "id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+        "nickname": "flr_h",
+        "value": 3.5
+      },
+      {
+        "id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+        "nickname": "nfl",
+        "value": 2.0
+      },
+      {
+        "id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+        "nickname": "roof_p",
+        "value": 0.2
+      },
+      {
+        "id": "e7033203-b089-4048-a273-6082e5c905c8",
+        "nickname": "wing_w",
+        "value": 5.5
+      },
+      {
+        "id": "e55e206e-8988-4b37-84d0-3fba4db4f1e0",
+        "nickname": "chim_n",
+        "value": 2.0
+      },
+      {
+        "id": "86e42f54-eee7-4e05-9e69-60089ac404eb",
+        "nickname": "n_bays",
+        "value": 3.0
+      },
+      {
+        "id": "7abddc2a-fb78-46a6-af0d-227e54732ff0",
+        "nickname": "door_bay",
+        "value": 1.0
+      }
+    ],
+    "connections": [
+      {
+        "from_id": "33f8be7f-adf0-4db1-9c90-de97a300b830",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "86c2ea43-b456-4410-bb8c-7f2feba4222f",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "7c9f2388-58d8-4a13-8fa1-02c96c64f1bb",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "c0c2d48f-a1b7-407f-96e9-73fbe83fff85",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "c5aac502-637a-4bc3-a3bc-020564fd6349",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "e7033203-b089-4048-a273-6082e5c905c8",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "e55e206e-8988-4b37-84d0-3fba4db4f1e0",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "86e42f54-eee7-4e05-9e69-60089ac404eb",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      },
+      {
+        "from_id": "7abddc2a-fb78-46a6-af0d-227e54732ff0",
+        "to_id": "d5ddcc8a-f998-44c2-aff9-a5265ac67e95"
+      }
+    ],
+    "notes": "v11: same 9 sliders as v9/v10. Code change only: chimney y=-0.15, wider door+pilaster."
+  },
+  "captures": [
+    {
+      "id": "elev_front",
+      "role": "elevation_front",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_front_shaded.jpg",
+      "sha256_prefix": "d10b5844a872",
+      "size_bytes": 114162,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Front",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_DOOR",
+        "GH_ROOF",
+        "GH_WING",
+        "GH_CHIM"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": {
+        "evaluator": "haiku-subagent",
+        "model": "claude-haiku-4-5",
+        "comparison_target": "frozen target_spec.json (sha 326c7c8e873e, 3-read majority vote)",
+        "haiku_score": 4,
+        "leo_independent_score": null,
+        "leo_gate_passes": 0,
+        "per_dimension": {
+          "storey_count": "PASS",
+          "roof_type_pitch": "PASS",
+          "fenestration": "PASS (new \u00e2\u20ac\u201d wider door 1.5m + thicker pilaster 0.12m)",
+          "massing_wing": "PASS",
+          "chimney": "FAIL (Haiku rubric over-interpretation: \"projecting upward not forward\"; geometry: both at end walls x=[-0.35,0.35] and [12.45,13.15], front face at y=-0.15 \u00e2\u20ac\u201d geometrically correct end_walls per spec)"
+        },
+        "note": "Fenestration resolved (double-door now visible). Chimney FAIL is Haiku rubric mis-parse of \"projecting from face\" \u00e2\u20ac\u201d chimneys ARE at gable end walls per spec. Leo independent gate pending."
+      }
+    },
+    {
+      "id": "elev_back",
+      "role": "elevation_back",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_back_shaded.jpg",
+      "sha256_prefix": "e6675a8131c1",
+      "size_bytes": 107237,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Back",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_DOOR",
+        "GH_ROOF",
+        "GH_WING",
+        "GH_CHIM"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "elev_right",
+      "role": "elevation_right",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_right_shaded.jpg",
+      "sha256_prefix": "ba63addfb0f5",
+      "size_bytes": 91811,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Right",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_DOOR",
+        "GH_ROOF",
+        "GH_WING",
+        "GH_CHIM"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "elev_left",
+      "role": "elevation_left",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_left_shaded.jpg",
+      "sha256_prefix": "938225be207b",
+      "size_bytes": 88473,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Left",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_DOOR",
+        "GH_ROOF",
+        "GH_WING",
+        "GH_CHIM"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    },
+    {
+      "id": "plan_top",
+      "role": "plan_top",
+      "path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/elev_top_shaded.jpg",
+      "sha256_prefix": "3c07c767e13d",
+      "size_bytes": 89848,
+      "event_seq": 4,
+      "view": {
+        "projection": "parallel",
+        "display_mode": "Shaded",
+        "rhino_named_view": "Top",
+        "width_px": 1600,
+        "height_px": 1200,
+        "edges_visible": true
+      },
+      "visible_layers": [
+        "GH_FLOOR",
+        "GH_WALLS",
+        "GH_DOOR",
+        "GH_ROOF",
+        "GH_WING",
+        "GH_CHIM"
+      ],
+      "hidden_layers": [],
+      "haiku_verdict": null
+    }
+  ],
+  "document_state": {
+    "object_count": 11,
+    "layers": [
+      {
+        "name": "GH_FLOOR",
+        "object_count": 1
+      },
+      {
+        "name": "GH_WALLS",
+        "object_count": 1
+      },
+      {
+        "name": "GH_DOOR",
+        "object_count": 1
+      },
+      {
+        "name": "GH_ROOF",
+        "object_count": 4
+      },
+      {
+        "name": "GH_WING",
+        "object_count": 2
+      },
+      {
+        "name": "GH_CHIM",
+        "object_count": 2
+      }
+    ],
+    "units": "meters",
+    "notes": "v11: 11 elements. Chimney CW=0.7, CD=0.9, top=apex+1.5=9.78m. Door 1.5m wide, pilaster 0.12m. Frozen-spec scoring: 4/5 Haiku (chimney disputed)."
+  },
+  "frozen_spec_ref": {
+    "storey_count": 2,
+    "gf_bay_count": 3,
+    "uf_bay_count": 3,
+    "door_type": "double",
+    "door_bay_position": 1,
+    "gf_window_count": 2,
+    "uf_window_count": 3,
+    "roof_type": "gable",
+    "roof_pitch_estimate": "moderate",
+    "wing_present": true,
+    "wing_side": "right",
+    "wing_storeys": 1,
+    "chimney_count": 2,
+    "chimney_position": "end_walls"
+  }
+}
