@@ -103,8 +103,24 @@ function detectFuseAll(prompt: string): boolean {
   );
 }
 
-// Collect UUIDs of brep meshes currently in the scene.
-function collectBrepUuids(): string[] {
+// Parse the object type from "fuse all walls" → "wall", "fuse all slabs" → "slab", etc.
+// Returns null when no specific type is named (fuse everything).
+function parseFuseTarget(prompt: string): string | null {
+  // "fuse all walls" / "union all slabs" / "merge all beams"
+  const m = prompt.match(
+    /\b(?:fuse|union|merge|combine|join)\b.{0,40}\ball\s+([\w]+?)(?:s\b|\b)/i,
+  );
+  if (m) return m[1].toLowerCase();
+  // "all walls fuse" / "all slabs merged"
+  const m2 = prompt.match(/\ball\s+([\w]+?)(?:s\b|\b).{0,40}\b(?:fuse|union|merge|combine|join)\b/i);
+  if (m2) return m2[1].toLowerCase();
+  return null;
+}
+
+// Collect UUIDs of brep meshes currently in the scene, optionally filtered by kind.
+// filterKind: partial match against userData.kind (e.g. "wall" matches kind="wall").
+// When undefined, all brep meshes are returned.
+function collectBrepUuids(filterKind?: string): string[] {
   const win = window as unknown as {
     __viewer?: { scene?: { traverse: (cb: (o: unknown) => void) => void } };
   };
@@ -117,7 +133,11 @@ function collectBrepUuids(): string[] {
       isMesh?: boolean;
       userData?: { kind?: string; creator?: string };
     };
-    if (c.isMesh && c.uuid && (c.userData?.kind || c.userData?.creator)) uuids.push(c.uuid);
+    if (!c.isMesh || !c.uuid) return;
+    const k = c.userData?.kind ?? c.userData?.creator ?? "";
+    if (!k) return;
+    if (filterKind && !k.includes(filterKind)) return;
+    uuids.push(c.uuid);
   });
   return uuids;
 }
@@ -138,11 +158,13 @@ export function buildContextAugmentation(
   // creating new geometry or splitting into pairwise calls. Runs before the first-turn
   // bail because the model has no scene awareness at all without this.
   if (detectFuseAll(prompt)) {
-    const uuids = collectBrepUuids();
+    const target = parseFuseTarget(prompt);
+    const uuids = collectBrepUuids(target ?? undefined);
     if (uuids.length >= 2) {
       const uuidList = uuids.map((u) => `"${u}"`).join(",");
+      const label = target ? `${uuids.length} ${target} object(s)` : `${uuids.length} brep objects`;
       return (
-        `[CONTEXT] ${uuids.length} brep objects are in the scene. ` +
+        `[CONTEXT] ${label} are in the scene. ` +
         `Fuse ALL ${uuids.length} using ONE SdBooleanUnion call: ` +
         `objects=[${uuidList}]. ` +
         `Do NOT create new objects. Do NOT split into multiple calls. ONE call, all objects.\n`
