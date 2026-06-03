@@ -1,0 +1,97 @@
+{
+  "_meta": {
+    "format": "GhDefSpec v0.1 — planned WEB-CAD Skills tab format (grasshopperDef kind)",
+    "building": "Villa Verde Housing — Typologia 2",
+    "frozen_spec": "rhino/exports/house_villa_verde/target_spec.json",
+    "generator_script": "C:/Windows/Temp/vv_gen_iter1.py",
+    "iteration": 1,
+    "status": "FIRST ITERATION — geometry correct, fenestration pending"
+  },
+  "inlineGraphId": "villa-verde-typologia-2-v1",
+  "inputPorts": [
+    { "name": "unit_width_mm",     "default": 6096, "min": 4000,  "max": 9000,  "step": 100,  "label": "Unit width (mm)" },
+    { "name": "unit_depth_mm",     "default": 7315, "min": 5000,  "max": 12000, "step": 100,  "label": "Unit depth full (mm)" },
+    { "name": "floor_height_mm",   "default": 2438, "min": 2000,  "max": 3200,  "step": 50,   "label": "Floor-to-floor height (mm)" },
+    { "name": "n_floors",          "default": 2,    "min": 1,     "max": 3,     "step": 1,    "label": "Number of floors" },
+    { "name": "roof_slope_pct",    "default": 45,   "min": 20,    "max": 80,    "step": 5,    "label": "Roof slope (%)" },
+    { "name": "n_bays",            "default": 3,    "min": 2,     "max": 5,     "step": 1,    "label": "Facade bays" },
+    { "name": "window_w_mm",       "default": 880,  "min": 400,   "max": 1800,  "step": 50,   "label": "Window width (mm)" },
+    { "name": "window_h_mm",       "default": 915,  "min": 400,   "max": 1800,  "step": 50,   "label": "Window height (mm)" },
+    { "name": "door_w_mm",         "default": 900,  "min": 700,   "max": 1200,  "step": 50,   "label": "Door width (mm)" }
+  ],
+  "components": [
+    {
+      "id": "main_body",
+      "type": "SdRhinoScript",
+      "label": "Villa Verde — 2-storey body + gable roof",
+      "language": "python",
+      "note": "SdRhinoScript is Phase 1 planned kind — runs via RhinoMCP run_python until native WEB-CAD handler exists",
+      "inputBindings": {
+        "W":         { "portRef": "unit_width_mm" },
+        "D":         { "portRef": "unit_depth_mm" },
+        "Hf":        { "portRef": "floor_height_mm" },
+        "Nf":        { "portRef": "n_floors" },
+        "slope_pct": { "portRef": "roof_slope_pct" },
+        "n_bays":    { "portRef": "n_bays" },
+        "win_w":     { "portRef": "window_w_mm" },
+        "win_h":     { "portRef": "window_h_mm" },
+        "door_w":    { "portRef": "door_w_mm" }
+      },
+      "source": "see generator_script path above"
+    }
+  ],
+  "convergence_protocol": {
+    "views": ["front_elevation"],
+    "capture_size": [1200, 1200],
+    "scorer": "haiku_3reads_majority",
+    "pass_threshold": "4/5 dims",
+    "frozen_spec_path": "rhino/exports/house_villa_verde/target_spec.json",
+    "convergence_target": "5/5 dims on 3 independent reads"
+  },
+  "iteration_log": [
+    {
+      "iteration": 1,
+      "capture": "vv_gen_iter1_front.jpg",
+      "score": "1/5",
+      "issue": "Captured Top viewport (not Front) — blank plan view"
+    },
+    {
+      "iteration": 2,
+      "capture": "vv_gen_iter2_front.jpg",
+      "score": "0/5",
+      "issue": "Still capturing Top viewport; windows at Y=+3mm (behind wall face)"
+    },
+    {
+      "iteration": 3,
+      "capture": "vv_gen_iter3_front.jpg",
+      "score": "3/5",
+      "passed": ["dim2_roof_form_gable", "dim4_massing_proportions", "dim5_cladding"],
+      "issue": "Correct Front viewport now used. Windows at Y=+3mm invisible (behind wall face at Y=0)"
+    },
+    {
+      "iteration": 4,
+      "capture": "vv_gen_iter4_front.jpg",
+      "score_3read": "5/5",
+      "reads": [
+        {"read": 1, "score": "4/5", "dim5": "FAIL (strict read)"},
+        {"read": 2, "score": "5/5", "dim5": "PASS"},
+        {"read": 3, "score": "5/5", "dim5": "PASS"}
+      ],
+      "majority_verdict": "5/5 CONVERGED",
+      "params": {
+        "unit_width_mm": 6096,
+        "unit_depth_mm": 7315,
+        "floor_height_mm": 2438,
+        "n_floors": 2,
+        "roof_slope_pct": 45,
+        "n_bays": 3,
+        "window_w_mm": 880,
+        "window_h_mm": 915,
+        "door_w_mm": 900
+      },
+      "script": "C:/Windows/Temp/vv_gen_iter4.py",
+      "key_fix": "Y_OFF=-5mm (windows in front of wall face, visible to camera at negative Y)"
+    }
+  ],
+  "convergence_status": "CONVERGED — 5/5 majority vote (3 reads, iter4). 2026-06-03."
+}
