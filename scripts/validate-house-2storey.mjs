@@ -37,7 +37,7 @@ const DRAIN_FIXED_MS = 60_000;
 //   footprint corners [-16.4,-13.12]→[16.4,13.12] = ±5m×±4m after conversion.
 const HOUSE_PROMPT =
   "Build a 2-storey single-family house. All numbers are in feet; the app converts to metres. " +
-  "Execute exactly these 16 steps in order, then stop immediately. Do NOT add any more commands after step 16: " +
+  "Execute exactly these 18 steps in order, then stop immediately. Do NOT add any more commands after step 18: " +
   "(1) SdLevel name=Ground elevation=0. " +
   "(2) SdSlab on Ground size=[32.8,26.25] at z=0. " +
   "(3) SdWall on Ground height=9.843 start=[-16.4,-13.12] end=[16.4,-13.12]. " +
@@ -45,15 +45,17 @@ const HOUSE_PROMPT =
   "(5) SdWall on Ground height=9.843 start=[16.4,-13.12] end=[16.4,13.12]. " +
   "(6) SdWall on Ground height=9.843 start=[-16.4,-13.12] end=[-16.4,13.12]. " +
   "(7) SdDoor position=[0,-13.12,0] on south wall. " +
-  "(8) SdLevel name=Level-2 elevation=9.843. " +
-  "(9) SdSlab on Level-2 size=[32.8,26.25] at z=9.843. " +
-  "(10) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[16.4,-13.12]. " +
-  "(11) SdWall on Level-2 height=9.186 start=[-16.4,13.12] end=[16.4,13.12]. " +
-  "(12) SdWall on Level-2 height=9.186 start=[16.4,-13.12] end=[16.4,13.12]. " +
-  "(13) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[-16.4,13.12]. " +
-  "(14) SdWindow position=[-6.562,-13.12,9.843] on south wall Level-2. " +
-  "(15) SdWindow position=[6.562,-13.12,9.843] on south wall Level-2. " +
-  "(16) SdRoof roofType=pitched pitchDeg=30 footprint=[[-16.4,-13.12],[16.4,-13.12],[16.4,13.12],[-16.4,13.12]].";
+  "(8) SdWindow position=[-6.562,-13.12,0] on south wall Ground. " +
+  "(9) SdWindow position=[6.562,-13.12,0] on south wall Ground. " +
+  "(10) SdLevel name=Level-2 elevation=9.843. " +
+  "(11) SdSlab on Level-2 size=[32.8,26.25] at z=9.843. " +
+  "(12) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[16.4,-13.12]. " +
+  "(13) SdWall on Level-2 height=9.186 start=[-16.4,13.12] end=[16.4,13.12]. " +
+  "(14) SdWall on Level-2 height=9.186 start=[16.4,-13.12] end=[16.4,13.12]. " +
+  "(15) SdWall on Level-2 height=9.186 start=[-16.4,-13.12] end=[-16.4,13.12]. " +
+  "(16) SdWindow position=[-6.562,-13.12,9.843] on south wall Level-2. " +
+  "(17) SdWindow position=[6.562,-13.12,9.843] on south wall Level-2. " +
+  "(18) SdRoof roofType=pitched pitchDeg=30 footprint=[[-16.4,-13.12],[16.4,-13.12],[16.4,13.12],[-16.4,13.12]].";
 
 const DIAG_DIR = "state/diag-house";
 
@@ -296,7 +298,7 @@ console.log(`[house] sent (VRAM=${vramStart}MB)`);
 // to window.__dispatchLedger immediately patches the new array.
 // §voidCut: at gate fire, collect userData.creator+hostExpressID for door/window objects.
 // §SdClearScene-timing: SdClearScene is the FIRST tool call in each batch (resets prev session
-// geometry). All 16 geometry calls follow synchronously. By the time geom=16 fires, all calls
+// geometry). All 18 geometry calls follow synchronously. By the time geom=18 fires, all calls
 // are complete and SdClearScene has ALREADY run — scene is fully populated, no pending clear.
 // §force-render: force THREE.js to write the current scene to the WebGL framebuffer so
 // Page.captureScreenshot captures the house even if requestAnimationFrame hasn't ticked.
@@ -314,7 +316,7 @@ await evaluate(`
         for (var i = 0; i < this.length; i++) {
           if (this[i].sceneChildrenDelta > 0) geom++;
         }
-        if (geom >= 16 && !window.__houseGeomGateFired) {
+        if (geom >= 18 && !window.__houseGeomGateFired) {
           window.__houseGeomGateFired = true;
           // Collect voidCut info from scene before any potential re-render
           var voidInfo = [];
@@ -390,8 +392,8 @@ await evaluate(`
 // §runtime-binding-race: houseGatePromise resolves the instant browser calls window.houseGeomGate()
 // (injected ledger watcher fires synchronously on 17th geometry push — no poll delay).
 // Poll loop still runs for OOM, badge-error, and success detection; but the gate drives the hero.
-// §16-step-prompt: 16 geometry dispatches (SdLevel×2 + SdSlab×2 + SdWall×8 + SdDoor + SdWindow×2 + SdRoof).
-const EARLY_STOP_GEOM = 16;
+// §18-step-prompt: 18 geometry dispatches (SdLevel×2 + SdSlab×2 + SdWall×8 + SdDoor + SdWindow×4 + SdRoof).
+const EARLY_STOP_GEOM = 18;
 const turnStart = Date.now();
 let outcome = "timeout";
 let oomCount = 0;
@@ -787,7 +789,7 @@ while (Date.now() - turnStart < TURN_TIMEOUT) {
     // Re-render with correct framing + capture hero + aerial (scene still fully populated)
     await captureHeroAndAerial("gate-binding");
     earlyStopped = true;
-    outcome = "early-stop-17geom";
+    outcome = "early-stop-19geom";
     break;
   }
 
@@ -817,7 +819,7 @@ while (Date.now() - turnStart < TURN_TIMEOUT) {
     process.stdout.write(`\n[house] fallback-poll early-stop: geom=${geomLen} >= ${EARLY_STOP_GEOM}\n`);
     await captureHeroAndAerial("fallback-poll");
     earlyStopped = true;
-    outcome = "early-stop-17geom";
+    outcome = "early-stop-19geom";
     break;
   }
 
@@ -940,7 +942,7 @@ console.log(`[house] front saved: ${closeupPath}`);
 console.log(`[house] front sha256[:12]: ${closeupSha256Short} | bytes: ${closeupBuf?.length ?? 0}`);
 
 // ── Phase 7: Summary + artifact ───────────────────────────────────────────────
-const gatePass = oomCount === 0 && (outcome === "success" || outcome === "early-stop-17geom") && hasGeometry;
+const gatePass = oomCount === 0 && (outcome === "success" || outcome === "early-stop-19geom") && hasGeometry;
 
 console.log(`\n[house] ══════════════════════════════════════════`);
 console.log(`[house] SHA:           ${SHA}`);
