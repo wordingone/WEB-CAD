@@ -98,8 +98,10 @@ export async function handle_Sd3dmRead(
       const geo = (obj as any).geometry();
       if (!geo) { obj.delete?.(); continue; }
 
+      // rhino3dm geometry type detection: objectType returns an opaque ctor
+      // object, not a string. Use constructor.name ("Mesh" / "NurbsSurface").
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const typeName: string = (geo as any).objectType ?? "";
+      const typeName: string = (geo as any).constructor?.name ?? "";
 
       if (typeName === "Mesh") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,7 +132,7 @@ export async function handle_Sd3dmRead(
           mesh.userData = { kind: "brep", creator: "3dm-import", format: "3dm" };
           root.add(mesh);
         }
-      } else if (typeName === "Surface") {
+      } else if (typeName === "NurbsSurface") {
         // Untrimmed NurbsSurface — export3dm writes these via addSurface().
         // Reads control points + knot vectors + degree for faithful round-trip.
         // NOTE: trimmed BRep topology (loops/trims) is NOT accessible via rhino3dm.js
