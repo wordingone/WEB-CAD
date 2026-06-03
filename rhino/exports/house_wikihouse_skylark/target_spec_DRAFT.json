@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "building": "WikiHouse Skylark 250 — M span, 1-storey, 42° gable roof",
+    "system": "WikiHouse Skylark 250 (current production system)",
+    "developer": "WikiHouse Foundation / Open Systems Lab",
+    "license": "CC BY-SA 4.0 International — redistributable, modifications must be re-shared under same license",
+    "source": "WikiHouse design documentation: wikihouse.cc/design/designing-for-wikihouse",
+    "source_type": "VECTOR/PARAMETRIC — confirmed from published WikiHouse block specifications (exact dims ±0%)",
+    "scored_view": "FRONT elevation — narrow gable-end face",
+    "freeze_status": "DRAFT — pending Leo freeze-review",
+    "note": "Dims marked CONFIRMED are from WikiHouse documentation. Dims marked DESIGNED are proposed standard layout choices (subject to Leo freeze-review)."
+  },
+  "exact_dims": {
+    "internal_span_mm": 4800,
+    "internal_span_note": "CONFIRMED — Skylark 250 M-span: 4.8m internal (from designing-for-wikihouse page, span table S/M/L)",
+
+    "wall_perimeter_mm": 318,
+    "wall_perimeter_note": "CONFIRMED — 'Skylark 250 perimeter: 318mm added around modular grid' (exact quote from wikihouse.cc/design/designing-for-wikihouse)",
+
+    "external_width_mm": 5436,
+    "external_width_note": "DERIVED — 4800 + 2×318 = 5436mm. Confirmed calculation from CONFIRMED inputs.",
+
+    "wall_height_mm": 2400,
+    "wall_height_note": "DESIGNED — WALL-M: 8 × 300mm increment (WikiHouse wall heights 'increase in increments of 300mm', confirmed). 2400mm is the standard 2-bed single-storey selection.",
+
+    "roof_pitch_deg": 42,
+    "roof_pitch_note": "CONFIRMED — '42 degrees pitch' for gable roof blocks at 4.8m internal span (exact quote from wikihouse.cc design docs)",
+
+    "gable_rise_mm": 2161,
+    "gable_rise_note": "DERIVED — (4800/2) × tan(42°) = 2400 × tan(42°) = 2161mm",
+
+    "ridge_height_mm": 4561,
+    "ridge_height_note": "DERIVED — wall_height(2400) + gable_rise(2161) = 4561mm",
+
+    "planning_grid_mm": 600,
+    "planning_grid_note": "CONFIRMED — '600mm × 600mm in plan' (exact quote from wikihouse.cc design docs)",
+
+    "depth_mm": 7200,
+    "depth_note": "DESIGNED — 12 × 600mm bays. Typical 2-bedroom single-storey depth. Chosen as nearest standard depth to ~46m² floor area.",
+
+    "internal_bays": 8,
+    "internal_bays_note": "DERIVED — internal_span / planning_grid = 4800/600 = 8 bays",
+
+    "opening_sizes_mm": {
+      "XS": 600, "S": 1200, "M": 1800, "L": 2400,
+      "note": "CONFIRMED — standard WikiHouse opening widths from design docs (XS/S/M/L)"
+    }
+  },
+  "front_elevation_fenestration": {
+    "layout_rule": "DESIGNED — 8 internal bays: [1 solid][2 window S][2 door S][2 window S][1 solid]",
+    "symmetric": true,
+    "facade_center_x_mm": 2718,
+    "facade_center_note": "external_width/2 = 5436/2 = 2718mm",
+
+    "gf_left_solid":  { "type": "wall", "x_from": 0,    "x_to": 918,  "note": "wall perimeter(318) + 1 bay(600)" },
+    "gf_left_window": { "type": "window", "cx_mm": 1518, "width_mm": 1200, "height_mm": 1200, "sill_mm": 900,  "note": "DESIGNED — S×S opening (2 bays), sill 900mm" },
+    "gf_door":        { "type": "door",   "cx_mm": 2718, "width_mm": 1200, "height_mm": 2100, "sill_mm": 0,    "note": "DESIGNED — S opening (2 bays), centered on facade. Head at 2100mm." },
+    "gf_right_window":{ "type": "window", "cx_mm": 3918, "width_mm": 1200, "height_mm": 1200, "sill_mm": 900,  "note": "DESIGNED — S×S opening (2 bays), symmetric to left window" },
+    "gf_right_solid": { "type": "wall",   "x_from": 4518, "x_to": 5436, "note": "2 bays(1200) + wall perimeter(318)" },
+
+    "confidence": "DESIGNED — no specific reference building parsed. WikiHouse system is owner-customizable; this layout follows the 600mm planning grid with S-sized openings centered symmetrically."
+  },
+  "scoring_rubric": {
+    "view": "front_elevation",
+    "pass_threshold": ">=4/5 dims pass (majority vote of 3 independent reads per dim)",
+    "dims": {
+      "dim1": {
+        "label": "structural_form",
+        "description": "Single-storey WikiHouse structural body visible. Rectangular wall zone from ground to eave (~2400mm). Gable-end wall above eave to ridge (~4561mm total). No mid-floor band (single storey).",
+        "pass_criteria": "Single-storey reading — no floor band; wall zone + triangular gable top; eave line at ~2400mm height"
+      },
+      "dim2": {
+        "label": "roof_pitch_steep",
+        "description": "42° gable pitch — noticeably STEEPER than Villa Verde (24°). Gable triangle appears taller-than-wide in the roof zone alone (rise=2161mm > half-width=2718mm... wait, half-span=2400mm. Rise=2161mm < half-span=2400mm so slope is <1:1). Pitch appears moderately steep.",
+        "pass_criteria": "Triangular gable peak clearly visible; pitch appears distinctly steeper than a shallow domestic gable (~20-25°); roof zone occupies roughly half the total facade height"
+      },
+      "dim3": {
+        "label": "fenestration_symmetric",
+        "description": "3 openings on front face: 1 door (centered, x=2718mm) flanked by 2 identical windows (S=1200mm each). Symmetric layout. No upper floor openings (single storey).",
+        "pass_criteria": "3 openings visible; centered door flanked by symmetric windows; clean wall panels at edges; single-storey (no UF openings)"
+      },
+      "dim4": {
+        "label": "massing_landscape",
+        "description": "Front facade is LANDSCAPE orientation — width (5436mm) > height (4561mm), ratio ~1.19:1. Single storey + steep 42° roof keeps total height lower than width. Contrast with Villa Verde near-square (6096×6245mm).",
+        "pass_criteria": "Building reads wider than it is tall — landscape aspect ratio ~1.2:1; clearly single-storey character"
+      },
+      "dim5": {
+        "label": "structural_cladding",
+        "description": "WikiHouse timber frame visible or implied. Light-colored structural wall (cream/white render or timber cladding). Gray or darker roof. Clean utilitarian form.",
+        "pass_criteria": "Light-colored wall zone with distinct roof zone; simple utilitarian appearance appropriate for prefab timber structure"
+      }
+    }
+  }
+}

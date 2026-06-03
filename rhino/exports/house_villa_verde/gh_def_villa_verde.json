@@ -158,5 +158,5 @@
     "source": "Model params W/D/H_TOTAL — confirmed via bbox Z=6245mm MATCH",
     "agreement": "FRONT and SIDE generated from SAME script, SAME params — no per-view tuning. Single param set."
   },
-  "convergence_status": "MULTI-VIEW iter7 — front 5/5 (Leo gate), side 5/5 (3/3 reads). Single param set. Cross-view dims baked. Pending Leo multi-view gate. 2026-06-03."
+  "convergence_status": "CERTIFIED MULTI-VIEW CONVERGED — Leo independent gate 2026-06-03. Front 5/5 + side 5/5, single param set W=6096/D=7315/H=6245, cross-view guard PASS. Logged against corpus task #29."
 }
