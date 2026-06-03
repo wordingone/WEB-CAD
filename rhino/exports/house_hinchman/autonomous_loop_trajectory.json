@@ -214,33 +214,88 @@
       ],
       "majority_score": 5,
       "failing_dims": []
+    },
+    {
+      "v": "4d_failure_analysis",
+      "note": "Leo identified: post-bake translate left stale GH preview overlay (right wing) + baked JSON recorded pre-translation coords. Render showed TWO wings. Geometry truth \u2260 render.",
+      "lesson": "Transform-then-bake-JSON is broken: JSON records pre-translate positions. GH canvas preview of right wing persists over viewport. translate-after-bake is not a valid vocabulary extension."
+    },
+    {
+      "v": 5,
+      "approach": "GH wing disabled (wing_w=0) + native Rhino Box brep at x=[-5.5,0]",
+      "gh_params": {
+        "wing_w": 0.0,
+        "roof_p": 0.75,
+        "door_bay": 0,
+        "n_bays": 3
+      },
+      "native_wing": {
+        "wing_body": {
+          "x": [
+            -5.5,
+            0.0
+          ],
+          "z": [
+            0.0,
+            3.5
+          ]
+        },
+        "wing_roof": {
+          "x": [
+            -5.65,
+            0.15
+          ],
+          "z": [
+            3.5,
+            3.65
+          ]
+        }
+      },
+      "scores_raw": [
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim4": "PASS",
+          "dim5": "PASS",
+          "total": 5
+        },
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim4": "PASS",
+          "dim5": "PASS",
+          "total": 5
+        },
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim4": "PASS",
+          "dim5": "PASS",
+          "total": 5
+        }
+      ],
+      "majority_score": 5,
+      "failing_dims": [],
+      "geometry_verified": "baked_elements_v5.json wing_body x=[-5.50,0.00] confirmed left position. Single wing only (GH preview disabled)."
     }
   ],
   "loop_conclusion": {
-    "converged": "5/5 at v4d (4 active iterations + 2 Leo-directed gap fixes)",
-    "total_iterations": 6,
+    "converged": "5/5 unanimous at v5",
+    "total_iterations": 8,
     "autonomous_iterations": 3,
     "leo_directed_fixes": 2,
-    "final_params": {
-      "n_bays": 3,
-      "width": 9.6,
-      "door_bay": 0,
-      "wing_w": 5.5,
-      "roof_p": 0.75,
-      "chim_n": 2,
-      "nfl": 2,
-      "flr_h": 3.5,
-      "depth": 10.0
-    },
-    "vocabulary_extension": "wing_side: post-bake translation (GH native = right-only; TX=-15.1 moves right wing to left position)",
-    "self_convergence_result": "Loop autonomously fixed door position + scoring technique (v1\u2192v2\u2192v3). Leo identified 2 real parameter gaps (roof pitch + wing side) after v3. v4d fixes both \u2192 5/5.",
-    "geometric_ground_truth": "5/5 confirmed by both 3-read self-scorer and Leo independent re-score",
+    "geometry_review_cycles": 1,
+    "final_approach": "wing_w=0 in GH + native Rhino Box brep baked at correct position",
+    "vocabulary_extension_correct": "wing_side: disable GH wing_w, bake native Box at target position. Do NOT translate-after-bake (GH preview persists).",
     "lessons": [
       "door_bay semantics: 0-indexed, door_bay=0 = leftmost bay",
       "wide-facade scoring: hide wing before scoring for leftmost-bay door clarity",
-      "layer classification: x-width discriminates chimney (narrow) vs roof (wide) better than z-height",
-      "wing_side: post-bake translate is viable vocabulary extension when GH only supports one side",
-      "autonomous loop works: v1-v3 self-corrected without human; gaps surfaced honestly by Leo"
+      "layer classification: x-width < 2m = chimney; cx > main_w+0.5 = wing (v4d); or just rely on i=0,1,2 + xw for v5",
+      "wing_side extension: set GH wing_w=0, bake native Box at x=[-wing_w,0]. Never translate-after-bake (JSON + GH preview both wrong).",
+      "geometry truth > render: Leo reads baked JSON to verify geometry; render-only tricks don't pass"
     ]
   }
 }
