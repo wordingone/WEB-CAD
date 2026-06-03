@@ -388,6 +388,7 @@ export function handle_SdObjWrite(
     }
 
     const text = exportObj(root);
+    (window as any).__lastObjExport = { filename, text };
     const blob = new Blob([text], { type: "text/plain" });
     triggerDownload(blob, filename);
     return { written: true, filename };
@@ -422,9 +423,40 @@ export function handle_SdStlWrite(
     // Binary STL: 80 header + 4-byte tri count + 50 bytes/tri
     const triangles = buf.byteLength >= 84 ? view.getUint32(80, true) : 0;
 
+    (window as any).__lastStlExport = { filename, bytes: buf };
     const blob = new Blob([buf], { type: "application/octet-stream" });
     triggerDownload(blob, filename);
     return { written: true, filename, triangles };
+  } catch (e) {
+    return { written: false, error: String((e as Error)?.message ?? e) };
+  }
+}
+
+/**
+ * Sd3dmWrite — export scene geometry to .3dm (Rhino) via rhino3dm.js WASM.
+ *
+ * Uses export3dm() from exporters.ts: traverses scene, writes canonical NURBS
+ * surfaces where available, falls back to Rhino Mesh for THREE.js meshes.
+ * Mesh export preserves void topology (holes/openings) as face-absence — no
+ * BrepTrim required for void survival on mesh round-trip.
+ *
+ * Also sets window.__last3dmExport = { filename, bytes: Uint8Array } for cert access.
+ */
+export async function handle_Sd3dmWrite(
+  args: Record<string, unknown>,
+  viewer: Viewer,
+): Promise<{ written: boolean; filename?: string; bytes?: number; error?: string }> {
+  const filename = (args.filename as string | undefined) ?? "model.3dm";
+  try {
+    const scene = viewer.getScene();
+    const root = new THREE.Group();
+    root.add(scene.clone(true));
+    const bytes = await export3dm(root);
+    (window as any).__last3dmExport = { filename, bytes };
+    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const blob = new Blob([ab], { type: "application/octet-stream" });
+    triggerDownload(blob, filename);
+    return { written: true, filename, bytes: bytes.byteLength };
   } catch (e) {
     return { written: false, error: String((e as Error)?.message ?? e) };
   }
@@ -749,6 +781,11 @@ export function registerS333Handlers(viewer: Viewer, _scenePanel: ScenePanel): v
   // SdStlWrite — three.js STLExporter
   registerHandler("SdStlWrite", (args) => {
     return handle_SdStlWrite(args as Record<string, unknown>, viewer);
+  });
+
+  // Sd3dmWrite — rhino3dm WASM export
+  registerHandler("Sd3dmWrite", async (args) => {
+    return handle_Sd3dmWrite(args as Record<string, unknown>, viewer);
   });
 
   // SdIfcImport — web-ifc worker path
