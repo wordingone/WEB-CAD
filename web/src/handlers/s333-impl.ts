@@ -29,6 +29,11 @@ import {
   detectFormat,
   type StepLoadResult,
 } from "../io/loader";
+import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel";
+import {
+  type NurbsSurface as SurfacesNurbsSurface,
+  tessellateSurface,
+} from "../nurbs/nurbs-surfaces";
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -127,16 +132,87 @@ export async function handle_Sd3dmRead(
           mesh.userData = { kind: "brep", creator: "3dm-import", format: "3dm" };
           root.add(mesh);
         }
+      } else if (typeName === "Surface") {
+        // Untrimmed NurbsSurface — export3dm writes these via addSurface().
+        // Reads control points + knot vectors + degree for faithful round-trip.
+        // NOTE: trimmed BRep topology (loops/trims) is NOT accessible via rhino3dm.js
+        // bindings — BrepLoop/BrepTrim classes are absent from the JS API. Window/door
+        // voids (boolean holes) are trimmed faces; they will NOT survive this path.
+        // See #333 trim-gap finding for the upstream gap and named paths forward.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ns = geo as any;
+          const orderU: number = ns.orderU as number;
+          const orderV: number = ns.orderV as number;
+          const degreeU = orderU - 1;
+          const degreeV = orderV - 1;
+          const pts = ns.points();
+          const countU: number = pts.countU as number;
+          const countV: number = pts.countV as number;
+
+          // Read Euclidean control points (rhino3dm .get() returns [x,y,z])
+          const controlPoints: [number, number, number][] = [];
+          for (let u = 0; u < countU; u++) {
+            for (let v = 0; v < countV; v++) {
+              const pt: number[] = pts.get(u, v);
+              controlPoints.push([pt[0] ?? 0, pt[1] ?? 0, pt[2] ?? 0]);
+            }
+          }
+          const weights = new Array<number>(controlPoints.length).fill(1);
+
+          // Reconstruct full clamped knot vectors.
+          // rhino3dm stores (countN + degreeN - 1) internal knots; full convention
+          // needs (countN + degreeN + 1). Re-add the repeated first and last values.
+          const truncU: number[] = (ns.knotsU() as { toList(): number[] }).toList();
+          const truncV: number[] = (ns.knotsV() as { toList(): number[] }).toList();
+          const knotsU = truncU.length
+            ? [truncU[0]!, ...truncU, truncU[truncU.length - 1]!]
+            : [];
+          const knotsV = truncV.length
+            ? [truncV[0]!, ...truncV, truncV[truncV.length - 1]!]
+            : [];
+
+          // Store KernelNurbsSurface on userData for deterministic round-trip cert.
+          const kernelSurface: KernelNurbsSurface = {
+            degreeU, degreeV, controlPoints, weights, countU, countV, knotsU, knotsV,
+          };
+
+          // Tessellate for display using nurbs-surfaces uniform sampler.
+          const dim = 3;
+          const cvs: number[] = [];
+          for (const cp of controlPoints) { cvs.push(cp[0], cp[1], cp[2]); }
+          const surfNurbs: SurfacesNurbsSurface = {
+            kind: "nurbs", dim, isRational: false,
+            order: [orderU, orderV],
+            cvCount: [countU, countV],
+            knots: [knotsU, knotsV],
+            cvs,
+            cvStride: [countV * dim, dim],
+          };
+          const tess = tessellateSurface(surfNurbs, 24, 24);
+
+          const bufGeo = new THREE.BufferGeometry();
+          bufGeo.setAttribute("position", new THREE.BufferAttribute(tess.positions, 3));
+          bufGeo.setAttribute("normal",   new THREE.BufferAttribute(tess.normals, 3));
+          bufGeo.setIndex(new THREE.BufferAttribute(tess.indices, 1));
+          if (tess.uvs.length > 0) {
+            bufGeo.setAttribute("uv", new THREE.BufferAttribute(tess.uvs, 2));
+          }
+          const mat = new THREE.MeshStandardMaterial({ color: 0x7ad3a3, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
+          const mesh = new THREE.Mesh(bufGeo, mat);
+          mesh.userData = { kind: "nurbs-surface", creator: "3dm-import", format: "3dm", canonical: kernelSurface };
+          root.add(mesh);
+        } catch (_e) {
+          // skip malformed NurbsSurface — other objects still processed
+        }
       }
-      // NurbsSurface and Curve objects are tessellated through the mesh path above in
-      // a full impl — for now surfaces without mesh representation are skipped.
       geo.delete?.();
       obj.delete?.();
     }
     file.delete?.();
 
     if (root.children.length === 0) {
-      return { loaded: false, error: "no mesh geometry found in .3dm file" };
+      return { loaded: false, error: "no displayable geometry found in .3dm file (no Mesh or NurbsSurface objects)" };
     }
 
     const box = new THREE.Box3().setFromObject(root);
