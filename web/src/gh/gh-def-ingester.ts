@@ -107,7 +107,7 @@ export function parseGhDefJson(json: string): GhDefSpec {
         throw new Error(`ParseGhDefJson: components[${i}].id must be a non-empty string`);
       if (typeof c.type !== "string" || !c.type)
         throw new Error(`ParseGhDefJson: components[${i}].type must be a non-empty string (dispatch verb)`);
-      const rawParams = (c.params ?? {}) as Record<string, Record<string, unknown>>;
+      const rawParams = (c.params ?? c.inputBindings ?? {}) as Record<string, Record<string, unknown>>;
       const params: Record<string, GhComponentParam> = {};
       for (const [k, p] of Object.entries(rawParams)) {
         params[k] = {

@@ -64,6 +64,8 @@ export function registerOpeningHandlers(viewer: Viewer): void {
       doorW = DEFAULT_DOOR_W;
       doorH = DEFAULT_DOOR_H;
     }
+    if (typeof args.width  === "number") doorW = args.width  as number;
+    if (typeof args.height === "number") doorH = args.height as number;
     // §#1516,#1546,#1665,#1725: auto-find nearest wall when hostUuid absent.
     // §#1725: use closest-point-on-bbox XY distance (not center) — active level first pass.
     if (!hostObjDoor) {
@@ -141,14 +143,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     if (hostObjDoor && !voidCut) {
       throw new Error(`door-void-failed: wall ${hostObjDoor.uuid} found but addVoidToWallObject returned null — door center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(elevation + doorH / 2).toFixed(2)}) may not overlap wall geometry`);
     }
-    // §#1678: width/height ignored — handler uses doorType preset dimensions.
-    const ignoredDoor: string[] = [];
-    if (args.width !== undefined) ignoredDoor.push("width");
-    if (args.height !== undefined) ignoredDoor.push("height");
-    const noteDoor = ignoredDoor.length > 0
-      ? `${ignoredDoor.join("/")} ignored — preset used (${doorW.toFixed(3)}m×${doorH.toFixed(3)}m)`
-      : undefined;
-    return { created: "door", voidCut, ...(noteDoor ? { note: noteDoor } : {}) };
+    return { created: "door", voidCut };
   });
 
   registerHandler("SdWindow", (args) => {
@@ -159,15 +154,20 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     const elevation = getActiveLevelElevation();
     const winType = (args.windowType as string | undefined);
     const isOG = winType === "og";
-    const winW    = isOG ? FZK_OG_WINDOW_W : FZK_WINDOW_W;
-    const winH    = isOG ? FZK_OG_WINDOW_H : FZK_WINDOW_H;
-    const winSill = FZK_WINDOW_SILL;
+    const presetW = isOG ? FZK_OG_WINDOW_W : FZK_WINDOW_W;
+    const presetH = isOG ? FZK_OG_WINDOW_H : FZK_WINDOW_H;
+    const winW    = typeof args.width  === "number" ? (args.width  as number) : presetW;
+    const winH    = typeof args.height === "number" ? (args.height as number) : presetH;
+    const winSill = typeof args.sill   === "number" ? (args.sill   as number) : FZK_WINDOW_SILL;
+    // §#485: position[2] overrides active-level elevation for multi-storey placement.
+    const _posArrZ = (args.position as number[] | undefined)?.[2];
+    const floorElev = _posArrZ !== undefined ? _posArrZ : elevation;
     // §#1545,#1665,#1725: auto-find nearest wall when hostUuid absent.
     // §#1725: use closest-point-on-bbox XY distance (not center distance) so windows near
     // wall ends are found correctly even on long walls in imperial coordinates.
     if (!hostObjWin) {
       const posArr = args.position as number[] | undefined;
-      const winRef = new THREE.Vector3(posArr?.[0] ?? 0, posArr?.[1] ?? 0, elevation + winSill + winH / 2);
+      const winRef = new THREE.Vector3(posArr?.[0] ?? 0, posArr?.[1] ?? 0, floorElev + winSill + winH / 2);
       const activeLvlIdWin = getActiveLevelId();
       const _bboxWin = new THREE.Box3();
       const bboxDistXY = (child: THREE.Object3D) => {
@@ -201,13 +201,13 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     let p = rawP;
     if (hostObjWin) {
       hostObjWin.updateMatrixWorld(true);
-      const lc = hostObjWin.worldToLocal(new THREE.Vector3(rawP.x, rawP.y, elevation + winSill + winH / 2));
+      const lc = hostObjWin.worldToLocal(new THREE.Vector3(rawP.x, rawP.y, floorElev + winSill + winH / 2));
       lc.y = 0;
       const snapped = hostObjWin.localToWorld(lc);
       p = { x: snapped.x, y: snapped.y };
     }
     const { mesh, chain } = buildWindow(p, { w: winW, h: winH, sill: winSill });
-    mesh.position.z = elevation + mesh.position.z;
+    mesh.position.z = floorElev + mesh.position.z;
     if (cplane.kind === "host-derived") {
       const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), cplane.normal);
       mesh.quaternion.copy(q);
@@ -227,7 +227,7 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     if (hostObjWin) {
       // §#1518: addVoidToWallObject handles Mesh + Group walls.
       // §#1679: voidCenter from same p as mesh position.
-      const voidCenter = new THREE.Vector3(p.x, p.y, elevation + winSill + winH / 2);
+      const voidCenter = new THREE.Vector3(p.x, p.y, floorElev + winSill + winH / 2);
       const voidGroup = addVoidToWallObject(hostObjWin, voidCenter, winW, winH);
       if (voidGroup) {
         pushReplaceAction(voidGroup, [hostObjWin], "wall-void-cut");
@@ -240,16 +240,9 @@ export function registerOpeningHandlers(viewer: Viewer): void {
     onElementCommitted(mesh, viewer.getScene());
     // §Leo-gate: host wall found but void didn't cut → hard failure so model retries.
     if (hostObjWin && !voidCut) {
-      throw new Error(`window-void-failed: wall ${hostObjWin.uuid} found but addVoidToWallObject returned null — window center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(elevation + winSill + winH / 2).toFixed(2)}) may not overlap wall geometry`);
+      throw new Error(`window-void-failed: wall ${hostObjWin.uuid} found but addVoidToWallObject returned null — window center (${p.x.toFixed(2)},${p.y.toFixed(2)},${(floorElev + winSill + winH / 2).toFixed(2)}) may not overlap wall geometry`);
     }
-    // §#1678: width/height ignored — handler uses windowType preset dimensions.
-    const ignoredWin: string[] = [];
-    if (args.width !== undefined) ignoredWin.push("width");
-    if (args.height !== undefined) ignoredWin.push("height");
-    const noteWin = ignoredWin.length > 0
-      ? `${ignoredWin.join("/")} ignored — preset used (${winW.toFixed(3)}m×${winH.toFixed(3)}m)`
-      : undefined;
-    return { created: "window", voidCut, ...(noteWin ? { note: noteWin } : {}) };
+    return { created: "window", voidCut };
   });
 
   registerHandler("SdOpening", (args) => {

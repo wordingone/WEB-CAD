@@ -15,6 +15,7 @@ import { purgeStarterClusters, STARTER_IDS } from "./starter-clusters";
 import { captureViewport } from "../agent/viewport-capture";
 import { ingestGhDef, parseGhDefJson, type GhDefSpec } from "../gh/gh-def-ingester";
 import { registerGraph } from "../gh/gh-component-graph";
+import { BUILDING_DEFS } from "../gh/sample-defs";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -660,6 +661,30 @@ export class SkillCanvas {
       this._paletteEl.appendChild(clusterTitle);
       for (const cluster of userClusters) {
         this._paletteEl.appendChild(this._makeClusterItem(cluster));
+      }
+    }
+
+    // ── Buildings section — certified v0.3 GhDefSpecs ────────────────────────
+    {
+      const bldTitle = document.createElement("div");
+      bldTitle.className = "skill-canvas-palette-title";
+      bldTitle.style.marginTop = "10px";
+      bldTitle.textContent = "Buildings";
+      this._paletteEl.appendChild(bldTitle);
+      for (const spec of BUILDING_DEFS) {
+        const compCount = spec.components?.length ?? 0;
+        const label = spec.label ?? spec.inlineGraphId ?? "Building";
+        const item = document.createElement("div");
+        item.className = "skill-canvas-palette-item";
+        item.innerHTML = `<span class="sc-pal-name">${escHtml(label)}</span><span class="sc-pal-badge">${compCount}</span>`;
+        item.title = `${label} · ${compCount} components — double-click to add`;
+        item.addEventListener("dblclick", () => {
+          const rect = this._viewport.getBoundingClientRect();
+          const cx = (rect.width  / 2 - this._tx) / this._tz - 80;
+          const cy = (rect.height / 2 - this._ty) / this._tz - 20;
+          this._addGhDefNode(spec, label, cx, cy);
+        });
+        this._paletteEl.appendChild(item);
       }
     }
   }
