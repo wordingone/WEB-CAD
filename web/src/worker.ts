@@ -498,11 +498,11 @@ async function loadStep(
       const orient = face.Orientation_1();
       for (let i = 1; i <= nbTri; i++) {
         const t = triHandle.Triangle(i);
-        const out: any = { value1: 0, value2: 0, value3: 0 };
-        t.Get(out);
-        let a = out.value1 - 1 + baseIndex;
-        let b = out.value2 - 1 + baseIndex;
-        let c = out.value3 - 1 + baseIndex;
+        const n1: any = { value: 0 }, n2: any = { value: 0 }, n3: any = { value: 0 };
+        t.Get(n1, n2, n3);
+        let a = n1.value - 1 + baseIndex;
+        let b = n2.value - 1 + baseIndex;
+        let c = n3.value - 1 + baseIndex;
         // Reverse winding for face orientation TopAbs_REVERSED == 1.
         if (orient === 1 || orient?.value === 1) {
           [b, c] = [c, b];
