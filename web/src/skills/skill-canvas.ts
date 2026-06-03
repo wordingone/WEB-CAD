@@ -13,19 +13,28 @@ import { openSaveSkillModal, openSaveClusterModal } from "./skill-modal";
 import { subscribe as subscribeAppState, getState } from "../app-state";
 import { purgeStarterClusters, STARTER_IDS } from "./starter-clusters";
 import { captureViewport } from "../agent/viewport-capture";
+import { ingestGhDef, parseGhDefJson, type GhDefSpec } from "../gh/gh-def-ingester";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface GhInputPort { name: string; min: number; max: number; default: number; }
+
 export type CanvasNode = {
   id: string;
-  kind?: "skill" | "script";
+  kind?: "skill" | "script" | "rhino-script" | "gh-def";
   skillId?: string;
   skillName?: string;
   skillSteps?: SkillStep[];
   scriptSource?: string;
   verb?: string;
   args?: Record<string, unknown>;
+  /** rhino-script node: Python/C# source + metadata */
+  rhinoScript?: { language: "python" | "csharp"; source: string; inputParams: string[] };
+  /** gh-def node: GH definition spec with input sliders */
+  ghDef?: GhDefSpec;
+  /** display label for rhino-script or gh-def nodes */
+  nodeLabel?: string;
   x: number;
   y: number;
   inPorts: number;
@@ -481,7 +490,7 @@ export class SkillCanvas {
       const cx = (e.clientX - rect.left - this._tx) / this._tz - 80;
       const cy = (e.clientY - rect.top  - this._ty) / this._tz - 20;
       try {
-        const d = JSON.parse(raw) as { kind: string; skillId?: string; skillName?: string; skillSteps?: SkillStep[]; _libInPorts?: number; _libOutPorts?: number };
+        const d = JSON.parse(raw) as { kind: string; skillId?: string; skillName?: string; skillSteps?: SkillStep[]; _libInPorts?: number; _libOutPorts?: number; ghDef?: GhDefSpec; nodeLabel?: string };
         if (d.kind === "skill") {
           if (d._libInPorts !== undefined || d._libOutPorts !== undefined) {
             // Library node with custom port counts
@@ -498,6 +507,8 @@ export class SkillCanvas {
           } else {
             this._addSkillNode(d.skillId ?? d.skillName ?? "skill", d.skillName ?? "skill", d.skillSteps ?? [], cx, cy);
           }
+        } else if (d.kind === "gh-def" && d.ghDef) {
+          this._addGhDefNode(d.ghDef, d.nodeLabel, cx, cy);
         } else {
           this._addScriptNode(cx, cy);
         }
@@ -735,6 +746,30 @@ export class SkillCanvas {
     );
   }
 
+  private _addGhDefNode(spec: GhDefSpec, label: string | undefined, x: number, y: number): void {
+    const desc = ingestGhDef(spec);
+    this._graph.nodes.push({
+      id: crypto.randomUUID(), kind: "gh-def",
+      ghDef: desc.ghDef,
+      nodeLabel: label ?? desc.label,
+      x: Math.max(0, x), y: Math.max(0, y),
+      inPorts: Math.max(1, desc.ghDef.inputPorts.length),
+      outPorts: 1,
+    });
+    saveGraph(this._graph);
+    this._renderGraph();
+  }
+
+  /** Programmatic API: ingest a GH definition and place it on the canvas at center.
+   *  Called by Eli's gh-runtime integration and by openImportGhDefModal. */
+  ingestGhDef(source: GhDefSpec | string): void {
+    const rect = this._viewport.getBoundingClientRect();
+    const x = (rect.width  / 2 - this._tx) / this._tz - 80;
+    const y = (rect.height / 2 - this._ty) / this._tz - 20;
+    const desc = ingestGhDef(source);
+    this._addGhDefNode(desc.ghDef, desc.label, x, y);
+  }
+
   private _removeNode(id: string): void {
     // Undo this node's last dispatch result before removing (#425)
     if (this._nodeHasResult.has(id)) {
@@ -894,6 +929,62 @@ export class SkillCanvas {
       el.querySelector<HTMLTextAreaElement>(".sc-script-src")!.addEventListener("input", (ev) => {
         node.scriptSource = (ev.target as HTMLTextAreaElement).value;
         saveGraph(this._graph);
+      });
+    } else if (node.kind === "rhino-script") {
+      el.classList.add("sc-node-rhino-script");
+      const lang = node.rhinoScript?.language ?? "python";
+      el.innerHTML = `
+        <div class="sc-node-header">
+          <span class="sc-node-verb">Rhino ${lang === "csharp" ? "C#" : "Python"}</span>
+          <button class="sc-node-del" title="Remove" type="button">✕</button>
+        </div>
+        <div class="sc-node-body">
+          <textarea class="sc-rhinoscript-src" rows="4" spellcheck="false"
+            placeholder="rs.AddLine([0,0,0],[1,0,0])">${escHtml(node.rhinoScript?.source ?? "")}</textarea>
+          <div class="sc-node-status sc-rhino-status">
+            <span class="sc-rhino-badge">${escHtml(lang.toUpperCase())}</span>
+            <span class="sc-rhino-note">Requires live RhinoMCP</span>
+          </div>
+        </div>
+      `;
+      el.querySelector<HTMLTextAreaElement>(".sc-rhinoscript-src")!.addEventListener("input", (ev) => {
+        node.rhinoScript = { ...(node.rhinoScript ?? { language: "python", inputParams: [] }), source: (ev.target as HTMLTextAreaElement).value };
+        saveGraph(this._graph);
+      });
+    } else if (node.kind === "gh-def") {
+      el.classList.add("sc-node-gh-def");
+      const label = node.nodeLabel ?? node.ghDef?.label ?? node.ghDef?.ghPath?.split(/[\\/]/).pop() ?? "GH Def";
+      const ports = node.ghDef?.inputPorts ?? [];
+      const sliderHtml = ports.length > 0
+        ? ports.map((p: GhInputPort) => `
+            <div class="sc-gh-slider">
+              <label class="sc-gh-slider-label">${escHtml(p.name)}</label>
+              <input class="sc-gh-slider-input" type="range" min="${p.min}" max="${p.max}" value="${p.default}" data-port="${escHtml(p.name)}" />
+              <span class="sc-gh-slider-val">${p.default}</span>
+            </div>`).join("")
+        : `<span class="sc-gh-no-ports">No input ports</span>`;
+      el.innerHTML = `
+        <div class="sc-node-header">
+          <span class="sc-node-verb">GH: ${escHtml(label)}</span>
+          <button class="sc-node-del" title="Remove" type="button">✕</button>
+        </div>
+        <div class="sc-node-body sc-gh-body">
+          ${sliderHtml}
+          <div class="sc-node-status sc-gh-status">
+            <span class="sc-gh-note">Requires gh-runtime</span>
+          </div>
+        </div>
+      `;
+      el.querySelectorAll<HTMLInputElement>(".sc-gh-slider-input").forEach((inp) => {
+        inp.addEventListener("input", () => {
+          const valEl = inp.nextElementSibling as HTMLElement | null;
+          if (valEl) valEl.textContent = inp.value;
+          const portName = inp.dataset.port ?? "";
+          if (portName && node.ghDef) {
+            const p = node.ghDef.inputPorts.find((pp: GhInputPort) => pp.name === portName);
+            if (p) { p.default = Number(inp.value); saveGraph(this._graph); }
+          }
+        });
       });
     } else {
       const displayName = node.skillName ?? node.verb ?? "?";
@@ -1248,6 +1339,23 @@ export class SkillCanvas {
         dispatched = true;
         await new Promise(r => setTimeout(r, 80));
       }
+    } else if (node.kind === "rhino-script") {
+      const src = node.rhinoScript?.source?.trim() ?? "";
+      if (!src) return;
+      dispatchSync("GhRhinoScriptSyntax_API", {
+        fn: node.rhinoScript?.language === "csharp" ? "csharp_eval" : "python_eval",
+        args: [src],
+      } as DispatchArgs);
+      dispatched = true;
+      await new Promise(r => setTimeout(r, 80));
+    } else if (node.kind === "gh-def") {
+      const graphId = node.ghDef?.inlineGraphId ?? node.ghDef?.ghPath ?? "";
+      if (!graphId) return;
+      const inputValues: Record<string, number> = {};
+      for (const p of node.ghDef?.inputPorts ?? []) inputValues[p.name] = p.default;
+      dispatchSync("GhComponentGraph_Evaluator", { graphId, inputValues } as DispatchArgs);
+      dispatched = true;
+      await new Promise(r => setTimeout(r, 80));
     } else if (node.skillSteps && node.skillSteps.length > 0) {
       for (const step of node.skillSteps) {
         dispatchSync(step.verb, step.args as DispatchArgs);

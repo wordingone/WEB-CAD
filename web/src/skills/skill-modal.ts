@@ -2,6 +2,7 @@
 
 import type { SkillStep } from "./skill-store";
 import { saveSkill, saveCluster, saveCanvasCluster } from "./skill-store";
+import { parseGhDefJson } from "../gh/gh-def-ingester";
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -157,4 +158,68 @@ export function openSaveClusterModal(
 
   document.body.appendChild(overlay);
   requestAnimationFrame(() => nameInput.focus());
+}
+
+/**
+ * Open a modal to import a Grasshopper definition into the skill canvas.
+ *
+ * Accepts JSON-encoded GhDefSpec (from Eli's gh-runtime) or a .gh file path.
+ * onImport receives the parsed spec; the canvas's ingestGhDef() places the node.
+ */
+export function openImportGhDefModal(onImport: (spec: import("../gh/gh-def-ingester").GhDefSpec) => void): void {
+  const overlay = document.createElement("div");
+  overlay.className = "skill-modal-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "Import GH Definition");
+
+  overlay.innerHTML = `
+    <div class="skill-modal">
+      <div class="skill-modal-header">
+        <span class="skill-modal-title">Import GH Definition</span>
+        <button class="skill-modal-close" aria-label="Close" type="button">✕</button>
+      </div>
+      <div class="skill-modal-body">
+        <label class="skill-modal-label">GH file path or JSON spec
+          <textarea class="gh-import-src" rows="6" spellcheck="false"
+            placeholder='{"ghPath":"/path/to/def.gh","inputPorts":[{"name":"Width","min":1,"max":20,"default":5}]}'></textarea>
+        </label>
+        <div class="gh-import-error" style="color:var(--clr-err,#e55);font-size:12px;min-height:1em;"></div>
+      </div>
+      <div class="skill-modal-footer">
+        <button class="btn btn-sm skill-modal-cancel" type="button">Cancel</button>
+        <button class="btn btn-accent btn-sm gh-import-ok" type="button">Import</button>
+      </div>
+    </div>
+  `;
+
+  const srcEl     = overlay.querySelector<HTMLTextAreaElement>(".gh-import-src")!;
+  const errEl     = overlay.querySelector<HTMLElement>(".gh-import-error")!;
+  const okBtn     = overlay.querySelector<HTMLButtonElement>(".gh-import-ok")!;
+  const closeBtn  = overlay.querySelector<HTMLButtonElement>(".skill-modal-close")!;
+  const cancelBtn = overlay.querySelector<HTMLButtonElement>(".skill-modal-cancel")!;
+
+  const close = () => overlay.remove();
+  closeBtn.addEventListener("click", close);
+  cancelBtn.addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  okBtn.addEventListener("click", () => {
+    const raw = srcEl.value.trim();
+    if (!raw) { errEl.textContent = "Paste a JSON spec or enter a .gh file path."; return; }
+    let spec = parseGhDefJson(raw);
+    if (!spec) {
+      if (raw.endsWith(".gh") || raw.endsWith(".ghx")) {
+        spec = { ghPath: raw, inputPorts: [] };
+      } else {
+        errEl.textContent = "Not valid JSON or a .gh path. Check format.";
+        return;
+      }
+    }
+    onImport(spec);
+    close();
+  });
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => srcEl.focus());
 }
