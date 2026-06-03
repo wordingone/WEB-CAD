@@ -815,16 +815,6 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         }
       });
 
-      for (const _c of _gableWallCandidates) {
-        const _grp = (_c as unknown as { _replaceGroup?: THREE.Group })._replaceGroup;
-        if (_grp) {
-          const _parent = _grp.parent ?? viewer.getScene();
-          _parent.remove(_grp);
-          _parent.add(_c);
-          _c.updateMatrixWorld(true);
-        }
-      }
-
       // §#1724: derive gable-end coordinates from scene wall bounding box.
       // §#1756: apply footprint+FOOT_EXPAND filter.
       const FOOT_EXPAND_GABLE = 1.5;
@@ -855,6 +845,16 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         const isGable = Math.abs(vA - vB) < TOL &&
           (Math.abs(vA - sceneGMin) < TOL || Math.abs(vA - sceneGMax) < TOL);
         if (!isGable) continue;
+
+        // Replace void-cut Group with fresh Mesh only for confirmed gable walls.
+        // Non-gable wall Groups (e.g. south wall with window voids) must not be replaced.
+        const _grp = (child as unknown as { _replaceGroup?: THREE.Group })._replaceGroup;
+        if (_grp) {
+          const _parent = _grp.parent ?? viewer.getScene();
+          _parent.remove(_grp);
+          _parent.add(child);
+          child.updateMatrixWorld(true);
+        }
 
         const wallMesh = child;
         const wallEaveH = eaveOffset;
