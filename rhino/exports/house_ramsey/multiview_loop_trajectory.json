@@ -1,0 +1,76 @@
+{
+  "target": "tn0094 — Ramsey House, TN",
+  "habs_id": "HABS TENN,80-RAMS,1-",
+  "frozen_spec_front_path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/target_spec.json",
+  "frozen_spec_east_path": "B:/M/WEB-CAD/rhino/exports/house_ramsey/target_spec_east.json",
+  "loop_type": "multi_view_autonomous_3read_majority_vote",
+  "objective": "single param set achieving 5/5 front AND 4/4 east simultaneously",
+  "topology_findings": [
+    "GH generator places wing as lateral +X extension — correct for front view but blocks east gable in Right view",
+    "HABS floor plan (00001a) shows wing extends SOUTHWARD (-Y) from center-right of south face — kitchen in wing",
+    "Fix: set wing_w=0, bake native Box at x=[W*0.45,W*0.85], y=[-5.5,0] (south extension). Wing stays within main block X range, east gable clear.",
+    "Same approach as Hinchman v5 wing fix: disable GH wing, bake native geometry at correct position. Never translate-after-bake.",
+    "Side windows absent from GH generator (solid wall breps only). Fix: bake native thin box inserts at east gable face."
+  ],
+  "iterations": [
+    {
+      "v": 12,
+      "phase": "topology_probe",
+      "params": {
+        "width": 12.8, "depth": 14.6, "flr_h": 3.5, "nfl": 2,
+        "roof_p": 0.20, "wing_w": 5.5, "chim_n": 2, "n_bays": 3, "door_bay": 1
+      },
+      "wing_topology": "lateral_east_x_extension",
+      "brep_count": 11,
+      "front_score": 5,
+      "front_total": 5,
+      "east_score": 3,
+      "east_total": 4,
+      "east_fail_dims": ["storey_and_windows"],
+      "east_fail_reason": "Wing lateral x=[12.8,18.3] occupies east foreground; main block gable occluded. Side wall shows ≤1 window/floor (solid walls, no fenestration). Two compounded bugs: wrong wing topology + no side windows.",
+      "combined": "8/9",
+      "action": "Leo directed: fix wing topology (south-extension per HABS floor plan) + add native side windows"
+    },
+    {
+      "v": 13,
+      "phase": "topology_fix",
+      "params": {
+        "width": 12.8, "depth": 14.6, "flr_h": 3.5, "nfl": 2,
+        "roof_p": 0.20, "wing_w": 0.0, "chim_n": 2, "n_bays": 3, "door_bay": 1
+      },
+      "wing_topology": "native_south_extension_center_right",
+      "native_wing": {
+        "x": [5.76, 10.88], "y": [-5.5, 0.0], "z": [0.0, 3.5],
+        "note": "x range [5.76,10.88] entirely within main block [0,12.8] — east gable at x=12.8 fully clear"
+      },
+      "native_windows_east": {
+        "count": 4, "positions": "GF: y=4.87,9.73 z=[0.9,2.4]; UF: y=4.87,9.73 z=[4.4,5.6]",
+        "layer": "GH_WINDOW"
+      },
+      "brep_count": 15,
+      "front_score": 5,
+      "front_total": 5,
+      "front_all_reads_unanimous": true,
+      "east_score": 4,
+      "east_total": 4,
+      "east_all_reads_unanimous": true,
+      "combined": "9/9",
+      "verdict": "CONVERGENCE — single param set achieves front 5/5 AND east 4/4 simultaneously"
+    }
+  ],
+  "convergence_summary": {
+    "total_iterations": 2,
+    "topology_errors_found": 2,
+    "topology_errors_fixed": 2,
+    "final_front_score": "5/5",
+    "final_east_score": "4/4",
+    "combined_score": "9/9",
+    "leo_audit_status": "pending"
+  },
+  "lessons": [
+    "Multi-view scoring immediately surfaces 3D topology errors invisible to front-only scoring",
+    "GH generator wing is lateral (x-axis); real Federal ell wings are south-extending (y-axis from south face)",
+    "GH walls breps have no fenestration on side/gable faces — must add native window inserts",
+    "HABS floor plan is the ground truth for 3D topology — read it before designing native geometry"
+  ]
+}
