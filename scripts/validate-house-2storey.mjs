@@ -229,6 +229,35 @@ console.log(`[house] prompt: "${HOUSE_PROMPT.slice(0, 100)}..."`);
 
 await evaluate(`window.__dispatchLedger = []; window.__houseOomCount = 0;`);
 
+// Install scene add/remove spy to track what object 6f11bebd (or any host uuid) actually is
+await evaluate(`(function(){
+  var viewer=window.__viewer;
+  if(!viewer) return;
+  var scene=viewer.scene||(viewer.getScene&&viewer.getScene());
+  if(!scene) return;
+  window.__sceneSpy=[];
+  var origAdd=scene.add.bind(scene);
+  scene.add=function(){
+    for(var i=0;i<arguments.length;i++){
+      var o=arguments[i];
+      if(o&&o.uuid){
+        window.__sceneSpy.push({op:'add',uuid:o.uuid,creator:(o.userData&&o.userData.creator)||'',levelId:(o.userData&&o.userData.levelId)||'',isGroup:!!o.isGroup,expressID:(o.userData&&o.userData.expressID)||''});
+      }
+    }
+    return origAdd.apply(scene,arguments);
+  };
+  var origRemove=scene.remove.bind(scene);
+  scene.remove=function(){
+    for(var i=0;i<arguments.length;i++){
+      var o=arguments[i];
+      if(o&&o.uuid){
+        window.__sceneSpy.push({op:'remove',uuid:o.uuid,creator:(o.userData&&o.userData.creator)||'',levelId:(o.userData&&o.userData.levelId)||'',isGroup:!!o.isGroup,expressID:(o.userData&&o.userData.expressID)||''});
+      }
+    }
+    return origRemove.apply(scene,arguments);
+  };
+})()`);
+
 // Wait for SEND
 const pgStart = Date.now();
 let pgOk = false;
@@ -700,6 +729,61 @@ while (Date.now() - turnStart < TURN_TIMEOUT) {
     process.stdout.write(`\n[house] houseGeomGate binding fired — hero+aerial capture NOW\n`);
     bindingVoidInfo = (houseGatePayload && Array.isArray(houseGatePayload.voidInfo))
       ? houseGatePayload.voidInfo : [];
+    // Inline scene diagnostic: capture wall group + window positions BEFORE screenshot
+    // (scene is cleared after validate exits — must query here)
+    const _diagRaw = await evaluate(`(function(){
+      var v=window.__viewer;
+      if(!v) return 'no-viewer';
+      var s=v.scene||(v.getScene&&v.getScene());
+      if(!s) return 'no-scene';
+      var out=[];
+      var seen=new Set();
+      s.traverse(function(o){
+        if(!o||!o.userData||seen.has(o.uuid)) return;
+        seen.add(o.uuid);
+        var c=o.userData.creator;
+        if((c==='wall'||c==='SdWall')&&o.isGroup===true){
+          var hist=o.userData.cutHistory||[];
+          var dims=o.userData.originalWallDims||{};
+          var wglvl=o.userData.levelId||'?';
+          out.push('WG|lpos=('+o.position.x.toFixed(2)+','+o.position.y.toFixed(2)+','+o.position.z.toFixed(2)+')|uuid='+o.uuid.slice(0,8)+'|lvl='+wglvl+'|kids='+o.children.length+'|cuts='+hist.length+'|h='+((dims.h||0).toFixed(2))+'|zMin='+((dims.zMin||0).toFixed(2)));
+        }
+        if((c==='wall'||c==='SdWall')&&!o.isGroup){
+          var lvl=o.userData.levelId||'?';
+          out.push('WM|lpos=('+o.position.x.toFixed(2)+','+o.position.y.toFixed(2)+','+o.position.z.toFixed(2)+')|lvl='+lvl+'|uuid='+o.uuid.slice(0,8)+'|vis='+o.visible);
+        }
+        if(c==='window'){
+          var wx=o.matrixWorld.elements[12], wy=o.matrixWorld.elements[13], wz=o.matrixWorld.elements[14];
+          var side=-1;
+          o.traverse(function(m){if(m.isMesh&&m.material&&side===-1){var mat=Array.isArray(m.material)?m.material[0]:m.material;if(mat)side=mat.side;}});
+          var hostId=o.userData.hostExpressID||'none';
+          out.push('WIN|lpos=('+o.position.x.toFixed(2)+','+o.position.y.toFixed(2)+','+o.position.z.toFixed(2)+')|wpos=('+wx.toFixed(2)+','+wy.toFixed(2)+','+wz.toFixed(2)+')|vis='+o.visible+'|side='+side+'|host='+hostId.slice(0,8));
+        }
+        if(c==='door'){
+          var dx=o.matrixWorld.elements[12], dy=o.matrixWorld.elements[13], dz=o.matrixWorld.elements[14];
+          out.push('DOOR|lpos=('+o.position.x.toFixed(2)+','+o.position.y.toFixed(2)+','+o.position.z.toFixed(2)+')|wpos=('+dx.toFixed(2)+','+dy.toFixed(2)+','+dz.toFixed(2)+')|vis='+o.visible);
+        }
+        // Catch any Group with originalWallDims (void-cut wall) regardless of creator tag
+        if(o.isGroup===true&&o.userData.originalWallDims&&!(c==='wall'||c==='SdWall')){
+          var hist2=o.userData.cutHistory||[];
+          out.push('WG-ALIEN|creator='+c+'|lpos=('+o.position.x.toFixed(2)+','+o.position.y.toFixed(2)+','+o.position.z.toFixed(2)+')|cuts='+hist2.length);
+        }
+      });
+      out.push('SCENE_KIDS='+s.children.length);
+      return out.join('\\n');
+    })()`);
+    process.stdout.write(`\n[house] SCENE-DIAG:\n${_diagRaw}\n`);
+
+    // Dump scene spy: wall/window/door add+remove events to track host uuid provenance
+    const _spyRaw = await evaluate(`(function(){
+      var spy=window.__sceneSpy||[];
+      return spy
+        .filter(function(e){return e.creator==='wall'||e.creator==='SdWall'||e.creator==='window'||e.creator==='door';})
+        .map(function(e){return e.op+'|uuid='+e.uuid.slice(0,8)+'|cr='+e.creator+'|lvl='+e.levelId+'|grp='+e.isGroup+'|xid='+e.expressID.slice(0,8);})
+        .join('\\n');
+    })()`);
+    process.stdout.write(`\n[house] SCENE-SPY (wall/window/door adds+removes):\n${_spyRaw}\n`);
+
     // Re-render with correct framing + capture hero + aerial (scene still fully populated)
     await captureHeroAndAerial("gate-binding");
     earlyStopped = true;
