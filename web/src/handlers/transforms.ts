@@ -1381,10 +1381,12 @@ export function registerTransformHandlers(viewer: Viewer): void {
         if (byName instanceof THREE.Mesh) return byName.uuid;
       }
       if (typeof oid === "number") {
-        // 1-based index into scene brep/solid meshes in creation order
-        const brepMeshes = scene.children.filter(
-          (c) => c instanceof THREE.Mesh && (c.userData.kind || c.userData.creator)
-        ) as THREE.Mesh[];
+        // 1-based index — traverse recursively to find meshes inside groups too
+        const brepMeshes: THREE.Mesh[] = [];
+        scene.traverse((child) => {
+          if (child !== scene && child instanceof THREE.Mesh && (child.userData.kind || child.userData.creator))
+            brepMeshes.push(child);
+        });
         const mesh = brepMeshes[oid - 1];
         return mesh?.uuid ?? null;
       }
