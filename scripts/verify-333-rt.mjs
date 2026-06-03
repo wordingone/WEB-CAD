@@ -124,9 +124,9 @@ for (let run = 1; run <= RUNS; run++) {
   };
   onEvent("Runtime.exceptionThrown", exListener);
 
-  // Cold-cache clear
+  // Cold-cache clear — preserve file_systems (OPFS) to avoid 5GB model re-download
   await send("Network.clearBrowserCache");
-  await send("Storage.clearDataForOrigin", { origin: "https://wordingone.github.io", storageTypes: "all" });
+  await send("Storage.clearDataForOrigin", { origin: "https://wordingone.github.io", storageTypes: "cookies,cache_storage,service_workers,local_storage,shader_cache,indexeddb" });
   await evaluate(`(async()=>{ const r=await navigator.serviceWorker?.getRegistrations()||[]; await Promise.all(r.map(x=>x.unregister())); })()`, true).catch(()=>{});
 
   // Cold reload
@@ -144,6 +144,29 @@ for (let run = 1; run <= RUNS; run++) {
   if (!shellReady) {
     runResults.push({ run, pass: false, reason: "shell timeout" });
     continue;
+  }
+
+  // Wait for boot-screen removal — canvas is occluded (z-index:9999) until agentmodel:boot-complete
+  let bootGone = false;
+  for (let t = 0; t < 180; t++) {
+    await delay(1000);
+    const gone = await evaluate(`!document.getElementById('boot-screen')`).catch(() => true);
+    if (gone) { bootGone = true; console.log(`[rt]   boot-screen gone at ~${t+1}s`); break; }
+    if (t % 10 === 9) {
+      const phase = await evaluate(`document.getElementById('boot-phase-label')?.textContent?.trim() ?? '?'`).catch(() => '?');
+      console.log(`[rt]   boot-screen still active (~${t+1}s): "${phase}"`);
+    }
+  }
+  if (!bootGone) console.warn("[rt]   boot-screen timeout — canvas diff may be occluded");
+  await delay(300);
+
+  // Capture viewer canvas rect + pre-dispatch JPEG for visible-render diff
+  const canvasRect = await evaluate(`(() => { const c = document.getElementById('viewer-canvas') || document.querySelector('canvas'); if (!c) return null; const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })()`).catch(() => null);
+  let preJpeg = null;
+  if (canvasRect?.width > 0) {
+    const preShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 75, clip: { x: canvasRect.x, y: canvasRect.y, width: canvasRect.width, height: canvasRect.height, scale: 0.5 } });
+    preJpeg = preShot.data;
+    await send("Runtime.evaluate", { expression: `window._preJpeg = "data:image/jpeg;base64,${preJpeg}"` });
   }
 
   // Inject .3dm bytes (built Node.js-side) as base64, decode in browser, dispatch Sd3dmRead
@@ -175,8 +198,9 @@ for (let run = 1; run <= RUNS; run++) {
         });
         if (!canonical) return { ok: false, error: "no canonical userData on imported mesh" };
 
-        // Deterministic geometry diff
+        // Deterministic geometry diff — report all deltas (not just failures)
         const errors = [];
+        const cpDeltas = [];
         if (canonical.degreeU !== 1) errors.push("degreeU=" + canonical.degreeU + " want 1");
         if (canonical.degreeV !== 1) errors.push("degreeV=" + canonical.degreeV + " want 1");
         if (canonical.countU !== 3) errors.push("countU=" + canonical.countU + " want 3");
@@ -184,24 +208,39 @@ for (let run = 1; run <= RUNS; run++) {
 
         for (let i = 0; i < refCP.length; i++) {
           const a = refCP[i], b = canonical.controlPoints?.[i];
-          if (!b) { errors.push("missing CP[" + i + "]"); continue; }
-          const d = Math.max(Math.abs(a[0]-b[0]), Math.abs(a[1]-b[1]), Math.abs(a[2]-b[2]));
+          if (!b) { errors.push("missing CP[" + i + "]"); cpDeltas.push(null); continue; }
+          const dx = Math.abs(a[0]-b[0]), dy = Math.abs(a[1]-b[1]), dz = Math.abs(a[2]-b[2]);
+          const d = Math.max(dx, dy, dz);
+          cpDeltas.push(+d.toExponential(6));
           if (d > EPS) errors.push("CP[" + i + "] delta=" + d.toExponential(2));
         }
 
         const kuRef = fullKnots, kuImp = canonical.knotsU ?? [];
+        const knotDeltasU = [];
         if (kuRef.length !== kuImp.length) {
           errors.push("knotsU length: " + kuImp.length + " vs " + kuRef.length);
         } else {
           for (let i = 0; i < kuRef.length; i++) {
-            if (Math.abs(kuRef[i] - kuImp[i]) > EPS) errors.push("knotsU[" + i + "] delta=" + Math.abs(kuRef[i]-kuImp[i]).toExponential(2));
+            const d = Math.abs(kuRef[i] - kuImp[i]);
+            knotDeltasU.push(+d.toExponential(6));
+            if (d > EPS) errors.push("knotsU[" + i + "] delta=" + d.toExponential(2));
           }
         }
         const kvRef = fullKnots, kvImp = canonical.knotsV ?? [];
-        if (kvRef.length !== kvImp.length) errors.push("knotsV length: " + kvImp.length + " vs " + kvRef.length);
+        const knotDeltasV = [];
+        if (kvRef.length !== kvImp.length) {
+          errors.push("knotsV length: " + kvImp.length + " vs " + kvRef.length);
+        } else {
+          for (let i = 0; i < kvRef.length; i++) {
+            const d = Math.abs(kvRef[i] - kvImp[i]);
+            knotDeltasV.push(+d.toExponential(6));
+            if (d > EPS) errors.push("knotsV[" + i + "] delta=" + d.toExponential(2));
+          }
+        }
 
         return {
           ok: errors.length === 0, errors,
+          cpDeltas, knotDeltasU, knotDeltasV,
           canonical: {
             degreeU: canonical.degreeU, degreeV: canonical.degreeV,
             countU: canonical.countU, countV: canonical.countV,
@@ -214,7 +253,34 @@ for (let run = 1; run <= RUNS; run++) {
     })()
   `, true);
 
+  // Wait for Three.js render, capture post-dispatch JPEG, compute pixel diff
+  await delay(600);
+  let canvasDiff = null;
+  if (preJpeg && canvasRect?.width > 0) {
+    const postShot = await send("Page.captureScreenshot", { format: "jpeg", quality: 75, clip: { x: canvasRect.x, y: canvasRect.y, width: canvasRect.width, height: canvasRect.height, scale: 0.5 } });
+    await send("Runtime.evaluate", { expression: `window._postJpeg = "data:image/jpeg;base64,${postShot.data}"` });
+    canvasDiff = await evaluate(`
+      (async () => {
+        const decode = src => new Promise(res => {
+          const img = new Image();
+          img.onload = () => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0); res(ctx.getImageData(0, 0, img.width, img.height)); };
+          img.src = src;
+        });
+        const [a, b] = await Promise.all([decode(window._preJpeg), decode(window._postJpeg)]);
+        let changed = 0;
+        for (let i = 0; i < a.data.length; i += 4) {
+          if (Math.max(Math.abs(a.data[i]-b.data[i]), Math.abs(a.data[i+1]-b.data[i+1]), Math.abs(a.data[i+2]-b.data[i+2])) > 20) changed++;
+        }
+        return { changed, total: a.data.length/4, hasDiff: changed > 15 };
+      })()
+    `, true).catch(e => ({ error: String(e?.message ?? e) }));
+    console.log(`[rt]   canvas diff: changed=${canvasDiff?.changed ?? '?'} hasDiff=${canvasDiff?.hasDiff ?? '?'}`);
+  }
+
   console.log("[rt]   round-trip result:", JSON.stringify(rtResult));
+  if (rtResult?.cpDeltas) console.log("[rt]   CP deltas (max-component, ε=1e-6):", JSON.stringify(rtResult.cpDeltas));
+  if (rtResult?.knotDeltasU) console.log("[rt]   knotDeltasU:", JSON.stringify(rtResult.knotDeltasU));
+  if (rtResult?.knotDeltasV) console.log("[rt]   knotDeltasV:", JSON.stringify(rtResult.knotDeltasV));
 
   const shot = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(`${OUT_DIR}/run${run}.png`, Buffer.from(shot.data, "base64"));
@@ -228,7 +294,7 @@ for (let run = 1; run <= RUNS; run++) {
 
   const pass = rtOK && crashFree;
   console.log(`[rt]   Run ${run}: ${pass ? "✓ PASS" : "✗ FAIL"}`);
-  runResults.push({ run, pass, rtOK, crashFree, canonical: rtResult?.canonical, errors: rtResult?.errors });
+  runResults.push({ run, pass, rtOK, crashFree, canonical: rtResult?.canonical, cpDeltas: rtResult?.cpDeltas, knotDeltasU: rtResult?.knotDeltasU, knotDeltasV: rtResult?.knotDeltasV, errors: rtResult?.errors, canvasDiff });
 
   // Remove this run's exception listener
   const idx = (evListeners.get("Runtime.exceptionThrown") ?? []).indexOf(exListener);
@@ -241,10 +307,15 @@ writeFileSync(certPath, JSON.stringify({
   script: "verify-333-rt.mjs",
   pages_url: PAGES_URL,
   cold_cache: true,
-  clear_protocol: "Storage.clearDataForOrigin(all) + Network.clearBrowserCache + SW unregister + Page.reload(ignoreCache:true)",
+  clear_protocol: "Network.clearBrowserCache + Storage.clearDataForOrigin(cookies,cache_storage,service_workers,local_storage,shader_cache,indexeddb) [OPFS preserved] + SW unregister + Page.reload(ignoreCache:true)",
   eps: EPS,
   surface: "3x3 bilinear patch, degree 1, 9 control points, fullKnots=[0,0,1,2,2]",
   dm_bytes: dmBytes.length,
+  trim_gap: {
+    finding: "Trimmed BReps cannot round-trip via rhino3dm — rhino3dm.d.ts declares no BrepLoop, BrepTrim, or loops()/trims() accessor",
+    scope: "AC#2 is scoped to untrimmed NurbsSurface only; trimmed surfaces are an upstream rhino3dm API limitation, not in-scope for this PR",
+    upstream_ref: "rhino3dm TypeScript definitions omit BrepLoop/BrepTrim classes and have no loops()/trims() method on Brep"
+  },
   runs: runResults,
   allPass,
 }, null, 2));
