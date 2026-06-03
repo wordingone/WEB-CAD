@@ -135,7 +135,33 @@ const ranCount   = dispatchRaw?.result?.ran ?? dispatchRaw?.ran ?? 0;
 console.log(`[fw-abs] dispatch raw: ${JSON.stringify(dispatchRaw)}`);
 console.log(`[fw-abs] dispatch: ok=${dispatchOk}, ran=${ranCount}`);
 
-await delay(600);
+await delay(800);
+
+// Orbit camera to front-diagonal view so Leo's Haiku read sees slabs + columns + glazing.
+// Pavilion center (11.785, 4.369, 2.271); dist=38m; angle = front-left-above.
+await evaluate(`
+  (() => {
+    try {
+      const viewer = window.__viewer;
+      if (!viewer) return;
+      const cx = 11.785, cy = 4.369, cz = 2.271;
+      const dist = 38;
+      const dx = -0.4, dy = -1.2, dz = 0.65;
+      const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      const camX = cx + (dx/len)*dist, camY = cy + (dy/len)*dist, camZ = cz + (dz/len)*dist;
+      const pane = (viewer.panes && viewer.panes.find(p => p.view === 'persp')) ?? viewer;
+      if (pane && pane.controls) {
+        pane.controls.target.set(cx, cy, cz);
+        pane.controls.object.position.set(camX, camY, camZ);
+        pane.controls.update();
+      } else if (pane && pane.camera) {
+        pane.camera.position.set(camX, camY, camZ);
+        pane.camera.lookAt(cx, cy, cz);
+      }
+    } catch(e) { /* viewer not ready — proceed */ }
+  })()`);
+await delay(400); // wait for RAF render cycle
+
 const postJpeg = await captureJpeg();
 
 // ── Query scene ───────────────────────────────────────────────────────────────
@@ -303,12 +329,17 @@ ac("AC12", exceptions.length === 0,
   exceptions.length === 0 ? "zero exceptions" : `${exceptions.length} exception(s): ${exceptions.slice(0,2).join("; ")}`);
 
 // ── Write cert JSON ────────────────────────────────────────────────────────────
+// Save before/after screenshots for Leo to verify
+if (preJpeg) writeFileSync(`${OUT_DIR}/before.jpg`, Buffer.from(preJpeg, "base64"));
+if (postJpeg) writeFileSync(`${OUT_DIR}/after.jpg`, Buffer.from(postJpeg, "base64"));
+
 const cert = {
   script:    "verify-farnsworth-absorption.mjs",
   timestamp: new Date().toISOString(),
   url:       PAGES_URL,
   cold_cache: true,
   clear_protocol: "Network.clearBrowserCache + Storage.clearDataForOrigin(excludes file_systems/OPFS)",
+  screenshots: { before: "before.jpg", after: "after.jpg" },
   results, passed, failed, errors,
   canvas_diff_px: diffPx,
   scene_data: sceneData,
