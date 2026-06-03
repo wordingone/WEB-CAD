@@ -93,5 +93,35 @@
       "key_fix": "Y_OFF=-5mm (windows in front of wall face, visible to camera at negative Y)"
     }
   ],
-  "convergence_status": "CONVERGED — 5/5 majority vote (3 reads, iter4). 2026-06-03."
+  "multi_view_status": {
+    "front_elevation": {
+      "iteration": 6,
+      "score_majority": "5/5",
+      "reads": "3/3 PASS all dims",
+      "key_fix": "Bay dividers at Y=-6mm (iter5 had Y=-1mm — behind wall face at Y=0, invisible). Reverted to iter4 planar-surface windows (Boolean diff had no visual contrast in Shaded capture).",
+      "capture": "vv_gen_iter6_front.jpg",
+      "converged": "2026-06-03"
+    },
+    "side_elevation": {
+      "iteration": 6,
+      "score_majority": "5/5",
+      "reads": "3/3 PASS all dims",
+      "spec": "rhino/exports/house_villa_verde/side_spec.json",
+      "capture": "vv_gen_iter6_side.jpg",
+      "view": "Right viewport (looking in -X direction at X=W=6096 face)",
+      "converged": "2026-06-03"
+    },
+    "cross_view_consistency": {
+      "param_set": "SINGLE — no per-view tuning",
+      "W_mm": 6096,
+      "D_mm": 7315,
+      "H_WALL_mm": 4876,
+      "H_TOTAL_mm": 6245,
+      "front_gable_width_mm": 6096,
+      "side_depth_mm": 7315,
+      "ridge_height_both_views_mm": 6245,
+      "verified": "2026-06-03"
+    }
+  },
+  "convergence_status": "MULTI-VIEW CONVERGED — front 5/5 + side 5/5 majority (iter6, 3 reads each). Single param set. Cross-view consistent. 2026-06-03."
 }
