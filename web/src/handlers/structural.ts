@@ -687,7 +687,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       flat: "flat", mansard: "flat", combination: "flat",
     };
     const roofType: RoofParams["type"] = typeMap[rawType] ?? "pitched";
-    const pitchDeg = (args.pitchDeg as number | undefined) ?? (args.pitchAngleDeg as number | undefined) ?? 30;
+    let pitchDeg = (args.pitchDeg as number | undefined) ?? (args.pitchAngleDeg as number | undefined) ?? 30;
     const overhang = (args.overhang as number | undefined) ?? 0.5;
     const thickness = (args.thickness as number | undefined) ?? 0.15;
 
@@ -728,6 +728,14 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         centerY = (maxY + minY) / 2;
       }
     }
+    // rise / ridgeHeight override — convention-independent param for GhDefSpec v0.3+ direct dispatch.
+    // Converts Eli's structural rise to WEB-CAD's clad-based hw span so ridge height is preserved
+    // regardless of internal vs external span convention. pitchDeg arg still accepted as fallback.
+    const riseArg = (args.rise as number | undefined) ?? (args.ridgeHeight as number | undefined);
+    if (riseArg != null) {
+      const hw = (w + 2 * overhang) / 2;
+      pitchDeg = Math.atan(riseArg / hw) * (180 / Math.PI);
+    }
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const roofParams: RoofParams = { type: roofType, pitchDeg, overhang, thickness, showStructure: true };
@@ -735,6 +743,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
 
     const activeLevelElev = getActiveLevelElevation();
     let eaveOffset = DEFAULT_WALL_HEIGHT;
+    let eaveWallFound = false;
     {
       const FOOT_EXPAND = 1.5;
       viewer.getScene().traverse((child) => {
@@ -749,7 +758,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         if (midX < centerX - w / 2 - FOOT_EXPAND || midX > centerX + w / 2 + FOOT_EXPAND) return;
         if (midY < centerY - d / 2 - FOOT_EXPAND || midY > centerY + d / 2 + FOOT_EXPAND) return;
         const wh = (child.userData.wallHeight as number | undefined) ?? DEFAULT_WALL_HEIGHT;
-        if (wh > eaveOffset) eaveOffset = wh;
+        if (!eaveWallFound || wh > eaveOffset) { eaveOffset = wh; eaveWallFound = true; }
       });
     }
     mesh.position.set(centerX, centerY, activeLevelElev + eaveOffset);
