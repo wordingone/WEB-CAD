@@ -1,0 +1,126 @@
+{
+  "_meta": {
+    "building": "Villa Verde Housing — Typologia 2",
+    "architect": "ELEMENTAL (Alejandro Aravena)",
+    "location": "Constitución, Chile",
+    "year": 2013,
+    "source": "Vector DWG — dimension entity text + geometry analysis",
+    "source_dwg": {
+      "official": "elementalchile.cl CDN: 9813f0fb...4fc4717f.zip → 4_VILLA-VERDE/ELEMENTAL-VILLA VERDE-ARQ.dwg (2,110,985 bytes, AC1032 AutoCAD 2018)",
+      "mirror_note": "uncreatednet GitHub mirror (2,435,607 bytes, AC1024) is a DIFFERENT file — both contain 6096mm, confirmed cross-check",
+      "provenance_status": "CONFIRMED — official ELEMENTAL CDN download; 6096mm (20ft imperial grid) present in official file"
+    },
+    "source_license": "Open-source / public knowledge (Elemental 2016 release). Internal scorer use only.",
+    "extraction_method": "Rhino DWG parse → annotation entity text (PlainText) + layer/zone filtering",
+    "unit_guard": "DWG document units = Millimeters (confirmed via doc.ModelUnitSystem). All spec values in SI unless noted.",
+    "scored_view": "FRONT elevation — narrow gable-end face toward street",
+    "typology": 2,
+    "scored_stage": "FULL UNIT (both stages completed)",
+    "freeze_status": "FROZEN — 2026-06-03. Leo gate-hold resolved (mail #12820). Two design calls baked: (1) floor_height_m=2.438 PRIMARY (8ft = finished floor-to-floor; 7ft stud module ≠ finished height); (2) unit_depth_full_mm=7315 GROSS (89.2m² gross vs 85m² net). IMMUTABLE ground truth — score against this file, do NOT re-interpret live.",
+    "footprint_crosscheck": {
+      "initial_depth_parsed_mm": 4572,
+      "initial_depth_note": "4572mm (15ft) — parsed from dim annotation in DETALLE PLANTA zone (x~153.2m, 4 instances)",
+      "full_depth_parsed_mm": 7315,
+      "full_depth_note": "7315mm (24ft) — parsed from dim annotation at same position (4 instances); 6096×7.315×2=89.2m² vs published 85.1m² (5% diff, likely gross vs net)",
+      "width_m": 6.096,
+      "floors": 2,
+      "published_area_initial_m2": 57,
+      "published_area_full_m2": 85,
+      "tautological_depth_warning": "RESOLVED — depth previously derived from area (tautological). Now replaced by parsed DWG dims above.",
+      "status": "PASS — depth parsed independently from DWG dimension annotations"
+    }
+  },
+  "exact_dims": {
+    "unit_width_mm": 6096,
+    "unit_width_m": 6.096,
+    "unit_width_note": "6096mm = 20ft exactly (imperial grid). DWG contains both '6096' (×10 instances) and '6100' (×11 instances, rounded metric). Official source confirmed.",
+
+    "bay_width_note": "CORRECTED — 2133mm (7ft) was A-WALL-STUD stud on-center spacing, NOT facade bay width. 3 bays × 2133mm = 6399mm ≠ 6096mm. No explicit bay-width dim found in DWG.",
+    "n_bays": 3,
+    "bay_width_avg_mm": 2032,
+    "bay_width_avg_note": "2032mm = 6096/3 (equal division assumed; no explicit dim annotation for bay boundaries in DWG)",
+    "window_opening_w_mm": 940,
+    "window_opening_w_note": "940mm from plan-zone dim annotations (count=35, most frequent opening width in plan)",
+
+    "unit_depth_initial_mm": 4572,
+    "unit_depth_initial_m": 4.572,
+    "unit_depth_initial_note": "PARSED — 4572mm (15ft) from dim annotation in DETALLE PLANTA, 4 instances at x~153.2m",
+    "unit_depth_full_mm": 7315,
+    "unit_depth_full_m": 7.315,
+    "unit_depth_full_note": "PARSED — 7315mm (24ft) from dim annotation in DETALLE PLANTA, 4 instances at same location",
+
+    "roof_slope_pct": 45,
+    "roof_slope_deg": 24.2,
+    "roof_slope_note": "From text annotation 'CUBIERTA 45% PENDIENTE' in DWG",
+
+    "window_h_mm": 915,
+    "window_w_mm": 880,
+    "window_sill_h_mm": 730,
+    "window_head_h_mm": 1645,
+
+    "floor_height_m": 2.438,
+    "floor_height_note": "LEO DESIGN CALL (mail #12820, PRIMARY) — 2438mm = 8ft. Finished floor-to-floor height. 7ft stud module (2133mm) is structural framing height, not habitable floor-to-floor (7ft upper floor = sub-2m finished ceiling = uninhabitable). Imperial grid: 8ft = 2438mm.",
+    "floor_height_alt_m": 2.133,
+    "floor_height_alt_note": "STRUCTURAL MODULE ONLY (alt, do not use for scoring) — 2133mm = 7ft A-WALL-STUD on-center spacing. Section structural detail cluster at h≈2.156m marks slab level. Retained for DWG provenance context only.",
+
+    "wall_height_m": 4.876,
+    "wall_height_note": "FROZEN — 2 × 2438mm = 4876mm (2-storey at 8ft floors, Leo design call).",
+
+    "gable_rise_m": 1.369,
+    "gable_rise_note": "ESTIMATED — 45% slope × half-unit-width (3048mm): rise = 3048 × tan(24.2°) = 1369mm",
+
+    "total_height_m": 6.25,
+    "total_height_note": "LEO DESIGN CALL — wall_height (4876mm) + gable_rise (1369mm) = 6245mm ≈ 6.25m. Consistent with published elevations.",
+
+    "initial_area_m2": 55.7,
+    "initial_area_note": "COMPUTED — 6.096m × 4.572m × 2 floors = 55.7m² (close to published 57m²; 2% diff)",
+    "gross_footprint_area_m2": 89.2,
+    "gross_footprint_area_note": "LEO DESIGN CALL — 6.096m × 7.315m × 2 floors = 89.2m² gross (parsed DWG dims, 5% above published 85m²)",
+    "net_interior_area_m2": 85,
+    "net_interior_area_note": "LEO DESIGN CALL — published net interior area (wall thickness deducted). Gross/net delta = 4.2m² / ~5%.",
+
+    "confidence": {
+      "unit_width": "CONFIRMED — '6096' dim text in official DWG (20ft imperial); '6100' rounded metric also present",
+      "bay_width": "ESTIMATED — 3 equal bays assumed; 2032mm = 6096/3; no explicit bay-boundary dim in DWG; 2133mm stud spacing ≠ bay width",
+      "window_opening_w": "PARSED — 940mm from plan dim annotations (count=35)",
+      "roof_slope": "CONFIRMED — text annotation 'CUBIERTA 45% PENDIENTE'",
+      "window_dims": "CONFIRMED — 915mm H + 880mm W from elevation dim entities",
+      "floor_height": "FROZEN (Leo design call) — 2438mm (8ft) PRIMARY; 2133mm stud module ALT for context only",
+      "depth_initial": "PARSED — 4572mm (15ft) dim annotation in DETALLE PLANTA",
+      "depth_full": "PARSED — 7315mm (24ft) dim annotation in DETALLE PLANTA",
+      "provenance": "CONFIRMED — official CDN download; different file from GitHub mirror (size+version differ)"
+    }
+  },
+  "scoring_rubric": {
+    "view": "front_elevation",
+    "pass_threshold": ">=4/5 dims pass (majority vote of 3 independent reads per dim)",
+    "dims": {
+      "dim1": {
+        "label": "storey_count",
+        "description": "2 storeys clearly visible — horizontal mid-band dividing GF and UF",
+        "pass_criteria": "Exactly 2 visible floor levels with distinct fenestration on each"
+      },
+      "dim2": {
+        "label": "roof_form_gable_front",
+        "description": "Gable roof with triangular form visible on front face, 45% slope (~24 degrees). Ridge runs parallel to depth axis (perpendicular to street). Gable triangle 6.1m wide × ~1.4m tall.",
+        "pass_criteria": "Triangular gable peak visible at top of front face; pitch appears moderate-to-shallow (not steep like 45-deg; actual ~24-deg)"
+      },
+      "dim3": {
+        "label": "fenestration_3bay",
+        "description": "3-bay front facade: 3 equal bays of ~2032mm each = 6096mm total width. GF has 2 rectangular windows (~880×915mm) + 1 door; UF has 2-3 rectangular windows. Openings are small and nearly square.",
+        "pass_criteria": "3 distinct vertical bays visible; GF has 2 windows + 1 door; UF has 2-3 windows; window openings are small and rectangular",
+        "estimated_note": "Full-unit UF window count estimated — full-unit elevation not separately confirmed in DWG vs initial-delivery elevation"
+      },
+      "dim4": {
+        "label": "massing_proportions",
+        "description": "Nearly square front aspect ratio (6.1m wide × 6.25m tall, ratio ~1:1.02). Simple rectilinear box massing. No projecting elements. Clean rectangular silhouette.",
+        "pass_criteria": "Front facade is nearly square (height ≈ width); simple flat-wall box; no balconies, bay windows, or decorative elements"
+      },
+      "dim5": {
+        "label": "cladding_material",
+        "description": "Corrugated metal cladding or simple rectilinear walls. Utilitarian finish consistent with social housing.",
+        "pass_criteria": "Visible texture suggesting corrugated metal or horizontal siding; OR smooth walls with no visible ornamentation"
+      }
+    }
+  }
+}
