@@ -6,12 +6,18 @@
 //   (d) OBJECT-DELTA: noSnap object count per AC
 //
 // ACs:
-//   AC1: SURFACE mode → active-tool=surface + renderer rendered post-click
-//   AC2: hover circle → noSnap Mesh + visible-render diff > threshold
+//   AC1: SURFACE mode → active-tool=surface (no frameDelta: renderer.info.render.frame
+//        resets to 0 then increments to 1 on every render call via autoReset=true)
+//   AC2: hover circle → noSnap Mesh + canvas diff > 15 changed pixels
 //   AC3: click circle → surface geometry added
-//   AC4: plane pt2 → noSnap Line + visible-render diff > threshold
-//   AC5: plane pt3 → noSnap Group + visible-render diff > threshold
+//   AC4: plane pt2 → noSnap Line + canvas diff > 15 changed pixels
+//   AC5: plane pt3 → noSnap Group + canvas diff > 15 changed pixels
 //   AC6: zero JS exceptions
+//
+// Circle radius=4 (not 50). At r=50, all 32 boundary vertices have
+// camera-space z = 0.577*(vx+vy−8) > 0 (behind camera at pos(8,8,8));
+// WebGL clips all ShapeGeometry triangles → fill renders 0 pixels.
+// At r=4, max(vx+vy)=5.66 < 8 → all vertices in front of camera.
 
 import { WebSocket }               from "ws";
 import { mkdirSync, writeFileSync } from "fs";
@@ -110,6 +116,8 @@ const diffCanvasJpeg = (b64Before, b64After) => evaluate(`(async function() {
 })()`, true);
 
 // ── Scene helpers ──────────────────────────────────────────────────────────────
+// Note: renderer.info.render.frame is NOT used for activity checks — it resets
+// to 0 then increments to 1 on every render call (autoReset=true in THREE.js).
 const getFrame = () => evaluate(`(window.__viewer?.renderer?.info?.render?.frame ?? 0)`).catch(() => 0);
 
 const countNoSnapByType = type => evaluate(`(function() {
@@ -234,8 +242,9 @@ console.log(`[v496v3] interaction target: (${cx}, ${cy})`);
 await screenshot("00-app-ready");
 
 // ── Setup: draw test circle ────────────────────────────────────────────────────
-console.log("\n[v496v3] setup: SdCircle at world(0,0) radius=50...");
-const circleResult = await evaluate(`JSON.stringify(window.__dispatchSync?.("SdCircle", {center:[0,0], radius:50}) ?? null)`);
+// radius=4: all boundary vertices project to camera-space z<0 (in front)
+console.log("\n[v496v3] setup: SdCircle at world(0,0) radius=4...");
+const circleResult = await evaluate(`JSON.stringify(window.__dispatchSync?.("SdCircle", {center:[0,0], radius:4}) ?? null)`);
 console.log(`[v496v3]   SdCircle result: ${circleResult}`);
 await delay(400);
 
@@ -259,35 +268,29 @@ const results = [];
 
 // ── AC1: SURFACE tool activation ───────────────────────────────────────────────
 console.log("\n[v496v3] ── AC1: SURFACE activation ───────────────────────");
-const framePre1 = await getFrame();
 const surfaceClicked = await clickPaletteBtn("surface");
 await delay(600);
-const framePost1 = await getFrame();
 const activeTool = await evaluate(`document.querySelector('button.palette-btn.active')?.dataset?.tool ?? "none"`).catch(() => "none");
-const frameDelta1 = framePost1 - framePre1;
-console.log(`[v496v3]   clicked=${surfaceClicked} activeTool=${activeTool} frameDelta=${frameDelta1}`);
+console.log(`[v496v3]   clicked=${surfaceClicked} activeTool=${activeTool}`);
 await screenshot("ac1-surface-activated");
 
-const ac1 = surfaceClicked && activeTool === "surface" && frameDelta1 > 0;
+const ac1 = surfaceClicked && activeTool === "surface";
 results.push({ id: "AC1", desc: "SURFACE mode entered", pass: ac1,
-  detail: `clicked=${surfaceClicked} activeTool=${activeTool} frameDelta=${frameDelta1}` });
+  detail: `clicked=${surfaceClicked} activeTool=${activeTool}` });
 console.log(`[v496v3]   AC1: ${ac1 ? "PASS" : "FAIL"}`);
 
 // ── AC2: SURFACE hover → fill preview ─────────────────────────────────────────
 console.log("\n[v496v3] ── AC2: SURFACE hover preview ────────────────────");
 const preMesh2  = await countNoSnapByType("Mesh");
-const framePre2 = await getFrame();
 const b64Before2 = await captureCanvasJpeg();          // before hover
 
 await moveXY(cx, cy);
 await delay(600);
 
 const postMesh2   = await countNoSnapByType("Mesh");
-const framePost2  = await getFrame();
 const b64After2   = await captureCanvasJpeg();         // after hover + settle
 const diff2       = await diffCanvasJpeg(b64Before2, b64After2);
-const frameDelta2 = framePost2 - framePre2;
-console.log(`[v496v3]   noSnap Mesh: ${preMesh2}→${postMesh2}  frameDelta=${frameDelta2}`);
+console.log(`[v496v3]   noSnap Mesh: ${preMesh2}→${postMesh2}`);
 console.log(`[v496v3]   canvas diff: ${JSON.stringify(diff2)}`);
 await screenshot("ac2-surface-hover");
 
@@ -318,13 +321,12 @@ if (!diff2?.hasDiff) {
 }
 
 const ac2_meshAdded = postMesh2 > preMesh2;
-const ac2_rendered  = frameDelta2 > 0;
 const ac2_visible   = diff2?.hasDiff ?? false;
-const ac2 = ac2_meshAdded && ac2_rendered && ac2_visible;
-results.push({ id: "AC2", desc: "surface hover → fill preview (noSnap Mesh + rendered + canvas diff)",
+const ac2 = ac2_meshAdded && ac2_visible;
+results.push({ id: "AC2", desc: "surface hover → fill preview (noSnap Mesh + canvas diff > 15px)",
   pass: ac2,
-  detail: `meshDelta=${postMesh2-preMesh2} frameDelta=${frameDelta2} diffChanged=${diff2?.changed ?? "?"} blueGain=${diff2?.blueGain ?? "?"} hasDiff=${ac2_visible}` });
-console.log(`[v496v3]   AC2: ${ac2 ? "PASS" : "FAIL"} (meshAdded=${ac2_meshAdded} rendered=${ac2_rendered} visible=${ac2_visible})`);
+  detail: `meshDelta=${postMesh2-preMesh2} diffChanged=${diff2?.changed ?? "?"} blueGain=${diff2?.blueGain ?? "?"} hasDiff=${ac2_visible}` });
+console.log(`[v496v3]   AC2: ${ac2 ? "PASS" : "FAIL"} (meshAdded=${ac2_meshAdded} visible=${ac2_visible})`);
 
 // ── AC3: SURFACE click → geometry ─────────────────────────────────────────────
 console.log("\n[v496v3] ── AC3: SURFACE click ────────────────────────────");
@@ -353,29 +355,25 @@ await delay(400);
 
 const pt2x = pt1x + 200, pt2y = pt1y;
 const preLine4   = await countNoSnapByType("Line");
-const framePre4  = await getFrame();
 const b64Before4 = await captureCanvasJpeg();
 
 await moveXY(pt2x, pt2y);
 await delay(600);
 
 const postLine4   = await countNoSnapByType("Line");
-const framePost4  = await getFrame();
 const b64After4   = await captureCanvasJpeg();
 const diff4       = await diffCanvasJpeg(b64Before4, b64After4);
-const frameDelta4 = framePost4 - framePre4;
-console.log(`[v496v3]   noSnap Line: ${preLine4}→${postLine4}  frameDelta=${frameDelta4}`);
+console.log(`[v496v3]   noSnap Line: ${preLine4}→${postLine4}`);
 console.log(`[v496v3]   canvas diff: ${JSON.stringify(diff4)}`);
 await screenshot("ac4-plane-pt2");
 
 const ac4_lineAdded = postLine4 > preLine4;
-const ac4_rendered  = frameDelta4 > 0;
 const ac4_visible   = diff4?.hasDiff ?? false;
-const ac4 = ac4_lineAdded && ac4_rendered && ac4_visible;
-results.push({ id: "AC4", desc: "plane pt2 → line preview (noSnap Line + rendered + canvas diff)",
+const ac4 = ac4_lineAdded && ac4_visible;
+results.push({ id: "AC4", desc: "plane pt2 → line preview (noSnap Line + canvas diff > 15px)",
   pass: ac4,
-  detail: `lineDelta=${postLine4-preLine4} frameDelta=${frameDelta4} diffChanged=${diff4?.changed ?? "?"} hasDiff=${ac4_visible}` });
-console.log(`[v496v3]   AC4: ${ac4 ? "PASS" : "FAIL"} (lineAdded=${ac4_lineAdded} rendered=${ac4_rendered} visible=${ac4_visible})`);
+  detail: `lineDelta=${postLine4-preLine4} diffChanged=${diff4?.changed ?? "?"} hasDiff=${ac4_visible}` });
+console.log(`[v496v3]   AC4: ${ac4 ? "PASS" : "FAIL"} (lineAdded=${ac4_lineAdded} visible=${ac4_visible})`);
 
 // ── AC5: PLANE pt3 parallelogram preview ───────────────────────────────────────
 console.log("\n[v496v3] ── AC5: PLANE pt3 preview ────────────────────────");
@@ -384,29 +382,25 @@ await delay(400);
 
 const pt3x = pt2x, pt3y = pt2y - 150;
 const preGroup5   = await countNoSnapByType("Group");
-const framePre5   = await getFrame();
 const b64Before5  = await captureCanvasJpeg();
 
 await moveXY(pt3x, pt3y);
 await delay(600);
 
 const postGroup5  = await countNoSnapByType("Group");
-const framePost5  = await getFrame();
 const b64After5   = await captureCanvasJpeg();
 const diff5       = await diffCanvasJpeg(b64Before5, b64After5);
-const frameDelta5 = framePost5 - framePre5;
-console.log(`[v496v3]   noSnap Group: ${preGroup5}→${postGroup5}  frameDelta=${frameDelta5}`);
+console.log(`[v496v3]   noSnap Group: ${preGroup5}→${postGroup5}`);
 console.log(`[v496v3]   canvas diff: ${JSON.stringify(diff5)}`);
 await screenshot("ac5-plane-pt3");
 
 const ac5_groupAdded = postGroup5 > preGroup5;
-const ac5_rendered   = frameDelta5 > 0;
 const ac5_visible    = diff5?.hasDiff ?? false;
-const ac5 = ac5_groupAdded && ac5_rendered && ac5_visible;
-results.push({ id: "AC5", desc: "plane pt3 → parallelogram preview (noSnap Group + rendered + canvas diff)",
+const ac5 = ac5_groupAdded && ac5_visible;
+results.push({ id: "AC5", desc: "plane pt3 → parallelogram preview (noSnap Group + canvas diff > 15px)",
   pass: ac5,
-  detail: `groupDelta=${postGroup5-preGroup5} frameDelta=${frameDelta5} diffChanged=${diff5?.changed ?? "?"} hasDiff=${ac5_visible}` });
-console.log(`[v496v3]   AC5: ${ac5 ? "PASS" : "FAIL"} (groupAdded=${ac5_groupAdded} rendered=${ac5_rendered} visible=${ac5_visible})`);
+  detail: `groupDelta=${postGroup5-preGroup5} diffChanged=${diff5?.changed ?? "?"} hasDiff=${ac5_visible}` });
+console.log(`[v496v3]   AC5: ${ac5 ? "PASS" : "FAIL"} (groupAdded=${ac5_groupAdded} visible=${ac5_visible})`);
 
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", keyCode: 27 });
 await delay(200);
@@ -433,8 +427,11 @@ writeFileSync(certPath, JSON.stringify({
   cold_cache: true,
   clear_protocol: "Storage.clearDataForOrigin(all) + Network.clearBrowserCache + SW unregister + Page.reload(ignoreCache:true)",
   app_ready_signal: readyMethod,
+  circle_radius: 4,
+  radius_rationale: "r=50 puts all ShapeGeometry vertices behind camera(8,8,8) → WebGL clips all triangles; r=4 ensures max(vx+vy)=5.66<8 → all in front",
   visible_render_method: "before/after JPEG diff on canvas (scale:0.5, quality:75) — changed pixels > 15 threshold",
   pixel_diff_method: "CDP captureScreenshot → browser Image+2D canvas decode → per-pixel RGB delta sum > 20",
+  framedelta_removed: "renderer.info.render.frame resets to 0 then increments to 1 every render call (autoReset=true); not usable as monotonic counter",
   results,
   allPass,
 }, null, 2));
