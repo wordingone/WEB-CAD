@@ -858,17 +858,17 @@ export class ChatPanel {
         metadata: { source: "agent", promptLiteral },
       });
       const sceneChildrenAfter = (window as unknown as { __viewer?: { scene?: { children?: unknown[] } } }).__viewer?.scene?.children?.length ?? -1;
+      // #459: handler may return { error: "..." } on ok:true — surface it and flip status.
+      const _ledgerDr = out.dispatchResult;
+      const _handlerErr = (out.status === "success" && _ledgerDr?.ok)
+        ? ((_ledgerDr.result as Record<string, unknown> | undefined)?.error as string | undefined)
+        : undefined;
       ledger.push({
         verb: d.name, args: effectiveArgs,
-        status: out.status,
+        status: (out.status === "success" && typeof _handlerErr === "string") ? "error" : out.status,
         error: (() => {
-          if (out.status === "success") {
-            // #459: handler may return { error: "..." } on ok:true — surface it.
-            const dr = out.dispatchResult;
-            const handlerErr = dr?.ok ? (dr.result as Record<string, unknown> | undefined)?.error : undefined;
-            if (typeof handlerErr === "string") return handlerErr;
-            return null;
-          }
+          if (typeof _handlerErr === "string") return _handlerErr;
+          if (out.status === "success") return null;
           const dr = out.dispatchResult;
           if (dr && !dr.ok) return `${dr.error}${dr.detail ? `: ${dr.detail}` : ""}`;
           return out.summary ?? "error";

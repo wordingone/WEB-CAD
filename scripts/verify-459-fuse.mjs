@@ -219,19 +219,17 @@ if (uuids.length < 5) {
 // ── Phase 4: NL fuse prompt — multi-object Composite path ────────────────────
 console.log("[verify-459] Phase 4: sending NL fuse prompt (multi-object Composite path)");
 
-// Reset scene and ledger before NL turn
+// Keep the 7 walls+slabs in scene — do NOT clear. Reset ledger only.
 await evaluate(`window.__dispatchLedger = [];`);
-if (uuids.length > 0) {
-  await evaluate(`(window.__dispatchSync || (() => {}))("SdClearScene", {})`);
-  await delay(500);
-}
 
+// UUID-list prompt: explicit UUIDs bypass integer-index drift between calls.
+// _resolveObjectItem handles plain uuid strings via scene.getObjectByProperty (recursive).
+const uuidList = uuids.map(u => `"${u.uuid}"`).join(", ");
+const EXPECTED_DELTA = -(uuids.length - 1); // 7 objects → 1 fused = delta -6
 const NL_PROMPT =
-  "Create three overlapping 2-metre boxes at positions (0,0,0), (1,0,0), and (2,0,0). " +
-  "Then Fuse all three boxes into a single solid using the Fuse operation (SdBooleanUnion). " +
-  "Fuse them pairwise: first Fuse box1 and box2, then Fuse the result with box3.";
-
-await evaluate(`window.__dispatchLedger = [];`);
+  `Fuse all ${uuids.length} solids into one composite solid. ` +
+  `Use SdBooleanUnion in a single call with the objects array containing all of them: ` +
+  `objects=[${uuidList}].`;
 
 // Wait for send button ready before injecting (mirrors validate-house-2storey.mjs)
 let btnReady = false;
@@ -291,14 +289,16 @@ if (!fuseEntry) {
   const { verb, status, error: ledgerErr, sceneChildrenDelta } = fuseEntry;
   console.log(`[verify-459] fuse ledger entry: verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)} delta=${sceneChildrenDelta}`);
 
-  if (status === "success" && ledgerErr === null && (sceneChildrenDelta ?? 0) >= 0) {
-    pass("T_NL", `verb=${verb} status=success error=null delta=${sceneChildrenDelta} — AC#1 satisfied: Fuse executed, geometry produced`);
+  if (status === "success" && ledgerErr === null && (sceneChildrenDelta ?? 0) === EXPECTED_DELTA) {
+    pass("T_NL", `verb=${verb} status=success error=null delta=${sceneChildrenDelta} (expected ${EXPECTED_DELTA}) — AC#1 satisfied: all ${uuids.length} solids fused`);
+  } else if (status === "success" && ledgerErr === null && (sceneChildrenDelta ?? 0) < 0) {
+    fail("T_NL", `verb=${verb} status=success but delta=${sceneChildrenDelta} (expected ${EXPECTED_DELTA}) — partial fold only, not all ${uuids.length} objects fused`);
   } else if (status === "error" && typeof ledgerErr === "string" && ledgerErr.includes("ArgValidationError")) {
     fail("T_NL", `verb=${verb} ArgValidationError — objects:[] form not yet accepted (n-ary fix not deployed). error="${ledgerErr}"`);
-  } else if (status === "success" && typeof ledgerErr === "string") {
-    fail("T_NL", `verb=${verb} status=success but handler error="${ledgerErr}" — union failed at runtime`);
+  } else if (status === "error" && typeof ledgerErr === "string") {
+    fail("T_NL", `verb=${verb} status=error — handler error="${ledgerErr}"`);
   } else {
-    fail("T_NL", `verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)} delta=${sceneChildrenDelta}`);
+    fail("T_NL", `verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)} delta=${sceneChildrenDelta} expected=${EXPECTED_DELTA}`);
   }
 }
 
@@ -306,7 +306,7 @@ if (!fuseEntry) {
 try {
   mkdirSync(STATE_DIR, { recursive: true });
   const ts = Date.now();
-  writeFileSync(`${STATE_DIR}/ledger-${ts}.json`, JSON.stringify({ deploySha, uuids, ledger, T_UV, T_HE, fuseEntry }, null, 2));
+  writeFileSync(`${STATE_DIR}/ledger-${ts}.json`, JSON.stringify({ deploySha, uuids, expectedDelta: EXPECTED_DELTA, ledger, T_UV, T_HE, fuseEntry }, null, 2));
   console.log(`[verify-459] evidence saved: state/diag-459/ledger-${ts}.json`);
 } catch {}
 
