@@ -290,6 +290,12 @@ function parseList(lines: Line[], start: number, baseIndent: number): { node: Pa
             entries[k2] = sub.node;
             j = sub.end;
             continue;
+          } else if (/^[|>][-+]?$/.test(v2)) {
+            // Block scalar indicator (|, |-, |+, >, >-, >+) — skip deeper-indented content.
+            const blockIndent = next.indent + 2;
+            entries[k2] = { kind: "scalar", value: "" };
+            j++;
+            while (j < lines.length && lines[j].indent >= blockIndent) j++;
           } else {
             entries[k2] = parseInline(v2);
             j++;
