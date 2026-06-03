@@ -4,11 +4,11 @@
 // AC gates:
 //   G1         — deploy SHA confirmed
 //   T_REG      — registerGraph accepts VILLA_VERDE_DEF spec
-//   T_EVAL     — GhComponentGraph_Evaluator dispatches all 11 verbs
-//               (4×SdWall, SdBox, SdRoof, 2×SdWindow GF, SdDoor, 2×SdWindow UF)
-//   T_DELTA    — sceneChildrenDelta ≥ 9 (all 11 components created geometry)
+//   T_EVAL     — GhComponentGraph_Evaluator dispatches all 12 verbs
+//               (4×SdWall, SdBox, SdRoof, 2×SdWindow GF, SdDoor, 3×SdWindow UF)
+//   T_DELTA    — sceneChildrenDelta ≥ 10 (all 12 components created geometry)
 //   T_LEDGER   — ledger has SdRoof entry with status=success
-//   T_WINDOWS  — ledger has SdWindow + SdDoor entries (fenestration dispatched)
+//   T_WINDOWS  — ≥5 SdWindow + ≥1 SdDoor all voidCut=true
 //   T_SCREENSHOT — screenshot captured; saved for Leo Haiku visual-check scoring
 //
 // Usage:
@@ -115,9 +115,9 @@ console.log(`[verify-485] booted in ${Math.round((Date.now()-bootStart)/1000)}s`
 console.log("[verify-485] Phase 2: Villa Verde GhComponentGraph gates");
 await evaluate(`window.__dispatchLedger = [];`);
 
-// Full spec matching VILLA_VERDE_DEF in sample-defs.ts (sample:villa-verde-v1).
-// Uses separate graphId "verify:villa-verde-485" to avoid registry collision with
-// sample-defs.ts auto-registration. Includes fenestration from #485 / PR #487.
+// Full spec matching VILLA_VERDE_DEF — exact DWG-parsed dims from Leo's unblock (#12837).
+// bay_centers_mm=[1016,3048,5080]; GF: 2×window(880×915,sill=730) + door(900×2100);
+// UF: 3×window all bays (880×915,sill=730). position[2]=2.438 floor-elev override.
 const VILLA_VERDE_SPEC = JSON.stringify({
   inlineGraphId: "verify:villa-verde-485",
   label: "Villa Verde Typologia 2",
@@ -140,18 +140,20 @@ const VILLA_VERDE_SPEC = JSON.stringify({
       params: { width: {value:6.5}, depth: {value:7.5}, height: {value:0.15}, center: {value:[3.048,3.6575,2.438]} } },
     { id: "roof", type: "SdRoof",
       params: { roofType: {value:"pitched"}, footprint: {value:[[0,0],[6.096,0],[6.096,7.315],[0,7.315]]}, pitchDeg: {portRef:"pitch"} } },
-    // GF fenestration — 3-bay rhythm: bay1=window, bay2=door, bay3=window
+    // GF fenestration — bay_centers_mm=[1016,3048,5080] exact DWG parse
     { id: "win_gf_left",  type: "SdWindow",
-      params: { position: {value:[1.016,0,0]}, windowType: {value:"og"} } },
+      params: { position:{value:[1.016,0,0]}, windowType:{value:"og"}, width:{value:0.880}, height:{value:0.915}, sill:{value:0.730} } },
     { id: "door_gf",      type: "SdDoor",
-      params: { position: {value:[3.048,0,0]}, doorType: {value:"front"} } },
+      params: { position:{value:[3.048,0,0]}, doorType:{value:"front"}, width:{value:0.900}, height:{value:2.100} } },
     { id: "win_gf_right", type: "SdWindow",
-      params: { position: {value:[5.080,0,0]}, windowType: {value:"og"} } },
-    // UF fenestration — position[2]=2.438 sets floor elevation override (#485)
+      params: { position:{value:[5.080,0,0]}, windowType:{value:"og"}, width:{value:0.880}, height:{value:0.915}, sill:{value:0.730} } },
+    // UF fenestration — all 3 bays, position[2]=2.438 floor-elevation override (#485)
     { id: "win_uf_left",  type: "SdWindow",
-      params: { position: {value:[1.016,0,2.438]}, windowType: {value:"og"} } },
+      params: { position:{value:[1.016,0,2.438]}, windowType:{value:"og"}, width:{value:0.880}, height:{value:0.915}, sill:{value:0.730} } },
+    { id: "win_uf_ctr",   type: "SdWindow",
+      params: { position:{value:[3.048,0,2.438]}, windowType:{value:"og"}, width:{value:0.880}, height:{value:0.915}, sill:{value:0.730} } },
     { id: "win_uf_right", type: "SdWindow",
-      params: { position: {value:[5.080,0,2.438]}, windowType: {value:"og"} } },
+      params: { position:{value:[5.080,0,2.438]}, windowType:{value:"og"}, width:{value:0.880}, height:{value:0.915}, sill:{value:0.730} } },
   ],
 });
 
@@ -167,7 +169,7 @@ const T_REG = await evaluate(`
 `).catch(e => ({ error: e.message }));
 
 if (T_REG?.ok === true) {
-  pass("T_REG", "registerGraph accepted Villa Verde spec (11 components)");
+  pass("T_REG", "registerGraph accepted Villa Verde spec (12 components)");
 } else {
   fail("T_REG", `unexpected: ${JSON.stringify(T_REG)}`);
 }
@@ -196,13 +198,13 @@ if (T_EVAL_RAW?.ok === true && !T_EVAL_RAW?.result?.error) {
   fail("T_EVAL", `unexpected: ${JSON.stringify(T_EVAL_RAW)}`);
 }
 
-// 11 components: 4 walls + box + roof + 2 GF windows + door + 2 UF windows.
+// 12 components: 4 walls + box + roof + 2 GF windows + door + 3 UF windows.
 // Void cuts replace wall objects (net 0 for wall slot), each opening adds +1 mesh.
-const MIN_EXPECTED_DELTA = 9;
+const MIN_EXPECTED_DELTA = 10;
 if (delta >= MIN_EXPECTED_DELTA) {
   pass("T_DELTA", `sceneChildrenDelta=${delta} ≥ ${MIN_EXPECTED_DELTA} (before=${beforeCount} after=${afterCount})`);
 } else {
-  fail("T_DELTA", `sceneChildrenDelta=${delta} < ${MIN_EXPECTED_DELTA} — expected ≥${MIN_EXPECTED_DELTA} from 11 components (before=${beforeCount} after=${afterCount})`);
+  fail("T_DELTA", `sceneChildrenDelta=${delta} < ${MIN_EXPECTED_DELTA} — expected ≥${MIN_EXPECTED_DELTA} from 12 components (before=${beforeCount} after=${afterCount})`);
 }
 
 // T_LEDGER: ledger has SdRoof success
@@ -216,14 +218,25 @@ if (roofEntry) {
   fail("T_LEDGER", `no SdRoof success in ledger. Entries: [${all || "none"}]`);
 }
 
-// T_WINDOWS: ledger has SdWindow + SdDoor entries (fenestration dispatched)
+// T_WINDOWS: ≥5 SdWindow + ≥1 SdDoor dispatched (3 UF bays now required)
 const winEntries  = ledger.filter(e => e.verb === "SdWindow" && e.status === "success");
 const doorEntries = ledger.filter(e => e.verb === "SdDoor"   && e.status === "success");
-if (winEntries.length >= 2 && doorEntries.length >= 1) {
+if (winEntries.length >= 5 && doorEntries.length >= 1) {
   pass("T_WINDOWS", `fenestration dispatched: ${winEntries.length}×SdWindow + ${doorEntries.length}×SdDoor`);
 } else {
   const all = ledger.map(e => `${e.verb}:${e.status}`).join(", ");
-  fail("T_WINDOWS", `insufficient fenestration in ledger — want ≥2 SdWindow + ≥1 SdDoor, got ${winEntries.length}+${doorEntries.length}. Entries: [${all || "none"}]`);
+  fail("T_WINDOWS", `insufficient fenestration — want ≥5 SdWindow + ≥1 SdDoor, got ${winEntries.length}+${doorEntries.length}. Entries: [${all || "none"}]`);
+}
+
+// T_VOID_CUTS: all openings must have voidCut=true (inset into wall confirmed)
+const openingEntries = [...winEntries, ...doorEntries];
+const voidCutMap = openingEntries.map(e => ({ verb: e.verb, idx: openingEntries.indexOf(e), voidCut: e.result?.voidCut }));
+const allVoidCut = voidCutMap.every(v => v.voidCut === true);
+if (allVoidCut) {
+  pass("T_VOID_CUTS", `all ${openingEntries.length} openings voidCut=true`);
+} else {
+  const bad = voidCutMap.filter(v => v.voidCut !== true);
+  fail("T_VOID_CUTS", `voidCut=false on: ${JSON.stringify(bad)}`);
 }
 
 // T_SCREENSHOT: front elevation — camera at (3.048, -12, 3.1) looking at (3.048, 0, 3.1)

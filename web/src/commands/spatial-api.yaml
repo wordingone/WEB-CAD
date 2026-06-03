@@ -1315,6 +1315,12 @@
         enum: [interior, front, terrace]
         default: interior
         description: "FZK-Haus preset — interior: 0.885×2.01m (Innentuer), front: 1.01×2.01m (Haustuer), terrace: 2.01×2.375m (Terrassentuer)."
+      width:
+        type: number
+        description: "[optional unit=m] Custom door width — overrides doorType preset."
+      height:
+        type: number
+        description: "[optional unit=m] Custom door height — overrides doorType preset."
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."
@@ -1342,6 +1348,15 @@
         enum: [eg, og]
         default: eg
         description: "FZK-Haus preset — eg: 2.0×1.2m sill=0.8m (EG-Fenster ground floor), og: 1.0×1.0m sill=0.8m (OG-Fenster upper floor)."
+      width:
+        type: number
+        description: "[optional unit=m] Custom window width — overrides windowType preset."
+      height:
+        type: number
+        description: "[optional unit=m] Custom window height — overrides windowType preset."
+      sill:
+        type: number
+        description: "[optional unit=m] Custom sill height — overrides FZK default (0.8m)."
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."
