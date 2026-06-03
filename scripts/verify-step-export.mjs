@@ -346,6 +346,11 @@ const cert = {
     AC3: "nurbs-ts NurbsSurface → exportNurbsToStep (pure TS, ISO 10303-21) → OCCT independent-importer",
   },
   tolerances: { bbox_m: TOL_BBOX, volume_rel: TOL_VOL },
+  proxy_scope: {
+    volume: "bbox-derived (dx*dy*dz) — EQUALS true volume only for axis-aligned rectangular solids; NOT a general curved-solid fidelity check",
+    solid_count: "triangles>0 from OCCT re-import — PRESENCE proxy (OCCT accepted+tessellated geometry), not shape-count or fidelity; bbox match is the load-bearing assertion",
+    fold_forward: "curved-brep test solid + OCCT BRepGProp true-volume + face-count = next rigor increment (Leo #13050)",
+  },
   results,
   totalPass: results.filter(r => r.pass).length,
   totalFail: results.filter(r => !r.pass).length,
