@@ -290,6 +290,10 @@ function parseList(lines: Line[], start: number, baseIndent: number): { node: Pa
             entries[k2] = sub.node;
             j = sub.end;
             continue;
+          } else if (v2 === "|" || v2 === ">") {
+            // Block scalar (literal/folded) — skip continuation lines; content not needed by dict.
+            j++;
+            while (j < lines.length && lines[j].indent > itemBaseIndent) j++;
           } else {
             entries[k2] = parseInline(v2);
             j++;

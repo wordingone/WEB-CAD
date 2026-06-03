@@ -772,3 +772,69 @@ describe("argument validation", () => {
     expect(r.error).toBe("ArgValidationError");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § parseGhDefJson — AC#4 fail-loud seam parse (#480)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { parseGhDefJson } from "../src/gh/gh-def-ingester";
+
+describe("parseGhDefJson — AC#4 fail-loud", () => {
+  test("valid spec returns GhDefSpec", () => {
+    const spec = parseGhDefJson(JSON.stringify({
+      inlineGraphId: "test:box",
+      inputPorts: [{ name: "w", min: 1, max: 10, default: 5 }],
+    }));
+    expect(spec.inlineGraphId).toBe("test:box");
+    expect(spec.inputPorts).toHaveLength(1);
+  });
+
+  test("invalid JSON throws descriptive error", () => {
+    expect(() => parseGhDefJson("{not json")).toThrow(/ParseGhDefJson/);
+  });
+
+  test("missing inputPorts throws descriptive error", () => {
+    expect(() => parseGhDefJson(JSON.stringify({ inlineGraphId: "x" }))).toThrow(
+      /inputPorts/,
+    );
+  });
+
+  test("inputPorts non-array throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(JSON.stringify({ inputPorts: "wrong" })),
+    ).toThrow(/inputPorts/);
+  });
+
+  test("component missing id throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ type: "SdBox", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.id/);
+  });
+
+  test("component missing type throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ id: "box1", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.type/);
+  });
+
+  test("component empty id throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ id: "", type: "SdBox", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.id/);
+  });
+});
