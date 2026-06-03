@@ -862,7 +862,13 @@ export class ChatPanel {
         verb: d.name, args: effectiveArgs,
         status: out.status,
         error: (() => {
-          if (out.status === "success") return null;
+          if (out.status === "success") {
+            // #459: handler may return { error: "..." } on ok:true — surface it.
+            const dr = out.dispatchResult;
+            const handlerErr = dr?.ok ? (dr.result as Record<string, unknown> | undefined)?.error : undefined;
+            if (typeof handlerErr === "string") return handlerErr;
+            return null;
+          }
           const dr = out.dispatchResult;
           if (dr && !dr.ok) return `${dr.error}${dr.detail ? `: ${dr.detail}` : ""}`;
           return out.summary ?? "error";
