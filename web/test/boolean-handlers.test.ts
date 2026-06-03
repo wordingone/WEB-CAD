@@ -46,13 +46,13 @@ describe("G8 — SdBooleanUnion handler", () => {
     expect((dr as any).result.error).toContain("not found");
   });
 
-  test("missing required b arg is caught by schema validation", () => {
+  test("missing b arg returns handler-level error (schema now optional for n-ary support)", () => {
     const { viewer } = makeEnv();
     registerTransformHandlers(viewer);
     const dr = dispatchSync("SdBooleanUnion", { a: "x" });
-    // b is required — schema validation rejects before handler runs
-    expect(dr.ok).toBe(false);
-    expect((dr as any).error).toBe("ArgValidationError");
+    // a+b are both optional to allow objects:[] n-ary form; handler validates at runtime
+    expect(dr.ok).toBe(true);
+    expect((dr as any).result.error).toMatch(/not found|requires/i);
   });
 });
 

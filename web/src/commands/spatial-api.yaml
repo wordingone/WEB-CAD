@@ -513,9 +513,17 @@
     properties:
       a:
         type: solid
+        description: "[optional unit=uuid] First solid — binary form (use a+b OR objects)"
       b:
         type: solid
-    required: [a, b]
+        description: "[optional unit=uuid] Second solid — binary form (use a+b OR objects)"
+      objects:
+        type: list_any
+        description: "[optional] N-ary form: array of solids as {object_id:uuid} or uuid strings"
+      operation:
+        type: string
+        description: "[optional] Operation hint passed by model (ignored; always union)"
+    required: []
   topology_role: compound
   kg_predicates: []
   synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add, sdfuse, "sd-fuse", "sd fuse"]

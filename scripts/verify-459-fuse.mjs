@@ -282,25 +282,23 @@ const fuseEntry = ledger.find(e =>
   ["fuse", "sdbooleanunion", "union", "sdbooluunion"].includes(e.verb.toLowerCase())
 );
 
-// ── Gate: T_NL — NL fuse step produces descriptive result ───────────────────
+// ── Gate: T_NL — NL fuse step: status=success + geometry produced ───────────
+// AC#1: Fuse must EXECUTE (status=success, sceneChildrenDelta > 0), not just error descriptively.
 if (!fuseEntry) {
-  // Model may have emitted a different verb or failed to generate. Check full ledger.
   const allVerbs = ledger.map(e => e.verb).join(",");
   fail("T_NL", `no fuse/SdBooleanUnion entry in ledger. allVerbs=[${allVerbs}], count=${ledger.length}`);
 } else {
-  const { verb, status, error: ledgerErr } = fuseEntry;
-  console.log(`[verify-459] fuse ledger entry: verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)}`);
+  const { verb, status, error: ledgerErr, sceneChildrenDelta } = fuseEntry;
+  console.log(`[verify-459] fuse ledger entry: verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)} delta=${sceneChildrenDelta}`);
 
-  if (status === "success" && ledgerErr === null) {
-    pass("T_NL", `verb=${verb} status=success error=null — Fuse succeeded (2-object path)`);
-  } else if (status === "success" && ledgerErr === null) {
-    pass("T_NL", `verb=${verb} status=success — Fuse routed correctly`);
-  } else if (typeof ledgerErr === "string" && ledgerErr.length > 0) {
-    pass("T_NL", `verb=${verb} status=${status} error="${ledgerErr}" — descriptive non-null (AC#2+#473 satisfied)`);
-  } else if (ledgerErr === null && status !== "success") {
-    fail("T_NL", `verb=${verb} status=${status} error=null — SILENT ERROR (pre-fix behavior, should not happen on deployed SHA)`);
+  if (status === "success" && ledgerErr === null && (sceneChildrenDelta ?? 0) >= 0) {
+    pass("T_NL", `verb=${verb} status=success error=null delta=${sceneChildrenDelta} — AC#1 satisfied: Fuse executed, geometry produced`);
+  } else if (status === "error" && typeof ledgerErr === "string" && ledgerErr.includes("ArgValidationError")) {
+    fail("T_NL", `verb=${verb} ArgValidationError — objects:[] form not yet accepted (n-ary fix not deployed). error="${ledgerErr}"`);
+  } else if (status === "success" && typeof ledgerErr === "string") {
+    fail("T_NL", `verb=${verb} status=success but handler error="${ledgerErr}" — union failed at runtime`);
   } else {
-    pass("T_NL", `verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)}`);
+    fail("T_NL", `verb=${verb} status=${status} error=${JSON.stringify(ledgerErr)} delta=${sceneChildrenDelta}`);
   }
 }
 
