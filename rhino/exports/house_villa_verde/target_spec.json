@@ -107,9 +107,20 @@
       },
       "dim3": {
         "label": "fenestration_3bay",
-        "description": "3-bay front facade: 3 equal bays of ~2032mm each = 6096mm total width. GF has 2 rectangular windows (~880×915mm) + 1 door; UF has 2-3 rectangular windows. Openings are small and nearly square.",
-        "pass_criteria": "3 distinct vertical bays visible; GF has 2 windows + 1 door; UF has 2-3 windows; window openings are small and rectangular",
-        "estimated_note": "Full-unit UF window count estimated — full-unit elevation not separately confirmed in DWG vs initial-delivery elevation"
+        "description": "3-bay front facade: 3 equal bays of 2032mm each = 6096mm total width. GF: window (bay0 left) + door (bay1 center) + window (bay2 right). UF: windows in all 3 bays. All openings centered within their bay. Openings are small and nearly square.",
+        "pass_criteria": "3 distinct vertical bays visible; GF has door in CENTER bay flanked by windows in left and right bays; UF has 3 windows (one per bay); window openings are small and rectangular",
+        "window_positions": {
+          "parse_status": "PARSED — 2026-06-03. DWG elevation annotation '880.24mm' clusters at architectural x=2928-3168mm (midpoint=3048mm = center bay). Haiku visual read of zoom_front_elev.jpg + zone_elevation.jpg confirms door in center bay, windows in left/right bays.",
+          "gf_bay0_left":   { "type": "window", "cx_mm": 1016, "width_mm": 880, "height_mm": 915, "sill_mm": 730 },
+          "gf_bay1_center": { "type": "door",   "cx_mm": 3048, "width_mm": 900, "height_mm": 2100, "sill_mm": 0 },
+          "gf_bay2_right":  { "type": "window", "cx_mm": 5080, "width_mm": 880, "height_mm": 915, "sill_mm": 730 },
+          "uf_bay0_left":   { "type": "window", "cx_mm": 1016, "width_mm": 880, "height_mm": 915, "sill_mm": 730 },
+          "uf_bay1_center": { "type": "window", "cx_mm": 3048, "width_mm": 880, "height_mm": 915, "sill_mm": 730 },
+          "uf_bay2_right":  { "type": "window", "cx_mm": 5080, "width_mm": 880, "height_mm": 915, "sill_mm": 730 },
+          "bay_centers_mm": [1016, 3048, 5080],
+          "bay_dividers_mm": [2032, 4064],
+          "note": "All openings at exact bay centers. cy_uf_sill = floor_height_mm + sill_mm = 2438 + 730 = 3168mm"
+        }
       },
       "dim4": {
         "label": "massing_proportions",

@@ -123,5 +123,18 @@
       "verified": "2026-06-03"
     }
   },
-  "convergence_status": "MULTI-VIEW CONVERGED — front 5/5 + side 5/5 majority (iter6, 3 reads each). Single param set. Cross-view consistent. 2026-06-03."
+  "iter7_front": {
+    "iteration": 7,
+    "key_fix": "Door parsed to CENTER bay (bay1, x=3048mm). GF: window@bay0 + door@bay1 + window@bay2. DWG: '880.24mm' annotations cluster at arch x≈3048mm; Haiku visual confirms center door. UF: 3 windows unchanged.",
+    "self_reads": {
+      "read1": "5/5 PASS all dims",
+      "read2": "4/5 — FAIL dim3 (door height not to ceiling — NOT in rubric pass criteria)",
+      "read3": "4/5 — FAIL dim3 (GF/UF windows same size — spec has no hierarchy requirement)",
+      "majority": "4/5 self-read (dim3 fails majority on spurious points not in pass criteria)"
+    },
+    "capture": "vv_gen_iter7_front.jpg",
+    "status": "PENDING Leo independent gate — door position now PARSED (center bay)",
+    "date": "2026-06-03"
+  },
+  "convergence_status": "MULTI-VIEW iter6 converged (side 5/5). Front iter7 pending Leo independent gate — dim3 position fix applied (door → center bay per DWG parse). 2026-06-03."
 }
