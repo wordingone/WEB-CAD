@@ -9,13 +9,31 @@ export interface GhInputPort {
   default: number;
 }
 
+/** One param on a component: either a port reference or a literal constant. */
+export interface GhComponentParam {
+  /** Name of an inputPort whose slider value is substituted at eval time. */
+  portRef?: string;
+  /** Literal constant (used when the param is not driven by a slider). */
+  value?: unknown;
+}
+
+/** One component in the inline graph: a dispatch verb + its param bindings. */
+export interface GhComponent {
+  id: string;
+  /** Dispatch verb to call (e.g. "SdBox", "SdWall", "SdBooleanUnion"). */
+  type: string;
+  params: Record<string, GhComponentParam>;
+}
+
 export interface GhDefSpec {
-  /** Path to a .gh file (when loaded from disk). */
+  /** Path to a .gh file (when loaded from disk / delegated to Rhino). */
   ghPath?: string;
-  /** Inline graph session ID (from Eli's gh-runtime). */
+  /** Client-side registry key — set when components is present. */
   inlineGraphId?: string;
   inputPorts: GhInputPort[];
   label?: string;
+  /** Inline graph topology for client-side evaluation (no gh-runtime needed). */
+  components?: GhComponent[];
 }
 
 export interface GhDefNodeDescriptor {
@@ -69,11 +87,26 @@ export function parseGhDefJson(json: string): GhDefSpec | null {
         });
       }
     }
+    const components: GhComponent[] = [];
+    if (Array.isArray(obj.components)) {
+      for (const c of obj.components as Array<Record<string, unknown>>) {
+        const rawParams = (c.params ?? {}) as Record<string, Record<string, unknown>>;
+        const params: Record<string, GhComponentParam> = {};
+        for (const [k, p] of Object.entries(rawParams)) {
+          params[k] = {
+            portRef: typeof p.portRef === "string" ? p.portRef : undefined,
+            value: p.value,
+          };
+        }
+        components.push({ id: String(c.id ?? ""), type: String(c.type ?? ""), params });
+      }
+    }
     return {
       ghPath: typeof obj.ghPath === "string" ? obj.ghPath : undefined,
       inlineGraphId: typeof obj.inlineGraphId === "string" ? obj.inlineGraphId : undefined,
       inputPorts,
       label: typeof obj.label === "string" ? obj.label : undefined,
+      components: components.length > 0 ? components : undefined,
     };
   } catch {
     return null;

@@ -7449,14 +7449,17 @@
     properties:
       graphId:
         type: string
-        description: "[required] Component graph session ID"
+        description: "[required] Client-side registry key (inlineGraphId from GhDefSpec)"
+      inputValues:
+        type: object
+        description: "[optional] Map of portRef name → numeric slider value. Defaults to each port's current default."
     required: [graphId]
   topology_role: compound
   kg_predicates: []
   synonyms: [gh_evaluate, gh_graph_evaluate]
   kernel: gh-runtime
   alias_source: generic_cad_vocabulary
-  note: "NotYetImplemented — requires GhComponentGraph evaluator (web/src/gh/gh-component-graph.ts). See docs/spec-334-grasshopper.md § A3."
+  note: "Client-side evaluator (#480): resolves portRefs from inputValues, dispatches each GhComponent. Call registerGraph() first."
 
 - name: GhComponentGraph_LazyEvaluation
   kernel_op: ghComponentGraphLazy
