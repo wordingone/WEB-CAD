@@ -568,8 +568,8 @@ async function captureHeroAndAerial(label) {
     process.stdout.write(`[house] ${label} side EMPTY cam=${sideLogStr}\n`);
   }
 
-  // Close-up: south wall at Level-2 window — void-cut vs flat-panel discriminator.
-  // Camera 6m in front of south face, looking at left Level-2 window.
+  // Front elevation: full south facade — void-cut vs flat-panel discriminator.
+  // Near-orthographic (FOV=30°, standoff=16m): door + both Level-2 windows in one frame.
   // canvas.toDataURL (synchronous) — immune to SdClearScene RAF race.
   const closeupCapRaw = await evaluate(`
     (function() {
@@ -580,18 +580,18 @@ async function captureHeroAndAerial(label) {
       if (!scene) return JSON.stringify({err:'no-scene'});
       var bmin = [${sbbMin[0]}, ${sbbMin[1]}, ${sbbMin[2]}];
       var bmax = [${sbbMax[0]}, ${sbbMax[1]}, ${sbbMax[2]}];
-      // Left Level-2 window: 30% of building width from left, ~40% of height from bottom
-      var winX = bmin[0] + (bmax[0]-bmin[0]) * 0.30;
-      var winZ = bmin[2] + (bmax[2]-bmin[2]) * 0.40;
-      var standoff = 6;
-      cam.fov = 20;
-      cam.position.set(winX, bmin[1] - standoff, winZ);
+      // Center X, mid-height of Level-1+Level-2 walls (0–5.8m), 16m standoff south of bbox
+      var cx = (bmin[0]+bmax[0])/2;
+      var wallMidZ = 2.9;
+      var standoff = 16;
+      cam.fov = 30;
+      cam.position.set(cx, bmin[1] - standoff, wallMidZ);
       cam.up.set(0,0,1);
-      cam.lookAt(winX, bmin[1], winZ);
+      cam.lookAt(cx, bmin[1], wallMidZ);
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld(true);
       if(v.renderer){ v.renderer.render(scene,cam); }
-      var log = 'closeup-south-l2|fov=20|standoff='+standoff+'|wx='+Math.round(winX*10)/10+'|wz='+Math.round(winZ*10)/10;
+      var log = 'front-elev|fov=30|standoff='+standoff+'|cx='+Math.round(cx*10)/10+'|cz='+wallMidZ;
       var png = null;
       try { png = v.renderer.domElement.toDataURL('image/png'); } catch(e) {}
       return JSON.stringify({log:log, png:png});
@@ -616,15 +616,15 @@ async function captureHeroAndAerial(label) {
 
   if (closeupBuf) {
     const closeupTs = Date.now();
-    const closeupPath = `${DIAG_DIR}/house-closeup-${closeupTs}.png`;
+    const closeupPath = `${DIAG_DIR}/house-front-${closeupTs}.png`;
     writeFileSync(closeupPath, closeupBuf);
     const closeupSha = createHash("sha256").update(closeupBuf).digest("hex").slice(0, 12);
-    process.stdout.write(`[house] ${label} closeup saved: ${closeupPath} sha256[:12]=${closeupSha} cam=${closeupLogStr} bytes=${closeupBuf.length}\n`);
+    process.stdout.write(`[house] ${label} front saved: ${closeupPath} sha256[:12]=${closeupSha} cam=${closeupLogStr} bytes=${closeupBuf.length}\n`);
     earlyCloseupBuf = closeupBuf;
     earlyCloseupSha256Short = closeupSha;
     earlyCloseupPathSaved = closeupPath;
   } else {
-    process.stdout.write(`[house] ${label} closeup EMPTY cam=${closeupLogStr}\n`);
+    process.stdout.write(`[house] ${label} front EMPTY cam=${closeupLogStr}\n`);
   }
 
   // Aerial: top-down, fit bbox horizontally, NO controls.update
@@ -847,13 +847,13 @@ if (earlyCloseupBuf) {
 } else {
   const closeupResult = await send("Page.captureScreenshot", { format: "png" });
   closeupBuf = closeupResult.data ? Buffer.from(closeupResult.data, "base64") : Buffer.alloc(0);
-  closeupPath = `${DIAG_DIR}/house-closeup-${ts}.png`;
+  closeupPath = `${DIAG_DIR}/house-front-${ts}.png`;
   if (closeupBuf.length) writeFileSync(closeupPath, closeupBuf);
   closeupSha256Short = closeupBuf.length
     ? createHash("sha256").update(closeupBuf).digest("hex").slice(0, 12) : "empty";
 }
-console.log(`[house] closeup saved: ${closeupPath}`);
-console.log(`[house] closeup sha256[:12]: ${closeupSha256Short} | bytes: ${closeupBuf?.length ?? 0}`);
+console.log(`[house] front saved: ${closeupPath}`);
+console.log(`[house] front sha256[:12]: ${closeupSha256Short} | bytes: ${closeupBuf?.length ?? 0}`);
 
 // ── Phase 7: Summary + artifact ───────────────────────────────────────────────
 const gatePass = oomCount === 0 && (outcome === "success" || outcome === "early-stop-17geom") && hasGeometry;
@@ -869,7 +869,7 @@ console.log(`[house] Scene objects: ${sceneChildren}`);
 console.log(`[house] Hero:          ${heroPath} sha256[:12]=${heroSha256Short}`);
 console.log(`[house] Aerial:        ${aerialPath} sha256[:12]=${aerialSha256Short}`);
 console.log(`[house] Side:          ${sidePath} sha256[:12]=${sideSha256Short}`);
-console.log(`[house] Closeup:       ${closeupPath} sha256[:12]=${closeupSha256Short}`);
+console.log(`[house] Front:         ${closeupPath} sha256[:12]=${closeupSha256Short}`);
 console.log(`[house] Gate PASS:     ${gatePass}`);
 console.log(`[house] ══════════════════════════════════════════`);
 
@@ -892,7 +892,7 @@ const artifact = {
     hero:    { path: heroPath,    sha256: heroSha256Short,    bytes: heroBuf?.length ?? 0 },
     aerial:  { path: aerialPath,  sha256: aerialSha256Short,  bytes: aerialBuf?.length ?? 0 },
     side:    { path: sidePath,    sha256: sideSha256Short,    bytes: sideBuf?.length ?? 0 },
-    closeup: { path: closeupPath, sha256: closeupSha256Short, bytes: closeupBuf?.length ?? 0 },
+    front:   { path: closeupPath, sha256: closeupSha256Short, bytes: closeupBuf?.length ?? 0 },
   },
   gate_pass: gatePass,
 };
