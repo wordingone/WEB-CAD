@@ -148,18 +148,99 @@
       ],
       "geometric_truth": "door at x=1.60m confirmed = leftmost bay center (bay_width=3.2m). Read 2 correctly identifies 5/5.",
       "scorer_noise_analysis": "Read 1: false fail \u2014 expects door on upper floor too (wrong \u2014 doors are GF only). Read 3: false fail \u2014 pilaster vs bay integration ambiguity."
+    },
+    {
+      "v": "4_generator_gaps",
+      "trigger": "Leo re-score: 2 REAL gaps identified (not scorer noise)",
+      "gap_1": "roof_pitch: generated moderate (0.28), spec steep \u2014 not a scorer error, real param miss",
+      "gap_2": "wing_side: generated RIGHT, spec LEFT \u2014 generator only supports right wings",
+      "corrections": [
+        "roof_p: 0.28 \u2192 0.75 (37-degree pitch)",
+        "wing_side: post-bake translation of GH_WING breps by TX=-(main_w + wing_w) = -15.1m"
+      ]
+    },
+    {
+      "v": "4d",
+      "params": {
+        "n_bays": 3,
+        "width": 9.6,
+        "door_bay": 0,
+        "wing_w": 5.5,
+        "roof_p": 0.75,
+        "chim_n": 2,
+        "nfl": 2,
+        "flr_h": 3.5,
+        "depth": 10.0
+      },
+      "wing_translation": {
+        "TX": -15.1,
+        "wing_x_before": [
+          9.6,
+          15.1
+        ],
+        "wing_x_after": [
+          -5.5,
+          0.0
+        ]
+      },
+      "layer_classification": "x-width < 2.0m = chimney; cx > 10.1 = wing; else roof",
+      "scores_raw": [
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim3_note": "leftmost bay tall door visible",
+          "dim4": "PASS",
+          "dim4_note": "left-side wing clearly visible",
+          "dim5": "PASS",
+          "total": 5
+        },
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim4": "PASS",
+          "dim5": "PASS",
+          "total": 5
+        },
+        {
+          "dim1": "PASS",
+          "dim2": "PASS",
+          "dim3": "PASS",
+          "dim4": "PASS",
+          "dim5": "PASS",
+          "total": 5
+        }
+      ],
+      "majority_score": 5,
+      "failing_dims": []
     }
   ],
   "loop_conclusion": {
-    "converged": "4/5 majority stable at v3",
-    "geometric_ground_truth": "5/5 \u2014 door at x=1.6m (leftmost bay), wing present, 2 end-wall chimneys, steep gable, 2 storeys",
-    "scorer_discrepancy": "1/3 correctly reads 5/5; 2/3 have rubric interpretation noise on door-bay dimension",
-    "new_findings": [
-      "door_bay parameter: 0-indexed, door_bay=0 \u2192 leftmost bay; door_bay=1 \u2192 center bay for 3-bay layout",
-      "wide-facade scoring: scoring full facade with wing causes door position ambiguity \u2014 isolate main block",
-      "chimney noise: reoccurs when ZoomExtents shifts with geometry changes \u2014 stable with main-block isolation",
-      "robust dimensions: storey/roof/wing unanimous PASS across all iterations"
-    ],
-    "autonomous_loop_verdict": "loop correctly identified door position error (v1\u2192v2) and scoring technique error (v2\u2192v3); converged to stable state without human intervention in both corrections"
+    "converged": "5/5 at v4d (4 active iterations + 2 Leo-directed gap fixes)",
+    "total_iterations": 6,
+    "autonomous_iterations": 3,
+    "leo_directed_fixes": 2,
+    "final_params": {
+      "n_bays": 3,
+      "width": 9.6,
+      "door_bay": 0,
+      "wing_w": 5.5,
+      "roof_p": 0.75,
+      "chim_n": 2,
+      "nfl": 2,
+      "flr_h": 3.5,
+      "depth": 10.0
+    },
+    "vocabulary_extension": "wing_side: post-bake translation (GH native = right-only; TX=-15.1 moves right wing to left position)",
+    "self_convergence_result": "Loop autonomously fixed door position + scoring technique (v1\u2192v2\u2192v3). Leo identified 2 real parameter gaps (roof pitch + wing side) after v3. v4d fixes both \u2192 5/5.",
+    "geometric_ground_truth": "5/5 confirmed by both 3-read self-scorer and Leo independent re-score",
+    "lessons": [
+      "door_bay semantics: 0-indexed, door_bay=0 = leftmost bay",
+      "wide-facade scoring: hide wing before scoring for leftmost-bay door clarity",
+      "layer classification: x-width discriminates chimney (narrow) vs roof (wide) better than z-height",
+      "wing_side: post-bake translate is viable vocabulary extension when GH only supports one side",
+      "autonomous loop works: v1-v3 self-corrected without human; gaps surfaced honestly by Leo"
+    ]
   }
 }
