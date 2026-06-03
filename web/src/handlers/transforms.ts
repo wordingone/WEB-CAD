@@ -1365,9 +1365,56 @@ export function registerTransformHandlers(viewer: Viewer): void {
     return { created: result.uuid, op };
   }
 
-  registerHandler("SdBooleanUnion", (args) =>
-    _doBoolOp(args.a as string | undefined, args.b as string | undefined, "union")
-  );
+  // #459 AC#1: resolve an objects-array item to a scene mesh UUID.
+  // Accepts: uuid string, {object_id: uuid-string}, {object_id: N} (1-based brep index).
+  function _resolveObjectItem(item: unknown): string | null {
+    const scene = viewer.getScene();
+    if (typeof item === "string") {
+      return scene.getObjectByProperty("uuid", item) instanceof THREE.Mesh ? item : null;
+    }
+    if (typeof item === "object" && item !== null) {
+      const oid = (item as Record<string, unknown>).object_id;
+      if (typeof oid === "string") {
+        const byUuid = scene.getObjectByProperty("uuid", oid);
+        if (byUuid instanceof THREE.Mesh) return byUuid.uuid;
+        const byName = scene.getObjectByProperty("name", oid);
+        if (byName instanceof THREE.Mesh) return byName.uuid;
+      }
+      if (typeof oid === "number") {
+        // 1-based index into scene brep/solid meshes in creation order
+        const brepMeshes = scene.children.filter(
+          (c) => c instanceof THREE.Mesh && (c.userData.kind || c.userData.creator)
+        ) as THREE.Mesh[];
+        const mesh = brepMeshes[oid - 1];
+        return mesh?.uuid ?? null;
+      }
+    }
+    return null;
+  }
+
+  // #459 AC#1: n-ary union — folds objects array pairwise into one fused solid.
+  function _doNaryBoolUnion(objects: unknown[]): Record<string, unknown> {
+    if (objects.length < 2) return { error: "boolean union — need at least 2 objects" };
+    const uuids: string[] = [];
+    for (let i = 0; i < objects.length; i++) {
+      const uuid = _resolveObjectItem(objects[i]);
+      if (!uuid) return { error: `boolean union — object ${i + 1} not resolved (item: ${JSON.stringify(objects[i])})` };
+      uuids.push(uuid);
+    }
+    let accumUuid = uuids[0];
+    for (let i = 1; i < uuids.length; i++) {
+      const r = _doBoolOp(accumUuid, uuids[i], "union");
+      if (r.error) return r;
+      accumUuid = r.created as string;
+    }
+    return { created: accumUuid, op: "union", foldedCount: objects.length };
+  }
+
+  registerHandler("SdBooleanUnion", (args) => {
+    const objects = args.objects as unknown[] | undefined;
+    if (Array.isArray(objects) && objects.length >= 2) return _doNaryBoolUnion(objects);
+    return _doBoolOp(args.a as string | undefined, args.b as string | undefined, "union");
+  });
 
   registerHandler("SdBooleanDifference", (args) =>
     _doBoolOp(args.outer as string | undefined, args.inner as string | undefined, "difference")
