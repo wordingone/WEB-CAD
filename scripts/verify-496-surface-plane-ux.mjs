@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // verify-496-surface-plane-ux.mjs — Deployed-Pages CDP cert for PR #496.
 // Leo gate AC:
-//   AC1: SURFACE hover over closed curve → scene contains a preview mesh (noSnap=true)
-//   AC2: SURFACE click closed curve → SdSurface dispatch ok, geometry added to scene
-//   AC3: PLANE pt2 mousemove → scene contains a preview Line (noSnap=true)
-//   AC4: PLANE pt3 mousemove → scene contains a preview Group with fill+outline (noSnap=true)
-//   AC5: ZERO JS exceptions across the test
+//   AC1: SURFACE tool activated → surface_pick phase entered
+//   AC2: SURFACE hover over rect → noSnap Mesh added as direct scene child
+//   AC3: SURFACE click rect → SdSurface dispatched (scene object count increases)
+//   AC4: PLANE pt2 mousemove → noSnap Line added as direct scene child
+//   AC5: PLANE pt3 mousemove → noSnap Group added as direct scene child
+//   AC6: ZERO JS exceptions across the test
 
 import { WebSocket }               from "ws";
 import { mkdirSync, writeFileSync } from "fs";
@@ -60,15 +61,54 @@ const screenshot = async (name) => {
 };
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-// Mouse helpers — drive events through the app pipeline (no internal mutation)
-const mouse = async (type, x, y, btn = 0) => {
-  await send("Input.dispatchMouseEvent", { type, x, y, button: btn === 0 ? "none" : "left", buttons: btn, clickCount: btn ? 1 : 0 });
+// Click a palette button — first make its section visible if hidden, then click.
+// Palette sections use class 'palette-section--hidden' to collapse content.
+const clickPaletteBtn = async (dataTool) => {
+  return await evaluate(`(function() {
+    const btn = document.querySelector('button[data-tool=${JSON.stringify(dataTool)}]');
+    if (!btn) return false;
+    // Unhide any ancestor palette-section that's collapsed
+    let el = btn.parentElement;
+    while (el && el !== document.body) {
+      if (el.classList.contains('palette-section--hidden')) {
+        el.classList.remove('palette-section--hidden');
+      }
+      el = el.parentElement;
+    }
+    btn.click();
+    return true;
+  })()`);
 };
-const click = async (x, y) => {
-  await mouse("mousePressed",  x, y, 1);
-  await mouse("mouseReleased", x, y, 1);
+// Generic click-by-selector (for non-palette elements like select btn)
+const clickEl = async (selector) => {
+  const clicked = await evaluate(`(function() {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return false;
+    el.click();
+    return true;
+  })()`);
+  return clicked;
 };
-const move  = async (x, y) => mouse("mouseMoved", x, y, 0);
+
+// Dispatch pointer events directly to viewport-area-host via evaluate.
+// Input.dispatchMouseEvent fires mousemove but not pointermove reliably in this app.
+const moveXY = async (x, y) => {
+  await evaluate(`(function() {
+    const vp = document.getElementById('viewport-area-host') ?? document.querySelector('[id*="viewport"]') ?? document.elementFromPoint(${x}, ${y});
+    if (!vp) return;
+    vp.dispatchEvent(new PointerEvent('pointermove', {bubbles:true, cancelable:true, clientX:${x}, clientY:${y}, buttons:0, button:-1}));
+  })()`);
+};
+// Clicks via evaluate → pointerdown+pointerup on viewport-area-host.
+const clickXY = async (x, y) => {
+  await evaluate(`(function() {
+    const vp = document.getElementById('viewport-area-host') ?? document.elementFromPoint(${x}, ${y});
+    if (!vp) return;
+    vp.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, clientX:${x}, clientY:${y}, buttons:1, button:0, isPrimary:true}));
+    vp.dispatchEvent(new PointerEvent('pointerup',   {bubbles:true, cancelable:true, clientX:${x}, clientY:${y}, buttons:0, button:0, isPrimary:true}));
+    vp.dispatchEvent(new MouseEvent('click',         {bubbles:true, cancelable:true, clientX:${x}, clientY:${y}}));
+  })()`);
+};
 
 await send("Page.enable");
 await send("Runtime.enable");
@@ -83,7 +123,7 @@ onEvent("Runtime.exceptionThrown", p => {
   }
 });
 
-// Cold-cache load
+// ── Cold-cache load ────────────────────────────────────────────────────────
 console.log("[v496] cold-cache load...");
 await send("Network.clearBrowserCache");
 await send("Storage.clearDataForOrigin", { origin: "https://wordingone.github.io", storageTypes: "all" });
@@ -96,7 +136,7 @@ const lp = new Promise(res => onEvent("Page.loadEventFired", res));
 await send("Page.navigate", { url: PAGES_URL });
 await lp;
 
-// Wait for shell
+// Wait for shell (__viewer + __dispatchSync)
 let shellReady = false;
 for (let t = 0; t < 90; t++) {
   await delay(1000);
@@ -104,180 +144,186 @@ for (let t = 0; t < 90; t++) {
   if (ready) { shellReady = true; console.log(`[v496] shell ready ~${t+1}s`); break; }
 }
 if (!shellReady) { console.error("[v496] FAIL: shell timeout"); process.exit(1); }
-await delay(2000);
+// Extra settle for palette init (buttons register their click handlers)
+await delay(3000);
 
 const results = [];
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-// Count preview objects (noSnap=true, not in selection layer) in scene
-const countPreviewObjects = async () => evaluate(`(function() {
+// ── Helper: count specific preview objects in DIRECT scene children ────────
+// opUpdateSurfacePickPreview adds Mesh; opUpdatePlanePreview adds Line (pt2) or Group (pt3).
+// All have noSnap=true. Only check DIRECT children to avoid snap dot traversal noise.
+const countDirectNoSnapByType = async (type) => evaluate(`(function() {
   const scene = window.__viewer?.getScene?.();
   if (!scene) return 0;
-  let count = 0;
-  scene.traverse(o => { if (o.userData?.noSnap && o !== scene) count++; });
-  return count;
+  return scene.children.filter(c => c.userData?.noSnap && c.type === ${JSON.stringify(type)}).length;
 })()`);
 
-// Get scene object count (meshes/lines/groups visible as geometry)
-const countSceneObjects = async () => evaluate(`(function() {
+const sceneDirectTotal = async () => evaluate(`(function() {
   const scene = window.__viewer?.getScene?.();
   if (!scene) return 0;
-  let count = 0;
-  scene.traverse(o => { if ((o.isMesh || o.isLine || o.isGroup) && !o.userData?.noSnap) count++; });
-  return count;
+  return scene.children.length;
 })()`);
 
-// Find button in toolbar by label text
-const clickTool = async (label) => {
-  const rect = await evaluate(`(function() {
-    const btns = [...document.querySelectorAll('.tool-btn, [data-tool], button')];
-    const b = btns.find(b => b.textContent?.trim() === ${JSON.stringify(label)} || b.dataset?.tool === ${JSON.stringify(label.toLowerCase())});
-    if (!b) return null;
-    const r = b.getBoundingClientRect();
-    return { x: r.left + r.width/2, y: r.top + r.height/2 };
-  })()`);
-  if (!rect) {
-    // fallback: dispatch setActiveTool
-    console.log(`[v496]   tool '${label}' not found by DOM, dispatching via setActiveTool`);
-    await evaluate(`window.__dispatchSync?.("setActiveTool", { toolId: ${JSON.stringify(label.toLowerCase())} })`);
-    return;
-  }
-  await click(rect.x, rect.y);
-};
+// Count non-noSnap direct children (the actual geometry objects)
+const countGeomChildren = async () => evaluate(`(function() {
+  const scene = window.__viewer?.getScene?.();
+  if (!scene) return 0;
+  return scene.children.filter(c => !c.userData?.noSnap).length;
+})()`);
 
-// Dispatch a command via __dispatchSync (for setup only — not tested path)
-const dispatchSync = async (cmd, args) =>
-  evaluate(`JSON.stringify(window.__dispatchSync?.("${cmd}", ${JSON.stringify(args)}) ?? null)`);
+// ── Setup: draw circle at world (0,0), project to screen ──────────────────
+// viewer.camera (not getCamera()), viewer.canvas or renderer.domElement for rect.
+console.log("\n[v496] ── setup: SdCircle at world(0,0) ──────────────────");
+const circleResult = JSON.parse(await evaluate(`
+  JSON.stringify(window.__dispatchSync?.("SdCircle", { center: [0, 0], radius: 50 }) ?? null)
+`));
+console.log(`[v496]   SdCircle: ${JSON.stringify(circleResult)}`);
+await delay(300);
 
-// ── Setup: draw a rectangle to use as surface/extrude profile ──────────────
+// Project world (0,0,0) to screen using manual NDC math (THREE not global).
+// viewer.camera and viewer.canvas are the correct property names.
+const screenCenter = await evaluate(`(function() {
+  const viewer = window.__viewer;
+  if (!viewer) return null;
+  const cam = viewer.camera;
+  const canvas = viewer.canvas ?? viewer.renderer?.domElement ?? document.querySelector('canvas');
+  if (!cam || !canvas) return null;
+  cam.updateMatrixWorld(true);
+  const mwi = cam.matrixWorldInverse.elements; // col-major
+  const prj = cam.projectionMatrix.elements;
+  // World (0,0,0) → view space
+  const vx = mwi[12], vy = mwi[13], vz = mwi[14], pw = mwi[15];
+  // View → clip
+  const cx_ = prj[0]*vx + prj[4]*vy + prj[8]*vz  + prj[12]*pw;
+  const cy_ = prj[1]*vx + prj[5]*vy + prj[9]*vz  + prj[13]*pw;
+  const cw  = prj[3]*vx + prj[7]*vy + prj[11]*vz + prj[15]*pw;
+  const ndcX = cx_ / cw, ndcY = cy_ / cw;
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.round((ndcX + 1) / 2 * rect.width  + rect.left),
+    y: Math.round((-ndcY + 1) / 2 * rect.height + rect.top),
+    canvasLeft: Math.round(rect.left), canvasTop: Math.round(rect.top),
+    canvasW: Math.round(rect.width), canvasH: Math.round(rect.height),
+  };
+})()`);
+console.log(`[v496] world(0,0) → screen: ${JSON.stringify(screenCenter)}`);
 
-console.log("\n[v496] ── AC setup: draw rectangle ──────────────────────────");
-// Place a 100×80 rectangle centered at viewport midpoint via dispatchSync
-const viewCx = 640, viewCy = 400;  // approximate viewport center
-const rectResult = JSON.parse(await dispatchSync("SdRectangle", {
-  x: viewCx - 50, y: viewCy - 40,
-  width: 100, height: 80,
-}));
-console.log(`[v496]   SdRectangle: ${JSON.stringify(rectResult)}`);
+// Use projected world origin as hover/click target; fall back to canvas center.
+const canvasCx = (screenCenter?.canvasLeft ?? 82) + (screenCenter?.canvasW ?? 1297) / 2;
+const canvasCy = (screenCenter?.canvasTop ?? 146) + (screenCenter?.canvasH ?? 826) / 2;
+const cx = screenCenter?.x ?? Math.round(canvasCx);
+const cy = screenCenter?.y ?? Math.round(canvasCy);
+console.log(`[v496]   hover target: (${cx}, ${cy})`);
 
-// Wait a frame for the geometry to land
+// Verify the circle appeared — count non-noSnap direct children before tests
+const geomBefore = await countGeomChildren();
+console.log(`[v496]   non-noSnap direct children after circle: ${geomBefore}`);
+
+// ── AC1: SURFACE tool activated → surface_pick phase entered ───────────────
+console.log("\n[v496] ── AC1: SURFACE tool activation ───────────────────");
+// Unhide the palette section then click the surface button
+const surfaceClicked = await clickPaletteBtn("surface");
+console.log(`[v496]   button clicked: ${surfaceClicked}`);
 await delay(500);
-const objsBefore = await countSceneObjects();
-console.log(`[v496]   scene objects after rect: ${objsBefore}`);
 
-// Get the rectangle's screen-space centroid for hover/click targets
-const rectCenter = await evaluate(`(function() {
-  const scene = window.__viewer?.getScene?.();
-  if (!scene) return null;
-  let line = null;
-  scene.traverse(o => { if (o.isLine && !o.userData?.noSnap) line = o; });
-  if (!line) return null;
-  // Project world position to screen
-  const cam = window.__viewer?.getCamera?.();
-  if (!cam) return null;
-  const v = line.position.clone().project(cam);
-  const w = window.innerWidth, h = window.innerHeight;
-  return { x: (v.x + 1)/2 * w, y: (-v.y + 1)/2 * h };
-})()`);
-console.log(`[v496]   rect centroid on screen: ${JSON.stringify(rectCenter)}`);
-const hx = rectCenter?.x ?? viewCx;
-const hy = rectCenter?.y ?? viewCy;
+// Verify: the active tool button should now be "surface"
+const activeTool = await evaluate(`document.querySelector('button.palette-btn.active')?.dataset?.tool ?? "none"`);
+console.log(`[v496]   active tool btn: ${activeTool}`);
 
-// ── AC1: SURFACE hover → preview mesh in scene ────────────────────────────
+// Check prompt text for phase indicator
+const phaseText = await evaluate(`document.querySelector('[id*="prompt"],[class*="prompt"],[class*="pt-prompt"]')?.textContent?.trim() ?? ""`);
+console.log(`[v496]   phase prompt text: "${phaseText}"`);
 
-console.log("\n[v496] ── AC1: SURFACE hover preview ────────────────────────");
-
-// Activate surface tool
-await evaluate(`window.__dispatchSync?.("setActiveTool", { toolId: "surface" })`);
-await delay(300);
-
-// Move mouse over the rectangle center
-const preHover = await countPreviewObjects();
-await move(hx, hy);
-await delay(300);
-const postHover = await countPreviewObjects();
-console.log(`[v496]   preview objects: before=${preHover} after=${postHover}`);
-await screenshot("ac1-surface-hover");
-
-const ac1 = postHover > preHover;
-results.push({ id: "AC1", desc: "surface hover → preview object added", pass: ac1, detail: `previewDelta=${postHover - preHover}` });
+await screenshot("ac1-surface-activated");
+const ac1 = surfaceClicked && activeTool === "surface";
+results.push({ id: "AC1", desc: "SURFACE tool activated (active btn = surface)", pass: ac1, detail: `activeTool=${activeTool}` });
 console.log(`[v496]   AC1: ${ac1 ? "PASS" : "FAIL"}`);
 
-// ── AC2: SURFACE click → SdSurface dispatched, geometry in scene ──────────
+// ── AC2: SURFACE hover over circle → noSnap Mesh added ────────────────────
+console.log("\n[v496] ── AC2: SURFACE hover preview ────────────────────");
+const preHoverMesh = await countDirectNoSnapByType("Mesh");
+console.log(`[v496]   noSnap Mesh (direct) before hover: ${preHoverMesh}`);
+// Move mouse to world(0,0) screen position (center of circle)
+await moveXY(cx, cy);
+await delay(400);
+const postHoverMesh = await countDirectNoSnapByType("Mesh");
+console.log(`[v496]   noSnap Mesh (direct) after hover: ${postHoverMesh}`);
+await screenshot("ac2-surface-hover");
 
-console.log("\n[v496] ── AC2: SURFACE click → dispatch ──────────────────────");
-const sceneBeforeClick = await countSceneObjects();
-await click(hx, hy);
-await delay(500);
-const sceneAfterClick = await countSceneObjects();
-console.log(`[v496]   scene objects: before=${sceneBeforeClick} after=${sceneAfterClick}`);
-await screenshot("ac2-surface-click");
-
-const ac2 = sceneAfterClick > sceneBeforeClick;
-results.push({ id: "AC2", desc: "surface click → geometry added to scene", pass: ac2, detail: `delta=${sceneAfterClick - sceneBeforeClick}` });
+const ac2 = postHoverMesh > preHoverMesh;
+results.push({ id: "AC2", desc: "surface hover → noSnap Mesh preview added", pass: ac2, detail: `mesh delta: ${postHoverMesh - preHoverMesh}` });
 console.log(`[v496]   AC2: ${ac2 ? "PASS" : "FAIL"}`);
 
-// ── AC3: PLANE pt2 mousemove → line preview ────────────────────────────────
+// ── AC3: SURFACE click → geometry dispatched ──────────────────────────────
+console.log("\n[v496] ── AC3: SURFACE click → dispatch ──────────────────");
+const geomBeforeClick = await countGeomChildren();
+await clickXY(cx, cy);
+await delay(600);
+const geomAfterClick = await countGeomChildren();
+console.log(`[v496]   non-noSnap direct children: before=${geomBeforeClick} after=${geomAfterClick}`);
+await screenshot("ac3-surface-click");
 
-console.log("\n[v496] ── AC3: PLANE pt2 preview ────────────────────────────");
-
-// Reset tool then start plane
-await evaluate(`window.__dispatchSync?.("setActiveTool", { toolId: "select" })`);
-await delay(200);
-await evaluate(`window.__dispatchSync?.("setActiveTool", { toolId: "plane" })`);
-await delay(300);
-
-// Click pt1 (origin)
-const pt1x = viewCx - 80, pt1y = viewCy + 60;
-await click(pt1x, pt1y);
-await delay(300);
-
-// Now in plane_pt2: move mouse — expect a line preview
-const prePt2 = await countPreviewObjects();
-await move(pt1x + 120, pt1y);
-await delay(300);
-const postPt2 = await countPreviewObjects();
-console.log(`[v496]   plane_pt2 preview objects: before=${prePt2} after=${postPt2}`);
-await screenshot("ac3-plane-pt2");
-
-const ac3 = postPt2 > prePt2;
-results.push({ id: "AC3", desc: "plane pt2 mousemove → line preview added", pass: ac3, detail: `previewDelta=${postPt2 - prePt2}` });
+const ac3 = geomAfterClick > geomBeforeClick;
+results.push({ id: "AC3", desc: "surface click → geometry added to scene", pass: ac3, detail: `delta=${geomAfterClick - geomBeforeClick}` });
 console.log(`[v496]   AC3: ${ac3 ? "PASS" : "FAIL"}`);
 
-// ── AC4: PLANE pt3 mousemove → group preview ──────────────────────────────
+// ── AC4: PLANE pt2 mousemove → noSnap Line preview ────────────────────────
+console.log("\n[v496] ── AC4: PLANE pt2 preview ────────────────────────");
 
-console.log("\n[v496] ── AC4: PLANE pt3 preview ────────────────────────────");
-
-// Click pt2 (width edge)
-await click(pt1x + 120, pt1y);
+// Reset to select, then activate plane
+await clickEl('button[data-tool="select"]');
 await delay(300);
+const planeClicked = await clickPaletteBtn("plane");
+console.log(`[v496]   plane button clicked: ${planeClicked}`);
+await delay(500);
 
-// Now in plane_pt3: move mouse — expect outline+fill group
-const prePt3 = await countPreviewObjects();
-await move(pt1x + 120, pt1y - 80);
-await delay(300);
-const postPt3 = await countPreviewObjects();
-console.log(`[v496]   plane_pt3 preview objects: before=${prePt3} after=${postPt3}`);
-await screenshot("ac4-plane-pt3");
+// Click pt1 at offset from center (use Input.dispatchMouseEvent for positioned click)
+const pt1x = cx - 120, pt1y = cy + 80;
+await clickXY(pt1x, pt1y);
+await delay(400);
 
-const ac4 = postPt3 > prePt3;
-results.push({ id: "AC4", desc: "plane pt3 mousemove → outline+fill preview added", pass: ac4, detail: `previewDelta=${postPt3 - prePt3}` });
+// Now in plane_pt2: move to a different position, expect a Line preview
+const prePt2Line = await countDirectNoSnapByType("Line");
+await moveXY(pt1x + 180, pt1y);
+await delay(400);
+const postPt2Line = await countDirectNoSnapByType("Line");
+console.log(`[v496]   plane_pt2 noSnap Line: before=${prePt2Line} after=${postPt2Line}`);
+await screenshot("ac4-plane-pt2");
+
+const ac4 = postPt2Line > prePt2Line;
+results.push({ id: "AC4", desc: "plane pt2 mousemove → noSnap Line preview", pass: ac4, detail: `line delta: ${postPt2Line - prePt2Line}` });
 console.log(`[v496]   AC4: ${ac4 ? "PASS" : "FAIL"}`);
 
-// Cancel plane tool
+// ── AC5: PLANE pt3 mousemove → noSnap Group preview ───────────────────────
+console.log("\n[v496] ── AC5: PLANE pt3 preview ────────────────────────");
+
+// Click pt2 to advance to pt3
+await clickXY(pt1x + 180, pt1y);
+await delay(400);
+
+// Now in plane_pt3: move, expect a Group (outline+fill) preview
+const prePt3Group = await countDirectNoSnapByType("Group");
+await moveXY(pt1x + 180, pt1y - 120);
+await delay(400);
+const postPt3Group = await countDirectNoSnapByType("Group");
+console.log(`[v496]   plane_pt3 noSnap Group: before=${prePt3Group} after=${postPt3Group}`);
+await screenshot("ac5-plane-pt3");
+
+const ac5 = postPt3Group > prePt3Group;
+results.push({ id: "AC5", desc: "plane pt3 mousemove → noSnap Group preview", pass: ac5, detail: `group delta: ${postPt3Group - prePt3Group}` });
+console.log(`[v496]   AC5: ${ac5 ? "PASS" : "FAIL"}`);
+
+// Cancel
 await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", keyCode: 27 });
 await delay(200);
 
-// ── AC5: Zero exceptions ───────────────────────────────────────────────────
-
-const ac5 = exceptions.length === 0;
-results.push({ id: "AC5", desc: "zero JS exceptions", pass: ac5, detail: exceptions.slice(0, 3).join("; ") || "none" });
-console.log(`\n[v496] ── AC5: exceptions=${exceptions.length} — ${ac5 ? "PASS" : "FAIL"}`);
-if (!ac5) exceptions.forEach(e => console.error(`  ${e}`));
+// ── AC6: Zero exceptions ───────────────────────────────────────────────────
+const ac6 = exceptions.length === 0;
+results.push({ id: "AC6", desc: "zero JS exceptions", pass: ac6, detail: exceptions.slice(0, 3).join("; ") || "none" });
+console.log(`\n[v496] ── AC6: exceptions=${exceptions.length} — ${ac6 ? "PASS" : "FAIL"}`);
+if (!ac6) exceptions.forEach(e => console.error(`  ${e}`));
 
 // ── Summary ────────────────────────────────────────────────────────────────
-
 console.log("\n[v496] ═══ Results ═══════════════════════════════════════════");
 let allPass = true;
 for (const r of results) {

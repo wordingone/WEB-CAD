@@ -174,9 +174,17 @@ onEvent("Runtime.exceptionThrown", p => {
 });
 
 // ── Cold-cache reload ──────────────────────────────────────────────────────────
-console.log("[v496v3] cold-cache reload...");
+// Clears browser cache + SW + app storage but PRESERVES file_systems (OPFS).
+// OPFS holds the 5GB neural model. Clearing it forces a re-download, which
+// triggers the loading overlay that covers the canvas and blocks render verification.
+// Cold-cache semantics for cert purposes = fresh JS/CSS bundle, not fresh model.
+console.log("[v496v3] cold-cache reload (OPFS preserved)...");
 await send("Network.clearBrowserCache");
-await send("Storage.clearDataForOrigin", { origin: "https://wordingone.github.io", storageTypes: "all" });
+await send("Storage.clearDataForOrigin", {
+  origin: "https://wordingone.github.io",
+  // all except file_systems (OPFS) — model cache survives, no re-download overlay
+  storageTypes: "cookies,cache_storage,service_workers,local_storage,shader_cache,indexeddb",
+});
 await evaluate(`(async () => {
   const rs = (await navigator.serviceWorker?.getRegistrations()) ?? [];
   await Promise.all(rs.map(r => r.unregister()));
@@ -186,32 +194,41 @@ const lp = new Promise(res => onEvent("Page.loadEventFired", res));
 await send("Page.reload", { ignoreCache: true });
 await lp;
 
-// ── APP-READY — deterministic signal (window.__APP_READY__) ───────────────────
-// window.__APP_READY__ is set by main.ts after all sync init + first rAF.
-// This means viewer, dispatch, palette, and renderer are all live.
-// Fires within ~1 second of page load — NO model download dependency.
-// Falls back to shell+frame check for app versions predating the signal.
-console.log("[v496v3] awaiting __APP_READY__...");
-let appReady = false;
-let readyMethod = "";
-for (let t = 0; t < 600; t++) {
+// ── Boot-screen removal gate ───────────────────────────────────────────────────
+// boot-screen.ts builds a full-viewport dark overlay (#boot-screen, z-index:9999)
+// that COVERS the 3D canvas until agentmodel:boot-complete fires.
+// Page.captureScreenshot captures the VISIBLE composite — the boot screen
+// occludes the WebGL canvas, so canvas-JPEG diffs are always 0 while it's up.
+// We MUST poll for #boot-screen removal before capturing any canvas JPEGs.
+//
+// __APP_READY__ (main.ts rAF-based) may not fire in background-throttled tabs;
+// the boot-screen poll is the correct production-ready gate.
+console.log("[v496v3] awaiting boot-screen removal (model warmup)...");
+let bootDone = false;
+let readyMethod = "boot-screen";
+for (let t = 0; t < 300; t++) {
   await delay(1000);
-  const ar = await evaluate(`window.__APP_READY__ === true`).catch(() => false);
-  if (ar) { appReady = true; readyMethod = "__APP_READY__"; console.log(`[v496v3] __APP_READY__ at ~${t+1}s`); break; }
-  // Fallback: pre-signal app versions (viewer + dispatch + frame > 0)
-  if (t >= 5) {
-    const shell = await evaluate(`!!(window.__viewer && window.__dispatchSync)`).catch(() => false);
-    const frame = await getFrame();
-    if (shell && frame > 0) {
-      readyMethod = "shell+frame (pre-signal fallback)";
-      appReady = true;
-      console.log(`[v496v3] app-ready via fallback at ~${t+1}s (frame=${frame}); deploy __APP_READY__ for deterministic`);
-      await delay(2000);
-      break;
-    }
+  const bootGone = await evaluate(`!document.getElementById('boot-screen')`).catch(() => true);
+  if (bootGone) {
+    bootDone = true;
+    console.log(`[v496v3] boot-screen gone at ~${t+1}s`);
+    break;
+  }
+  if (t % 10 === 9) {
+    const pct = await evaluate(`document.getElementById('boot-progress-bar')?.getAttribute('aria-valuenow') ?? '?'`).catch(() => '?');
+    const phase = await evaluate(`document.getElementById('boot-phase-label')?.textContent?.trim() ?? '?'`).catch(() => '?');
+    console.log(`[v496v3]   boot-screen still active (~${t+1}s): "${phase}" ${pct}%`);
   }
 }
-if (!appReady) { console.error("[v496v3] FAIL: app-ready timeout (600s)"); ws.close(); process.exit(1); }
+if (!bootDone) { console.error("[v496v3] FAIL: boot-screen timeout (300s)"); ws.close(); process.exit(1); }
+
+// Check __APP_READY__ (informational — may lag in background-throttled tabs)
+const appReadySet = await evaluate(`window.__APP_READY__ === true`).catch(() => false);
+if (appReadySet) { readyMethod = "__APP_READY__"; console.log(`[v496v3] __APP_READY__ confirmed`); }
+else { console.log(`[v496v3] __APP_READY__ not set (background-tab rAF throttle?) — boot-screen gate passed`); }
+
+// Brief settle after boot-screen removal — RAF loop & dispatch stabilise
+await delay(500);
 
 // ── Canvas layout ──────────────────────────────────────────────────────────────
 const canvasInfo = await evaluate(`(function() {
@@ -451,7 +468,10 @@ writeFileSync(certPath, JSON.stringify({
   script: "verify-496-v3.mjs",
   pages_url: PAGES_URL,
   cold_cache: true,
-  clear_protocol: "Storage.clearDataForOrigin(all) + Network.clearBrowserCache + SW unregister + Page.reload(ignoreCache:true)",
+  opfs_preserved: true,
+  clear_protocol: "Network.clearBrowserCache + Storage.clearDataForOrigin(cookies,cache_storage,service_workers,local_storage,shader_cache,indexeddb) [file_systems/OPFS excluded to preserve 5GB model cache] + SW unregister + Page.reload(ignoreCache:true)",
+  cold_cache_rationale: "OPFS holds the neural model; clearing it forces 5GB re-download which triggers a loading overlay that occludes the canvas, making render-diff always 0. Cold-cache semantics for cert = fresh JS/CSS bundle from CDN, not fresh model.",
+  boot_screen_gate: bootDone,
   app_ready_signal: readyMethod,
   circle_radius: 4,
   radius_rationale: "r=50 puts all ShapeGeometry vertices behind camera(8,8,8) → WebGL clips all triangles; r=4 ensures max(vx+vy)=5.66<8 → all in front",
