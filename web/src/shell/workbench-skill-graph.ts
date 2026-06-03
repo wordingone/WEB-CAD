@@ -220,6 +220,53 @@ export function buildSkillsTabBody(): HTMLElement {
 
   nodesCol.appendChild(canvasPane);
 
+  const buildingsPane = document.createElement("div");
+  buildingsPane.className = "skills-buildings-pane";
+  buildingsPane.style.cssText = "flex-shrink:0; border-top:1px solid var(--hairline); padding:6px 8px; overflow-y:auto; max-height:160px;";
+
+  const bldgHeader = document.createElement("div");
+  bldgHeader.style.cssText = "font-size:10px; font-weight:600; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:5px;";
+  bldgHeader.textContent = "Buildings";
+  buildingsPane.appendChild(bldgHeader);
+
+  const BUILDINGS_LIST = [
+    { id: "farnsworth", label: "Farnsworth House", desc: "Mies van der Rohe, 1951 — 8W colonnade" },
+  ];
+
+  let _bldgRunning = false;
+  for (const bldg of BUILDINGS_LIST) {
+    const card = document.createElement("div");
+    card.style.cssText = "background:var(--panel-bg); border:1px solid var(--hairline); border-radius:3px; padding:4px 7px; display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:4px;";
+
+    const info = document.createElement("div");
+    info.style.cssText = "flex:1; min-width:0;";
+    info.innerHTML = `<div style="font-size:11px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(bldg.label)}</div><div style="font-size:10px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(bldg.desc)}</div>`;
+
+    const runBtn = document.createElement("button");
+    runBtn.className = "btn btn-sm";
+    runBtn.textContent = "▶ Run";
+    runBtn.type = "button";
+    runBtn.style.cssText = "flex-shrink:0; font-size:10px; padding:2px 6px;";
+
+    const bldgId = bldg.id;
+    runBtn.addEventListener("click", () => {
+      if (_bldgRunning) return;
+      _bldgRunning = true;
+      runBtn.textContent = "…";
+      runBtn.disabled = true;
+      void dispatch("SdRunBuilding", { id: bldgId }).finally(() => {
+        _bldgRunning = false;
+        runBtn.textContent = "▶ Run";
+        runBtn.disabled = false;
+      });
+    });
+
+    card.append(info, runBtn);
+    buildingsPane.appendChild(card);
+  }
+
+  nodesCol.appendChild(buildingsPane);
+
   const paramsCol = document.createElement("div");
   paramsCol.className = "skills-params-col";
   paramsCol.style.cssText = "width:220px; flex-shrink:0; overflow-y:auto; padding:8px 10px; position:relative;";
