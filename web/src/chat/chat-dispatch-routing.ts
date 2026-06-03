@@ -14,6 +14,12 @@ export function classifyDispatchResult(
   result: CommandSessionResult,
 ): DispatchRouteResult {
   if (result.status === "success") {
+    // #459: handler may return { error: "..." } on ok:true — surface to caller.
+    const dr = result.dispatchResult;
+    const handlerErr = dr?.ok ? (dr.result as Record<string, unknown> | undefined)?.error : undefined;
+    if (typeof handlerErr === "string") {
+      return { fired: `${verb}(err)`, error: handlerErr };
+    }
     return { fired: verb };
   }
   if (result.status === "needs_input") {
