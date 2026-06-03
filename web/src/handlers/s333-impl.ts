@@ -77,11 +77,9 @@ export async function handle_Sd3dmRead(
   const filename = (args.filename as string | undefined) ?? "model.3dm";
 
   try {
-    // oracle: rhino3dm hot-load (same path as export3dm)
+    const { getRhino3dm } = await import("../io/rhino3dm-init");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rhino3dmInit = ((await import("rhino3dm")) as any).default;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rh: any = await rhino3dmInit();
+    const rh: any = await getRhino3dm();
 
     const arr = new Uint8Array(bytes);
     const file = rh.File3dm.fromByteArray(arr);

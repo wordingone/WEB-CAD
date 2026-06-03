@@ -1002,8 +1002,8 @@ export function exportNurbsToStep(surface: NurbsSurface): Uint8Array {
 export async function exportNurbsTo3dm(surface: NurbsSurface): Promise<Uint8Array> {
   // Lazy-load: rhino3dm is a WASM bundle and we don't want to pay its
   // load cost for callers that never reach this path.
-  const rhino3dmInit = (await import("rhino3dm")).default;
-  const RhinoModule = await rhino3dmInit();
+  const { getRhino3dm } = await import("../io/rhino3dm-init");
+  const RhinoModule = await getRhino3dm();
 
   const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
 

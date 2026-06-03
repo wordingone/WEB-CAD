@@ -9,10 +9,11 @@
 // decodes and imports. PAGES_URL is the only navigation target.
 
 import { WebSocket }               from "ws";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, writeFileSync, unlinkSync } from "fs";
 import { execSync }                from "child_process";
 import { fileURLToPath }           from "url";
-import rhino3dmInit                from "rhino3dm";
+import { tmpdir }                  from "os";
+import { join }                    from "path";
 
 const CDP_PORT  = 9222;
 const PAGES_URL = "https://wordingone.github.io/WEB-CAD/";
@@ -21,44 +22,47 @@ const RUNS      = 3;
 const OUT_DIR   = fileURLToPath(new URL("../state/cert-333-rt", import.meta.url));
 mkdirSync(OUT_DIR, { recursive: true });
 
-// ── 1. Build reference .3dm bytes in Node.js ──────────────────────────────────
-// Reference surface: 3×3 bilinear patch (degree 1 in both directions)
-const rh = await rhino3dmInit();
+// ── 1. Build reference .3dm bytes via rhino3dm (CJS subprocess via temp file) ─
+// rhino3dm WASM must run from its own directory to locate rhino3dm.wasm.
+// Write the builder to a temp .cjs file next to rhino3dm.js, run it, then delete.
 const deg = 1, n = 3;
 const refCP = [
   [0,0,0],[1,0,0],[2,0,0],
   [0,1,0],[1,1,1],[2,1,0],
   [0,2,0],[1,2,0],[2,2,0],
 ];
-// Full clamped knots for degree=1, n=3: [0,0,1,2,2]
 const fullKnots = [0, 0, 1, 2, 2];
-// Truncated knots for rhino3dm (strips first + last): [0, 1, 2]
-const truncKnots = fullKnots.slice(1, fullKnots.length - 1);
+const truncKnots = [0, 1, 2]; // rhino3dm internal knots: strips first/last of full
 
-const orderU = deg + 1, orderV = deg + 1;
-const ns = rh.NurbsSurface.create(3, false, orderU, orderV, n, n);
-if (!ns) throw new Error("NurbsSurface.create returned null");
+const rh3dmDir = fileURLToPath(new URL("../node_modules/rhino3dm/", import.meta.url));
+const tmpScript = join(rh3dmDir, "_rt333-builder.cjs");
+writeFileSync(tmpScript, `
+const r = require('./rhino3dm.js');
+r().then(rh => {
+  const cp = ${JSON.stringify(refCP)};
+  const trunc = ${JSON.stringify(truncKnots)};
+  const ns = rh.NurbsSurface.create(3, false, 2, 2, 3, 3);
+  const pts = ns.points();
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { const p = cp[i*3+j]; pts.set(i, j, [p[0], p[1], p[2], 1]); }
+  const ku = ns.knotsU(), kv = ns.knotsV();
+  for (let i = 0; i < trunc.length; i++) { ku.set(i, trunc[i]); kv.set(i, trunc[i]); }
+  const attrs = new rh.ObjectAttributes();
+  const f = new rh.File3dm();
+  f.objects().addSurface(ns, attrs);
+  ns.delete();
+  const b = f.toByteArray(); f.delete();
+  process.stdout.write(Buffer.from(b).toString('base64'));
+}).catch(e => { process.stderr.write(String(e)); process.exit(1); });
+`);
 
-const pts = ns.points();
-for (let i = 0; i < n; i++) {
-  for (let j = 0; j < n; j++) {
-    const p = refCP[i * n + j];
-    pts.set(i, j, [p[0], p[1], p[2]]);
-  }
+let dmBase64;
+try {
+  dmBase64 = execSync(`node "${tmpScript}"`, { encoding: "utf8", maxBuffer: 1024*1024 });
+} finally {
+  try { unlinkSync(tmpScript); } catch (_) {}
 }
-const ku = ns.knotsU(), kv = ns.knotsV();
-for (let i = 0; i < truncKnots.length; i++) {
-  ku.set(i, truncKnots[i]);
-  kv.set(i, truncKnots[i]);
-}
-
-const file3dm = new rh.File3dm();
-file3dm.objects().addSurface(ns);
-ns.delete();
-const dmBytes = file3dm.toByteArray();
-file3dm.delete();
-const dmBase64 = Buffer.from(dmBytes).toString("base64");
-console.log(`[rt] .3dm built in Node.js: ${dmBytes.length} bytes, ${refCP.length} control points`);
+const dmBytes = Buffer.from(dmBase64, "base64");
+console.log(`[rt] .3dm built via Node.js subprocess: ${dmBytes.length} bytes, ${refCP.length} CPs`);
 
 // ── 2. Connect to CDP ─────────────────────────────────────────────────────────
 const targets = JSON.parse(execSync(`curl -s http://localhost:${CDP_PORT}/json`, { encoding: "utf8" }));
@@ -134,7 +138,7 @@ for (let run = 1; run <= RUNS; run++) {
   let shellReady = false;
   for (let t = 0; t < 90; t++) {
     await delay(1000);
-    const ok = await evaluate(`!!(window.__viewer && window.__dispatchSync)`).catch(()=>false);
+    const ok = await evaluate(`!!(window.__viewer && window.__dispatch)`).catch(()=>false);
     if (ok) { shellReady = true; console.log(`[rt]   shell ready ~${t+1}s`); break; }
   }
   if (!shellReady) {
@@ -158,8 +162,9 @@ for (let run = 1; run <= RUNS; run++) {
         const arrayBuf = bytes.buffer;
 
         // Dispatch Sd3dmRead
-        const result = await window.__dispatchSync("Sd3dmRead", { bytes: arrayBuf, filename: "rt-test.3dm" });
-        if (!result?.loaded) return { ok: false, error: "Sd3dmRead failed: " + JSON.stringify(result?.error) };
+        const envelope = await window.__dispatch("Sd3dmRead", { bytes: arrayBuf, filename: "rt-test.3dm" });
+        const result = envelope?.result;
+        if (!result?.loaded) return { ok: false, error: "Sd3dmRead failed: " + JSON.stringify(result?.error ?? envelope) };
 
         // Find imported mesh with canonical userData
         let canonical = null;
