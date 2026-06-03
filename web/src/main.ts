@@ -197,6 +197,16 @@ loadDrawingLayers();
 initCmdK();
 initExportDrawer();
 
+// Deterministic ready signal for CDP / headless test harnesses.
+// Fires after all synchronous app init AND after the first rAF (first render
+// frame committed). Palette tools, dispatch, and renderer are all live.
+// CDP scripts await window.__APP_READY__ === true instead of using fixed
+// timeouts — see scripts/verify-496-v3.mjs and future cert scripts.
+requestAnimationFrame(() => {
+  (window as unknown as Record<string, unknown>).__APP_READY__ = true;
+  window.dispatchEvent(new CustomEvent("app:ready"));
+});
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     viewer.dispose();
