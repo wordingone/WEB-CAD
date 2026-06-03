@@ -416,9 +416,18 @@ export function dispatchSync(verb: string, args: DispatchArgs = {}): DispatchRes
         detail: "handler returned Promise — use dispatch() not dispatchSync()",
       };
     }
+    // Write to debug ledger if armed (CDP verify sessions and diagnostics only).
+    if (typeof window !== "undefined") {
+      const ledger = (window as unknown as Record<string, unknown>).__dispatchLedger;
+      if (Array.isArray(ledger)) ledger.push({ verb: canonical, status: "success", error: null });
+    }
     return { ok: true, canonical, result };
   } catch (e) {
     _dispatchCtx = null;
+    if (typeof window !== "undefined") {
+      const ledger = (window as unknown as Record<string, unknown>).__dispatchLedger;
+      if (Array.isArray(ledger)) ledger.push({ verb: canonical, status: "error", error: e instanceof Error ? e.message : String(e) });
+    }
     return {
       ok: false,
       canonical,
