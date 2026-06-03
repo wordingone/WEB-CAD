@@ -27,6 +27,7 @@ import { initWallHeightHandle } from "./viewer/wall-height-handle";
 import { initRenderModes } from "./viewer/render-modes";
 import { getSelected, setSelected } from "./viewer/selection-state";
 import { syncLevelOpacities } from "./handlers/datum";
+import { registerGraph } from "./gh/gh-component-graph";
 import { updateLevelSprite } from "./tools/structural";
 import * as THREE from "three";
 import { registerAllHandlers } from "./register-handlers";
@@ -68,6 +69,7 @@ levelStore.subscribe(() => {
 (window as unknown as { __dispatch: typeof dispatch }).__dispatch = dispatch;
 (window as unknown as { __dispatchSync: typeof dispatchSync }).__dispatchSync = dispatchSync;
 (window as unknown as { __dispatchAsync: typeof dispatch }).__dispatchAsync = dispatch;
+(window as unknown as { __ghRegisterGraph: typeof registerGraph }).__ghRegisterGraph = registerGraph;
 (window as unknown as { __clearCommandSession: typeof clearCommandSession }).__clearCommandSession = clearCommandSession;
 (window as unknown as { __getActiveCommandSession: typeof getActiveCommandSession }).__getActiveCommandSession = getActiveCommandSession;
 (window as unknown as { __gridStore: typeof gridStore }).__gridStore = gridStore;

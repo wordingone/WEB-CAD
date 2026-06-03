@@ -14,6 +14,7 @@ import { subscribe as subscribeAppState, getState } from "../app-state";
 import { purgeStarterClusters, STARTER_IDS } from "./starter-clusters";
 import { captureViewport } from "../agent/viewport-capture";
 import { ingestGhDef, parseGhDefJson, type GhDefSpec } from "../gh/gh-def-ingester";
+import { registerGraph } from "../gh/gh-component-graph";
 
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -748,6 +749,10 @@ export class SkillCanvas {
 
   private _addGhDefNode(spec: GhDefSpec, label: string | undefined, x: number, y: number): void {
     const desc = ingestGhDef(spec);
+    // Register inline graphs so GhComponentGraph_Evaluator can find them at run time.
+    if (desc.ghDef.inlineGraphId && desc.ghDef.components?.length) {
+      registerGraph(desc.ghDef.inlineGraphId, desc.ghDef);
+    }
     this._graph.nodes.push({
       id: crypto.randomUUID(), kind: "gh-def",
       ghDef: desc.ghDef,

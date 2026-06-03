@@ -18,6 +18,7 @@
 import type { DispatchArgs } from "../commands/dispatch";
 import type { Viewer } from "../viewer/viewer";
 import { Point3, Vector3, Plane, Interval } from "../nurbs/nurbs-primitives";
+import { evaluateComponentGraph } from "../gh/gh-component-graph";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § GhDataTree — core data structure
@@ -669,16 +670,15 @@ export function handle_GhMath_Components(args: DispatchArgs): unknown {
   }
 }
 
-// oracle: requires GhComponentGraph evaluator (web/src/gh/gh-component-graph.ts)
+// oracle: client-side GH evaluator — resolves portRefs to slider values, dispatches each component.
 export function handle_GhComponentGraph_Evaluator(
-  _args: DispatchArgs,
+  args: DispatchArgs,
   _viewer: Viewer | null,
-): { error: string; detail: string } {
-  return {
-    error: "NotYetImplemented",
-    detail:
-      "blocked: requires GhComponentGraph evaluator (web/src/gh/gh-component-graph.ts) — see docs/spec-334-grasshopper.md § A3",
-  };
+): unknown {
+  const graphId = args.graphId as string | undefined;
+  if (!graphId) return { error: "ArgValidationError", detail: "graphId required" };
+  const inputValues = (args.inputValues ?? {}) as Record<string, number>;
+  return evaluateComponentGraph(graphId, inputValues);
 }
 
 export function handle_GhComponentGraph_LazyEvaluation(
