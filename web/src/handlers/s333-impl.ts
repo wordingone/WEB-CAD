@@ -29,6 +29,7 @@ import {
   detectFormat,
   type StepLoadResult,
 } from "../io/loader";
+import { exportNurbsToStep } from "../nurbs/nurbs-kernel";
 import type { NurbsSurface as KernelNurbsSurface } from "../nurbs/nurbs-kernel";
 import {
   type NurbsSurface as SurfacesNurbsSurface,
@@ -587,31 +588,105 @@ export async function handle_SdGltfJsonExport(
   }
 }
 
-// ── C++ blocked stubs ─────────────────────────────────────────────────────
+// ── SdStepWrite ───────────────────────────────────────────────────────────
 
 /**
- * kern_step_write stub.
- *
- * C++ function needed:
- *   // kern_step_write
- *   // Signature: std::vector<uint8_t> kern_step_write(
- *   //   const BRep_Builder_Data& brep,  // OCCT BRep topology
- *   //   StepScheme scheme               // AP203 | AP214 | AP242
- *   // );
- *   // Returns: STEP AP203/242 encoded bytes (STEP Part 21 / ISO 10303-21).
- *
- * Until kern_step_write is compiled into kern.wasm, STEP export routes
- * through the replicad worker's existing "step" export path in dom-events.ts.
- * This stub is registered so dispatch routing resolves cleanly.
+ * Convert nurbs-surfaces.ts NurbsSurface (OpenNURBS knot convention) →
+ * nurbs-kernel.ts NurbsSurface (STEP knot convention, used by exportNurbsToStep).
+ * OpenNURBS knots are the STEP full knot vector with first and last values dropped:
+ *   stepKnots = [openKnots[0], ...openKnots, openKnots[last]]
  */
-export function handle_SdStepWriteStub(
+function surfacesNurbsToKernelNurbs(s: SurfacesNurbsSurface): KernelNurbsSurface {
+  const [oU, oV] = s.order;
+  const [nU, nV] = s.cvCount;
+  const degreeU = oU - 1;
+  const degreeV = oV - 1;
+  const dim = s.dim;
+  const openKU = s.knots[0], openKV = s.knots[1];
+  const knotsU = [openKU[0]!, ...openKU, openKU[openKU.length - 1]!];
+  const knotsV = [openKV[0]!, ...openKV, openKV[openKV.length - 1]!];
+  const controlPoints: [number, number, number][] = [];
+  const weights: number[] = [];
+  for (let i = 0; i < nU; i++) {
+    for (let j = 0; j < nV; j++) {
+      const base = i * s.cvStride[0] + j * s.cvStride[1];
+      const w = s.isRational && dim >= 4 ? (s.cvs[base + 3] ?? 1) : 1;
+      const wSafe = w !== 0 ? w : 1;
+      weights.push(w);
+      controlPoints.push([
+        s.isRational ? (s.cvs[base] ?? 0) / wSafe : (s.cvs[base] ?? 0),
+        s.isRational ? (s.cvs[base + 1] ?? 0) / wSafe : (s.cvs[base + 1] ?? 0),
+        s.isRational ? (s.cvs[base + 2] ?? 0) / wSafe : (s.cvs[base + 2] ?? 0),
+      ]);
+    }
+  }
+  return { degreeU, degreeV, countU: nU, countV: nV, controlPoints, weights, knotsU, knotsV };
+}
+
+type RunWorkerResult = { step: ArrayBuffer; bounds: { min: [number,number,number]; max: [number,number,number] } };
+
+/**
+ * SdStepWrite — export a scene object or explicit replicad shape to STEP.
+ *
+ * Export routes (tried in order):
+ *   A. replicadJs arg     → replicad-opencascadejs OCCT worker → ISO 10303-21 solid/shell
+ *   B. id + userData.chain → OCCT worker (chain is stored replicad JS from scene creation)
+ *   C. id + canonical nurbs-ts NurbsSurface → exportNurbsToStep (pure TS, B_SPLINE_SURFACE_WITH_KNOTS)
+ *
+ * Response: { written, bytes, path, via } or { error }.
+ * Also sets window.__lastStepExport = { filename, bytes: ArrayBuffer } for cert access.
+ */
+export async function handle_SdStepWrite(
   args: Record<string, unknown>,
-): { error: string; detail: string } {
-  const _filename = (args.filename as string | undefined) ?? "model.step";
-  return notImplemented(
-    "SdStepWrite",
-    "blocked: kern_step_write not yet compiled into kern.wasm — use SdExport format=step (replicad worker path)",
-  );
+  viewer: Viewer,
+): Promise<{ written?: boolean; bytes?: number; path?: string; via?: string; error?: string }> {
+  const filename = (args.filename as string | undefined) ?? "model.step";
+  const runWorker = (window as any).__runWorkerJs as ((js: string) => Promise<RunWorkerResult>) | undefined;
+
+  // Path A: explicit replicad JS string
+  const replicadJs = args.replicadJs as string | undefined;
+  if (replicadJs) {
+    if (!runWorker) return { error: "__runWorkerJs hook not available — call initDomEvents first" };
+    const { step } = await runWorker(replicadJs);
+    if (!step.byteLength) return { error: "replicad worker returned empty STEP" };
+    triggerDownload(new Blob([step], { type: "model/step" }), filename);
+    (window as any).__lastStepExport = { filename, bytes: step };
+    return { written: true, bytes: step.byteLength, path: filename, via: "replicad-opencascadejs" };
+  }
+
+  // Path B / C: resolve scene object by id
+  const objId = (args.id ?? args.object_id ?? args.uuid) as string | undefined;
+  if (!objId) return { error: "SdStepWrite: provide id or replicadJs" };
+  const scene = viewer.getScene();
+  const obj = scene.getObjectByProperty("uuid", objId) as (THREE.Object3D & { userData: Record<string, unknown> }) | undefined;
+  if (!obj) return { error: `SdStepWrite: object not found: ${objId}` };
+
+  // Path B: userData.chain has stored replicad JS (present on walls, beams, columns, boxes, etc.)
+  const chain = obj.userData.chain as string | undefined;
+  if (chain && chain.length > 0) {
+    if (!runWorker) return { error: "__runWorkerJs hook not available" };
+    // Worker expects JS with top-level `const` declarations; chain already has this form.
+    const { step } = await runWorker(chain);
+    if (!step.byteLength) return { error: "replicad worker returned empty STEP from object chain" };
+    triggerDownload(new Blob([step], { type: "model/step" }), filename);
+    (window as any).__lastStepExport = { filename, bytes: step };
+    return { written: true, bytes: step.byteLength, path: filename, via: "replicad-opencascadejs/chain" };
+  }
+
+  // Path C: canonical nurbs-ts NurbsSurface → pure TS STEP writer
+  const store = (viewer as any).getCanonicalGeometryStore?.();
+  const record = store?.resolveObjectOrAncestor(obj as any);
+  if (record?.kind === "surface" && record.surface.kind === "nurbs") {
+    const kernelSurface = surfacesNurbsToKernelNurbs(record.surface as SurfacesNurbsSurface);
+    const stepBytes = exportNurbsToStep(kernelSurface);
+    const stepBuffer = stepBytes.buffer.slice(stepBytes.byteOffset, stepBytes.byteOffset + stepBytes.byteLength) as ArrayBuffer;
+    triggerDownload(new Blob([stepBuffer], { type: "model/step" }), filename);
+    (window as any).__lastStepExport = { filename, bytes: stepBuffer };
+    return { written: true, bytes: stepBytes.byteLength, path: filename, via: "nurbs-ts/exportNurbsToStep" };
+  }
+
+  const kind = record?.kind ?? "unknown";
+  return { error: `SdStepWrite: no export path for object (kind=${kind}, chain=none) — add replicadJs arg or use an object with userData.chain` };
 }
 
 /**
@@ -696,8 +771,9 @@ export function registerS333Handlers(viewer: Viewer, _scenePanel: ScenePanel): v
     return handle_SdGltfJsonExport(args as Record<string, unknown>, viewer);
   });
 
-  // C++ blocked stubs — registered so dispatch resolves without crashing
-  registerHandler("SdStepWrite", (args) => handle_SdStepWriteStub(args as Record<string, unknown>));
+  // SdStepWrite — replicad-opencascadejs OCCT path (chain or replicadJs arg)
+  //               + nurbs-ts surface path (exportNurbsToStep pure TS)
+  registerHandler("SdStepWrite", async (args) => handle_SdStepWrite(args as Record<string, unknown>, viewer));
   registerHandler("SdDwgRead",   (args) => handle_SdDwgReadStub(args as Record<string, unknown>));
   registerHandler("SdIgesWriteNurbs", (args) => handle_SdIgesWriteNurbsStub(args as Record<string, unknown>));
 }

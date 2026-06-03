@@ -7113,12 +7113,18 @@
         type: string
         description: "[optional] Download filename"
         default: "model.step"
+      id:
+        type: string
+        description: "[optional] UUID of scene object to export"
+      replicadJs:
+        type: string
+        description: "[optional] Explicit replicad JS (routes to OCCT worker)"
     required: []
-  topology_role: system
+  topology_role: io
   kg_predicates: []
   synonyms: [export step, save step, step export, write step, save as step]
-  note: "Blocked: kern_step_write not yet in kern.wasm. Returns NotYetImplemented."
-  kernel: stub
+  note: "Routes: replicadJs arg or userData.chain → replicad-opencascadejs OCCT; canonical nurbs-ts NurbsSurface → exportNurbsToStep."
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdDwgRead
