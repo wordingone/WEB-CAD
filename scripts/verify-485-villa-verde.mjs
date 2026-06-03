@@ -111,6 +111,25 @@ console.log();
 if (!booted) { fail("boot", "boot timeout"); ws.close(); process.exit(1); }
 console.log(`[verify-485] booted in ${Math.round((Date.now()-bootStart)/1000)}s`);
 
+// ── Warmup wait: hold until "Warming up N%" overlay clears ────────────────────
+console.log("[verify-485] waiting for warmup overlay to clear...");
+const warmupStart = Date.now();
+let warmupCleared = false;
+while (Date.now() - warmupStart < 300_000) {
+  try {
+    const bodyTxt = await evaluate(`document.body.innerText`);
+    if (!String(bodyTxt).includes("Warming up") && !String(bodyTxt).match(/\b\d+%/)) {
+      warmupCleared = true; break;
+    }
+    if (!String(bodyTxt).includes("Warming up")) { warmupCleared = true; break; }
+  } catch {}
+  process.stdout.write("W");
+  await delay(5_000);
+}
+console.log();
+if (!warmupCleared) console.warn("[verify-485] warmup overlay still present after 5min — proceeding anyway");
+else console.log(`[verify-485] warmup cleared in ${Math.round((Date.now()-warmupStart)/1000)}s`);
+
 // ── Phase 2: Register + evaluate Villa Verde ──────────────────────────────────
 console.log("[verify-485] Phase 2: Villa Verde GhComponentGraph gates");
 await evaluate(`window.__dispatchLedger = [];`);
@@ -228,15 +247,30 @@ if (winEntries.length >= 5 && doorEntries.length >= 1) {
   fail("T_WINDOWS", `insufficient fenestration — want ≥5 SdWindow + ≥1 SdDoor, got ${winEntries.length}+${doorEntries.length}. Entries: [${all || "none"}]`);
 }
 
-// T_VOID_CUTS: all openings must have voidCut=true (inset into wall confirmed)
-const openingEntries = [...winEntries, ...doorEntries];
-const voidCutMap = openingEntries.map(e => ({ verb: e.verb, idx: openingEntries.indexOf(e), voidCut: e.result?.voidCut }));
-const allVoidCut = voidCutMap.every(v => v.voidCut === true);
-if (allVoidCut) {
-  pass("T_VOID_CUTS", `all ${openingEntries.length} openings voidCut=true`);
+// T_VOID_CUTS: verify all openings are wall-hosted (userData.hostExpressID set by handler on voidCut=true).
+// Ledger does not store handler result field, so query scene objects directly.
+const voidCutQuery = await evaluate(`
+  (() => {
+    const scene = window.__viewer?.scene;
+    if (!scene) return { total: 0, withHost: 0, creators: [] };
+    let total = 0, withHost = 0, creators = [];
+    scene.traverse(obj => {
+      const c = obj.userData?.creator;
+      if (c === 'window' || c === 'door') {
+        total++;
+        if (obj.userData?.hostExpressID) withHost++;
+        creators.push({ c, hasHost: !!obj.userData?.hostExpressID });
+      }
+    });
+    return { total, withHost, creators };
+  })()
+`).catch(() => ({ total: 0, withHost: 0, creators: [] }));
+
+const expectedOpenings = winEntries.length + doorEntries.length;
+if (voidCutQuery.withHost >= expectedOpenings) {
+  pass("T_VOID_CUTS", `${voidCutQuery.withHost}/${voidCutQuery.total} openings have hostExpressID (voidCut=true)`);
 } else {
-  const bad = voidCutMap.filter(v => v.voidCut !== true);
-  fail("T_VOID_CUTS", `voidCut=false on: ${JSON.stringify(bad)}`);
+  fail("T_VOID_CUTS", `only ${voidCutQuery.withHost}/${voidCutQuery.total} openings have hostExpressID — expected ${expectedOpenings}. creators: ${JSON.stringify(voidCutQuery.creators)}`);
 }
 
 // T_SCREENSHOT: front elevation — camera at (3.048, -12, 3.1) looking at (3.048, 0, 3.1)
