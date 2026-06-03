@@ -96,6 +96,32 @@ function formatWallLine(wall: WallEntry): string {
   return `  [[${x1.toFixed(4)},${y1.toFixed(4)}],[${x2.toFixed(4)},${y2.toFixed(4)}]] h=${hM}m(METRES;NOT_${hWrong})`;
 }
 
+// Detect "fuse/union/merge all" intent — applies regardless of turn order.
+function detectFuseAll(prompt: string): boolean {
+  return /\b(fuse|union|merge|combine|join)\b.{0,60}\ball\b|\ball\b.{0,60}\b(fuse|union|merge|combine|join)\b/i.test(
+    prompt,
+  );
+}
+
+// Collect UUIDs of brep meshes currently in the scene.
+function collectBrepUuids(): string[] {
+  const win = window as unknown as {
+    __viewer?: { scene?: { traverse: (cb: (o: unknown) => void) => void } };
+  };
+  const scene = win.__viewer?.scene;
+  if (!scene) return [];
+  const uuids: string[] = [];
+  scene.traverse((child) => {
+    const c = child as {
+      uuid?: string;
+      isMesh?: boolean;
+      userData?: { kind?: string; creator?: string };
+    };
+    if (c.isMesh && c.uuid && (c.userData?.kind || c.userData?.creator)) uuids.push(c.uuid);
+  });
+  return uuids;
+}
+
 /**
  * Returns a context string to prepend to the user's prompt for continuation turns,
  * or null if no augmentation is needed.
@@ -108,6 +134,22 @@ export function buildContextAugmentation(
   prompt: string,
   history: Array<{ role: string; content: string }>,
 ): string | null {
+  // Fuse-all: inject exact scene UUIDs so the model emits one n-ary call instead of
+  // creating new geometry or splitting into pairwise calls. Runs before the first-turn
+  // bail because the model has no scene awareness at all without this.
+  if (detectFuseAll(prompt)) {
+    const uuids = collectBrepUuids();
+    if (uuids.length >= 2) {
+      const uuidList = uuids.map((u) => `"${u}"`).join(",");
+      return (
+        `[CONTEXT] ${uuids.length} brep objects are in the scene. ` +
+        `Fuse ALL ${uuids.length} using ONE SdBooleanUnion call: ` +
+        `objects=[${uuidList}]. ` +
+        `Do NOT create new objects. Do NOT split into multiple calls. ONE call, all objects.\n`
+      );
+    }
+  }
+
   // No augmentation on first turn — nothing in history yet.
   if (history.length === 0) return null;
 

@@ -222,14 +222,11 @@ console.log("[verify-459] Phase 4: sending NL fuse prompt (multi-object Composit
 // Keep the 7 walls+slabs in scene — do NOT clear. Reset ledger only.
 await evaluate(`window.__dispatchLedger = [];`);
 
-// UUID-list prompt: explicit UUIDs bypass integer-index drift between calls.
-// _resolveObjectItem handles plain uuid strings via scene.getObjectByProperty (recursive).
-const uuidList = uuids.map(u => `"${u.uuid}"`).join(", ");
+// Natural-language prompt — buildContextAugmentation injects the exact UUID list from scene
+// when it detects "fuse all" intent, so the model receives the full n-ary objects array
+// without needing integer-index resolution.
 const EXPECTED_DELTA = -(uuids.length - 1); // 7 objects → 1 fused = delta -6
-const NL_PROMPT =
-  `Fuse all ${uuids.length} solids into one composite solid. ` +
-  `Use SdBooleanUnion in a single call with the objects array containing all of them: ` +
-  `objects=[${uuidList}].`;
+const NL_PROMPT = `Fuse all walls and slabs into a single composite solid.`;
 
 // Wait for send button ready before injecting (mirrors validate-house-2storey.mjs)
 let btnReady = false;
