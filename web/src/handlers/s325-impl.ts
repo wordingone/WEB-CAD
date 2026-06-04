@@ -746,4 +746,12 @@ export function registerSurface325Handlers(viewer: Viewer): void {
     detail: "blocked: requires Jacobian SVD analysis + NURBS IsoStatus in kern.wasm",
     verb: "SdSingularity",
   }));
+
+  // SdTrim — edge/curve trim against a cutting edge. Requires SSI + BRep trim loop.
+  // C++ signature needed: kern_edge_trim(sourcePtr, cutterPtr, side) -> edgePtr
+  registerHandler("SdTrim", (_args) => ({
+    error: "NotYetImplemented",
+    detail: "blocked: requires SSI (surface-surface intersection) + BRep trim loop in kern.wasm; see SdTrimSurface for parametric surface trim",
+    verb: "SdTrim",
+  }));
 }
