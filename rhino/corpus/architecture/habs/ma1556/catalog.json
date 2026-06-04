@@ -1,0 +1,105 @@
+{
+  "item_id": "ma1556",
+  "habs_id": "HABS MASS,10-NANT,97-",
+  "building_name": "Hinchman House",
+  "location": "7 Milk Street, Nantucket, Nantucket County, MA",
+  "period": "Federal, early 19th century",
+  "cdn_group": "ma1500",
+  "cdn_pattern": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/{code}r.jpg",
+  "source_url": "https://www.loc.gov/pictures/collection/hh/item/ma1556/",
+  "license": "PD",
+  "sheet_count": 11,
+  "primary_elevation_sheet": "00009",
+  "primary_elevation_crop": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00009_crop_facade.jpg",
+  "primary_elevation_crop_sha": "006c4065840d",
+  "sheets": [
+    {
+      "code": "00001",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00001r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00001.jpg",
+      "size_bytes": 67333,
+      "sha256_prefix": "36df5223aa3e",
+      "title": "Site Plan and Ground Floor Plan"
+    },
+    {
+      "code": "00002",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00002r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00002.jpg",
+      "size_bytes": 49085,
+      "sha256_prefix": "94e27bde1133",
+      "title": "Second Floor Plan and Door/Window Schedule"
+    },
+    {
+      "code": "00003",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00003r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00003.jpg",
+      "size_bytes": 54117,
+      "sha256_prefix": "8f1c15432439",
+      "title": "North Elevation"
+    },
+    {
+      "code": "00004",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00004r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00004.jpg",
+      "size_bytes": 46044,
+      "sha256_prefix": "29601d12f346",
+      "title": "West Elevation"
+    },
+    {
+      "code": "00005",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00005r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00005.jpg",
+      "size_bytes": 7237,
+      "sha256_prefix": "7163161fb900",
+      "title": "(small/unavailable)"
+    },
+    {
+      "code": "00006",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00006r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00006.jpg",
+      "size_bytes": 38467,
+      "sha256_prefix": "8fae07f0dbaf",
+      "title": "East Elevation"
+    },
+    {
+      "code": "00007",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00007r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00007.jpg",
+      "size_bytes": 43496,
+      "sha256_prefix": "b620d5102d6e",
+      "title": "North Elevation (detail)"
+    },
+    {
+      "code": "00008",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00008r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00008.jpg",
+      "size_bytes": 37827,
+      "sha256_prefix": "6218fd3d145c",
+      "title": "West Elevation"
+    },
+    {
+      "code": "00009",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00009r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00009.jpg",
+      "size_bytes": 46837,
+      "sha256_prefix": "9bf75dd70773",
+      "title": "South Elevation"
+    },
+    {
+      "code": "00010",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00010r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00010.jpg",
+      "size_bytes": 39285,
+      "sha256_prefix": "9e5c708c4616",
+      "title": "Section A-A"
+    },
+    {
+      "code": "00011",
+      "cdn_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/ma/ma1500/ma1556/sheet/00011r.jpg",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00011.jpg",
+      "size_bytes": 39566,
+      "sha256_prefix": "2f4e11266fbd",
+      "title": "Section B-B"
+    }
+  ]
+}

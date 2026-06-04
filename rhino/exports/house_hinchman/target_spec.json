@@ -1,0 +1,119 @@
+{
+  "spec": {
+    "gf_bay_count": 3,
+    "uf_bay_count": 3,
+    "door_type": "single",
+    "door_bay_position": 1,
+    "gf_window_count": 3,
+    "storey_count": 2,
+    "roof_type": "gable",
+    "roof_pitch_estimate": "steep",
+    "wing_present": true,
+    "wing_side": "left",
+    "wing_storeys": 1,
+    "chimney_count": 2,
+    "chimney_position": "end_walls"
+  },
+  "raw_reads": [
+    {
+      "gf_bay_count": 3,
+      "uf_bay_count": 2,
+      "door_type": "single",
+      "door_bay_position": 1,
+      "gf_window_count": 2,
+      "storey_count": 2,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "steep",
+      "wing_present": true,
+      "wing_side": "left",
+      "wing_storeys": 1,
+      "chimney_count": 2,
+      "chimney_position": "end_walls"
+    },
+    {
+      "gf_bay_count": 3,
+      "uf_bay_count": 3,
+      "door_type": "single",
+      "door_bay_position": 1,
+      "gf_window_count": 3,
+      "storey_count": 2,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "steep",
+      "wing_present": true,
+      "wing_side": "left",
+      "wing_storeys": 1,
+      "chimney_count": 2,
+      "chimney_position": "end_walls"
+    },
+    {
+      "gf_bay_count": 4,
+      "uf_bay_count": 3,
+      "door_type": "single",
+      "door_bay_position": 1,
+      "gf_window_count": 4,
+      "storey_count": 2,
+      "roof_type": "gable",
+      "roof_pitch_estimate": "steep",
+      "wing_present": true,
+      "wing_side": "left",
+      "wing_storeys": 1,
+      "chimney_count": 1,
+      "chimney_position": "interior_ridge"
+    }
+  ],
+  "majority_vote_method": "3 parallel Haiku reads, majority per field",
+  "source_sheet": "ma1556/00009",
+  "source_crop": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/ma1556/00009_crop_facade.jpg",
+  "source_crop_sha": "006c4065840d",
+  "building_name": "Hinchman House",
+  "habs_id": "HABS MASS,10-NANT,97-",
+  "location": "7 Milk Street, Nantucket, MA",
+  "structural_diff_from_prior_targets": {
+    "vs_ramsey": {
+      "bay_count": "3 vs 3 \u2014 SAME",
+      "door_position": "bay 1 (leftmost) vs bay 2 (center) \u2014 DIFFERENT",
+      "wing": "present vs present \u2014 SAME (but left vs right)",
+      "chimney": "end_walls vs end_walls \u2014 SAME",
+      "roof_pitch": "steep vs moderate \u2014 DIFFERENT",
+      "storeys": "2 vs 2 \u2014 SAME"
+    },
+    "vs_maccoll": {
+      "bay_count": "3 vs 5 \u2014 DIFFERENT",
+      "door_position": "bay 1 (leftmost) vs bay 2 (center) \u2014 DIFFERENT",
+      "wing": "present vs absent \u2014 DIFFERENT",
+      "chimney": "end_walls vs end_walls \u2014 SAME",
+      "roof_pitch": "steep vs moderate \u2014 DIFFERENT",
+      "storeys": "2 vs 2 \u2014 SAME"
+    }
+  },
+  "generator_gaps": {
+    "wing_side": "generator only produces right wings; spec shows left wing; scored as wing-present agnostic"
+  },
+  "scoring_rubric": {
+    "dimensions": 5,
+    "pass_threshold": 4,
+    "dimensions_detail": {
+      "storey_count": {
+        "question": "Does the elevation show exactly 2 full storeys?",
+        "pass_criterion": "2-storey main block visible"
+      },
+      "roof_type_pitch": {
+        "question": "Is the roof a steep gable?",
+        "pass_criterion": "gable roof with steep pitch (ridge high relative to eaves)"
+      },
+      "fenestration": {
+        "question": "3 bays, single door at leftmost bay (bay 1)?",
+        "pass_criterion": "3 bays; leftmost bay has a door opening, flanking 2 bays have windows"
+      },
+      "massing_wing": {
+        "question": "Is a lower wing present off the main block?",
+        "pass_criterion": "wing visible on either side (generator vocabulary: right-only; side not scored)",
+        "wing_side_note": "frozen spec: left side; generator: right side; side-agnostic scoring"
+      },
+      "chimney": {
+        "question": "Two chimneys at end walls?",
+        "pass_criterion": "2 chimney stacks at gable end walls"
+      }
+    }
+  }
+}

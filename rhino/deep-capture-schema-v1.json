@@ -1,0 +1,433 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "avir/deep-capture/v1",
+  "title": "Deep-Capture Session Record",
+  "description": "Chronological-causal + spatial-semantic record of a Rhino/GH design session. Model-agnostic — no model-card-specific fields. v1.0.1.",
+  "type": "object",
+  "required": ["session", "event_log", "element_catalog", "captures"],
+  "properties": {
+
+    "session": {
+      "type": "object",
+      "description": "Session-level metadata",
+      "required": ["id", "captured_at", "rhino_version", "schema_version"],
+      "properties": {
+        "id":               { "type": "string" },
+        "captured_at":      { "type": "string", "format": "date-time" },
+        "rhino_version":    { "type": "string" },
+        "grasshopper_version": { "type": ["string", "null"] },
+        "schema_version":   { "type": "string", "const": "1.0.1" },
+        "session_intent":   {
+          "type": "string",
+          "description": "Top-level NL design goal, e.g. 'single-family house, 2 storeys, pitched roof, 11x8.5m footprint'"
+        },
+        "design_target": {
+          "type": ["object", "null"],
+          "description": "Reference the session reproduces — grounds the capture in a precedent drawing so the asset can be scored against ground truth (#453/#454). Null if exploratory.",
+          "properties": {
+            "corpus_item_id": {
+              "type": ["string", "null"],
+              "description": "ID in the precedent corpus (B:/M/cad-reference-corpus/ or #453 architecture data category)"
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable description of the reference, e.g. 'Schultz house, front elevation from drawing set'"
+            },
+            "drawing_path": {
+              "type": ["string", "null"],
+              "description": "Local path to the reference drawing/image the design was matched against"
+            },
+            "source_url":   { "type": ["string", "null"] }
+          }
+        },
+        "source_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "GH definition files, .3dm files, Python scripts used in this session"
+        },
+        "rhino_doc_path": { "type": ["string", "null"] }
+      }
+    },
+
+    "event_log": {
+      "type": "array",
+      "description": "Ordered causal chain. Every event MUST have a non-empty, non-placeholder intent — broken causal links make the asset invalid. Validator rejects intent=='FILL_IN' or ''.",
+      "items": {
+        "type": "object",
+        "required": ["seq", "timestamp", "kind", "intent"],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "description": "Monotone sequence number, 1-based"
+          },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "kind": {
+            "type": "string",
+            "enum": ["mcp_tool", "python_script", "rhino_command", "parameter_change", "observation", "decision"],
+            "description": "mcp_tool = named RhinoMCP tool call; python_script = run_python payload; rhino_command = raw Rhino command string; parameter_change = GH slider/param set; observation = read of geometry state; decision = reasoning step"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 10,
+            "not": { "enum": ["FILL_IN", "FILL_IN: top-level design goal", "TODO", ""] },
+            "description": "Natural-language WHY. Required, non-empty, non-placeholder. Validator rejects 'FILL_IN' or empty strings — a causal link with no intent is a broken link."
+          },
+          "mutates_geometry": {
+            "type": ["boolean", "null"],
+            "description": "True if this event materially changes geometry (element committed, boolean op, GH re-solve/slider change that re-bakes). Drives mid-session snapshot capture."
+          },
+          "tool_name":    { "type": ["string", "null"] },
+          "tool_args":    {
+            "description": "Raw arguments passed. Redact large script bodies to script_ref."
+          },
+          "tool_result_summary": {
+            "type": ["string", "null"],
+            "description": "One-line outcome, e.g. '42 objects baked on GH_WALLS, IsSolid=True for 1 brep'"
+          },
+          "script_ref": {
+            "type": ["string", "null"],
+            "description": "Relative path to .py file if run_python was used with a large body"
+          },
+          "derived_parameters": {
+            "type": ["object", "null"],
+            "description": "Explicit numerical parameters the intent resolved to, e.g. {wall_thickness_m: 0.25, floor_height_m: 2.8, num_floors: 2}",
+            "additionalProperties": {}
+          },
+          "caused_by_seq": {
+            "type": ["integer", "null"],
+            "description": "seq of the event this was a direct causal response to (null = initial or independent)"
+          },
+          "post_event_element_snapshot": {
+            "type": ["string", "null"],
+            "description": "snapshot_label in element_catalog for the geometry state captured immediately after this event. Only populated for geometry-mutating events (mutates_geometry=true)."
+          }
+        }
+      }
+    },
+
+    "element_catalog": {
+      "type": "array",
+      "description": "Per-element geometry + IFC semantics. One entry per distinct geometric object. IFC class per element, NOT per layer. Mid-session snapshots are separate catalog entries with a snapshot_label, linked from event_log.post_event_element_snapshot.",
+      "items": {
+        "type": "object",
+        "required": ["id", "ifc_class", "layer", "geometry"],
+        "properties": {
+          "id":           { "type": "string", "description": "Stable ID, e.g. 'wall_front_gf_01'" },
+          "snapshot_label": {
+            "type": ["string", "null"],
+            "description": "Non-null = this is a mid-session snapshot. Value is the label (e.g. 'after_event_3'). Final-state entries have null."
+          },
+          "ifc_class": {
+            "type": "string",
+            "enum": [
+              "IfcWall", "IfcWallStandardCase",
+              "IfcWindow", "IfcDoor",
+              "IfcSlab", "IfcRoof", "IfcRoofType",
+              "IfcStair", "IfcStairFlight",
+              "IfcColumn", "IfcBeam",
+              "IfcChimney", "IfcRailing", "IfcPlate",
+              "IfcSpace", "IfcZone",
+              "IfcBuildingStorey", "IfcBuilding", "IfcSite",
+              "IfcOpeningElement",
+              "IfcFurnishingElement",
+              "IfcOther"
+            ],
+            "description": "Per-element IFC class. A single GH_WALLS layer bakes N wall breps — each gets IfcWall individually. IfcOther only when no specific class fits."
+          },
+          "layer":        { "type": "string" },
+          "object_name":  { "type": ["string", "null"] },
+          "rhino_guid":   { "type": ["string", "null"] },
+          "storey":       { "type": ["string", "null"], "description": "'GF' | 'UF' | 'ROOF' | null" },
+          "geometry": {
+            "type": "object",
+            "required": ["is_solid", "bbox"],
+            "properties": {
+              "is_solid":     { "type": "boolean" },
+              "face_count":   { "type": ["integer", "null"] },
+              "vertex_count": { "type": ["integer", "null"] },
+              "volume_m3":    { "type": ["number", "null"] },
+              "area_m2":      { "type": ["number", "null"] },
+              "bbox": {
+                "type": "object",
+                "required": ["min", "max"],
+                "properties": {
+                  "min": { "$ref": "#/$defs/point3d" },
+                  "max": { "$ref": "#/$defs/point3d" }
+                }
+              },
+              "centroid": { "$ref": "#/$defs/point3d" }
+            }
+          },
+          "material": {
+            "type": ["object", "null"],
+            "properties": {
+              "display_color_hex": { "type": "string" },
+              "render_color_hex":  { "type": ["string", "null"] },
+              "transparency":      { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          },
+          "user_attributes": {
+            "type": "object",
+            "description": "Rhino object user-text key-value pairs",
+            "additionalProperties": { "type": "string" }
+          },
+          "ifc_property_sets": {
+            "type": ["object", "null"],
+            "description": "IFC Pset_* properties keyed by Pset name, then property name",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        }
+      }
+    },
+
+    "spatial_graph": {
+      "type": "object",
+      "description": "Semantic spatial relationships between elements + storey definitions",
+      "properties": {
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["subject_id", "predicate", "object_id"],
+            "properties": {
+              "subject_id": { "type": "string" },
+              "predicate": {
+                "type": "string",
+                "enum": ["bounds", "contains", "supports", "hosted_in", "adjacent_to", "connects_to", "covers", "part_of"]
+              },
+              "object_id": { "type": "string" },
+              "notes":     { "type": ["string", "null"] }
+            }
+          }
+        },
+        "storeys": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "elevation_m", "height_m"],
+            "properties": {
+              "id":          { "type": "string" },
+              "label":       { "type": "string" },
+              "elevation_m": { "type": "number" },
+              "height_m":    { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+
+    "gh_graph": {
+      "type": ["object", "null"],
+      "description": "Grasshopper definition snapshot via get_canvas_graph. get_canvas_graph exists in our RhinoMCP (GH1+GH2 tools confirmed). Must be called during the session, not post-hoc.",
+      "properties": {
+        "definition_path": { "type": ["string", "null"] },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "type_name"],
+            "properties": {
+              "id":        { "type": "string" },
+              "type_name": { "type": "string" },
+              "nickname":  { "type": ["string", "null"] },
+              "inputs":    { "type": "array", "items": { "$ref": "#/$defs/gh_param" } },
+              "outputs":   { "type": "array", "items": { "$ref": "#/$defs/gh_param" } }
+            }
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from_component", "from_param", "to_component", "to_param"],
+            "properties": {
+              "from_component": { "type": "string" },
+              "from_param":     { "type": "string" },
+              "to_component":   { "type": "string" },
+              "to_param":       { "type": "string" }
+            }
+          }
+        },
+        "sliders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "value", "min", "max"],
+            "properties": {
+              "id":    { "type": "string" },
+              "name":  { "type": "string" },
+              "value": { "type": "number" },
+              "min":   { "type": "number" },
+              "max":   { "type": "number" },
+              "unit":  { "type": ["string", "null"] }
+            }
+          }
+        },
+        "parameter_snapshots": {
+          "type": "array",
+          "description": "Slider state at geometry-mutating events (event_log.mutates_geometry=true)",
+          "items": {
+            "type": "object",
+            "required": ["event_seq", "slider_values"],
+            "properties": {
+              "event_seq":     { "type": "integer" },
+              "slider_values": {
+                "type": "object",
+                "additionalProperties": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "captures": {
+      "type": "array",
+      "description": "Visual captures. Structural enforcement: elevation_* and plan_top roles REQUIRE projection=parallel (see allOf if-then below each item). This is not a documentation note — it is a schema constraint. A perspective capture with an elevation_* role is INVALID.",
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "path", "sha256_prefix", "view"],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "role": { "enum": ["elevation_front", "elevation_right", "elevation_left", "elevation_back", "plan_top"] }
+              },
+              "required": ["role"]
+            },
+            "then": {
+              "properties": {
+                "view": {
+                  "required": ["projection"],
+                  "properties": {
+                    "projection": { "const": "parallel" }
+                  }
+                }
+              },
+              "required": ["view"]
+            }
+          }
+        ],
+        "properties": {
+          "id":   { "type": "string" },
+          "role": {
+            "type": "string",
+            "enum": [
+              "perspective_hero",
+              "elevation_front", "elevation_right", "elevation_left", "elevation_back",
+              "plan_top",
+              "section",
+              "close_up",
+              "aerial"
+            ]
+          },
+          "path":          { "type": "string" },
+          "sha256_prefix": { "type": "string", "description": "First 12 hex chars of sha256(file bytes)" },
+          "size_bytes":    { "type": "integer" },
+          "event_seq": {
+            "type": ["integer", "null"],
+            "description": "event_log seq at capture time (null = final state)"
+          },
+          "view": {
+            "type": "object",
+            "required": ["projection", "display_mode"],
+            "properties": {
+              "projection": {
+                "type": "string",
+                "enum": ["perspective", "parallel"],
+                "description": "parallel = Rhino Parallel-projection (true orthographic). For elevation_* and plan_top the allOf constraint above makes 'perspective' invalid at the schema level."
+              },
+              "display_mode": {
+                "type": "string",
+                "enum": ["Rendered", "Shaded", "Wireframe", "Ghosted", "Technical", "Pen", "Arctic", "Raytraced"]
+              },
+              "rhino_named_view": {
+                "type": ["string", "null"],
+                "description": "Rhino built-in named view: 'Front', 'Right', 'Left', 'Back', 'Top' — these use Parallel projection by default"
+              },
+              "camera_location": { "$ref": "#/$defs/point3d" },
+              "camera_target":   { "$ref": "#/$defs/point3d" },
+              "width_px":    { "type": "integer" },
+              "height_px":   { "type": "integer" },
+              "edges_visible": { "type": "boolean" }
+            }
+          },
+          "visible_layers": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "hidden_layers": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "haiku_verdict": {
+            "type": ["object", "null"],
+            "description": "Gate-authoritative verdict requires evaluator='leo'. Engineer self-Haiku (eli/archie) is recorded as advisory only — does NOT constitute the gate pass.",
+            "properties": {
+              "pass":      { "type": "boolean" },
+              "summary":   { "type": "string" },
+              "evaluator": {
+                "type": "string",
+                "description": "'leo' = gate-authoritative. 'eli'/'archie' = advisory, per self-Haiku rule."
+              },
+              "is_gate_authoritative": {
+                "type": "boolean",
+                "description": "True only when evaluator='leo'. Validator enforces: pass=true + evaluator!='leo' does NOT count as gate-passed."
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "document_state": {
+      "type": ["object", "null"],
+      "description": "Rhino document global state at session end",
+      "properties": {
+        "layer_tree": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "full_path":    { "type": "string" },
+              "visible":      { "type": "boolean" },
+              "color_hex":    { "type": "string" },
+              "object_count": { "type": "integer" }
+            }
+          }
+        },
+        "render_settings": {
+          "type": ["object", "null"],
+          "additionalProperties": {}
+        },
+        "units":     { "type": "string" },
+        "tolerance": { "type": "number" }
+      }
+    }
+
+  },
+
+  "$defs": {
+    "point3d": {
+      "type": "object",
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" }
+      }
+    },
+    "gh_param": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name":      { "type": "string" },
+        "access":    { "type": "string", "enum": ["item", "list", "tree"] },
+        "type_hint": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

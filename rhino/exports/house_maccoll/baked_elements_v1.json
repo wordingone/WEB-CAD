@@ -1,0 +1,128 @@
+[
+  {
+    "id": "gh_floor_0",
+    "layer": "GH_FLOOR",
+    "guid": "9422be0d-98d4-4e6f-adea-86e0c1ad4142",
+    "face_count": 6,
+    "bbox": {
+      "xmin": -0.05,
+      "ymin": -0.05,
+      "zmin": -0.2,
+      "xmax": 16.05,
+      "ymax": 12.05,
+      "zmax": 0.0
+    }
+  },
+  {
+    "id": "gh_walls_1",
+    "layer": "GH_WALLS",
+    "guid": "c22a4964-bf29-458e-a1da-fdea711c439b",
+    "face_count": 49,
+    "bbox": {
+      "xmin": 0.0,
+      "ymin": -0.0,
+      "zmin": -0.0,
+      "xmax": 16.0,
+      "ymax": 12.0,
+      "zmax": 7.0
+    }
+  },
+  {
+    "id": "gh_door_2",
+    "layer": "GH_DOOR",
+    "guid": "44c7bf63-76bf-424c-b248-097c27413655",
+    "face_count": 6,
+    "bbox": {
+      "xmin": 7.94,
+      "ymin": -0.08,
+      "zmin": 0.0,
+      "xmax": 8.06,
+      "ymax": 0.33,
+      "zmax": 2.548
+    }
+  },
+  {
+    "id": "gh_roof_3",
+    "layer": "GH_ROOF",
+    "guid": "0d37d248-469b-4f31-a8b3-0069d630ee98",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 8.0,
+      "ymax": 12.5,
+      "zmax": 8.6
+    }
+  },
+  {
+    "id": "gh_roof_4",
+    "layer": "GH_ROOF",
+    "guid": "63fa658c-04fd-46d5-a863-51a6405a1a8e",
+    "face_count": 1,
+    "bbox": {
+      "xmin": 8.0,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 16.5,
+      "ymax": 12.5,
+      "zmax": 8.6
+    }
+  },
+  {
+    "id": "gh_roof_5",
+    "layer": "GH_ROOF",
+    "guid": "c00e5bbb-eb91-4106-b869-d31ae2f4ca17",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": -0.5,
+      "zmin": 7.0,
+      "xmax": 16.5,
+      "ymax": -0.5,
+      "zmax": 8.6
+    }
+  },
+  {
+    "id": "gh_roof_6",
+    "layer": "GH_ROOF",
+    "guid": "fe31e81b-b443-4d9d-9d64-3e95f4f1118f",
+    "face_count": 1,
+    "bbox": {
+      "xmin": -0.5,
+      "ymin": 12.5,
+      "zmin": 7.0,
+      "xmax": 16.5,
+      "ymax": 12.5,
+      "zmax": 8.6
+    }
+  },
+  {
+    "id": "gh_chim_7",
+    "layer": "GH_CHIM",
+    "guid": "9e0ff652-a30e-44d3-904f-c619e65ad166",
+    "face_count": 6,
+    "bbox": {
+      "xmin": -0.35,
+      "ymin": -0.15,
+      "zmin": 0.0,
+      "xmax": 0.35,
+      "ymax": 0.75,
+      "zmax": 10.1
+    }
+  },
+  {
+    "id": "gh_chim_8",
+    "layer": "GH_CHIM",
+    "guid": "c968dcac-cce8-4d5a-8fd6-1dcd2a496f1c",
+    "face_count": 6,
+    "bbox": {
+      "xmin": 15.65,
+      "ymin": -0.15,
+      "zmin": 0.0,
+      "xmax": 16.35,
+      "ymax": 0.75,
+      "zmax": 10.1
+    }
+  }
+]

@@ -1,0 +1,131 @@
+{
+  "item_id": "sc1182",
+  "habs_id": "HABS SC-876",
+  "building_name": "MacColl House",
+  "location": "1157 Highway 15/401 West, Bennettsville, Marlboro County, SC",
+  "period": "Federal/Greek Revival, c.1820s",
+  "source_url": "https://www.loc.gov/pictures/item/sc1182/",
+  "cdn_group": "sc1100",
+  "cdn_pattern": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/{code}r.jpg",
+  "license": "PD \u2014 Historic American Buildings Survey, public domain",
+  "sheets": [
+    {
+      "code": "00001",
+      "title": "Site Plan and Cover Sheet",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00001.jpg",
+      "sha256_prefix": "13657b446e69",
+      "size_bytes": 71905,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00001r.jpg",
+      "type": "floorplan"
+    },
+    {
+      "code": "00002",
+      "title": "First Floor Plan and Attic Floor Plan",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00002.jpg",
+      "sha256_prefix": "f82da796c1d9",
+      "size_bytes": 54187,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00002r.jpg",
+      "type": "floorplan"
+    },
+    {
+      "code": "00003",
+      "title": "South Elevation",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00003.jpg",
+      "sha256_prefix": "3ee3ac9dbf2b",
+      "size_bytes": 47464,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00003r.jpg",
+      "type": "elevation"
+    },
+    {
+      "code": "00004",
+      "title": "East Elevation",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00004.jpg",
+      "sha256_prefix": "7c1decfb17f4",
+      "size_bytes": 45372,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00004r.jpg",
+      "type": "elevation"
+    },
+    {
+      "code": "00005",
+      "title": "North Elevation",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00005.jpg",
+      "sha256_prefix": "4fe41cd57fa6",
+      "size_bytes": 45116,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00005r.jpg",
+      "type": "elevation"
+    },
+    {
+      "code": "00006",
+      "title": "West Elevation",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00006.jpg",
+      "sha256_prefix": "ae0a942e6c02",
+      "size_bytes": 44855,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00006r.jpg",
+      "type": "elevation"
+    },
+    {
+      "code": "00007",
+      "title": "Section",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00007.jpg",
+      "sha256_prefix": "656d67b82c5d",
+      "size_bytes": 48254,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00007r.jpg",
+      "type": "section"
+    },
+    {
+      "code": "00008",
+      "title": "Main Parlor Elevations",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00008.jpg",
+      "sha256_prefix": "8374c074e3ac",
+      "size_bytes": 53302,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00008r.jpg",
+      "type": "other"
+    },
+    {
+      "code": "00009",
+      "title": "Bedroom A Elevations",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00009.jpg",
+      "sha256_prefix": "7c51736a2a5c",
+      "size_bytes": 53905,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00009r.jpg",
+      "type": "other"
+    },
+    {
+      "code": "00010",
+      "title": "Bedroom B and C Elevations",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00010.jpg",
+      "sha256_prefix": "582f238310c6",
+      "size_bytes": 48031,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00010r.jpg",
+      "type": "other"
+    },
+    {
+      "code": "00011",
+      "title": "Attic Elevations",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00011.jpg",
+      "sha256_prefix": "2b92ff043764",
+      "size_bytes": 48203,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00011r.jpg",
+      "type": "other"
+    },
+    {
+      "code": "00012",
+      "title": "Door Details",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00012.jpg",
+      "sha256_prefix": "38358e8838ce",
+      "size_bytes": 41816,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00012r.jpg",
+      "type": "detail"
+    },
+    {
+      "code": "00013",
+      "title": "Window Details",
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/sc1182/00013.jpg",
+      "sha256_prefix": "35e3a5779db0",
+      "size_bytes": 46015,
+      "source_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/sc/sc1100/sc1182/sheet/00013r.jpg",
+      "type": "detail"
+    }
+  ],
+  "notes": "13 sheets total. CDN uses {code}r.jpg suffix for full service resolution (640px wide). Thumbnail: {code}_150px.jpg. Gallery JSON: loc.gov/pictures/search/?q=Drawing:+sc1182&fi=number&op=PHRASE&va=exact&co=hh"
+}
