@@ -1,0 +1,120 @@
+{
+  "schema_version": "1.0",
+  "building_id": "HABS TN-104",
+  "building_name": "Ramsey House",
+  "location": "Knox County, Tennessee",
+  "date_built": "ca. 1797",
+  "elevation": "south",
+  "sheet_code": "00011a",
+  "sheet_title": "South elevation",
+  "sheet_sha256_prefix": "326c7c8e873e",
+  "corpus_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094",
+  "frozen_at": "2026-06-03",
+  "frozen_by": "eli",
+  "measurement_method": "3-read majority vote on cropped facade image (00011a_crop_facade.jpg)",
+  "reads": [
+    {
+      "reader": "haiku-a",
+      "gf_bay_count": 3,
+      "uf_bay_count": 3,
+      "door_type": "double",
+      "door_bay_position": 1,
+      "gf_window_count": 2,
+      "uf_window_count": 2,
+      "roof_pitch_estimate": "moderate",
+      "wing_present": true,
+      "wing_side": "right",
+      "wing_storeys": 1,
+      "chimney_count": 2,
+      "chimney_position": "end_walls"
+    },
+    {
+      "reader": "haiku-b",
+      "gf_bay_count": 5,
+      "uf_bay_count": 5,
+      "door_type": "double",
+      "door_bay_position": 2,
+      "gf_window_count": 4,
+      "uf_window_count": 4,
+      "roof_pitch_estimate": "moderate",
+      "wing_present": true,
+      "wing_side": "right",
+      "wing_storeys": 1,
+      "chimney_count": 2,
+      "chimney_position": "end_walls"
+    },
+    {
+      "reader": "haiku-c",
+      "gf_bay_count": 3,
+      "uf_bay_count": 3,
+      "door_type": "double",
+      "door_bay_position": 1,
+      "gf_window_count": 2,
+      "uf_window_count": 3,
+      "roof_pitch_estimate": "moderate",
+      "wing_present": true,
+      "wing_side": "right",
+      "wing_storeys": 2,
+      "chimney_count": 2,
+      "chimney_position": "end_walls"
+    }
+  ],
+  "spec": {
+    "storey_count": 2,
+    "gf_bay_count": 3,
+    "uf_bay_count": 3,
+    "door_type": "double",
+    "door_bay_position": 1,
+    "gf_window_count": 2,
+    "uf_window_count": 3,
+    "roof_type": "gable",
+    "roof_pitch_estimate": "moderate",
+    "wing_present": true,
+    "wing_side": "right",
+    "wing_storeys": 1,
+    "chimney_count": 2,
+    "chimney_position": "end_walls"
+  },
+  "confidence": {
+    "gf_bay_count": "2/3 (A=3, B=5, C=3)",
+    "uf_bay_count": "2/3 (A=3, B=5, C=3)",
+    "door_type": "3/3",
+    "door_bay_position": "2/3 (A=1, B=2, C=1; B's 5-bay center position is equivalent when normalized)",
+    "gf_window_count": "2/3 (A=2, B=4, C=2)",
+    "uf_window_count": "2/3 for 3-windows (C=3; A=2 inconsistent with 3-bay-no-door, B=4 outlier — C most internally consistent)",
+    "roof_pitch_estimate": "3/3",
+    "wing_present": "3/3",
+    "wing_side": "3/3",
+    "wing_storeys": "2/3 (A=1, B=1, C=2)",
+    "chimney_count": "3/3",
+    "chimney_position": "3/3"
+  },
+  "scoring_rubric": {
+    "storey_count": {
+      "pass_if": "main block has 2 storeys visible in elevation",
+      "weight": 1
+    },
+    "roof_type_pitch": {
+      "pass_if": "gable roof with moderate pitch (visually comparable to original ~35-40deg Federal period)",
+      "weight": 1
+    },
+    "fenestration": {
+      "pass_if": "3-bay main facade, double door at center bay (bay index 1), 2 windows GF flanking, 3 windows UF",
+      "weight": 1
+    },
+    "massing_wing": {
+      "pass_if": "right-side wing present, 1-storey, proportionally smaller than main block",
+      "weight": 1
+    },
+    "chimney": {
+      "pass_if": "2 chimneys at END WALLS (left gable + right gable or wing junction), NOT interior ridge positions",
+      "weight": 1
+    }
+  },
+  "generator_gaps_v9": {
+    "chimney_position": "FAIL — v9 places chimneys at cx=EW*0.25/EW*0.75 (interior). Target spec: end_walls. Fix: move cx to ~EW*0.02 (left) and ~EW*0.90 (right gable face).",
+    "door_type": "APPROX — v9 door is a wider void (1.2m). Target: double-leaf. Visual difference marginal in shaded render but technically wrong.",
+    "uf_window_count": "PASS — v9 UF has 3 windows (n_bays=3, DBAY=1 so all UF bays get windows). Matches spec."
+  },
+  "notes": "Read B (haiku-b) reported 5-bay — the same scorer noise Leo observed between v8 and v9 re-scores (same image, same sha, 3↔4/5-bay oscillation). Majority vote 3-bay (2/3). This frozen spec is the stable ground truth: score future iterations against THIS document, not against a new Haiku read of the same image."
+}

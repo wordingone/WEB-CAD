@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "building": "Villa Verde Housing — Typologia 2",
+    "view": "side_elevation",
+    "derived_from": "rhino/exports/house_villa_verde/target_spec.json (FROZEN 2026-06-03)",
+    "note": "Side dims are derivable from the frozen front spec — same building, different camera. unit_depth_full_mm is the side view WIDTH; wall_height_m × n_floors = eave height; total_height_m = ridge height."
+  },
+  "freeze_status": "FROZEN — 2026-06-03. Derived from frozen target_spec.json. IMMUTABLE ground truth for side elevation scoring.",
+  "camera": {
+    "direction": "+X (camera at X=-dist, target at X=0, looking in +X direction)",
+    "projection": "orthographic (parallel)",
+    "face_shown": "X=0 face — the long/deep side (party wall in row housing)"
+  },
+  "exact_dims": {
+    "visible_width_mm": 7315,
+    "visible_height_mm": 6245,
+    "wall_height_mm": 4876,
+    "roof_band_height_mm": 1369,
+    "eave_height_mm": 4876,
+    "ridge_height_mm": 6245,
+    "source": {
+      "visible_width_mm": "unit_depth_full_mm from frozen front spec (7315mm GROSS)",
+      "wall_height_mm": "floor_height_m × n_floors = 2438 × 2 = 4876mm",
+      "roof_band_height_mm": "gable_rise_m × 1000 = 1369mm",
+      "ridge_height_mm": "total_height_m × 1000 = 6245mm (≈ 6250mm from spec)"
+    }
+  },
+  "visual_description": {
+    "lower_zone": "wall (cream ~RGB 218,210,196): Z=0 to Z=4876mm — blank party wall, NO windows",
+    "upper_zone": "left slope face of gable roof (gray ~RGB 155,150,143): Z=4876 to Z=6245mm",
+    "eave_line": "horizontal band at Z=4876mm separating wall from roof slope",
+    "top_silhouette": "HORIZONTAL line at Z=6245mm (ridge height, NOT a sloped peak) — gable ridge runs front-to-back parallel to side view depth axis",
+    "no_windows": "true — Villa Verde Typologia 2 has blank party walls on both sides",
+    "aspect_ratio": "7315mm wide × 6245mm tall ≈ 1.17:1 (landscape orientation)"
+  },
+  "scoring_rubric": {
+    "dim1": "Two distinct horizontal zones visible — lower wall zone + upper roof slope zone, separated by eave line",
+    "dim2": "Top silhouette is HORIZONTAL (not a gable peak) — ridge runs along depth axis",
+    "dim3": "Aspect ratio ~1.17:1 (width > height); building reads as 7.3m deep × 6.25m tall",
+    "dim4": "Blank facade — no windows, no doors on side face; pure wall + roof zones only",
+    "dim5": "Clean rectangular silhouette; wall and roof zones correctly differentiated in color/shading"
+  },
+  "cross_view_consistency": {
+    "same_param_set": "Front and side must be generated from the SAME script with the SAME parameters — no per-view tuning",
+    "front_width_check": "Front view gable width = W = 6096mm; side view visible width = D = 7315mm — different axes, consistent params",
+    "ridge_height_check": "Front view ridge Z = 6245mm; side view top silhouette Z = 6245mm — SAME object, same height"
+  }
+}

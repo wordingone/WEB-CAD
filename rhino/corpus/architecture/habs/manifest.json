@@ -1,0 +1,455 @@
+{
+  "corpus": "HABS/HAER residential \u2014 public domain",
+  "source": "Library of Congress Prints and Photographs (loc.gov/pictures)",
+  "license": "PD \u2014 Historic American Buildings Survey, public domain",
+  "path": "architecture/habs/",
+  "buildings": [
+    {
+      "item_id": "tn0094",
+      "title": "Ramsey House, Thorngrove Pike, Knoxville, Knox County, TN",
+      "call_number": "HABS TENN,47-KNOVI.V,1-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/tn0094/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "schedule",
+        "section",
+        "site",
+        "structural"
+      ],
+      "completeness": 0.64,
+      "sheet_count_total": 14,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/tn0094/"
+    },
+    {
+      "item_id": "il1023",
+      "title": "Schweikher-Langsdorf House & Studio Museum, 645 South Meacham Road, Schaumburg, Cook County, IL",
+      "call_number": "HABS IL-340",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/il1023/",
+      "types_confirmed": [
+        "axon",
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "site"
+      ],
+      "completeness": 0.55,
+      "sheet_count_total": 40,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/il1023/"
+    },
+    {
+      "item_id": "fl0707",
+      "title": "Dudley Farm, Farmhouse & Outbuildings, 18730 West Newberry Road, Newberry, Alachua County, FL",
+      "call_number": "HABS FL-565",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/fl0707/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "rendering",
+        "site"
+      ],
+      "completeness": 0.55,
+      "sheet_count_total": 22,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/fl0707/"
+    },
+    {
+      "item_id": "ma1556",
+      "title": "Hinchman House, 7 Milk Street, Nantucket, Nantucket County, MA",
+      "call_number": "HABS MASS,10-NANT,97-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/ma1556/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site",
+        "structural"
+      ],
+      "completeness": 0.55,
+      "sheet_count_total": 15,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/ma1556/"
+    },
+    {
+      "item_id": "ca4169",
+      "title": "Eames House, 203 Chautauqua Boulevard, Los Angeles, Los Angeles County, CA",
+      "call_number": "HABS CA-2903",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/ca4169/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "section",
+        "site"
+      ],
+      "completeness": 0.55,
+      "sheet_count_total": 13,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/ca4169/"
+    },
+    {
+      "item_id": "sc1182",
+      "title": "MacColl House, 1157 Highway 15/401 West, Bennettsville, Marlboro County, SC",
+      "call_number": "HABS SC-876",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/sc1182/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "section",
+        "site"
+      ],
+      "completeness": 0.55,
+      "sheet_count_total": 13,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/sc1182/"
+    },
+    {
+      "item_id": "la0030",
+      "title": "Uncle Sam Plantation, Convent, St. James Parish, LA",
+      "call_number": "HABS LA,47-CONV.V,1-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/la0030/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site"
+      ],
+      "completeness": 0.45,
+      "sheet_count_total": 17,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/la0030/"
+    },
+    {
+      "item_id": "la0040",
+      "title": "La Rionda Cottage, 1218-1220 Burgundy Street, New Orleans, Orleans Parish, LA",
+      "call_number": "HABS LA,36-NEWOR,20-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/la0040/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site"
+      ],
+      "completeness": 0.45,
+      "sheet_count_total": 12,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/la0040/"
+    },
+    {
+      "item_id": "oh1933",
+      "title": "Tremont House, 101 East Main Street, Bellevue, Huron County, OH",
+      "call_number": "HABS OH-2478",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/oh1933/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "structural"
+      ],
+      "completeness": 0.45,
+      "sheet_count_total": 12,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/oh1933/"
+    },
+    {
+      "item_id": "dc0085",
+      "title": "Decatur House, National Trust for Historic Preservation, 748 Jackson Place Northwest, Washington, Di",
+      "call_number": "HABS DC,WASH,28-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/dc0085/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 23,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/dc0085/"
+    },
+    {
+      "item_id": "va2129",
+      "title": "Obici House, 1400 Sleepy Hole Road, Suffolk, Suffolk, VA",
+      "call_number": "HABS VA-1438",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/va2129/",
+      "types_confirmed": [
+        "elevation",
+        "floorplan",
+        "interior",
+        "section"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 16,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/va2129/"
+    },
+    {
+      "item_id": "il0740",
+      "title": "Susan Lawrence Dana House, 301 East Lawrence Avenue, Springfield, Sangamon County, IL",
+      "call_number": "HABS ILL,84-SPRIF,3-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/il0740/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 15,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/il0740/"
+    },
+    {
+      "item_id": "la0101",
+      "title": "Brame House, State Highway 36, Clinton, East Feliciana Parish, LA",
+      "call_number": "HABS LA,19-CLINT,3-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/la0101/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 14,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/la0101/"
+    },
+    {
+      "item_id": "il0160",
+      "title": "Emelie Grosse House, Columbia, Monroe County, IL",
+      "call_number": "HABS ILL,67-COLUM,1-",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/il0160/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 13,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/il0160/"
+    },
+    {
+      "item_id": "ar1150",
+      "title": "Hantz House, 855 Fairview Drive, Fayetteville, Washington County, AR",
+      "call_number": "HABS AR-54",
+      "source_url": "https://www.loc.gov/pictures/collection/hh/item/ar1150/",
+      "types_confirmed": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ],
+      "completeness": 0.36,
+      "sheet_count_total": 12,
+      "sheets_downloaded": 0,
+      "types_downloaded": [],
+      "license": "PD",
+      "path": "habs/ar1150/"
+    }
+  ],
+  "set_completeness_summary": {
+    "tn0094": {
+      "completeness": 0.64,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "schedule",
+        "section",
+        "site",
+        "structural"
+      ]
+    },
+    "il1023": {
+      "completeness": 0.55,
+      "types": [
+        "axon",
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "site"
+      ]
+    },
+    "fl0707": {
+      "completeness": 0.55,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "rendering",
+        "site"
+      ]
+    },
+    "ma1556": {
+      "completeness": 0.55,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site",
+        "structural"
+      ]
+    },
+    "ca4169": {
+      "completeness": 0.55,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "section",
+        "site"
+      ]
+    },
+    "sc1182": {
+      "completeness": 0.55,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior",
+        "section",
+        "site"
+      ]
+    },
+    "la0030": {
+      "completeness": 0.45,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site"
+      ]
+    },
+    "la0040": {
+      "completeness": 0.45,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "site"
+      ]
+    },
+    "oh1933": {
+      "completeness": 0.45,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "section",
+        "structural"
+      ]
+    },
+    "dc0085": {
+      "completeness": 0.36,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ]
+    },
+    "va2129": {
+      "completeness": 0.36,
+      "types": [
+        "elevation",
+        "floorplan",
+        "interior",
+        "section"
+      ]
+    },
+    "il0740": {
+      "completeness": 0.36,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "interior"
+      ]
+    },
+    "la0101": {
+      "completeness": 0.36,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ]
+    },
+    "il0160": {
+      "completeness": 0.36,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ]
+    },
+    "ar1150": {
+      "completeness": 0.36,
+      "types": [
+        "detail",
+        "elevation",
+        "floorplan",
+        "site"
+      ]
+    }
+  },
+  "known_gaps": {
+    "axon": 1,
+    "rcp": 0,
+    "rendering": 1,
+    "schedule": 1,
+    "note": "These types are sparse in the HABS corpus overall \u2014 not a scraper gap."
+  },
+  "status": "metadata-only \u2014 images pending (LOC rate-limit, retry queued)"
+}

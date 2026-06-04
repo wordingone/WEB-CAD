@@ -1,0 +1,112 @@
+{
+  "elevation": "east",
+  "sheet_code": "00013a",
+  "spec": {
+    "storey_count": 2,
+    "roof_form": "gable_triangular",
+    "roof_pitch_estimate": "moderate",
+    "chimney_count": 1,
+    "chimney_position": "gable_face_center_interior",
+    "side_window_count_gf": 2,
+    "side_window_count_uf": 2,
+    "depth_proportion": "moderate",
+    "wing_visible": true
+  },
+  "scoring_rubric": {
+    "dimensions": 4,
+    "pass_threshold": 3,
+    "dimensions_detail": {
+      "dim1_storey_and_windows": "2 storeys with 2 windows per storey on side elevation (4 total side windows)",
+      "dim2_roof_gable_form": "Gable roof with triangular form and moderate pitch (45-50 degrees)",
+      "dim3_chimney_gable_end": "1 centered chimney rising through gable end on interior masonry",
+      "dim4_wing_structure": "Wing structure visible extending to the right (east/side) with its own gable end and window"
+    }
+  },
+  "reads": [
+    {
+      "read_number": 1,
+      "storey_count": 2,
+      "roof_form": "gable_triangular",
+      "roof_pitch_estimate": "moderate",
+      "chimney_count": 1,
+      "chimney_position": "gable_face_center_interior",
+      "side_window_count_gf": 2,
+      "side_window_count_uf": 2,
+      "depth_proportion": "moderate",
+      "wing_visible": true
+    },
+    {
+      "read_number": 2,
+      "storey_count": 2,
+      "roof_form": "gable_triangular",
+      "roof_pitch_estimate": "moderate_steep",
+      "chimney_count": 1,
+      "chimney_position": "gable_face_center_interior",
+      "side_window_count_gf": 2,
+      "side_window_count_uf": 2,
+      "depth_proportion": "moderate",
+      "wing_visible": true
+    },
+    {
+      "read_number": 3,
+      "storey_count": 2,
+      "roof_form": "gable_triangular",
+      "roof_pitch_estimate": "moderate",
+      "chimney_count": 1,
+      "chimney_position": "gable_face_center_interior",
+      "side_window_count_gf": 2,
+      "side_window_count_uf": 2,
+      "depth_proportion": "moderate",
+      "wing_visible": true
+    }
+  ],
+  "voting_summary": {
+    "storey_count": {
+      "2": 3,
+      "majority_vote": 2
+    },
+    "roof_form": {
+      "gable_triangular": 3,
+      "majority_vote": "gable_triangular"
+    },
+    "roof_pitch_estimate": {
+      "moderate": 2,
+      "moderate_steep": 1,
+      "majority_vote": "moderate"
+    },
+    "chimney_count": {
+      "1": 3,
+      "majority_vote": 1
+    },
+    "chimney_position": {
+      "gable_face_center_interior": 3,
+      "majority_vote": "gable_face_center_interior"
+    },
+    "side_window_count_gf": {
+      "2": 3,
+      "majority_vote": 2
+    },
+    "side_window_count_uf": {
+      "2": 3,
+      "majority_vote": 2
+    },
+    "depth_proportion": {
+      "moderate": 3,
+      "majority_vote": "moderate"
+    },
+    "wing_visible": {
+      "true": 3,
+      "majority_vote": true
+    }
+  },
+  "disagreements": [
+    {
+      "field": "roof_pitch_estimate",
+      "read_1": "moderate",
+      "read_2": "moderate_steep",
+      "read_3": "moderate",
+      "majority_vote": "moderate",
+      "note": "Read 2 assessed slightly steeper pitch; reads 1 and 3 agree on moderate. Majority wins: moderate (typical Federal period pitch of 45-50 degrees, not steep)."
+    }
+  ]
+}

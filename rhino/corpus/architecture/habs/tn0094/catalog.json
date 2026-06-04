@@ -1,0 +1,290 @@
+{
+  "corpus_item_id": "tn0094",
+  "habs_id": "HABS TN-104",
+  "building_name": "Ramsey House",
+  "location": "Thorngrove Pike, Knoxville, Knox County, Tennessee",
+  "date_of_construction": "1797",
+  "survey_date": "c. 1974",
+  "source_url": "https://www.loc.gov/pictures/collection/hh/item/tn0094/",
+  "license": "Public domain (HABS/HAER/HALS, Library of Congress)",
+  "compass_orientation_notes": "South elevation = main facade/entrance front. North = rear. East = right side. West = left side.",
+  "elevation_sheets": [
+    "00002a",
+    "00003a",
+    "00010a",
+    "00011a",
+    "00012a",
+    "00013a"
+  ],
+  "sheets": [
+    {
+      "code": "00000a",
+      "title": "Cover sheet",
+      "sheet_type": "cover",
+      "tags": [
+        "cover"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00000a.jpg",
+      "sha256_prefix": "329d40ca10bb",
+      "size_bytes": 308045,
+      "width_px": 2327,
+      "height_px": 1896,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00000a.tif"
+    },
+    {
+      "code": "00001a",
+      "title": "Plans and door schedule",
+      "sheet_type": "plan",
+      "tags": [
+        "plan"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00001a.jpg",
+      "sha256_prefix": "75511d0368ce",
+      "size_bytes": 662763,
+      "width_px": 2326,
+      "height_px": 1896,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00001a.tif"
+    },
+    {
+      "code": "00002a",
+      "title": "South and east elevations; cross-section; door details",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_south",
+        "elevation_east",
+        "section"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00002a.jpg",
+      "sha256_prefix": "ab60f3f1ea79",
+      "size_bytes": 718016,
+      "width_px": 2327,
+      "height_px": 1896,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00002a.tif"
+    },
+    {
+      "code": "00003a",
+      "title": "North (rear) and left side elevations; door and window details",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_north",
+        "elevation_west"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00003a.jpg",
+      "sha256_prefix": "e8140d09139d",
+      "size_bytes": 725255,
+      "width_px": 2326,
+      "height_px": 1896,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00003a.tif"
+    },
+    {
+      "code": "00004a",
+      "title": "Cornice and bracket details",
+      "sheet_type": "detail",
+      "tags": [
+        "detail"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00004a.jpg",
+      "sha256_prefix": "4e985bbb6c99",
+      "size_bytes": 615574,
+      "width_px": 2326,
+      "height_px": 1896,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00004a.tif"
+    },
+    {
+      "code": "00005a",
+      "title": "Area map",
+      "sheet_type": "site",
+      "tags": [
+        "site"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00005a.jpg",
+      "sha256_prefix": "ba845f58554b",
+      "size_bytes": 518335,
+      "width_px": 2407,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00005a.tif"
+    },
+    {
+      "code": "00006a",
+      "title": "Basement plan and finish schedule",
+      "sheet_type": "plan",
+      "tags": [
+        "plan"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00006a.jpg",
+      "sha256_prefix": "fc917e61f637",
+      "size_bytes": 470863,
+      "width_px": 2404,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00006a.tif"
+    },
+    {
+      "code": "00007a",
+      "title": "First floor plan",
+      "sheet_type": "plan",
+      "tags": [
+        "plan"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00007a.jpg",
+      "sha256_prefix": "1c2ca4b24499",
+      "size_bytes": 725618,
+      "width_px": 2398,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00007a.tif"
+    },
+    {
+      "code": "00008a",
+      "title": "Second floor plan",
+      "sheet_type": "plan",
+      "tags": [
+        "plan"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00008a.jpg",
+      "sha256_prefix": "862919f6ba82",
+      "size_bytes": 579059,
+      "width_px": 2408,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00008a.tif"
+    },
+    {
+      "code": "00009a",
+      "title": "Attic framing plan",
+      "sheet_type": "structural",
+      "tags": [
+        "structural"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00009a.jpg",
+      "sha256_prefix": "ed79a6f14f39",
+      "size_bytes": 499437,
+      "width_px": 2404,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00009a.tif"
+    },
+    {
+      "code": "00010a",
+      "title": "West elevation",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_west"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00010a.jpg",
+      "sha256_prefix": "27354be68b23",
+      "size_bytes": 418244,
+      "width_px": 2398,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00010a.tif"
+    },
+    {
+      "code": "00011a",
+      "title": "South elevation",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_south"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00011a.jpg",
+      "sha256_prefix": "326c7c8e873e",
+      "size_bytes": 655733,
+      "width_px": 2397,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00011a.tif"
+    },
+    {
+      "code": "00012a",
+      "title": "North elevation",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_north"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00012a.jpg",
+      "sha256_prefix": "b9cc496ad0d9",
+      "size_bytes": 609797,
+      "width_px": 2393,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00012a.tif"
+    },
+    {
+      "code": "00013a",
+      "title": "East elevation",
+      "sheet_type": "elevation",
+      "tags": [
+        "elevation_east"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00013a.jpg",
+      "sha256_prefix": "51ecbecf6567",
+      "size_bytes": 395927,
+      "width_px": 2385,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00013a.tif"
+    },
+    {
+      "code": "00014a",
+      "title": "Section",
+      "sheet_type": "section",
+      "tags": [
+        "section"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00014a.jpg",
+      "sha256_prefix": "0e952125fde7",
+      "size_bytes": 469818,
+      "width_px": 2395,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00014a.tif"
+    },
+    {
+      "code": "00015a",
+      "title": "Typical window",
+      "sheet_type": "detail",
+      "tags": [
+        "detail"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00015a.jpg",
+      "sha256_prefix": "d01652cf9b87",
+      "size_bytes": 550239,
+      "width_px": 2395,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00015a.tif"
+    },
+    {
+      "code": "00016a",
+      "title": "Typical door",
+      "sheet_type": "detail",
+      "tags": [
+        "detail"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00016a.jpg",
+      "sha256_prefix": "c13a574d91ae",
+      "size_bytes": 401673,
+      "width_px": 2404,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00016a.tif"
+    },
+    {
+      "code": "00017a",
+      "title": "Ornament at cornice and cornice profile",
+      "sheet_type": "detail",
+      "tags": [
+        "detail"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00017a.jpg",
+      "sha256_prefix": "0e3fcdf3978e",
+      "size_bytes": 408177,
+      "width_px": 2401,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00017a.tif"
+    },
+    {
+      "code": "00018a",
+      "title": "Molding profiles",
+      "sheet_type": "detail",
+      "tags": [
+        "detail"
+      ],
+      "local_path": "B:/M/WEB-CAD/rhino/corpus/architecture/habs/tn0094/00018a.jpg",
+      "sha256_prefix": "d79d1647b5a8",
+      "size_bytes": 423102,
+      "width_px": 2397,
+      "height_px": 1904,
+      "source_tif_url": "https://tile.loc.gov/storage-services/master/pnp/habshaer/tn/tn0000/tn0094/sheet/00018a.tif"
+    }
+  ]
+}
