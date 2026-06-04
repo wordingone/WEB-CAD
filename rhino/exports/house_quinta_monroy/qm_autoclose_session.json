@@ -1,0 +1,257 @@
+{
+  "schema_version": "1",
+  "session_id": "20260604T000945_f1411f",
+  "session_start": "2026-06-04T00:09:45.250822Z",
+  "session_end": "2026-06-04T00:10:11.759454Z",
+  "prompt": "#18 autonomous-close: QM geometry target, frozen spec 2026-06-03",
+  "design_intent": "Drive QM model params to frozen target_spec via autonomous iterative correction. No human step between iterations. Each revision agent-computed from per-component delta. Convergence = ALL components below TOL simultaneously (not aggregate).",
+  "events": [
+    {
+      "seq": 1,
+      "ts": "2026-06-04T00:09:45.250822Z",
+      "intent": "build QM geometry (iter 1); capture plan/front/side; gate 4 non-halting delta-check",
+      "tool": "run_python",
+      "args": {
+        "iteration": 1,
+        "params": {
+          "W": 5.0,
+          "D": 5.0,
+          "H_WALL": 6.0,
+          "PARAPET": 0.25,
+          "F2_Z": 1.9,
+          "F3_Z": 3.8
+        }
+      },
+      "result_summary": "overall=FAIL"
+    },
+    {
+      "seq": 2,
+      "ts": "2026-06-04T00:09:58.483453Z",
+      "intent": "compute param adjustment from per-component delta; proportional correction for all FAIL components",
+      "tool": "agent_revision",
+      "args": {
+        "param_delta": {
+          "W": 1.0,
+          "D": 1.048,
+          "H_WALL": 1.16016,
+          "PARAPET": 0.04834,
+          "F2_Z": 0.441356,
+          "F3_Z": 0.880985
+        },
+        "revision_driven_by": [
+          "W_m",
+          "H_TOTAL_m",
+          "F2_Z_m",
+          "F3_Z_m",
+          "D_m",
+          "H_TOTAL_m_s"
+        ],
+        "new_params": {
+          "W": 6.0,
+          "D": 6.048,
+          "H_WALL": 7.16016,
+          "PARAPET": 0.29834,
+          "F2_Z": 2.34136,
+          "F3_Z": 4.68099
+        }
+      },
+      "result_summary": "revision computed; new_params committed for next iteration"
+    },
+    {
+      "seq": 3,
+      "ts": "2026-06-04T00:09:58.483453Z",
+      "intent": "build QM geometry (iter 2); capture plan/front/side; gate 4 non-halting delta-check",
+      "tool": "run_python",
+      "args": {
+        "iteration": 2,
+        "params": {
+          "W": 6.0,
+          "D": 6.048,
+          "H_WALL": 7.16016,
+          "PARAPET": 0.29834,
+          "F2_Z": 2.34136,
+          "F3_Z": 4.68099
+        }
+      },
+      "result_summary": "overall=PASS"
+    }
+  ],
+  "target_spec_path": "B:/M/WEB-CAD/rhino/exports/house_quinta_monroy/target_spec.json",
+  "initial_params": {
+    "W": 5.0,
+    "D": 5.0,
+    "H_WALL": 6.0,
+    "PARAPET": 0.25,
+    "F2_Z": 1.9,
+    "F3_Z": 3.8
+  },
+  "targets": {
+    "W": 6.0,
+    "D": 6.048,
+    "H_WALL": 7.28,
+    "PARAPET": 0.18,
+    "H_TOTAL": 7.46,
+    "F2_Z": 2.34,
+    "F3_Z": 4.68
+  },
+  "tol_pct": 5.0,
+  "max_iter": 6,
+  "n_iterations": 2,
+  "converged": true,
+  "verdict": "PASS -- converged at iteration 2/6",
+  "best_delta_per_component": {
+    "W_m": 0.0,
+    "H_TOTAL_m": 0.002,
+    "F2_Z_m": 0.011,
+    "F3_Z_m": 0.0,
+    "D_m": 0.0,
+    "H_TOTAL_m_s": 0.098
+  },
+  "trajectory": [
+    {
+      "iteration": 1,
+      "params": {
+        "W": 5.0,
+        "D": 5.0,
+        "H_WALL": 6.0,
+        "PARAPET": 0.25,
+        "F2_Z": 1.9,
+        "F3_Z": 3.8
+      },
+      "deltas": {
+        "W_m": {
+          "measured": 5.0,
+          "certified": 6.0,
+          "delta_pct": 16.667,
+          "tol_pct": 2.0,
+          "status": "FAIL"
+        },
+        "H_TOTAL_m": {
+          "measured": 6.2515,
+          "certified": 7.46,
+          "delta_pct": 16.2,
+          "tol_pct": 2.0,
+          "status": "FAIL"
+        },
+        "F2_Z_m": {
+          "measured": 1.8989,
+          "certified": 2.34,
+          "delta_pct": 18.852,
+          "tol_pct": 5.0,
+          "status": "FAIL"
+        },
+        "F3_Z_m": {
+          "measured": 3.7992,
+          "certified": 4.68,
+          "delta_pct": 18.82,
+          "tol_pct": 5.0,
+          "status": "FAIL"
+        },
+        "D_m": {
+          "measured": 5.0,
+          "certified": 6.048,
+          "delta_pct": 17.328,
+          "tol_pct": 2.0,
+          "status": "FAIL"
+        },
+        "H_TOTAL_m_s": {
+          "measured": 6.2448,
+          "certified": 7.46,
+          "delta_pct": 16.29,
+          "tol_pct": 2.0,
+          "status": "FAIL"
+        }
+      },
+      "components_pass": {
+        "W_m": false,
+        "H_TOTAL_m": false,
+        "F2_Z_m": false,
+        "F3_Z_m": false,
+        "D_m": false,
+        "H_TOTAL_m_s": false
+      },
+      "all_pass": false,
+      "param_delta": {
+        "W": 1.0,
+        "D": 1.048,
+        "H_WALL": 1.16016,
+        "PARAPET": 0.04834,
+        "F2_Z": 0.441356,
+        "F3_Z": 0.880985
+      },
+      "revision_formula": "proportional: new_p = old_p * (target / measured); H_TOTAL error split H_WALL:PARAPET by ratio",
+      "revision_driven_by": [
+        "W_m",
+        "H_TOTAL_m",
+        "F2_Z_m",
+        "F3_Z_m",
+        "D_m",
+        "H_TOTAL_m_s"
+      ]
+    },
+    {
+      "iteration": 2,
+      "params": {
+        "W": 6.0,
+        "D": 6.048,
+        "H_WALL": 7.16016,
+        "PARAPET": 0.29834,
+        "F2_Z": 2.34136,
+        "F3_Z": 4.68099
+      },
+      "deltas": {
+        "W_m": {
+          "measured": 6.0,
+          "certified": 6.0,
+          "delta_pct": 0.0,
+          "tol_pct": 2.0,
+          "status": "PASS"
+        },
+        "H_TOTAL_m": {
+          "measured": 7.4602,
+          "certified": 7.46,
+          "delta_pct": 0.002,
+          "tol_pct": 2.0,
+          "status": "PASS"
+        },
+        "F2_Z_m": {
+          "measured": 2.3398,
+          "certified": 2.34,
+          "delta_pct": 0.011,
+          "tol_pct": 5.0,
+          "status": "PASS"
+        },
+        "F3_Z_m": {
+          "measured": 4.68,
+          "certified": 4.68,
+          "delta_pct": 0.0,
+          "tol_pct": 5.0,
+          "status": "PASS"
+        },
+        "D_m": {
+          "measured": 6.048,
+          "certified": 6.048,
+          "delta_pct": 0.0,
+          "tol_pct": 2.0,
+          "status": "PASS"
+        },
+        "H_TOTAL_m_s": {
+          "measured": 7.4527,
+          "certified": 7.46,
+          "delta_pct": 0.098,
+          "tol_pct": 2.0,
+          "status": "PASS"
+        }
+      },
+      "components_pass": {
+        "W_m": true,
+        "H_TOTAL_m": true,
+        "F2_Z_m": true,
+        "F3_Z_m": true,
+        "D_m": true,
+        "H_TOTAL_m_s": true
+      },
+      "all_pass": true
+    }
+  ]
+}

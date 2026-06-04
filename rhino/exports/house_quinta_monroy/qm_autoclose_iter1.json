@@ -1,0 +1,82 @@
+{
+  "iteration": 1,
+  "params": {
+    "W": 5.0,
+    "D": 5.0,
+    "H_WALL": 6.0,
+    "PARAPET": 0.25,
+    "H_TOTAL": 6.25,
+    "F2_Z": 1.9,
+    "F3_Z": 3.8
+  },
+  "overall": "FAIL",
+  "gate0": {
+    "status": "PASS",
+    "units": "Meters",
+    "obj_count": 8
+  },
+  "gate2": {
+    "status": "PASS"
+  },
+  "gate3": {
+    "status": "PASS"
+  },
+  "gate4": {
+    "status": "FAIL",
+    "infra_fail": null,
+    "components_pass": {
+      "W_m": false,
+      "H_TOTAL_m": false,
+      "F2_Z_m": false,
+      "F3_Z_m": false,
+      "D_m": false,
+      "H_TOTAL_m_s": false
+    },
+    "front": {
+      "W_m": {
+        "measured": 5.0,
+        "certified": 6.0,
+        "delta_pct": 16.667,
+        "tol_pct": 2.0,
+        "status": "FAIL"
+      },
+      "H_TOTAL_m": {
+        "measured": 6.2515,
+        "certified": 7.46,
+        "delta_pct": 16.2,
+        "tol_pct": 2.0,
+        "status": "FAIL"
+      },
+      "F2_Z_m": {
+        "measured": 1.8989,
+        "certified": 2.34,
+        "delta_pct": 18.852,
+        "tol_pct": 5.0,
+        "status": "FAIL"
+      },
+      "F3_Z_m": {
+        "measured": 3.7992,
+        "certified": 4.68,
+        "delta_pct": 18.82,
+        "tol_pct": 5.0,
+        "status": "FAIL"
+      }
+    },
+    "side": {
+      "D_m": {
+        "measured": 5.0,
+        "certified": 6.048,
+        "delta_pct": 17.328,
+        "tol_pct": 2.0,
+        "status": "FAIL"
+      },
+      "H_TOTAL_m_s": {
+        "measured": 6.2448,
+        "certified": 7.46,
+        "delta_pct": 16.29,
+        "tol_pct": 2.0,
+        "status": "FAIL"
+      }
+    }
+  }
+}

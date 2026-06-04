@@ -414,7 +414,7 @@ if lc_s is None or rc_s is None:
     side_delta["H_TOTAL_m_s"]= dcheck("H_TOTAL_m_s",None, H_CERT_S, TOL_PCT_DWG)
 else:
     D_px_s  = rc_s - lc_s
-    scale_s = D_px_s / D_cert
+    scale_s = D_px_s / D  # calibrate from set param, not cert; D_cert is delta reference only
     mc_s    = (lc_s + rc_s) // 2
     tr_s    = None
     br_s    = None
