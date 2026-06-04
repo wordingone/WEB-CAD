@@ -92,6 +92,8 @@ export type IfcSceneElement = {
   // §WEB-CAD#30 G9: when present, emit IfcAdvancedBrep instead of IfcFacetedBrep.
   nurbsSurface?: KernelNurbsSurface;
   nurbsSurfaces?: KernelNurbsSurface[];
+  // Each entry emits IfcOpeningElement + IfcRelVoidsElement (semantic void relation).
+  openings?: Pick<IfcSceneElement, "mesh" | "label">[];
 };
 
 // Caller passes one entry per level (from levelStore). buildIfcScene emits one
@@ -381,6 +383,21 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
 
     // #244: property set for dispatch args (numeric/string only).
     emitElementPropertySet(el, entityRef, ownerHistory, lines, next);
+
+    // Semantic voids: each opening → IfcOpeningElement + IfcRelVoidsElement.
+    for (const opening of el.openings ?? []) {
+      const opBrep = emitMeshBrep(opening.mesh, lines, next, coordScale);
+      const opShapeRep = next();
+      lines.push(`${opShapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString("Brep")},(${opBrep}));`);
+      const opProductShape = next();
+      lines.push(`${opProductShape}=IFCPRODUCTDEFINITIONSHAPE($,$,(${opShapeRep}));`);
+      const opPlacement = next();
+      lines.push(`${opPlacement}=IFCLOCALPLACEMENT(${localPlacement},${axis3});`);
+      const opRef = next();
+      lines.push(`${opRef}=IFCOPENINGELEMENT(${stepString(ifcGuid())},${ownerHistory},${stepString(opening.label ?? "Opening")},$,$,${opPlacement},${opProductShape},$);`);
+      const relVoids = next();
+      lines.push(`${relVoids}=IFCRELVOIDSELEMENT(${stepString(ifcGuid())},${ownerHistory},$,$,${entityRef},${opRef});`);
+    }
 
     // #243: route element into its storey bucket.
     const bucket = storeyMap.get(el.levelId ?? FALLBACK_LEVEL_ID)

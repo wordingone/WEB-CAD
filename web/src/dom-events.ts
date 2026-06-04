@@ -660,6 +660,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
           : currentSource.kind === "file" ? `Imported ${currentSource.filename}` : "GemmaCad Element";
         bytes = buildIfc({ vertices: data.vertices, indices: data.indices }, label, { imperial: ifcImperial });
       }
+      (window as unknown as Record<string, unknown>).__lastIfcExport = { filename: `${stem}.ifc`, bytes };
       const result = await ifcRoundTrip(bytes);
       if (result.ok) {
         const { wall, slab, column, beam, proxy, total } = result.counts;
