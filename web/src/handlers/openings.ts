@@ -276,8 +276,10 @@ export function registerOpeningHandlers(viewer: Viewer): void {
         const voidCenter = mesh.position.clone();
         voidCenter.z = elevation + 1;
         const voidGroup = addVoidToWallObject(host, voidCenter, 1, 2);
-        if (voidGroup) pushReplaceAction(voidGroup, [host], "wall-void-cut");
-        voidCut = true;
+        if (voidGroup) {
+          pushReplaceAction(voidGroup, [host], "wall-void-cut");
+          voidCut = true;
+        }
       }
     }
     pushAction(mesh, chain);
