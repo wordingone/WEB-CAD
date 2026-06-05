@@ -295,10 +295,14 @@ function _syntheticWindow(w: number, t: number, h: number): { geom: THREE.Buffer
   const g2 = new THREE.BoxGeometry(fw, t, h);   g2.translate(-w / 2 + fw / 2, 0, h / 2);
   const g3 = new THREE.BoxGeometry(fw, t, h);   g3.translate(w / 2 - fw / 2, 0, h / 2);
   const g4 = new THREE.BoxGeometry(w - 2 * fw, t * 0.3, h - 2 * fw); g4.translate(0, 0, h / 2);
-  const geom = mergeGeometries([g0, g1, g2, g3, g4], true);
-  const mat  = [
+  // Merge frame pieces into one group (index 0), glass into group index 1.
+  // mergeGeometries(5, useGroups=true) would create groups 0-4 with only 2 materials,
+  // leaving the glass panel (group 4) without a material — fix by pre-merging frames.
+  const frameGeom = mergeGeometries([g0, g1, g2, g3]);
+  const geom = mergeGeometries([frameGeom, g4], true);
+  const mat = [
     new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide }),
-    new THREE.MeshStandardMaterial({ color: 0x88c4e8, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0, side: THREE.DoubleSide }),
+    new THREE.MeshPhysicalMaterial({ color: 0x88aacc, transparent: true, opacity: 0.18, transmission: 0.88, roughness: 0.05, metalness: 0.0, ior: 1.5, side: THREE.DoubleSide, depthWrite: false }),
   ];
   return { geom, mat };
 }
