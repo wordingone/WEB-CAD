@@ -898,7 +898,7 @@ describe("BRep canonical migration characterization", () => {
     expect(exporters).toContain("object.traverse((child) =>");
     expect(exporters).toContain("const geom = mesh.geometry as THREE.BufferGeometry");
     expect(exporters).toContain("const rhinoMesh: any = new rh.Mesh()");
-    expect(exporters).toContain("file.objects().add(rhinoMesh)");
+    expect(exporters).toContain("file.objects().add(rhinoMesh, rhinoAttrs)");
   });
 
   test("live OBJ and STL export dispatch passes the canonical geometry resolver", () => {

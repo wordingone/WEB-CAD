@@ -35,6 +35,7 @@ import {
   type NurbsSurface as SurfacesNurbsSurface,
   tessellateSurface,
 } from "../nurbs/nurbs-surfaces";
+import { populateOpenings, type IfcSceneElement } from "../ifc/ifc-build.js";
 
 // ── Shared helpers ────────────────────────────────────────────────────────
 
@@ -104,6 +105,11 @@ export async function handle_Sd3dmRead(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const typeName: string = (geo as any).constructor?.name ?? "";
 
+      // §#493: read ObjectAttributes.name written by export3dm — preserves creator type
+      // (e.g. "wall", "window") so AABB populateOpenings can reconstruct wall.userData.openings.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const creatorHint: string = ((obj as any).attributes?.()?.name as string | undefined) ?? "";
+
       if (typeName === "Mesh") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rhinoMesh = geo as any;
@@ -130,7 +136,7 @@ export async function handle_Sd3dmRead(
           bufGeo.computeVertexNormals();
           const mat = new THREE.MeshStandardMaterial({ color: 0x7ad3a3, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
           const mesh = new THREE.Mesh(bufGeo, mat);
-          mesh.userData = { kind: "brep", creator: "3dm-import", format: "3dm" };
+          mesh.userData = { kind: "brep", creator: creatorHint || "3dm-import", format: "3dm" };
           root.add(mesh);
         }
       } else if (typeName === "NurbsSurface") {
@@ -201,7 +207,7 @@ export async function handle_Sd3dmRead(
           }
           const mat = new THREE.MeshStandardMaterial({ color: 0x7ad3a3, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
           const mesh = new THREE.Mesh(bufGeo, mat);
-          mesh.userData = { kind: "nurbs-surface", creator: "3dm-import", format: "3dm", canonical: kernelSurface };
+          mesh.userData = { kind: "nurbs-surface", creator: creatorHint || "3dm-import", format: "3dm", canonical: kernelSurface };
           root.add(mesh);
         } catch (_e) {
           // skip malformed NurbsSurface — other objects still processed
@@ -214,6 +220,27 @@ export async function handle_Sd3dmRead(
 
     if (root.children.length === 0) {
       return { loaded: false, error: "no displayable geometry found in .3dm file (no Mesh or NurbsSurface objects)" };
+    }
+
+    // §#493: AABB-based opening reconstruction. trimmed BRep voids do NOT survive
+    // .3dm round-trip (rhino3dm.js has no BrepLoop/BrepTrim bindings — see line 144).
+    // Fallback: use ObjectAttributes.name (written by export3dm) as creator hint, then
+    // run populateOpenings AABB overlap detection to reconstruct wall.userData.openings.
+    const elements: IfcSceneElement[] = root.children.map((child) => {
+      const m = child as THREE.Mesh;
+      const geo3 = m.geometry as THREE.BufferGeometry;
+      const posAttr = geo3.attributes["position"];
+      const idxAttr = geo3.index;
+      const vertices = posAttr ? (posAttr.array as Float32Array) : new Float32Array(0);
+      const indices = idxAttr ? (idxAttr.array as Uint32Array) : new Uint32Array(0);
+      return { mesh: { vertices, indices }, creator: (m.userData.creator as string) || "3dm-import" };
+    });
+    const enriched = populateOpenings(elements);
+    for (let i = 0; i < enriched.length; i++) {
+      const el = enriched[i];
+      if (el?.openings && el.openings.length > 0) {
+        (root.children[i] as THREE.Mesh).userData.openings = el.openings;
+      }
     }
 
     const box = new THREE.Box3().setFromObject(root);
