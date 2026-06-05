@@ -5,11 +5,11 @@
 //   2. Return a structured { error: "NotYetImplemented" } result for stubs —
 //      never the generic shim's { dispatched: kernel_op }.
 //
-// Candidate set: SdTrim, SdBooleanSplit, SdMeshFromBrep, SdDwgRead, SdIgesWrite.
+// Candidate set from Archie's #513: SdTrim, SdBooleanSplit, SdMeshFromBrep,
+//   SdStepWrite, SdDwgRead, SdIgesWrite.
 //
-// Note: SdStepWrite was a stub target in the original #422 scope but graduated to
-// a live OCCT implementation in PR #514. It is excluded from the NotYetImplemented
-// assertions and covered only by the full-sweep test below.
+// De-conflict: SdStepWrite is Archie's headline (#400); the stub here must
+//   stay as NotYetImplemented until he lands the real implementation.
 
 import { describe, test, expect, beforeAll } from "bun:test";
 import { dispatch, registerHandler } from "../src/commands/dispatch";
@@ -19,6 +19,7 @@ import { registerSurface325Handlers } from "../src/handlers/s325-impl";
 import { handle_SdBooleanSplit } from "../src/handlers/s326-impl";
 import { handle_SdMeshFromBrep } from "../src/handlers/s329-impl";
 import {
+  handle_SdStepWrite,
   handle_SdDwgReadStub,
   handle_SdIgesWrite,
 } from "../src/handlers/s333-impl";
@@ -27,14 +28,20 @@ import {
 const MOCK_VIEWER = {} as Viewer;
 
 beforeAll(() => {
-  // SdTrim — registered by registerSurface325Handlers (C++-blocked stubs section).
+  // SdTrim — registered by registerSurface325Handlers (inside the C++-blocked stubs section).
   registerSurface325Handlers(MOCK_VIEWER);
 
+  // The remaining 5 stubs: register using the exported handle functions.
+  // registerHandler is last-wins so these are safe to call even if the handler
+  // was already registered by another test in this file's module context.
   registerHandler("SdBooleanSplit", (args) =>
     handle_SdBooleanSplit(args as Record<string, unknown>, MOCK_VIEWER),
   );
   registerHandler("SdMeshFromBrep", (args) =>
     handle_SdMeshFromBrep(args as Record<string, unknown>, MOCK_VIEWER),
+  );
+  registerHandler("SdStepWrite", (args) =>
+    handle_SdStepWrite(args as Record<string, unknown>, MOCK_VIEWER),
   );
   registerHandler("SdDwgRead", (args) =>
     handle_SdDwgReadStub(args as Record<string, unknown>),
@@ -51,7 +58,7 @@ function assertNotImplemented(
   // Dispatch layer: verb resolved (no UnknownVerb), handler was registered (no NoHandler).
   if (!r.ok) {
     const errType = (r as { error: string }).error;
-    expect(errType, `${verb}: dispatch returned ${errType} — expected ok:true`).not.toBe(
+    expect(errType, `${verb}: dispatch returned ${errType} — expected ok:true or NotYetImplemented`).not.toBe(
       "UnknownVerb",
     );
     expect(errType, `${verb}: dispatch returned NoHandler — handler not registered`).not.toBe(
@@ -71,6 +78,7 @@ function assertNotImplemented(
 
 describe("#422 — advertisement drift: stub verbs return NotYetImplemented", () => {
   test("SdTrim: resolves + returns NotYetImplemented (not default shim)", async () => {
+    // Args: source + cutter are 'edge' type (custom opaque type — pass-through validation).
     const r = await dispatch("SdTrim", { source: "fake-edge-1", cutter: "fake-edge-2" });
     assertNotImplemented(r, "SdTrim");
   });
@@ -85,7 +93,17 @@ describe("#422 — advertisement drift: stub verbs return NotYetImplemented", ()
     assertNotImplemented(r, "SdMeshFromBrep");
   });
 
+  test("SdStepWrite: resolves without UnknownVerb (real impl landed, #400)", async () => {
+    // Real handler registered — returns a structured error for missing args, not UnknownVerb.
+    const r = await dispatch("SdStepWrite", {});
+    if (!r.ok) {
+      expect((r as { error: string }).error).not.toBe("UnknownVerb");
+      expect((r as { error: string }).error).not.toBe("NoHandler");
+    }
+  });
+
   test("SdDwgRead: resolves + returns NotYetImplemented", async () => {
+    // Args: bytes is arraybuffer type. Pass a minimal ArrayBuffer.
     const r = await dispatch("SdDwgRead", { bytes: new ArrayBuffer(0) });
     assertNotImplemented(r, "SdDwgRead");
   });
