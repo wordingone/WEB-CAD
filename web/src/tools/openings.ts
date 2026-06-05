@@ -354,6 +354,22 @@ export function buildWindow(p: { x: number; y: number }, dims?: { w?: number; h?
   let mesh: THREE.Mesh;
   if (glbMesh) {
     mesh = glbMesh;
+    // GLB glass panels have their own opacity (typically 0.3). Override to 0.45 so the
+    // pane reads as glass rather than an empty hole — Leo gate criterion.
+    (mesh as unknown as THREE.Group).traverse((obj) => {
+      if (!(obj as THREE.Mesh).isMesh) return;
+      const mats = Array.isArray((obj as THREE.Mesh).material)
+        ? (obj as THREE.Mesh).material as THREE.MeshStandardMaterial[]
+        : [(obj as THREE.Mesh).material as THREE.MeshStandardMaterial];
+      mats.forEach((m) => {
+        if (m && m.transparent && m.opacity >= 0.15 && m.opacity < 0.6) {
+          m.opacity = 0.45;
+          m.metalness = 0.35;
+          m.roughness = 0.0;
+          m.needsUpdate = true;
+        }
+      });
+    });
   } else {
     const fzk = _windowData ? _buildWindowFromFzkData(_windowData, w, t, h) : null;
     const { geom, mat } = fzk ?? _syntheticWindow(w, t, h);
