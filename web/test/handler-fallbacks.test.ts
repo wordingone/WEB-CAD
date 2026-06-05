@@ -142,6 +142,103 @@ function boundsSnap(
   return { a, b };
 }
 
+// ── kern fallback reason capture logic (SdFillet / SdChamfer) ────────────────
+// Mirrors the logic in transforms.ts: kernFallbackReason capture + result-shape surface.
+
+function captureKernFallbackReason(isLoaded: boolean, lastErr: unknown): string {
+  return isLoaded
+    ? String(lastErr ?? 'kern_fillet rejected')
+    : 'kern-not-loaded';
+}
+
+function buildFilletResult(
+  modified: string,
+  edgeCount: number | 'all',
+  backend: 'kern-fillet' | 'ts-approx',
+  kernFallbackReason?: string,
+): Record<string, unknown> {
+  const ret: Record<string, unknown> = { modified, edgeCount, backend };
+  if (kernFallbackReason !== undefined) {
+    ret.kern_fallback = true;
+    ret.kern_fallback_reason = kernFallbackReason;
+  }
+  return ret;
+}
+
+describe("SdFillet / SdChamfer — kern fallback reason capture", () => {
+  test("kern loaded + lastErr null → 'kern_fillet rejected'", () => {
+    expect(captureKernFallbackReason(true, null)).toBe('kern_fillet rejected');
+  });
+
+  test("kern loaded + lastErr undefined → 'kern_fillet rejected'", () => {
+    expect(captureKernFallbackReason(true, undefined)).toBe('kern_fillet rejected');
+  });
+
+  test("kern loaded + lastErr string → the string", () => {
+    expect(captureKernFallbackReason(true, 'non-planar edge')).toBe('non-planar edge');
+  });
+
+  test("kern not loaded → 'kern-not-loaded'", () => {
+    expect(captureKernFallbackReason(false, null)).toBe('kern-not-loaded');
+  });
+
+  test("result shape: kern_fallback absent when no fallback occurred (kern-fillet success)", () => {
+    const r = buildFilletResult('abc', 'all', 'kern-fillet', undefined);
+    expect(r.backend).toBe('kern-fillet');
+    expect(r.kern_fallback).toBeUndefined();
+    expect(r.kern_fallback_reason).toBeUndefined();
+  });
+
+  test("result shape: kern_fallback=true + reason present when fallback occurred", () => {
+    const reason = 'non-planar edge detected';
+    const r = buildFilletResult('xyz', 12, 'ts-approx', reason);
+    expect(r.backend).toBe('ts-approx');
+    expect(r.kern_fallback).toBe(true);
+    expect(r.kern_fallback_reason).toBe(reason);
+  });
+
+  test("result shape: kern-not-loaded reason is preserved verbatim", () => {
+    const r = buildFilletResult('xyz', 'all', 'ts-approx', 'kern-not-loaded');
+    expect(r.kern_fallback_reason).toBe('kern-not-loaded');
+  });
+});
+
+// ── unsupportedNativeFilletError with kern_fallback surfacing ─────────────────
+// Mirrors the modified unsupportedNativeFilletError in transforms.ts.
+
+function unsupportedNativeFilletErrorLogic(operation: string, kernFallbackReason?: string): Record<string, unknown> {
+  const ret: Record<string, unknown> = {
+    error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
+  };
+  if (kernFallbackReason !== undefined) {
+    ret.kern_fallback = true;
+    ret.kern_fallback_reason = kernFallbackReason;
+  }
+  return ret;
+}
+
+describe("SdFillet — unsupportedNativeFilletError kern_fallback surface", () => {
+  test("no kern_fallback when reason is absent (not a kern-rejection case)", () => {
+    const r = unsupportedNativeFilletErrorLogic("all-edge chamfer");
+    expect(r.error).toContain("SdFillet");
+    expect(r.kern_fallback).toBeUndefined();
+    expect(r.kern_fallback_reason).toBeUndefined();
+  });
+
+  test("kern_fallback=true + reason when kern rejected before TS also fails", () => {
+    const r = unsupportedNativeFilletErrorLogic("all-edge chamfer", "curved-face fillet not yet implemented: edge 3");
+    expect(r.kern_fallback).toBe(true);
+    expect(r.kern_fallback_reason).toBe("curved-face fillet not yet implemented: edge 3");
+    expect(r.error).toContain("SdFillet");
+  });
+
+  test("error message preserved regardless of kern fallback reason", () => {
+    const r1 = unsupportedNativeFilletErrorLogic("selected-edge chamfer", "kern-not-loaded");
+    const r2 = unsupportedNativeFilletErrorLogic("selected-edge chamfer");
+    expect(r1.error).toBe(r2.error);
+  });
+});
+
 describe("SdStair — bounds-snap for out-of-bounds coords", () => {
   const bbox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 6, 3));
 
