@@ -302,7 +302,9 @@ function _syntheticWindow(w: number, t: number, h: number): { geom: THREE.Buffer
   const geom = mergeGeometries([frameGeom, g4], true);
   const mat = [
     new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide }),
-    new THREE.MeshPhysicalMaterial({ color: 0x88aacc, transparent: true, opacity: 0.18, transmission: 0.88, roughness: 0.05, metalness: 0.0, ior: 1.5, side: THREE.DoubleSide, depthWrite: false }),
+    // transmission is unreliable when renderer.autoClear=false; use low opacity instead.
+    // opacity 0.07 = 93% background visible through pane; metalness gives a faint sheen.
+    new THREE.MeshStandardMaterial({ color: 0xaaccdd, transparent: true, opacity: 0.07, roughness: 0.0, metalness: 0.15, side: THREE.DoubleSide, depthWrite: false }),
   ];
   return { geom, mat };
 }
