@@ -48,7 +48,7 @@ function buildingDisplayName(slug: string): string {
   return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-export function buildVaultPrecedentPanel(building = "villa-savoye"): HTMLElement {
+export function buildVaultPrecedentPanel(building = "white-house-washington-d-c"): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "vault-panel";
 

@@ -140,7 +140,7 @@ function buildResearchMode(): HTMLElement {
   // ---- Vault precedent panel — prepended into the right column ----
   const rightCol = el.querySelector<HTMLElement>("#r-right-col");
   if (rightCol) {
-    const vaultPanel = buildVaultPrecedentPanel("villa-savoye");
+    const vaultPanel = buildVaultPrecedentPanel("white-house-washington-d-c");
     rightCol.insertBefore(vaultPanel, rightCol.firstChild);
   }
 
