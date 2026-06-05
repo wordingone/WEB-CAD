@@ -627,6 +627,8 @@ export function populateOpenings(
     if (!VOID_CREATORS.has(norm[vi].creator)) continue;
     for (let wi = 0; wi < norm.length; wi++) {
       if (vi === wi || !HOST_CREATORS.has(norm[wi].creator)) continue;
+      // Skip cross-level pairs: a void element must not open into a wall on a different level.
+      if (norm[vi].levelId && norm[wi].levelId && norm[vi].levelId !== norm[wi].levelId) continue;
       if (bboxOverlap(boxes[vi]!, boxes[wi]!, tolerance)) {
         if (!wallOpeningsMap.has(wi)) wallOpeningsMap.set(wi, []);
         const voidEl = norm[vi]!;

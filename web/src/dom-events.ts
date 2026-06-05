@@ -600,7 +600,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
     return filename.replace(/\.[a-z0-9]+$/i, "").replace(/[^A-Za-z0-9_\-]+/g, "_") || "export";
   }
 
-  const IFC_SKIP_CREATORS = new Set(["SdRefGrid", "IfcGridLine", "SdLevel", "SdDatum", "SdReferenceLine"]);
+  const IFC_SKIP_CREATORS = new Set(["SdRefGrid", "IfcGridLine", "SdLevel", "IfcLevel", "SdDatum", "SdReferenceLine"]);
 
   function sceneElementsForExport(): IfcSceneElement[] {
     const elements: IfcSceneElement[] = [];
