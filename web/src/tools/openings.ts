@@ -299,6 +299,10 @@ function _syntheticDoor(w: number, t: number, h: number): { geom: THREE.BufferGe
   return { geom, mat };
 }
 
+// Last-resort fallback only — reached when BOTH the GLB asset AND FZK JSON data are
+// unavailable (e.g., stripped test environment). In production the GLB always loads, so
+// this function is never called. Material edits here have NO effect on the deployed app —
+// use the GLB override traversal in buildWindow() instead (that IS the production path).
 function _syntheticWindow(w: number, t: number, h: number): { geom: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial | THREE.MeshStandardMaterial[] } {
   const fw = 0.06;
   const g0 = new THREE.BoxGeometry(w, t, fw);   g0.translate(0, 0, h - fw / 2);
