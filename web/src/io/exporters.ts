@@ -415,7 +415,14 @@ export async function export3dm(object: THREE.Object3D, options: Export3dmOption
     }
 
     rhinoMesh.compact();
-    file.objects().add(rhinoMesh);
+    // §#493: embed creator type in ObjectAttributes.name so Sd3dmRead can reconstruct
+    // wall.userData.openings via AABB populateOpenings after import.
+    const creatorHint: string = (mesh.userData?.creator as string | undefined) ?? "";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rhinoAttrs: any = new rh.ObjectAttributes();
+    rhinoAttrs.name = creatorHint;
+    file.objects().add(rhinoMesh, rhinoAttrs);
+    rhinoAttrs.delete?.();
     rhinoMesh.delete();
   });
 
