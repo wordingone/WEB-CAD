@@ -618,3 +618,118 @@ html[data-mode="night"] .paper-stage {
   background: var(--ok);
   box-shadow: 0 0 0 2px oklch(0.55 0.10 150 / 0.18);
 }
+
+/* ============================================================
+   VAULT PRECEDENT PANEL  (#555)
+   ============================================================ */
+
+.vault-panel {
+  display: flex;
+  flex-direction: column;
+  border-bottom: var(--lw-cut) solid var(--ink-edge);
+  flex-shrink: 0;
+}
+.vault-header { color: var(--ink); background: var(--paper-2); }
+.vault-body {
+  padding: 8px 12px 10px;
+  background: var(--paper);
+  overflow-y: auto;
+  max-height: 320px;
+}
+.vault-building-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.vault-bld-name {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.vault-bld-meta {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+}
+.vault-qid {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--sanguine);
+  text-decoration: none;
+  border: var(--lw-edge) solid var(--sanguine);
+  border-radius: 3px;
+  padding: 1px 5px;
+  opacity: 0.8;
+}
+.vault-qid:hover { opacity: 1; }
+
+/* Photo grid */
+.vault-photos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.vault-photo-card {
+  position: relative;
+  background: var(--paper-2);
+  border: var(--lw-edge) solid var(--ink-edge);
+  overflow: hidden;
+  border-radius: 2px;
+}
+.vault-photo-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+  background: var(--chrome);
+}
+.vault-photo-meta {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 2px 4px;
+  font-family: var(--mono);
+  font-size: 8px;
+  color: rgba(255,255,255,0.85);
+  background: rgba(0,0,0,0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vault-verified { color: #6bff7e; margin-left: 3px; }
+
+/* L2 prose */
+.vault-prose {
+  border-top: var(--lw-edge) solid var(--ink-edge);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+.vault-prose-text {
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+.vault-prose-cite {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.05em;
+}
+.vault-prose-cite a { color: var(--sanguine); text-decoration: none; }
+.vault-prose-cite a:hover { text-decoration: underline; }
+.vault-prose-loading {
+  font-size: 10px;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.vault-error {
+  font-size: 10px;
+  color: var(--err, #c0392b);
+}
