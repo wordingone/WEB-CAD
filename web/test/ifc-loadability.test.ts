@@ -222,15 +222,14 @@ describe("IFC loadability — web-ifc OpenModel + void fidelity (Leo #13348/#133
     expect(slabIds.length).toBe(1);
   });
 
-  test("documented: host wall mesh is solid box (BRep void = semantic, not geometric subtraction)", () => {
-    // With IfcShellBasedSurfaceModel, the wall entity's own mesh is unchanged.
-    // The void exists as a separate IfcOpeningElement geometry + IfcRelVoidsElement.
-    // This is correct IFC4 semantics: IFC viewers compute the visual opening from the relation.
-    // Wall box: 8 vertices, 12 triangles. Door void box: 8 vertices, 12 triangles.
-    // Both appear as independent IFCPOLYLOOP sets in the IFC text.
-    const wallPolyloopsInText = (ifcText.match(/=IFCPOLYLOOP\(/g) ?? []).length;
-    // 2 walls (8 verts → 12 tris each) + 1 slab (12 tris) + 1 door void (12 tris)
-    // = 48 IFCPOLYLOOP total.
-    expect(wallPolyloopsInText).toBe(elements.length * 12 + 1 * 12); // 3 elements × 12 + 1 opening × 12 = 48
+  test("CSG: host wall body is IfcBooleanResult(DIFFERENCE) — void baked into geometry", () => {
+    // Wall with openings emits IfcExtrudedAreaSolid + IfcBooleanResult(DIFFERENCE) per opening.
+    // Wall without openings (north wall) + slab + door void still use IfcFacetedBrep (IfcPolyLoop).
+    // IfcPolyLoop count: north wall (12) + slab (12) + door void opening (12) = 36.
+    const polyloops = (ifcText.match(/=IFCPOLYLOOP\(/g) ?? []).length;
+    expect(polyloops).toBe(36);
+    // The host wall body uses CSG — confirm the entities are present.
+    expect(ifcText).toMatch(/=IFCBOOLEANRESULT\(\.DIFFERENCE\./);
+    expect(ifcText).toMatch(/=IFCEXTRUDEDAREASOLID\(/);
   });
 });
