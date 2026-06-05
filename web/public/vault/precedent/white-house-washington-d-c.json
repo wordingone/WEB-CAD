@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "query": {
+    "mode": "precedent",
+    "filter": {
+      "building": "white-house-washington-d-c"
+    }
+  },
+  "count": 9,
+  "records": [
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "drawings-vector",
+      "datatype": "drawings-vector",
+      "format": "svg",
+      "asset": {
+        "exact_url": "https://commons.wikimedia.org/wiki/Special:FilePath/White_House_FloorPlan2.svg",
+        "local_path": "raw/L1/white-house-washington-d-c/drawings-vector/white_house_floorplan2.svg",
+        "content_hash": "sha256:e3ab4b8c2b0eac9649b5bdbefb49c8f467207cd2aaa1dbcbdeae473f2716c547",
+        "byte_verified": true,
+        "size_bytes": 185656
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "mesh",
+      "datatype": "mesh",
+      "format": "stl",
+      "asset": {
+        "exact_url": "https://upload.wikimedia.org/wikipedia/commons/5/50/White_House.stl",
+        "local_path": "raw/L1/white-house-washington-d-c/mesh/white-house-washington-d-c.stl",
+        "content_hash": "sha256:a68e8998d2134a34ba2a0e491ee75a33a3450ec2e8ea862f76ebdcdbec745fe3",
+        "byte_verified": true,
+        "size_bytes": 148084
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "provenance",
+      "datatype": "wikidata-entity",
+      "format": "json",
+      "asset": {
+        "exact_url": "https://www.wikidata.org/wiki/Special:EntityData/Q35525.json",
+        "local_path": "raw/L1/white-house-washington-d-c/provenance/Q35525.json",
+        "content_hash": "sha256:8e28558ccc6594cc055c6caa791b567943140714d28072fe92ab3ebe04d79a83",
+        "byte_verified": true,
+        "size_bytes": 316582
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "photos",
+      "datatype": "photograph",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://upload.wikimedia.org/wikipedia/commons/a/af/WhiteHouseSouthFacade.JPG",
+        "local_path": "raw/L1/white-house-washington-d-c/photos/WhiteHouseSouthFacade.JPG",
+        "content_hash": "sha256:9368958d3f0da2b6018bf248eca413f9103c3cd7f91a2ffbca8d5bfca3d1ae45",
+        "byte_verified": true,
+        "size_bytes": 586552
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "drawings-raster",
+      "datatype": "measured-drawing",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/dc/dc0400/dc0402/sheet/00001v.jpg",
+        "local_path": "raw/L1/white-house-washington-d-c/drawings-raster/dc0402_HABS_sheet00__1e38f1ed.jpg",
+        "content_hash": "sha256:eb8b9049a329202b605824f9c3212edd3ec498f90bf7137fa30adceca055999a",
+        "byte_verified": true,
+        "size_bytes": 268745
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "drawings-raster",
+      "datatype": "measured-drawing",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/dc/dc0400/dc0402/sheet/00002v.jpg",
+        "local_path": "raw/L1/white-house-washington-d-c/drawings-raster/dc0402_HABS_sheet01__70554ae0.jpg",
+        "content_hash": "sha256:b93f4b4f659fb76ae85fc852faa16c9f195abd326a885318a8c1555c20288a82",
+        "byte_verified": true,
+        "size_bytes": 187990
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": "drawings-raster",
+      "datatype": "measured-drawing",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://tile.loc.gov/storage-services/service/pnp/habshaer/dc/dc0400/dc0402/sheet/00003v.jpg",
+        "local_path": "raw/L1/white-house-washington-d-c/drawings-raster/dc0402_HABS_sheet02__5b031fba.jpg",
+        "content_hash": "sha256:be6af61bc873b3e1ee74da1911939343233b472881832e249af4e57a4ca7d1d2",
+        "byte_verified": true,
+        "size_bytes": 203730
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L2",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": null,
+      "datatype": "structured-facts",
+      "format": "json",
+      "asset": {
+        "exact_url": "https://www.wikidata.org/wiki/Special:EntityData/Q35525.json",
+        "local_path": "raw/L2/wikidata/Q35525.json",
+        "content_hash": "sha256:8e28558ccc6594cc055c6caa791b567943140714d28072fe92ab3ebe04d79a83",
+        "byte_verified": true,
+        "size_bytes": 316582
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    },
+    {
+      "layer": "L2",
+      "building": "white-house-washington-d-c",
+      "qid": "Q35525",
+      "facet": null,
+      "datatype": "prose-description",
+      "format": "txt",
+      "asset": {
+        "exact_url": "https://en.wikipedia.org/wiki/White_House",
+        "local_path": "raw/L2/wikipedia/Q35525.txt",
+        "content_hash": "sha256:7c68454d4199f377c7c423852a4b3a00046c5fd3798e1bb53c6b163e28d6572a",
+        "byte_verified": true,
+        "size_bytes": 41600
+      },
+      "context": {
+        "era": "early-modern",
+        "year": 1800,
+        "type": "civic",
+        "country": "United States"
+      }
+    }
+  ]
+}

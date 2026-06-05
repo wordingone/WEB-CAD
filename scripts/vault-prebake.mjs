@@ -26,7 +26,7 @@ for (const dir of [OUT_PRECEDENT, OUT_TEXT]) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-const BUILDINGS = ["villa-savoye"];
+const BUILDINGS = ["villa-savoye", "white-house-washington-d-c"];
 
 for (const building of BUILDINGS) {
   console.log(`[vault-prebake] querying ${building}...`);
