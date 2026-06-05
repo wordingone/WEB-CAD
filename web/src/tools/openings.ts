@@ -303,8 +303,8 @@ function _syntheticWindow(w: number, t: number, h: number): { geom: THREE.Buffer
   const mat = [
     new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide }),
     // transmission is unreliable when renderer.autoClear=false; use low opacity instead.
-    // opacity 0.25 = visibly present as a pane yet 75% see-through (Leo gate criterion).
-    new THREE.MeshStandardMaterial({ color: 0xaaccdd, transparent: true, opacity: 0.25, roughness: 0.0, metalness: 0.15, side: THREE.DoubleSide, depthWrite: false }),
+    // opacity 0.45 = reads as glass pane; metalness 0.35 adds specular for Fresnel visibility.
+    new THREE.MeshStandardMaterial({ color: 0xaaccdd, transparent: true, opacity: 0.45, roughness: 0.0, metalness: 0.35, side: THREE.DoubleSide, depthWrite: false }),
   ];
   return { geom, mat };
 }
