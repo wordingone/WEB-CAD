@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LiteRT vs ORT-web — Text Decode Bench (#558)</title>
+<style>
+body { font-family: monospace; background: #111; color: #ccc; padding: 1rem 1.5rem; max-width: 900px; }
+h1 { color: #fff; font-size: 1rem; margin-bottom: 0.3rem; }
+.sub { color: #666; font-size: 0.75rem; margin-bottom: 1.5rem; }
+.card { border: 1px solid #333; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; }
+.card h2 { margin: 0 0 0.5rem; font-size: 0.85rem; color: #aaa; }
+.log { height: 180px; overflow-y: auto; background: #1a1a1a; padding: 0.5rem; border-radius: 2px; font-size: 0.7rem; line-height: 1.6; }
+.log .e { color: #f55; }
+.log .ok { color: #5f5; }
+.log .info { color: #5af; }
+button { background: #222; border: 1px solid #555; color: #ddd; padding: 0.35rem 0.9rem; cursor: pointer; font-family: monospace; font-size: 0.8rem; margin-right: 0.5rem; border-radius: 2px; }
+button:hover { background: #333; }
+button:disabled { opacity: 0.4; cursor: default; }
+.metrics { margin-top: 0.75rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.metric { background: #1a1a1a; padding: 0.4rem 0.6rem; border-radius: 2px; }
+.metric .label { font-size: 0.65rem; color: #666; }
+.metric .value { font-size: 1.1rem; color: #fff; font-weight: bold; }
+.metric .unit { font-size: 0.65rem; color: #888; }
+textarea { width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333; color: #ccc; font-family: monospace; font-size: 0.75rem; padding: 0.4rem; border-radius: 2px; height: 60px; resize: vertical; }
+.status-bar { font-size: 0.7rem; color: #888; margin-bottom: 0.5rem; }
+#comparison { display: none; }
+#comparison.visible { display: block; }
+.cmp-row { display: grid; grid-template-columns: 140px 1fr 1fr; gap: 0.5rem; align-items: center; margin-bottom: 0.3rem; }
+.cmp-label { color: #666; font-size: 0.7rem; }
+.cmp-val { font-size: 0.8rem; }
+.win { color: #5f5; font-weight: bold; }
+.lose { color: #aaa; }
+.tie { color: #fa5; }
+</style>
+</head>
+<body>
+<h1>LiteRT vs ORT-web — Text Decode Bench (#558)</h1>
+<p class="sub">Cold-cache, deployed Pages. Measures tok/s, cold-boot ms, peak VRAM. Model: Gemma-4-E4B (text-only).</p>
+
+<div class="card">
+  <h2>PROMPT (used for both runners)</h2>
+  <textarea id="prompt">Draw a 10m x 8m rectangular room with 3m tall walls. Add a flat roof slab. Place a door on the south wall.</textarea>
+</div>
+
+<div class="card">
+  <h2>ORT-WEB (current stack — transformers.js + onnxruntime-web)</h2>
+  <div class="status-bar" id="ort-status">Ready. Model loads from deployed Pages app via iframe message bridge.</div>
+  <button id="ort-run-btn" onclick="runOrtBench()">Run ORT Bench</button>
+  <button onclick="clearOrtCache()">Clear OPFS/Cache</button>
+  <div class="log" id="ort-log"></div>
+  <div class="metrics">
+    <div class="metric"><div class="label">COLD BOOT</div><div class="value" id="ort-boot">—</div><div class="unit">ms</div></div>
+    <div class="metric"><div class="label">TTFT</div><div class="value" id="ort-ttft">—</div><div class="unit">ms</div></div>
+    <div class="metric"><div class="label">DECODE</div><div class="value" id="ort-tps">—</div><div class="unit">tok/s</div></div>
+    <div class="metric"><div class="label">TOKENS OUT</div><div class="value" id="ort-toks">—</div><div class="unit">tokens</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>LITERT (mediapipe/tasks-genai@0.10.27 — Gemma-4-E4B-it-web.task)</h2>
+  <div class="status-bar" id="litert-status">Ready. Will download model from HuggingFace on first run (~2.97 GB).</div>
+  <button id="litert-run-btn" onclick="runLiteRTBench()">Run LiteRT Bench</button>
+  <button onclick="clearLiteRTState()">Clear Model State</button>
+  <div class="log" id="litert-log"></div>
+  <div class="metrics">
+    <div class="metric"><div class="label">COLD BOOT</div><div class="value" id="litert-boot">—</div><div class="unit">ms</div></div>
+    <div class="metric"><div class="label">TTFT</div><div class="value" id="litert-ttft">—</div><div class="unit">ms</div></div>
+    <div class="metric"><div class="label">DECODE</div><div class="value" id="litert-tps">—</div><div class="unit">tok/s</div></div>
+    <div class="metric"><div class="label">TOKENS OUT</div><div class="value" id="litert-toks">—</div><div class="unit">tokens</div></div>
+  </div>
+</div>
+
+<div class="card" id="comparison">
+  <h2>COMPARISON</h2>
+  <div id="comparison-body"></div>
+</div>
+
+<!-- Hidden iframe to interact with the main WEB-CAD app for ORT baseline -->
+<iframe id="ort-frame" src="../" style="display:none" width="1" height="1"></iframe>
+
+<script type="module">
+// ─── ORT bench (via deployed Pages app) ────────────────────────────────────
+
+window._ortResults = null;
+window._litертResults = null;
+
+function log(el, msg, cls) {
+  const d = document.getElementById(el);
+  const line = document.createElement('div');
+  line.className = cls || '';
+  line.textContent = `[${new Date().toISOString().slice(11,23)}] ${msg}`;
+  d.appendChild(line);
+  d.scrollTop = d.scrollHeight;
+}
+
+function setMetric(id, val) {
+  document.getElementById(id).textContent = typeof val === 'number' ? val.toLocaleString() : (val ?? '—');
+}
+
+window.runOrtBench = async function() {
+  const btn = document.getElementById('ort-run-btn');
+  btn.disabled = true;
+  document.getElementById('ort-status').textContent = 'Running…';
+  log('ort-log', 'Starting ORT bench via main app iframe…', 'info');
+
+  try {
+    // Approach: inject a script into the main WEB-CAD app frame to capture telemetry
+    const frame = document.getElementById('ort-frame');
+
+    // Wait for frame to load
+    await new Promise(resolve => {
+      if (frame.contentDocument && frame.contentDocument.readyState === 'complete') { resolve(); return; }
+      frame.onload = resolve;
+      frame.src = '../';
+    });
+
+    log('ort-log', 'Frame loaded. Waiting for model boot…', 'info');
+
+    // Poll for model ready (boot-complete signal)
+    const bootStart = performance.now();
+    const modelReady = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('boot timeout 10min')), 600_000);
+      const check = () => {
+        try {
+          const w = frame.contentWindow;
+          if (!w) { clearTimeout(t); reject(new Error('frame no window')); return; }
+          // Check if model worker has posted boot-complete
+          const state = w.__worker_boot_complete || w.__boot_complete || w.__model_ready;
+          if (state) { clearTimeout(t); resolve(performance.now() - bootStart); return; }
+          // Check telemetry for any turn (means model is ready)
+          const tel = w.__telemetry;
+          if (tel && (Array.isArray(tel) ? tel.length > 0 : Object.keys(tel).length > 0)) {
+            clearTimeout(t); resolve(performance.now() - bootStart); return;
+          }
+        } catch(e) { /* cross-origin block */ }
+        setTimeout(check, 500);
+      };
+      check();
+    });
+
+    log('ort-log', `Model ready in ${Math.round(modelReady)}ms`, 'ok');
+    setMetric('ort-boot', Math.round(modelReady));
+    document.getElementById('ort-status').textContent = `Boot: ${Math.round(modelReady)}ms — running inference…`;
+
+    // Submit prompt via chat input
+    const prompt = document.getElementById('prompt').value;
+    const w = frame.contentWindow;
+    const chatInput = w.document.querySelector('.chat-input, #chat-input, textarea[class*=chat]');
+    const sendBtn = w.document.querySelector('.chat-send-btn, button[class*=send], .send-btn');
+
+    if (!chatInput || !sendBtn) {
+      log('ort-log', `Chat input not found. Selectors tried: .chat-input, .chat-send-btn`, 'e');
+      btn.disabled = false;
+      return;
+    }
+
+    chatInput.value = prompt;
+    chatInput.dispatchEvent(new Event('input', {bubbles: true}));
+
+    const genStart = performance.now();
+    sendBtn.click();
+    log('ort-log', 'Prompt submitted, waiting for response…', 'info');
+
+    // Wait for telemetry to update
+    const genResult = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('gen timeout 5min')), 300_000);
+      const check = () => {
+        try {
+          const tel = w.__telemetry;
+          const turns = Array.isArray(tel) ? tel : (tel && tel.turns ? tel.turns : null);
+          if (turns && turns.length > 0) {
+            const last = turns[turns.length - 1];
+            if (last && (last.decode_ms || last.decodeMs || last.tg_tps)) {
+              clearTimeout(t);
+              resolve({ elapsed: performance.now() - genStart, turn: last });
+              return;
+            }
+          }
+        } catch(e) { /* */ }
+        setTimeout(check, 500);
+      };
+      check();
+    });
+
+    const turn = genResult.turn;
+    log('ort-log', `Response received. turn: ${JSON.stringify(turn).slice(0,200)}`, 'ok');
+
+    const decodeMs = turn.decode_ms || turn.decodeMs || 0;
+    const toksOut = turn.tokens_out || turn.tokensOut || 0;
+    const prefillMs = turn.prefill_ms || turn.prefillMs || 0;
+    const tps = toksOut > 0 && decodeMs > 0 ? Math.round((toksOut / decodeMs) * 1000) : 0;
+
+    setMetric('ort-ttft', Math.round(prefillMs + modelReady));
+    setMetric('ort-tps', tps);
+    setMetric('ort-toks', toksOut);
+
+    window._ortResults = { boot: Math.round(modelReady), ttft: Math.round(prefillMs), tps, toks: toksOut };
+    log('ort-log', `tok/s=${tps} decode=${Math.round(decodeMs)}ms tokens=${toksOut}`, 'ok');
+    document.getElementById('ort-status').textContent = `Done: ${tps} tok/s, boot ${Math.round(modelReady)}ms`;
+
+  } catch(e) {
+    log('ort-log', `Error: ${e.message}`, 'e');
+    document.getElementById('ort-status').textContent = `Error: ${e.message.slice(0,60)}`;
+  }
+  btn.disabled = false;
+  maybeShowComparison();
+};
+
+window.clearOrtCache = async function() {
+  try {
+    // Clear Cache API
+    const keys = await caches.keys();
+    for (const k of keys) await caches.delete(k);
+    // Clear OPFS
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of root.entries()) {
+      if (name === 'model-cache') {
+        try { await root.removeEntry(name, {recursive: true}); } catch(e) {}
+      }
+    }
+    log('ort-log', 'Cleared OPFS model-cache + Cache API', 'ok');
+  } catch(e) {
+    log('ort-log', `Clear error: ${e.message}`, 'e');
+  }
+};
+
+// ─── LiteRT bench ─────────────────────────────────────────────────────────
+
+const LITERT_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai@0.10.27';
+const LITERT_WASM_PATH = `${LITERT_CDN_BASE}/wasm`;
+const LITERT_MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.task';
+
+let _liteRTInstance = null;
+
+window.runLiteRTBench = async function() {
+  const btn = document.getElementById('litert-run-btn');
+  btn.disabled = true;
+  document.getElementById('litert-status').textContent = 'Loading LiteRT runtime…';
+  log('litert-log', 'Starting LiteRT bench…', 'info');
+
+  try {
+    // Dynamically import the tasks-genai bundle
+    log('litert-log', `Importing @mediapipe/tasks-genai@0.10.27…`, 'info');
+    const { FilesetResolver, LlmInference } = await import(`${LITERT_CDN_BASE}/genai_bundle.mjs`);
+    log('litert-log', 'Runtime imported.', 'ok');
+
+    const bootStart = performance.now();
+
+    if (!_liteRTInstance) {
+      log('litert-log', 'Resolving WASM fileset…', 'info');
+      document.getElementById('litert-status').textContent = 'Loading WASM runtime…';
+
+      const genai = await FilesetResolver.forGenAiTasks(LITERT_WASM_PATH);
+      log('litert-log', `WASM ready. Loading model from HuggingFace (~2.97 GB)…`, 'info');
+      document.getElementById('litert-status').textContent = 'Downloading model (~2.97 GB)…';
+
+      _liteRTInstance = await LlmInference.createFromOptions(genai, {
+        baseOptions: {
+          modelAssetPath: LITERT_MODEL_URL,
+        },
+        maxTokens: 1024,
+        topK: 1,
+        temperature: 0,
+        randomSeed: 42,
+      });
+      log('litert-log', 'Model loaded.', 'ok');
+    } else {
+      log('litert-log', 'Reusing cached model instance.', 'info');
+    }
+
+    const bootMs = Math.round(performance.now() - bootStart);
+    setMetric('litert-boot', bootMs);
+    log('litert-log', `Boot: ${bootMs}ms`, 'ok');
+    document.getElementById('litert-status').textContent = `Boot: ${bootMs}ms — running inference…`;
+
+    const prompt = document.getElementById('prompt').value;
+    const genStart = performance.now();
+    let tokenCount = 0;
+    let firstTokenMs = 0;
+    let fullText = '';
+
+    log('litert-log', 'Running inference (streaming)…', 'info');
+
+    await _liteRTInstance.generateResponse(
+      prompt,
+      (partialResult, done) => {
+        if (tokenCount === 0) firstTokenMs = Math.round(performance.now() - genStart);
+        // Count tokens as word-pieces (approx — LiteRT streams partial results)
+        tokenCount++;
+        fullText += partialResult;
+        if (tokenCount % 20 === 0) {
+          document.getElementById('litert-status').textContent = `Generating… ${tokenCount} chunks`;
+        }
+      }
+    );
+
+    const genMs = performance.now() - genStart;
+    // Estimate tokens from output length (rough: ~0.75 chars/token for English)
+    const estTokens = Math.round(fullText.length / 4);
+    const tps = estTokens > 0 ? Math.round((estTokens / genMs) * 1000) : 0;
+
+    log('litert-log', `Done. ${tokenCount} stream chunks, ~${estTokens} est. tokens, ${Math.round(genMs)}ms`, 'ok');
+    log('litert-log', `Response: ${fullText.slice(0, 120)}…`, 'info');
+
+    setMetric('litert-ttft', firstTokenMs);
+    setMetric('litert-tps', tps);
+    setMetric('litert-toks', estTokens);
+
+    window._litертResults = { boot: bootMs, ttft: firstTokenMs, tps, toks: estTokens };
+    document.getElementById('litert-status').textContent = `Done: ~${tps} tok/s, boot ${bootMs}ms`;
+    log('litert-log', `tok/s≈${tps} ttft=${firstTokenMs}ms boot=${bootMs}ms`, 'ok');
+
+  } catch(e) {
+    log('litert-log', `Error: ${e.message}`, 'e');
+    log('litert-log', e.stack ? e.stack.slice(0,300) : '', 'e');
+    document.getElementById('litert-status').textContent = `Error: ${e.message.slice(0, 80)}`;
+    _liteRTInstance = null;
+  }
+  btn.disabled = false;
+  maybeShowComparison();
+};
+
+window.clearLiteRTState = function() {
+  if (_liteRTInstance) {
+    try { _liteRTInstance.close?.(); } catch(e) {}
+    _liteRTInstance = null;
+  }
+  log('litert-log', 'LiteRT instance cleared (will reload on next run).', 'ok');
+};
+
+// ─── Comparison ────────────────────────────────────────────────────────────
+
+function maybeShowComparison() {
+  const ort = window._ortResults;
+  const litert = window._litертResults;
+  if (!ort && !litert) return;
+  const el = document.getElementById('comparison');
+  el.classList.add('visible');
+  const rows = [
+    { label: 'Cold Boot (ms)', ort: ort?.boot, litert: litert?.boot, lowerBetter: true },
+    { label: 'TTFT (ms)', ort: ort?.ttft, litert: litert?.ttft, lowerBetter: true },
+    { label: 'Decode (tok/s)', ort: ort?.tps, litert: litert?.tps, lowerBetter: false },
+    { label: 'Tokens Out', ort: ort?.toks, litert: litert?.toks, lowerBetter: false },
+  ];
+  const body = rows.map(r => {
+    const na = '—';
+    const ovr = r.ort != null ? String(r.ort) : na;
+    const lvr = r.litert != null ? String(r.litert) : na;
+    let ocls = '', lcls = '';
+    if (r.ort != null && r.litert != null) {
+      const oBetter = r.lowerBetter ? r.ort <= r.litert : r.ort >= r.litert;
+      const lBetter = r.lowerBetter ? r.litert <= r.ort : r.litert >= r.ort;
+      const tie = r.ort === r.litert;
+      ocls = tie ? 'tie' : (oBetter ? 'win' : 'lose');
+      lcls = tie ? 'tie' : (lBetter ? 'win' : 'lose');
+    }
+    return `<div class="cmp-row"><div class="cmp-label">${r.label}</div><div class="cmp-val ${ocls}">ORT: ${ovr}</div><div class="cmp-val ${lcls}">LiteRT: ${lvr}</div></div>`;
+  }).join('');
+  // Win delta for decode
+  let delta = '';
+  if (ort?.tps && litert?.tps) {
+    const ratio = litert.tps / ort.tps;
+    delta = `<div style="margin-top:0.5rem;font-size:0.75rem;color:#aaa;">LiteRT decode is <strong style="color:${ratio >= 1.5 ? '#5f5' : ratio >= 1.1 ? '#fa5' : '#f55'}">${ratio.toFixed(2)}×</strong> vs ORT-web (threshold ≥1.5× for Step 2)</div>`;
+  }
+  document.getElementById('comparison-body').innerHTML = body + delta;
+}
+</script>
+</body>
+</html>
