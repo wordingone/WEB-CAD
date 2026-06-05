@@ -121,9 +121,13 @@ export function buildVaultPrecedentPanel(building = "white-house-washington-d-c"
         card.className = "vault-photo-card";
         const qidLabel = p.qid ? esc(p.qid) : "";
         const facetLabel = p.facet ? esc(p.facet) : "";
+        // Prefer Pages-served local_path over Wikimedia exact_url — hotlinks blocked on GH Pages.
+        const photoSrc = p.asset.local_path
+          ? vaultUrl(p.asset.local_path)
+          : (p.asset.exact_url ?? "");
         card.innerHTML = `
           <img
-            src="${escAttr(p.asset.exact_url!)}"
+            src="${escAttr(photoSrc)}"
             alt="${esc(buildingDisplayName(building))} — ${facetLabel}"
             loading="lazy"
             class="vault-photo-img"
