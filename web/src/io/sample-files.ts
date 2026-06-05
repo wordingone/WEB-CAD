@@ -63,7 +63,7 @@ export const SAMPLES: SampleFile[] = [
     path: "samples/house-v2.ifc",
     format: "ifc",
     size: "5.1 MB",
-    note: "Parametric 2-storey house: 2 building storeys, 3 walls, 1 floor slab, 1 roof, 1 window w/void, 3 doors. IFC4. Generated from Grasshopper in Rhino 8.",
+    note: "Parametric 2-storey house: 2 building storeys, 3 walls, 1 floor slab, 1 roof, 1 window, 3 doors. IFC4. Generated from Grasshopper in Rhino 8. Note: window opening not cut — IFCFACETEDBREP walls do not support IFCOPENINGELEMENT boolean subtraction; use native kernel build for correct voids.",
   },
   {
     id: "wall-with-opening",
