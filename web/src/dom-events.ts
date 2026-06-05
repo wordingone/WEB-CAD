@@ -13,6 +13,7 @@ import { getState } from "./app-state";
 import { getLayoutHost, activateMode } from "./shell/modes";
 import { exportLayoutAsSvg, exportLayoutAsPdf, exportLayoutAsDwgFallback, exportLayoutAsDxf, addPanel, getPanels } from "./shell/layout";
 import { buildIfc, buildIfcScene, populateOpenings, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
+import { buildStepScene } from "./ifc/step-build.js";
 import { canonicalGeometryToIfcNurbsSurfaces } from "./ifc/canonical-ifc";
 import { detectFormat, loadMainThreadFormat, buildIfcMesh, buildStepMesh, WORKER_FORMATS, MAIN_THREAD_FORMATS, isSupported, type LoadedScene } from "./io/loader";
 import { exportObj, exportGltfJson, exportGlb, exportUsdz, exportStl, export3dm, exportSvg, exportDxf, exportPdf } from "./io/exporters";
@@ -588,7 +589,9 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         if (pendingStep) {
           downloadBlob(new Blob([pendingStep], { type: "application/step" }), `${stem}.step`);
           setStatus(`STEP \xb7 ${(pendingStep.byteLength / 1024).toFixed(1)} KB`, "ok");
-        } else { setStatus("STEP only available for replicad-generated geometry.", "warn"); }
+        } else {
+          await exportStep(stem);
+        }
       } else { setStatus(`Unknown export format: ${fmt}`, "err"); }
     } catch (e) {
       console.error("[SdExport] 3D export failed:", e);
@@ -671,6 +674,18 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
       }
       downloadBlob(new Blob([new Uint8Array(bytes)], { type: "application/x-step" }), `${stem}.ifc`);
     } catch (e) { setStatus(`IFC build failed: ${(e as Error).message}`, "err"); }
+  }
+
+  async function exportStep(stem: string): Promise<void> {
+    setStatus("Building STEP scene export...", "info");
+    try {
+      const sceneElements = sceneElementsForExport();
+      if (sceneElements.length === 0) { setStatus("No geometry to export as STEP.", "warn"); return; }
+      const bytes = buildStepScene(sceneElements);
+      (window as unknown as Record<string, unknown>).__lastStepExport = { filename: `${stem}.step`, bytes };
+      downloadBlob(new Blob([bytes.buffer as ArrayBuffer], { type: "application/step" }), `${stem}.step`);
+      setStatus(`STEP \xb7 ${(bytes.byteLength / 1024).toFixed(1)} KB \xb7 ${sceneElements.length} elements`, "ok");
+    } catch (e) { setStatus(`STEP build failed: ${(e as Error).message}`, "err"); }
   }
 
   for (const btn of exportButtons) {
