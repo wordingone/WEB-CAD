@@ -546,10 +546,15 @@ function canonicalAllEdgeChamferDisplayResult(
   return display;
 }
 
-function unsupportedNativeFilletError(operation: string): { error: string } {
-  return {
+function unsupportedNativeFilletError(operation: string, kernFallbackReason?: string): Record<string, unknown> {
+  const ret: Record<string, unknown> = {
     error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
   };
+  if (kernFallbackReason !== undefined) {
+    ret.kern_fallback = true;
+    ret.kern_fallback_reason = kernFallbackReason;
+  }
+  return ret;
 }
 
 /**
@@ -1456,6 +1461,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
     let filletBackend: 'kern-fillet' | 'ts-approx' = 'ts-approx';
+    let kernFallbackReason: string | undefined;
     if (edgesArr.length > 0) {
       // Try C++ kern first (kern_fillet with explicit edge indices); fall back to TS chamfer.
       const kernResult = kernFilletDisplayResult(viewer, obj, radius, edgesArr, { operation: "multi-edge-fillet", edges: edgesArr, radius });
@@ -1464,7 +1470,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = edgesArr.length;
         filletBackend = 'kern-fillet';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        kernFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        } else {
+          console.warn('[kern] SdFillet: kern loaded but kern_fillet rejected — chamfer fallback. Last error:', kernFallbackReason);
+        }
         const uniqueEdges = getUniqueEdges(obj);
         const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
         for (const eid of edgesArr) {
@@ -1478,7 +1491,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
           ]);
         }
         const canonicalFillet = canonicalMultiEdgeChamferDisplayResult(viewer, obj, edgeCoords, radius, { operation: "multi-edge-chamfer", edges: edgesArr, radius });
-        if (!canonicalFillet) return unsupportedNativeFilletError("multi-edge chamfer");
+        if (!canonicalFillet) return unsupportedNativeFilletError("multi-edge chamfer", kernFallbackReason);
         filleted = canonicalFillet;
         edgeCount = edgesArr.length;
       }
@@ -1494,12 +1507,19 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = 1;
         filletBackend = 'kern-fillet';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        kernFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        } else {
+          console.warn('[kern] SdFillet: kern loaded but kern_fillet rejected — chamfer fallback. Last error:', kernFallbackReason);
+        }
         const [localA, localB] = edges[edgeId];
         const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
         const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
         const canonicalFillet = canonicalEdgeChamferDisplayResult(viewer, obj, worldA, worldB, radius, { operation: "edge-chamfer", edgeId, radius });
-        if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer");
+        if (!canonicalFillet) return unsupportedNativeFilletError("selected-edge chamfer", kernFallbackReason);
         filleted = canonicalFillet;
         edgeCount = 1;
       }
@@ -1519,16 +1539,28 @@ export function registerTransformHandlers(viewer: Viewer): void {
         filleted = kernResult;
         filletBackend = 'kern-fillet';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        kernFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
+        } else {
+          console.warn('[kern] SdFillet: kern loaded but kern_fillet rejected — chamfer fallback. Last error:', kernFallbackReason);
+        }
         const canonicalFillet = canonicalAllEdgeChamferDisplayResult(viewer, obj, radius, operation);
-        if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer");
+        if (!canonicalFillet) return unsupportedNativeFilletError("all-edge chamfer", kernFallbackReason);
         filleted = canonicalFillet;
       }
     }
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "fillet");
-    return { modified: filleted.uuid, edgeCount, backend: filletBackend };
+    const filletResult: Record<string, unknown> = { modified: filleted.uuid, edgeCount, backend: filletBackend };
+    if (kernFallbackReason !== undefined) {
+      filletResult.kern_fallback = true;
+      filletResult.kern_fallback_reason = kernFallbackReason;
+    }
+    return filletResult;
   });
 
   registerHandler("SdChamfer", (args) => {
@@ -1546,6 +1578,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
     let filleted: THREE.Mesh;
     let edgeCount: number | "all" = "all";
     let chamferBackend: 'kern-chamfer' | 'ts-approx' = 'ts-approx';
+    let kernChamferFallbackReason: string | undefined;
     if (edgesArr.length > 0) {
       const operation = { operation: "chamfer-multi-edge", edges: edgesArr, distance };
       const kernResult = kernChamferDisplayResult(viewer, obj, distance, edgesArr, operation);
@@ -1554,7 +1587,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = edgesArr.length;
         chamferBackend = 'kern-chamfer';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        kernChamferFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        } else {
+          console.warn('[kern] SdChamfer: kern loaded but kern_chamfer rejected — chamfer fallback. Last error:', kernChamferFallbackReason);
+        }
         const uniqueEdges = getUniqueEdges(obj);
         const edgeCoords: Array<[THREE.Vector3, THREE.Vector3]> = [];
         for (const eid of edgesArr) {
@@ -1584,7 +1624,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = 1;
         chamferBackend = 'kern-chamfer';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        kernChamferFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        } else {
+          console.warn('[kern] SdChamfer: kern loaded but kern_chamfer rejected — chamfer fallback. Last error:', kernChamferFallbackReason);
+        }
         const [localA, localB] = edges[edgeId];
         const worldA = localA.clone().applyMatrix4(obj.matrixWorld);
         const worldB = localB.clone().applyMatrix4(obj.matrixWorld);
@@ -1600,7 +1647,14 @@ export function registerTransformHandlers(viewer: Viewer): void {
         filleted = kernResult;
         chamferBackend = 'kern-chamfer';
       } else {
-        if (!isKernLoaded()) console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        kernChamferFallbackReason = isKernLoaded()
+          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
+          : 'kern-not-loaded';
+        if (!isKernLoaded()) {
+          console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
+        } else {
+          console.warn('[kern] SdChamfer: kern loaded but kern_chamfer rejected — chamfer fallback. Last error:', kernChamferFallbackReason);
+        }
         const result = canonicalAllEdgeChamferDisplayResult(viewer, obj, distance, operation);
         if (!result) return { error: `SdChamfer - all-edge chamfer requires a supported canonical box-like BRep` };
         filleted = result;
@@ -1609,7 +1663,12 @@ export function registerTransformHandlers(viewer: Viewer): void {
     viewer.getScene().remove(obj); // audit-undo-ok: tracked by pushReplaceAction below
     viewer.addMesh(filleted, "brep", { noHistory: true });
     pushReplaceAction(filleted, [obj], "chamfer");
-    return { modified: filleted.uuid, edgeCount, backend: chamferBackend };
+    const chamferResult: Record<string, unknown> = { modified: filleted.uuid, edgeCount, backend: chamferBackend };
+    if (kernChamferFallbackReason !== undefined) {
+      chamferResult.kern_fallback = true;
+      chamferResult.kern_fallback_reason = kernChamferFallbackReason;
+    }
+    return chamferResult;
   });
 
   registerHandler("SdShell", (args) => {
