@@ -145,10 +145,17 @@ function boundsSnap(
 // ── kern fallback reason capture logic (SdFillet / SdChamfer) ────────────────
 // Mirrors the logic in transforms.ts: kernFallbackReason capture + result-shape surface.
 
+function readKernLastFilletErrLogic(lastErr: unknown): string {
+  if (!lastErr) return 'kern_fillet rejected';
+  if (typeof lastErr === 'object') {
+    const e = lastErr as { code?: string; message?: string };
+    return e.message ?? e.code ?? 'kern_fillet rejected';
+  }
+  return String(lastErr);
+}
+
 function captureKernFallbackReason(isLoaded: boolean, lastErr: unknown): string {
-  return isLoaded
-    ? String(lastErr ?? 'kern_fillet rejected')
-    : 'kern-not-loaded';
+  return isLoaded ? readKernLastFilletErrLogic(lastErr) : 'kern-not-loaded';
 }
 
 function buildFilletResult(
@@ -176,6 +183,20 @@ describe("SdFillet / SdChamfer — kern fallback reason capture", () => {
 
   test("kern loaded + lastErr string → the string", () => {
     expect(captureKernFallbackReason(true, 'non-planar edge')).toBe('non-planar edge');
+  });
+
+  test("kern loaded + lastErr {code, message} object → message string", () => {
+    expect(captureKernFallbackReason(true, { code: 'CURVED_FACE', message: 'curved-face fillet not yet implemented: edge 3' }))
+      .toBe('curved-face fillet not yet implemented: edge 3');
+  });
+
+  test("kern loaded + lastErr {code} object (no message) → code string", () => {
+    expect(captureKernFallbackReason(true, { code: 'CURVED_FACE' }))
+      .toBe('CURVED_FACE');
+  });
+
+  test("kern loaded + lastErr empty object → 'kern_fillet rejected'", () => {
+    expect(captureKernFallbackReason(true, {})).toBe('kern_fillet rejected');
   });
 
   test("kern not loaded → 'kern-not-loaded'", () => {

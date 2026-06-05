@@ -546,6 +546,16 @@ function canonicalAllEdgeChamferDisplayResult(
   return display;
 }
 
+function readKernLastFilletErr(): string {
+  const lastErr = (window as unknown as Record<string, unknown>).__kernLastFilletErr;
+  if (!lastErr) return 'kern_fillet rejected';
+  if (typeof lastErr === 'object') {
+    const e = lastErr as { code?: string; message?: string };
+    return e.message ?? e.code ?? 'kern_fillet rejected';
+  }
+  return String(lastErr);
+}
+
 function unsupportedNativeFilletError(operation: string, kernFallbackReason?: string): Record<string, unknown> {
   const ret: Record<string, unknown> = {
     error: `SdFillet - ${operation} currently requires a supported canonical box-like BRep. Mesh-derived fallback is disabled so the command cannot create a fake canonical BRep result.`,
@@ -1470,9 +1480,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = edgesArr.length;
         filletBackend = 'kern-fillet';
       } else {
-        kernFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
-          : 'kern-not-loaded';
+        kernFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         } else {
@@ -1507,9 +1515,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = 1;
         filletBackend = 'kern-fillet';
       } else {
-        kernFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
-          : 'kern-not-loaded';
+        kernFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         } else {
@@ -1539,9 +1545,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         filleted = kernResult;
         filletBackend = 'kern-fillet';
       } else {
-        kernFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_fillet rejected')
-          : 'kern-not-loaded';
+        kernFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdFillet: kern.wasm not ready — using TS chamfer approximation (sharp edges until kernel loads)');
         } else {
@@ -1587,9 +1591,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = edgesArr.length;
         chamferBackend = 'kern-chamfer';
       } else {
-        kernChamferFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
-          : 'kern-not-loaded';
+        kernChamferFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         } else {
@@ -1624,9 +1626,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         edgeCount = 1;
         chamferBackend = 'kern-chamfer';
       } else {
-        kernChamferFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
-          : 'kern-not-loaded';
+        kernChamferFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         } else {
@@ -1647,9 +1647,7 @@ export function registerTransformHandlers(viewer: Viewer): void {
         filleted = kernResult;
         chamferBackend = 'kern-chamfer';
       } else {
-        kernChamferFallbackReason = isKernLoaded()
-          ? String((window as unknown as Record<string, unknown>).__kernLastFilletErr ?? 'kern_chamfer rejected')
-          : 'kern-not-loaded';
+        kernChamferFallbackReason = isKernLoaded() ? readKernLastFilletErr() : 'kern-not-loaded';
         if (!isKernLoaded()) {
           console.warn('[kern] SdChamfer: kern.wasm not ready — using TS chamfer approximation until kernel loads');
         } else {
