@@ -105,6 +105,17 @@ function _buildFromGlb(
 ): THREE.Mesh | null {
   try {
     const clone = glbGroup.clone(true);
+    // Three.js Mesh.clone() shares material by reference — clone materials so each window
+    // instance owns its own material objects and scene traversals don't corrupt the cache.
+    clone.traverse((obj) => {
+      if (!(obj as THREE.Mesh).isMesh) return;
+      const m = obj as THREE.Mesh;
+      if (Array.isArray(m.material)) {
+        m.material = m.material.map((mat) => (mat ? mat.clone() : mat));
+      } else if (m.material) {
+        m.material = (m.material as THREE.MeshStandardMaterial).clone();
+      }
+    });
     // Gather all meshes to compute aggregate bbox
     const meshes: THREE.Mesh[] = [];
     clone.traverse((obj) => { if ((obj as THREE.Mesh).isMesh) meshes.push(obj as THREE.Mesh); });
@@ -362,7 +373,9 @@ export function buildWindow(p: { x: number; y: number }, dims?: { w?: number; h?
         ? (obj as THREE.Mesh).material as THREE.MeshStandardMaterial[]
         : [(obj as THREE.Mesh).material as THREE.MeshStandardMaterial];
       mats.forEach((m) => {
-        if (m && m.transparent && m.opacity >= 0.15 && m.opacity < 0.6) {
+        if (m && m.transparent) {
+          // Force glass pane to 0.45 opacity — Leo gate criterion (visibly present, see-through).
+          // Lower bound removed: cache sharing previously left op=0 which skipped the old guard.
           m.opacity = 0.45;
           m.metalness = 0.35;
           m.roughness = 0.0;
