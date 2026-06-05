@@ -546,3 +546,99 @@ export function buildIfc(mesh: IfcMesh, label: string = "GemmaCad Element", opts
 
   return new TextEncoder().encode(lines.join("\n"));
 }
+
+// ── Export-pipeline helpers ───────────────────────────────────────────────────
+
+/**
+ * Map from userData.creator strings (set by builders, lowercase) to IFC class
+ * names (PascalCase Ifc*) used by buildIfcScene's IFC4_ENTITY lookup.
+ * Builders in structural.ts / openings.ts set e.g. "wall", "door", "window".
+ */
+export const CREATOR_IFC_CLASS: Record<string, string> = {
+  wall:         "IfcWall",
+  slab:         "IfcSlab",
+  column:       "IfcColumn",
+  beam:         "IfcBeam",
+  door:         "IfcDoor",
+  window:       "IfcWindow",
+  roof:         "IfcRoof",
+  stair:        "IfcStair",
+  ramp:         "IfcRamp",
+  railing:      "IfcRailing",
+  space:        "IfcSpace",
+  curtainwall:  "IfcWall",
+  ceiling:      "IfcSlab",
+  skylight:     "IfcWindow",
+  foundation:   "IfcSlab",
+};
+
+type Bbox = { min: [number, number, number]; max: [number, number, number] };
+
+function meshBbox(mesh: IfcMesh): Bbox {
+  let [xMin, yMin, zMin] = [Infinity, Infinity, Infinity];
+  let [xMax, yMax, zMax] = [-Infinity, -Infinity, -Infinity];
+  const v = mesh.vertices;
+  for (let i = 0; i < v.length; i += 3) {
+    const x = v[i]!, y = v[i + 1]!, z = v[i + 2]!;
+    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+    if (z < zMin) zMin = z; if (z > zMax) zMax = z;
+  }
+  return { min: [xMin, yMin, zMin], max: [xMax, yMax, zMax] };
+}
+
+function bboxOverlap(a: Bbox, b: Bbox, tol: number): boolean {
+  return a.max[0] + tol >= b.min[0] && a.min[0] - tol <= b.max[0]
+      && a.max[1] + tol >= b.min[1] && a.min[1] - tol <= b.max[1]
+      && a.max[2] + tol >= b.min[2] && a.min[2] - tol <= b.max[2];
+}
+
+const VOID_CREATORS  = new Set(["IfcDoor", "IfcWindow"]);
+const HOST_CREATORS  = new Set(["IfcWall"]);
+
+/**
+ * Enrich IfcSceneElement[] coming out of sceneElementsForExport():
+ *   1. Normalise creator strings (e.g. "wall" → "IfcWall") via CREATOR_IFC_CLASS.
+ *   2. Populate openings[] on IfcWall elements where a door/window element
+ *      spatially overlaps (AABB intersection within `tolerance` metres).
+ *
+ * Door/window elements are kept as standalone IfcDoor/IfcWindow entities so
+ * the export carries both the door/window product semantics AND the void
+ * relationship via IfcRelVoidsElement → host wall.
+ *
+ * @param tolerance  AABB overlap tolerance in metres (default 0.05 = 5 cm).
+ */
+export function populateOpenings(
+  elements: IfcSceneElement[],
+  tolerance = 0.05,
+): IfcSceneElement[] {
+  // Step 1: normalise creator strings.
+  const norm: IfcSceneElement[] = elements.map((el) => ({
+    ...el,
+    creator: CREATOR_IFC_CLASS[el.creator] ?? el.creator,
+  }));
+
+  // Step 2: compute AABBs for all elements.
+  const boxes = norm.map((el) => meshBbox(el.mesh));
+
+  // Step 3: for each door/window, find host walls whose AABB overlaps.
+  const wallOpeningsMap = new Map<number, NonNullable<IfcSceneElement["openings"]>>();
+  for (let vi = 0; vi < norm.length; vi++) {
+    if (!VOID_CREATORS.has(norm[vi].creator)) continue;
+    for (let wi = 0; wi < norm.length; wi++) {
+      if (vi === wi || !HOST_CREATORS.has(norm[wi].creator)) continue;
+      if (bboxOverlap(boxes[vi]!, boxes[wi]!, tolerance)) {
+        if (!wallOpeningsMap.has(wi)) wallOpeningsMap.set(wi, []);
+        const voidEl = norm[vi]!;
+        wallOpeningsMap.get(wi)!.push({ mesh: voidEl.mesh, label: voidEl.label ?? voidEl.creator });
+      }
+    }
+  }
+
+  // Step 4: apply collected openings to their host walls.
+  return norm.map((el, i) => {
+    const extra = wallOpeningsMap.get(i);
+    if (!extra) return el;
+    return { ...el, openings: [...(el.openings ?? []), ...extra] };
+  });
+}
