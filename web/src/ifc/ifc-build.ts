@@ -318,6 +318,52 @@ export function emitNurbsAdvancedBrep(
   return brepRef;
 }
 
+// Emit IfcRectangleProfileDef + IfcAxis2Placement3D + IfcExtrudedAreaSolid
+// from a box mesh AABB. Returns the IfcExtrudedAreaSolid ref.
+// oversize: expand each AABB dimension outward by this amount (for cutting solids).
+function emitBoxExtrudedSolid(
+  mesh: IfcMesh,
+  lines: string[],
+  next: () => string,
+  scale: number,
+  oversize = 0.0,
+): string {
+  let xMin = Infinity, yMin = Infinity, zMin = Infinity;
+  let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
+  const v = mesh.vertices;
+  for (let i = 0; i < v.length; i += 3) {
+    const x = v[i]! * scale, y = v[i + 1]! * scale, z = v[i + 2]! * scale;
+    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
+    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
+    if (z < zMin) zMin = z; if (z > zMax) zMax = z;
+  }
+  const cx = (xMin + xMax) / 2, cy = (yMin + yMax) / 2;
+  const w = xMax - xMin + oversize * 2;
+  const d = yMax - yMin + oversize * 2;
+  const h = zMax - zMin + oversize * 2;
+  const baseZ = zMin - oversize;
+
+  const o2d = next();
+  lines.push(`${o2d}=IFCCARTESIANPOINT((0.,0.));`);
+  const ax2d = next();
+  lines.push(`${ax2d}=IFCAXIS2PLACEMENT2D(${o2d},$);`);
+  const prof = next();
+  lines.push(`${prof}=IFCRECTANGLEPROFILEDEF(.AREA.,$,${ax2d},${stepFloat(w)},${stepFloat(d)});`);
+  const pt3d = next();
+  lines.push(`${pt3d}=IFCCARTESIANPOINT((${stepFloat(cx)},${stepFloat(cy)},${stepFloat(baseZ)}));`);
+  const dz = next();
+  lines.push(`${dz}=IFCDIRECTION((0.,0.,1.));`);
+  const dx = next();
+  lines.push(`${dx}=IFCDIRECTION((1.,0.,0.));`);
+  const ax3d = next();
+  lines.push(`${ax3d}=IFCAXIS2PLACEMENT3D(${pt3d},${dz},${dx});`);
+  const extDir = next();
+  lines.push(`${extDir}=IFCDIRECTION((0.,0.,1.));`);
+  const solid = next();
+  lines.push(`${solid}=IFCEXTRUDEDAREASOLID(${prof},${ax3d},${extDir},${stepFloat(h)});`);
+  return solid;
+}
+
 // Sentinel key for elements with no matching levelId.
 const FALLBACK_LEVEL_ID = "__default__";
 
@@ -366,11 +412,30 @@ export function buildIfcScene(elements: IfcSceneElement[], levels?: IfcLevel[], 
     const nurbsSurfaces = el.nurbsSurfaces && el.nurbsSurfaces.length > 0
       ? el.nurbsSurfaces
       : el.nurbsSurface ? [el.nurbsSurface] : [];
-    // §WEB-CAD#30 G9: prefer NURBS path when canonical geometry carries convertible surfaces.
-    const bodyItems = nurbsSurfaces.length > 0
-      ? nurbsSurfaces.map((surface) => emitNurbsAdvancedBrep(surface, lines, next, coordScale))
-      : [emitMeshBrep(el.mesh, lines, next, coordScale)];
-    const repType = nurbsSurfaces.length > 0 ? "SurfaceModel" : "Brep";
+
+    // CSG path: IfcWall elements with openings emit IfcExtrudedAreaSolid body +
+    // IfcBooleanResult(DIFFERENCE) per opening so the void is baked into the mesh.
+    // Other elements keep the IfcFacetedBrep path.
+    let bodyItems: string[];
+    let repType: string;
+    if (el.creator === "IfcWall" && (el.openings?.length ?? 0) > 0) {
+      let wallSolid = emitBoxExtrudedSolid(el.mesh, lines, next, coordScale);
+      for (const opening of el.openings!) {
+        const cutSolid = emitBoxExtrudedSolid(opening.mesh, lines, next, coordScale, 0.05);
+        const boolRef = next();
+        lines.push(`${boolRef}=IFCBOOLEANRESULT(.DIFFERENCE.,${wallSolid},${cutSolid});`);
+        wallSolid = boolRef;
+      }
+      bodyItems = [wallSolid];
+      repType = "CSG";
+    } else if (nurbsSurfaces.length > 0) {
+      // §WEB-CAD#30 G9: prefer NURBS path when canonical geometry carries convertible surfaces.
+      bodyItems = nurbsSurfaces.map((surface) => emitNurbsAdvancedBrep(surface, lines, next, coordScale));
+      repType = "SurfaceModel";
+    } else {
+      bodyItems = [emitMeshBrep(el.mesh, lines, next, coordScale)];
+      repType = "Brep";
+    }
     const shapeRep = next();
     lines.push(`${shapeRep}=IFCSHAPEREPRESENTATION(${ctx},${stepString("Body")},${stepString(repType)},(${bodyItems.join(",")}));`);
     const productShape = next();

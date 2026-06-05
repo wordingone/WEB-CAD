@@ -221,4 +221,26 @@ describe("IFC export-pipeline openings — populateOpenings() integration (Leo #
     expect(windows).toBe(3);
     expect(proxies).toBe(0);
   });
+
+  test("CSG bake: GF south wall GetFlatMesh has more triangles than a plain box (void subtracted)", () => {
+    // GF south wall (enrichedElements[1]) has 2 openings → IfcBooleanResult bakes the void into geometry.
+    // A plain box has 12 triangles. After subtracting 2 openings the mesh must have substantially more.
+    const wallIds = vecToArray(api.GetLineIDsWithType(modelId, wifc.IFCWALL));
+    // Find the GF south wall by iterating GetFlatMesh; south wall is the largest by index count.
+    let maxTris = 0;
+    for (const wid of wallIds) {
+      const flatMesh = api.GetFlatMesh(modelId, wid);
+      let tris = 0;
+      for (let gi = 0; gi < flatMesh.geometries.size(); gi++) {
+        const geomEntry = flatMesh.geometries.get(gi);
+        const geom = api.GetGeometry(modelId, geomEntry.geometryExpressID);
+        const idxBuf = api.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
+        tris += idxBuf.length / 3;
+        geom.delete();
+      }
+      if (tris > maxTris) maxTris = tris;
+    }
+    // The wall with 2 openings must have significantly more triangles than a plain box (12).
+    expect(maxTris).toBeGreaterThan(24);
+  });
 });
