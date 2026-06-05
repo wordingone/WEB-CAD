@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "query": {
+    "mode": "precedent",
+    "filter": {
+      "building": "villa-savoye"
+    }
+  },
+  "count": 7,
+  "records": [
+    {
+      "layer": "L1",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": "provenance",
+      "datatype": "entity-description",
+      "format": "json",
+      "asset": {
+        "exact_url": "https://www.wikidata.org/wiki/Special:EntityData/Q940746.json",
+        "local_path": "raw/L1/villa-savoye/provenance/Q940746.json",
+        "content_hash": "sha256:6dfeb1ebde6a69416c2ccabaed7297c28a3fdd4e106196f86560d7dc8453c85b",
+        "byte_verified": true,
+        "size_bytes": 50077
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": "photos",
+      "datatype": "photograph",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://upload.wikimedia.org/wikipedia/commons/2/2b/Cartello_Patrimonio_xx_secolo.jpg",
+        "local_path": "raw/L1/villa-savoye/photos/Cartello_Patrimonio_xx_secolo.jpg",
+        "content_hash": "sha256:a1dd6b246fb7240727bb292ab7189f01fb176aeb519529c6f87ea75274cfd8ba",
+        "byte_verified": true,
+        "size_bytes": 7053030
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": "photos",
+      "datatype": "photograph",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://upload.wikimedia.org/wikipedia/commons/2/2f/Cartello_stradale_in_Rue_de_Villiers.jpg",
+        "local_path": "raw/L1/villa-savoye/photos/Cartello_stradale_in_Rue_de_Villiers.jpg",
+        "content_hash": "sha256:a518ec5ae7aa83489f44656fa07a85b2fa5f011789bd0df40ed49dbff00978d2",
+        "byte_verified": true,
+        "size_bytes": 7879567
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": "photos",
+      "datatype": "photograph",
+      "format": "JPG",
+      "asset": {
+        "exact_url": "https://upload.wikimedia.org/wikipedia/commons/a/a6/Les_heures_claires...%5E1_-_Flickr_-_Biscarotte.jpg",
+        "local_path": "raw/L1/villa-savoye/photos/Les_heures_claires..._1_-_Flickr_-_Biscarotte.jpg",
+        "content_hash": "sha256:14cbbd7bf3bbde8783bea1f86f5c4d10c8d7ed8d67cf152550cf8dcba10d2136",
+        "byte_verified": true,
+        "size_bytes": 2126261
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L1",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": "site-geo",
+      "datatype": "building-footprint",
+      "format": "GeoJSON",
+      "asset": {
+        "exact_url": "https://overpass-api.de/api/interpreter?data=[out:json];way(38327851);out+geom;",
+        "local_path": "raw/L1/villa-savoye/site-geo/villa_savoye_osm_footprint.geojson",
+        "content_hash": "sha256:dff81a89fe7303afa167633e92522b7e30eb2328d4a8eb2d0f46d60fa6f59474",
+        "byte_verified": true,
+        "size_bytes": 254
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L2",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": null,
+      "datatype": "structured-facts",
+      "format": "json",
+      "asset": {
+        "exact_url": "https://www.wikidata.org/wiki/Special:EntityData/Q940746.json",
+        "local_path": "raw/L2/wikidata/Q940746.json",
+        "content_hash": "sha256:6dfeb1ebde6a69416c2ccabaed7297c28a3fdd4e106196f86560d7dc8453c85b",
+        "byte_verified": true,
+        "size_bytes": 50077
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    },
+    {
+      "layer": "L2",
+      "building": "villa-savoye",
+      "qid": "Q940746",
+      "facet": null,
+      "datatype": "prose-description",
+      "format": "txt",
+      "asset": {
+        "exact_url": "https://en.wikipedia.org/wiki/Villa_Savoye",
+        "local_path": "raw/L2/wikipedia/Q940746.txt",
+        "content_hash": "sha256:a3f3e8465d8886ae0caec05e626c125e29832dca5cfd1b137e1e404b0f4c2c89",
+        "byte_verified": true,
+        "size_bytes": 13893
+      },
+      "context": {
+        "era": "contemporary",
+        "year": 1931,
+        "type": "house",
+        "country": "France"
+      }
+    }
+  ]
+}

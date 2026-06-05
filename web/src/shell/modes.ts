@@ -23,6 +23,7 @@ import { iconSVG } from "../ui/icons";
 import { buildLayoutMode, addPanel, getController, type SceneBounds } from "./layout";
 import { buildLayoutPalette } from "./workbench";
 import { buildLayoutLayersPanel } from "./layers-panel";
+import { buildVaultPrecedentPanel } from "../research/vault-precedent-panel";
 import {
   buildResearchIndex,
   queryResearch,
@@ -120,7 +121,7 @@ function buildResearchMode(): HTMLElement {
         <div class="rdv-page"><p style="color: var(--ink-faint);">Indexing corpus…</p></div>
       </div>
     </div>
-    <div class="research-col">
+    <div class="research-col" id="r-right-col">
       <div class="research-header">${iconSVG("sparkle", 13)} FINDINGS <span class="pill" id="r-cite-pill">0 cited</span></div>
       <div class="research-body findings-list" id="r-findings"></div>
       <div class="research-prompt">
@@ -135,6 +136,13 @@ function buildResearchMode(): HTMLElement {
       </div>
     </div>
   `;
+
+  // ---- Vault precedent panel — prepended into the right column ----
+  const rightCol = el.querySelector<HTMLElement>("#r-right-col");
+  if (rightCol) {
+    const vaultPanel = buildVaultPrecedentPanel("villa-savoye");
+    rightCol.insertBefore(vaultPanel, rightCol.firstChild);
+  }
 
   // ---- DOM handles ----
   const queryInput = el.querySelector<HTMLInputElement>("#r-query")!;
