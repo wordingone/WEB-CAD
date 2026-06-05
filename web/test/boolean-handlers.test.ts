@@ -1,4 +1,5 @@
 // Regression net for #30 G8: SdBooleanUnion / SdBooleanDifference / SdBooleanIntersection handlers.
+// #459: "Fuse"/"fuse"/"FUSE" synonym case-invariant dispatch → SdBooleanUnion geometric result.
 //
 // Tests that the three verb-specific boolean handlers are registered and return
 // { created: <uuid> } on success, and { error: ... } for missing args.
@@ -45,13 +46,13 @@ describe("G8 — SdBooleanUnion handler", () => {
     expect((dr as any).result.error).toContain("not found");
   });
 
-  test("missing required b arg is caught by schema validation", () => {
+  test("missing b arg returns handler-level error (schema now optional for n-ary support)", () => {
     const { viewer } = makeEnv();
     registerTransformHandlers(viewer);
     const dr = dispatchSync("SdBooleanUnion", { a: "x" });
-    // b is required — schema validation rejects before handler runs
-    expect(dr.ok).toBe(false);
-    expect((dr as any).error).toBe("ArgValidationError");
+    // a+b are both optional to allow objects:[] n-ary form; handler validates at runtime
+    expect(dr.ok).toBe(true);
+    expect((dr as any).result.error).toMatch(/not found|requires/i);
   });
 });
 
@@ -146,4 +147,75 @@ describe("#246 — SdBoolIntersect handler", () => {
     expect(dr.ok).toBe(true);
     expect((dr as any).result.error).toContain("not found");
   });
+});
+
+// #459 — Synonym/case-invariant dispatch routing table.
+// Shape: { emitted, canonical } — reusable scaffold for the broader verb-synonym audit.
+// Extend this table as additional model-emitted synonyms are confirmed or audited.
+// Geometric gate (per Leo AC#3): assert result geometry produced, not just a dispatch flag.
+const SYNONYM_ROUTING_TABLE: { emitted: string; canonical: string }[] = [
+  // "Fuse" case variants — #459 baseline
+  { emitted: "Fuse",  canonical: "SdBooleanUnion" },
+  { emitted: "fuse",  canonical: "SdBooleanUnion" },
+  { emitted: "FUSE",  canonical: "SdBooleanUnion" },
+  // existing lowercase synonyms already in alias index (sanity-pin)
+  { emitted: "union", canonical: "SdBooleanUnion" },
+];
+
+describe("#459 — synonym routing table: emitted-verb → canonical", () => {
+  const { resolveVerb } = require("../src/commands/dispatch");
+  for (const { emitted, canonical } of SYNONYM_ROUTING_TABLE) {
+    test(`resolveVerb("${emitted}") === "${canonical}"`, () => {
+      expect(resolveVerb(emitted)).toBe(canonical);
+    });
+  }
+});
+
+// Geometric gate: CSG union actually runs (two solids → one fused mesh in scene).
+// Viewer mock with getCanonicalGeometryStore returning null brep → falls to CSG path.
+describe("#459 — Fuse synonym dispatch: real union geometry produced", () => {
+  function makeEnvFull() {
+    const scene = new THREE.Scene();
+    const v = {
+      getScene: () => scene,
+      addMesh(m: THREE.Object3D) { scene.add(m); },
+      getActiveObject: () => null,
+      getCanonicalGeometryStore: () => ({
+        resolveObjectOrAncestor: () => null,
+        create: () => ({ id: "mock-brep" }),
+      }),
+    } as unknown as Viewer;
+
+    function addOverlappingBoxes(): [THREE.Mesh, THREE.Mesh] {
+      const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+      a.position.set(0, 0, 0);
+      a.updateMatrixWorld(true);
+      a.userData.kind = "brep";
+      scene.add(a);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+      b.position.set(0.4, 0, 0);
+      b.updateMatrixWorld(true);
+      b.userData.kind = "brep";
+      scene.add(b);
+      return [a, b];
+    }
+
+    return { viewer: v, scene, addOverlappingBoxes };
+  }
+
+  for (const { emitted } of SYNONYM_ROUTING_TABLE.filter(r => r.canonical === "SdBooleanUnion")) {
+    test(`"${emitted}" → SdBooleanUnion: result.created UUID in scene, operands removed`, () => {
+      const { viewer, scene, addOverlappingBoxes } = makeEnvFull();
+      registerTransformHandlers(viewer);
+      const [a, b] = addOverlappingBoxes();
+      const dr = dispatchSync(emitted, { a: a.uuid, b: b.uuid });
+      expect(dr.ok).toBe(true);
+      const result = (dr as any).result as Record<string, unknown>;
+      expect(typeof result.created).toBe("string");
+      expect(result.op).toBe("union");
+      expect(scene.getObjectByProperty("uuid", a.uuid)).toBeUndefined();
+      expect(scene.getObjectByProperty("uuid", b.uuid)).toBeUndefined();
+      expect(scene.getObjectByProperty("uuid", result.created as string)).toBeTruthy();
+    });
+  }
 });

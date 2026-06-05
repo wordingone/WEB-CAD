@@ -1,0 +1,149 @@
+{
+  "_meta": {
+    "format": "GhDefSpec v0.3 — Sd-verb graph, dispatch-ready (web serving copy)",
+    "building": "Farnsworth House — Ludwig Mies van der Rohe, Plano IL 1951",
+    "status": "CERTIFIED — Leo gate 2026-06-03. Dispatch gaps resolved PR #506 (SdColumn face_m/depth_m/height_m, SdCurtainWall height_m/elevation_m).",
+    "source": "rhino/exports/house_farnsworth/gh_def_farnsworth.json — certified_params applied"
+  },
+  "inlineGraphId": "farnsworth-house-v3",
+  "inputPorts": [
+    { "name": "pavilion_length_m", "default": 23.571, "label": "Pavilion length (m)" },
+    { "name": "pavilion_depth_m",  "default": 8.738,  "label": "Pavilion depth (m)" },
+    { "name": "floor_raise_m",     "default": 1.600,  "label": "Floor raise above grade (m)" },
+    { "name": "interior_height_m", "default": 2.743,  "label": "Interior clear height (m)" },
+    { "name": "bay_spacing_m",     "default": 6.706,  "label": "Column bay spacing (m)" },
+    { "name": "cantilever_m",      "default": 1.7265, "label": "End cantilever (m)" }
+  ],
+  "components": [
+    {
+      "id": "floor_plate",
+      "type": "SdBox",
+      "_note": "Floor slab — center Z = 1.500m (mid-thickness 1.4–1.6m).",
+      "params": {
+        "width":  { "portRef": "pavilion_length_m" },
+        "depth":  { "portRef": "pavilion_depth_m" },
+        "height": { "value": 0.200 },
+        "center": { "value": [11.7855, 4.369, 1.500] }
+      }
+    },
+    {
+      "id": "roof_plate",
+      "type": "SdBox",
+      "_note": "Roof slab — soffit 4.343m, top 4.543m. Center Z = 4.443m.",
+      "params": {
+        "width":  { "portRef": "pavilion_length_m" },
+        "depth":  { "portRef": "pavilion_depth_m" },
+        "height": { "value": 0.200 },
+        "center": { "value": [11.7855, 4.369, 4.443] }
+      }
+    },
+    {
+      "id": "col_f0",
+      "type": "SdColumn",
+      "_note": "Front column 0 — X=1.7265 (cantilever end). Y=-0.105 = col centre (front face at Y=0).",
+      "params": {
+        "position": { "value": [1.7265, -0.105] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_f1",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [8.4325, -0.105] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_f2",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [15.1385, -0.105] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_f3",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [21.8445, -0.105] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_r0",
+      "type": "SdColumn",
+      "_note": "Rear column 0 — Y=8.843 = col centre (rear face at Y=8.738).",
+      "params": {
+        "position": { "value": [1.7265, 8.843] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_r1",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [8.4325, 8.843] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_r2",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [15.1385, 8.843] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "col_r3",
+      "type": "SdColumn",
+      "params": {
+        "position": { "value": [21.8445, 8.843] },
+        "face_m":   { "value": 0.203 },
+        "depth_m":  { "value": 0.210 },
+        "height_m": { "value": 4.543 }
+      }
+    },
+    {
+      "id": "glazing_front",
+      "type": "SdCurtainWall",
+      "_note": "Front all-glass facade at Y=0. height_m=2.743 (interior clear), elevation_m=1.600 (floor raise). Spans Z=[1.600, 4.343].",
+      "params": {
+        "start":          { "value": [0, 0] },
+        "end":            { "value": [23.571, 0] },
+        "mullionSpacing": { "value": 6.706 },
+        "transomSpacing": { "value": 2.743 },
+        "height_m":       { "value": 2.743 },
+        "elevation_m":    { "value": 1.600 }
+      }
+    },
+    {
+      "id": "glazing_rear",
+      "type": "SdCurtainWall",
+      "_note": "Rear all-glass facade at Y=8.738. Same height/elevation as front.",
+      "params": {
+        "start":          { "value": [0, 8.738] },
+        "end":            { "value": [23.571, 8.738] },
+        "mullionSpacing": { "value": 6.706 },
+        "transomSpacing": { "value": 2.743 },
+        "height_m":       { "value": 2.743 },
+        "elevation_m":    { "value": 1.600 }
+      }
+    }
+  ]
+}

@@ -114,7 +114,7 @@ describe("MODEL palette runtime proof index", () => {
       const entry = getEntry(spec.command);
       expect(entry, `${spec.paletteId} -> ${spec.command}`).toBeDefined();
       if (!entry) throw new Error(`missing dictionary entry for ${spec.paletteId} -> ${spec.command}`);
-      expect(["nurbs-webgpu", "replicad"], `${spec.paletteId} kernel`).toContain(entry.kernel);
+      expect(["nurbs-webgpu", "replicad", "nurbs-ts", "kern-wasm"], `${spec.paletteId} kernel`).toContain(entry.kernel);
       expect(entry.topology_role, `${spec.paletteId} topology_role`).not.toBe("view");
       expect(entry.topology_role, `${spec.paletteId} topology_role`).not.toBe("selection");
       expect(entry.kernel_op, `${spec.paletteId} kernel_op`).toBeTruthy();

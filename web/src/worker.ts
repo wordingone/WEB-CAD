@@ -13,6 +13,7 @@ import init from "replicad-opencascadejs/src/replicad_single.js";
 import opencascadeWasmUrl from "replicad-opencascadejs/src/replicad_single.wasm?url";
 import {
   setOC,
+  importSTEP,
   type Shape3D,
 } from "replicad";
 import { tier1Bindings } from "./tools/tier1-shared";
@@ -406,124 +407,32 @@ async function loadStep(
   if (!_ocHandle) {
     return { type: "load-step-error", id: 0, error: "OpenCascade not initialised" };
   }
-  const oc = _ocHandle;
-  const text = new TextDecoder().decode(bytes); // STEP/IGES/BREP are all text
-  const filename = `import.${format}`;
+
+  if (format === "brep") {
+    return { type: "load-step-error", id: 0, error: "BREP import not wired — use STEP" };
+  }
+  if (format === "iges" || format === "igs") {
+    return { type: "load-step-error", id: 0, error: "IGES not available in this build — use STEP" };
+  }
 
   try {
-    // Write the file into the Emscripten virtual FS.
-    if (typeof oc.FS?.writeFile === "function") {
-      oc.FS.writeFile(`/${filename}`, text);
-    } else {
-      return {
-        type: "load-step-error",
-        id: 0,
-        error: "OpenCascade FS not available — cannot stage file",
-      };
-    }
+    // Use replicad's importSTEP (tested path: handles FS staging + TransferRoots).
+    // importSTEP returns AnyShape; STEP always yields a 3D solid/compound.
+    const blob = new Blob([bytes]);
+    const shape = await importSTEP(blob) as Shape3D;
 
-    let shape: any = null;
-    if (format === "step" || format === "stp") {
-      const reader = new oc.STEPControl_Reader_1();
-      const status = reader.ReadFile(`/${filename}`);
-      // IFSelect_RetDone == 1 in OCCT enum.
-      if (status !== 1 && status?.value !== 1) {
-        return { type: "load-step-error", id: 0, error: `STEP ReadFile status=${status}` };
-      }
-      const progress = new oc.Message_ProgressRange_1();
-      reader.TransferRoots(progress);
-      const nbShapes = reader.NbShapes();
-      if (nbShapes < 1) {
-        return { type: "load-step-error", id: 0, error: "STEP TransferRoots produced 0 shapes" };
-      }
-      // OneShape() returns a single Compound when multiple roots exist.
-      shape = reader.OneShape();
-    } else if (format === "brep") {
-      // BRep is loadable via BRepTools::Read_1(shape, stream, builder, progress).
-      // No direct file-path API in this OC build, so we take the path of
-      // staging file and reading via an IStream-style API only if available.
-      // Fall through to error — BREP path is documented as best-effort.
-      return {
-        type: "load-step-error",
-        id: 0,
-        error: "BREP import not wired in this build — STEP/IGES preferred",
-      };
-    } else {
-      return {
-        type: "load-step-error",
-        id: 0,
-        error: `IGES not available in this OpenCascade build (no IGESControl_Reader)`,
-      };
-    }
+    // shape.mesh() calls BRepMesh_IncrementalMesh + face triangulation via
+    // replicad's own tested code path (t.Value(1/2/3), not t.Get).
+    const { triangles, vertices, normals } = shape.mesh({ tolerance: 0.05, angularTolerance: 0.3 });
 
-    if (!shape || shape.IsNull?.()) {
-      return { type: "load-step-error", id: 0, error: "OCCT returned null shape after Transfer" };
-    }
-
-    // Mesh the shape via BRepMesh_IncrementalMesh, then walk faces and pull
-    // triangulation. This mirrors what replicad's Shape3D.mesh() does
-    // internally but bypasses replicad's TopoDS-wrapping requirement.
-    const mesher = new oc.BRepMesh_IncrementalMesh_2(shape, 0.05, false, 0.3, false);
-    mesher.Perform_1?.(new oc.Message_ProgressRange_1());
-
-    const positions: number[] = [];
-    const indices: number[] = [];
-    const normals: number[] = [];
-
-    // Iterate faces.
-    const explorer = new oc.TopExp_Explorer_2(
-      shape,
-      oc.TopAbs_ShapeEnum.TopAbs_FACE,
-      oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
-    );
-    while (explorer.More()) {
-      const face = oc.TopoDS.Face_1(explorer.Current());
-      const loc = new oc.TopLoc_Location_1();
-      const tri = oc.BRep_Tool.Triangulation(face, loc, 0);
-      if (!tri || tri.IsNull?.()) {
-        explorer.Next();
-        continue;
-      }
-      const triHandle = tri.get();
-      const trsf = loc.Transformation();
-      const nbNodes = triHandle.NbNodes();
-      const baseIndex = positions.length / 3;
-      for (let i = 1; i <= nbNodes; i++) {
-        const p = triHandle.Node(i);
-        const pTransformed = p.Transformed(trsf);
-        positions.push(pTransformed.X(), pTransformed.Y(), pTransformed.Z());
-        normals.push(0, 0, 0); // recomputed by viewer if missing
-      }
-      const nbTri = triHandle.NbTriangles();
-      const orient = face.Orientation_1();
-      for (let i = 1; i <= nbTri; i++) {
-        const t = triHandle.Triangle(i);
-        const out: any = { value1: 0, value2: 0, value3: 0 };
-        t.Get(out);
-        let a = out.value1 - 1 + baseIndex;
-        let b = out.value2 - 1 + baseIndex;
-        let c = out.value3 - 1 + baseIndex;
-        // Reverse winding for face orientation TopAbs_REVERSED == 1.
-        if (orient === 1 || orient?.value === 1) {
-          [b, c] = [c, b];
-        }
-        indices.push(a, b, c);
-      }
-      explorer.Next();
-    }
-
-    if (positions.length === 0) {
-      return {
-        type: "load-step-error",
-        id: 0,
-        error: `${format.toUpperCase()} read OK but produced 0 triangulated faces`,
-      };
+    if (vertices.length === 0) {
+      return { type: "load-step-error", id: 0, error: "STEP read OK but produced 0 triangulated vertices" };
     }
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < positions.length; i += 3) {
-      const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+    for (let i = 0; i < vertices.length; i += 3) {
+      const x = vertices[i], y = vertices[i + 1], z = vertices[i + 2];
       if (x < minX) minX = x; if (x > maxX) maxX = x;
       if (y < minY) minY = y; if (y > maxY) maxY = y;
       if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
@@ -532,13 +441,14 @@ async function loadStep(
     return {
       type: "load-step-ok",
       id: 0,
-      vertices: new Float32Array(positions),
+      vertices: new Float32Array(vertices),
       normals: new Float32Array(normals),
-      indices: new Uint32Array(indices),
+      indices: new Uint32Array(triangles),
       bounds: { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] },
     };
   } catch (e) {
-    return { type: "load-step-error", id: 0, error: `${format.toUpperCase()} load: ${(e as Error).message}` };
+    const errMsg = e instanceof Error ? e.message : (typeof e === "string" ? e : String(e));
+    return { type: "load-step-error", id: 0, error: `${format.toUpperCase()} load: ${errMsg}` };
   }
 }
 

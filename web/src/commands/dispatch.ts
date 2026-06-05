@@ -295,9 +295,10 @@ function normalizeArgSynonyms(canonical: string, args: DispatchArgs): DispatchAr
 
 // Per user directive 2026-05-23: parametric BIM element sizes are fixed by asset.
 // Agent freedom = placement only. These args are rejected before the handler runs.
+// Note: SdDoor/SdWindow removed — the handler already ignores width/height (uses doorType/windowType
+// presets). Blocking them prevented handler execution when model provided size hints. SdStair
+// dimensions are retained because the stair handler DOES read those args and wrong values corrupt geometry.
 const DIMENSION_ARGS_BLOCKLIST: Record<string, ReadonlySet<string>> = {
-  SdDoor:   new Set(["width", "height"]),
-  SdWindow: new Set(["width", "height"]),
   SdStair:  new Set(["riser", "tread", "riserHeight", "treadDepth", "width", "count", "rise", "targetHeight", "landingDepth"]),
 };
 
@@ -415,9 +416,18 @@ export function dispatchSync(verb: string, args: DispatchArgs = {}): DispatchRes
         detail: "handler returned Promise — use dispatch() not dispatchSync()",
       };
     }
+    // Write to debug ledger if armed (CDP verify sessions and diagnostics only).
+    if (typeof window !== "undefined") {
+      const ledger = (window as unknown as Record<string, unknown>).__dispatchLedger;
+      if (Array.isArray(ledger)) ledger.push({ verb: canonical, status: "success", error: null });
+    }
     return { ok: true, canonical, result };
   } catch (e) {
     _dispatchCtx = null;
+    if (typeof window !== "undefined") {
+      const ledger = (window as unknown as Record<string, unknown>).__dispatchLedger;
+      if (Array.isArray(ledger)) ledger.push({ verb: canonical, status: "error", error: e instanceof Error ? e.message : String(e) });
+    }
     return {
       ok: false,
       canonical,

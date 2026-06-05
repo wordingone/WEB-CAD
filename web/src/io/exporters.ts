@@ -360,10 +360,9 @@ export function canonicalNurbsFor3dm(
 // Hot-loads rhino3dm.js (WASM) on first call. Traverses the scene, writes
 // canonical/runtime NURBS surfaces where available, and falls back to meshes.
 export async function export3dm(object: THREE.Object3D, options: Export3dmOptions = {}): Promise<Uint8Array> {
+  const { getRhino3dm } = await import("./rhino3dm-init");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rhino3dmInit = ((await import("rhino3dm")) as any).default;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rh: any = await rhino3dmInit();
+  const rh: any = await getRhino3dm();
 
   const file = new rh.File3dm();
   const tmpA = new THREE.Vector3();

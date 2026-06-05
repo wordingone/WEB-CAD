@@ -72,7 +72,15 @@ export type SdTopologyRole =
   | "curve" | "surface"
   | "annotation" | "transform" | "view" | "selection" | "system";
 
-export type SdKernel = "replicad" | "nurbs-webgpu";
+export type SdKernel =
+  | "replicad"      // live replicad/OpenCascade path (Tier 1 JS eval, STEP import)
+  | "nurbs-webgpu"  // planned GPU-accelerated NURBS path (T17)
+  | "nurbs-ts"      // pure TS NURBS handler (sketch / solid / AEC verbs)
+  | "kern-wasm"     // custom C++ kern.wasm (booleans, fillet, chamfer)
+  | "none"          // no geometry kernel (transform / state / view ops)
+  | "stub"          // NotYetImplemented — C++ kernel symbol not yet exported
+  | "drafting"      // 2D drafting / annotation path
+  | "gh-runtime";   // Grasshopper component runtime
 
 export type SpatialDictionaryEntry = {
   name: string;

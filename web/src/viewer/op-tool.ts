@@ -133,6 +133,7 @@ let _opHoverCornerPts: [THREE.Vector3, THREE.Vector3, THREE.Vector3] | null = nu
 let _opLabels: HTMLElement[] = [];
 const _labelWorldPts = new WeakMap<HTMLElement, THREE.Vector3>();
 let _selectHoverProfile: THREE.Object3D | null = null; // profile hovered during extrude_select
+let _surfacePickHoverProfile: THREE.Object3D | null = null; // closed curve hovered during surface_pick
 let _rawChooserDefault: (() => void) | null = null;
 export let _selDragging = false;
 
@@ -220,6 +221,8 @@ export function opFinish(viewer: Viewer, resetTool = true): void {
   _hooks.removeSelOverlay();
   _rawChooserDefault = null;
   _selDragging = false;
+  _selectHoverProfile = null;
+  _surfacePickHoverProfile = null;
   // sel_window / sel_lasso commit multi-select into state — don't deselect.
   // All other op tools (extrude, boolean, fillet, dim) should clear the active target on finish.
   if (_finishedKind !== "sel_window" && _finishedKind !== "sel_lasso") {
@@ -625,6 +628,92 @@ export function opUpdateSelectHoverPreview(viewer: Viewer, profile: THREE.Object
   viewer.getScene().add(mesh);
 }
 
+// ── Surface-pick hover preview ─────────────────────────────────────────────
+
+// Filled translucent surface preview while hovering over a closed curve during surface_pick.
+// Uses profileOnly=true so clicking inside the loop also qualifies (containment test).
+export function opUpdateSurfacePickPreview(viewer: Viewer, clientX: number, clientY: number): void {
+  const hit = opRaycastObject(viewer, clientX, clientY, true, true);
+  const profile = (hit && hit.obj instanceof THREE.Line) ? hit.obj : null;
+  if (profile === _surfacePickHoverProfile) return;
+  _surfacePickHoverProfile = profile;
+  opClearPreview(viewer);
+  opSetHover(profile);
+  if (!profile) return;
+  const pos = profile.geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
+  if (!pos || pos.count < 3) return;
+  let z = 0;
+  const pts2d: THREE.Vector2[] = [];
+  for (let i = 0; i < pos.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(profile.matrixWorld);
+    if (i === 0) z = v.z;
+    pts2d.push(new THREE.Vector2(v.x, v.y));
+  }
+  // earcut (THREE.ShapeGeometry) requires CCW outer ring. SdCircle emits CW
+  // vertices (decreasing angle from 0°); signed-area check + reverse when CW.
+  const signedArea = pts2d.reduce((s, p, i, a) => {
+    const q = a[(i + 1) % a.length];
+    return s + (p.x * q.y - q.x * p.y);
+  }, 0);
+  if (signedArea < 0) pts2d.reverse();
+  const shape = new THREE.Shape(pts2d);
+  const geo = new THREE.ShapeGeometry(shape);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x44aaff, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.z = z;
+  mesh.renderOrder = 47;
+  mesh.userData.noSnap = true;
+  _opPreview = mesh;
+  viewer.getScene().add(mesh);
+}
+
+// ── Plane live preview ─────────────────────────────────────────────────────
+
+// Line preview (pt2) and parallelogram outline+fill (pt3) while placing Plane corners.
+export function opUpdatePlanePreview(viewer: Viewer, clientX: number, clientY: number): void {
+  const phase = _opPhase;
+  if (!phase || (phase.kind !== "plane_pt2" && phase.kind !== "plane_pt3")) {
+    opClearPreview(viewer);
+    return;
+  }
+  const world = unprojectToXY(viewer, clientX, clientY);
+  if (!world) { opClearPreview(viewer); return; }
+  const cursor = new THREE.Vector3(world.x, world.y, world.z ?? 0);
+  opClearPreview(viewer);
+  if (phase.kind === "plane_pt2") {
+    const posArr = new Float32Array([phase.origin.x, phase.origin.y, phase.origin.z, cursor.x, cursor.y, cursor.z]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x44aaff, opacity: 0.8, transparent: true }));
+    line.renderOrder = 47; line.userData.noSnap = true;
+    _opPreview = line;
+    viewer.getScene().add(line);
+  } else {
+    const { origin, xAxis } = phase;
+    const corner4 = xAxis.clone().add(cursor).sub(origin);
+    const corners = [origin, xAxis, corner4, cursor];
+    const flatPts = new Float32Array(corners.flatMap(p => [p.x, p.y, p.z]));
+    const outlineGeo = new THREE.BufferGeometry();
+    outlineGeo.setAttribute("position", new THREE.BufferAttribute(flatPts.slice(), 3));
+    const outline = new THREE.LineLoop(outlineGeo, new THREE.LineBasicMaterial({ color: 0x44aaff }));
+    outline.renderOrder = 48; outline.userData.noSnap = true;
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute("position", new THREE.BufferAttribute(flatPts.slice(), 3));
+    fillGeo.setIndex([0, 1, 2, 0, 2, 3]);
+    const fill = new THREE.Mesh(fillGeo, new THREE.MeshBasicMaterial({
+      color: 0x44aaff, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false,
+    }));
+    fill.renderOrder = 47; fill.userData.noSnap = true;
+    const group = new THREE.Group();
+    group.userData.noSnap = true;
+    group.add(fill, outline);
+    _opPreview = group;
+    viewer.getScene().add(group);
+  }
+}
+
 // â”€â”€ Boolean operation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function opExecBoolean(viewer: Viewer, objA: THREE.Object3D, objB: THREE.Object3D, op: "union" | "difference" | "intersection"): void {
@@ -935,7 +1024,7 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
   }
 
   if (phase.kind === "surface_pick") {
-    const hit = opRaycastObject(viewer, clientX, clientY);
+    const hit = opRaycastObject(viewer, clientX, clientY, true);
     if (!hit || !(hit.obj instanceof THREE.Line)) {
       ptPrompt("Surface — click a closed curve to fill  [Escape = cancel]");
       return true;
@@ -952,6 +1041,14 @@ export function opHandleClick(viewer: Viewer, clientX: number, clientY: number):
       ptPrompt("Surface — selected curve has insufficient points  [Escape = cancel]");
       return true;
     }
+    // CCW guard: earcut (SdSurface handler) requires CCW outer ring.
+    // SdCircle emits CW vertices; signed-area check + reverse when CW.
+    // Mirror of hover-preview guard at opUpdateSurfacePickPreview.
+    const signedArea = pts.reduce((s, p, i, a) => {
+      const q = a[(i + 1) % a.length];
+      return s + (p[0] * q[1] - q[0] * p[1]);
+    }, 0);
+    if (signedArea < 0) pts.reverse();
     const result = dispatchSync("SdSurface", { profile: { points: pts } });
     const failure = dispatchFailure(result);
     if (failure) {

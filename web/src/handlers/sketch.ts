@@ -831,9 +831,16 @@ export function registerSketchHandlers(viewer: Viewer): void {
       }
       if (pts.length < 3) return { error: "SdSurface requires at least 3 points", created: null };
       const z0 = pts[0][2] ?? 0;
+      // earcut (THREE.ShapeGeometry) requires CCW outer ring. SdCircle emits CW
+      // vertices; signed-area check + reverse when CW so fill triangulates correctly.
+      const signedArea = pts.reduce((s, p, i, a) => {
+        const q = a[(i + 1) % a.length];
+        return s + (p[0] * q[1] - q[0] * p[1]);
+      }, 0);
+      const ordered = signedArea < 0 ? [...pts].reverse() : pts;
       const shape = new THREE.Shape();
-      shape.moveTo(pts[0][0], pts[0][1]);
-      for (const p of pts.slice(1)) shape.lineTo(p[0], p[1]);
+      shape.moveTo(ordered[0][0], ordered[0][1]);
+      for (const p of ordered.slice(1)) shape.lineTo(p[0], p[1]);
       shape.closePath();
       const geom = new THREE.ShapeGeometry(shape);
       geom.translate(0, 0, z0);

@@ -1,26 +1,19 @@
-// Dual-kernel router (T17 scaffold).
+// Dual-kernel router (T17 scaffold) — updated to reflect actual routing (#530).
 //
-// The Spatial Dictionary (T5) tags each canonical verb with `kernel:
-// "nurbs-webgpu" | "replicad"`. T5 has not landed yet — for now the router
-// reads from a small hardcoded mapping table below. When T5 lands, replace
-// the table with a lookup against the dictionary.
+// This file was originally written to plan a replicad → nurbs-webgpu migration
+// (T17). kern.wasm landed and took over booleans/fillet/chamfer, superseding
+// the replicad plan for those ops. This file's KERNEL_TABLE now reflects the
+// current (2026-06) actual routing rather than the original migration plan.
 //
-// Ops route as follows:
+// Actual routing as of master:
+//   kern-wasm  : booleans (union/cut/fuse), fillet, chamfer (via kern_fillet, kern_chamfer)
+//   nurbs-ts   : drawRectangle, drawCircle, drawLine, drawPolyline, makeBox, makeCylinder
+//   nurbs-webgpu (planned): nurbsSurface, nurbsCurve, revolve, sweep
 //
-//   replicad-routed (existing OpenCascade path):
-//     makeBox, makeCylinder, fuse, cut, fillet, chamfer
-//   nurbs-routed (new verb-nurbs / WebGPU path):
-//     nurbsSurface, nurbsCurve, revolve, sweep
-//
-// Boolean / fillet / chamfer stay on replicad until NURBS-native impls
-// are written. That is the expected long-term split per the user directive
-// — NURBS for surfaces, replicad/OpenCascade for booleans.
-//
-// This module is intentionally minimal: the actual replicad ops live in
-// worker.ts and tier1.ts (parent repo). executeOp() throws "not wired" for
-// any op the router does not yet bridge — the caller (dsl-eval) keeps the
-// existing direct path until each verb is wired through. That keeps the
-// scaffold safe to land before any of the upstream pipeline shifts.
+// NOTE: this module's executeOp() is currently unused — detail.kernel is
+// threaded through dispatch events (dispatch.ts:497) but consumed at zero
+// read-sites. The table is kept for documentation; wiring executeOp() into
+// actual dispatch is tracked as a follow-up to #530.
 
 import {
   NurbsKernel,
@@ -30,30 +23,33 @@ import {
   buildSampleNurbsSurface,
 } from "../nurbs/nurbs-kernel.js";
 
-export type KernelTag = "nurbs-webgpu" | "replicad";
+export type KernelTag = "nurbs-webgpu" | "nurbs-ts" | "kern-wasm" | "replicad";
 
-/** Hardcoded table — to be replaced by Spatial Dictionary lookup once T5 lands. */
+/** Actual routing table as of 2026-06 (confirmed from handler code, #530 / #419). */
 export const KERNEL_TABLE: Readonly<Record<string, KernelTag>> = Object.freeze({
-  // Replicad / OpenCascade ops
-  makeBox: "replicad",
-  makeCylinder: "replicad",
-  fuse: "replicad",
-  cut: "replicad",
-  fillet: "replicad",
-  chamfer: "replicad",
-  drawRectangle: "replicad",
-  drawCircle: "replicad",
-  drawLine: "replicad",
-  drawPolyline: "replicad",
-  // NURBS / verb-nurbs ops
+  // kern.wasm ops (custom C++ via Emscripten — no OCCT)
+  fuse:    "kern-wasm",
+  cut:     "kern-wasm",
+  fillet:  "kern-wasm",
+  chamfer: "kern-wasm",
+  // Pure TS NURBS handlers
+  makeBox:       "nurbs-ts",
+  makeCylinder:  "nurbs-ts",
+  drawRectangle: "nurbs-ts",
+  drawCircle:    "nurbs-ts",
+  drawLine:      "nurbs-ts",
+  drawPolyline:  "nurbs-ts",
+  // Planned GPU-accelerated NURBS path (T17 — stubs until WebGPU kernel lands)
   nurbsSurface: "nurbs-webgpu",
-  nurbsCurve: "nurbs-webgpu",
-  revolve: "nurbs-webgpu",
-  sweep: "nurbs-webgpu",
+  nurbsCurve:   "nurbs-webgpu",
+  revolve:      "nurbs-webgpu",
+  sweep:        "nurbs-webgpu",
+  // replicad (OpenCascade) — live for Tier 1 JS eval + STEP/IGES import (worker.ts)
+  // No verb-dispatch verbs currently route here; replicad path is worker-level only.
 });
 
 export function kernelFor(canonicalName: string): KernelTag {
-  return KERNEL_TABLE[canonicalName] ?? "replicad";
+  return KERNEL_TABLE[canonicalName] ?? "nurbs-ts";
 }
 
 // Replicad-side outputs — opaque handles into the worker. We do not need

@@ -53,7 +53,7 @@
   kg_predicates: []
   synonyms: [line, drawline, l, segment]
   hotkey: L
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdArc
@@ -80,7 +80,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [arc]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCircle
@@ -98,7 +98,7 @@
   kg_predicates: []
   synonyms: [circle, c]
   hotkey: C
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdPolygon
@@ -118,7 +118,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [polygon, ngon]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdPolyline
@@ -135,7 +135,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [polyline, pline]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRectangle
@@ -159,7 +159,7 @@
   kg_predicates: []
   synonyms: [rectangle, rect, r]
   hotkey: R
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdEllipse
@@ -233,7 +233,7 @@
   kg_predicates: []
   synonyms: [point, pt, vertex, makepoint]
   hotkey: P
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -279,7 +279,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [box, cube, cuboid, makebox]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCylinder
@@ -299,7 +299,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [cylinder, cyl, makecylinder]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdSphere
@@ -315,7 +315,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [sphere, ball]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCone
@@ -339,7 +339,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [cone]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdPrism
@@ -356,7 +356,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [prism]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -385,7 +385,7 @@
   kg_predicates: [aggregatedBy]
   synonyms: [extrude, e, push]
   hotkey: E
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRevolve
@@ -513,13 +513,21 @@
     properties:
       a:
         type: solid
+        description: "[optional unit=uuid] First solid — binary form (use a+b OR objects)"
       b:
         type: solid
-    required: [a, b]
+        description: "[optional unit=uuid] Second solid — binary form (use a+b OR objects)"
+      objects:
+        type: list_any
+        description: "[optional] N-ary form: array of solids as {object_id:uuid} or uuid strings"
+      operation:
+        type: string
+        description: "[optional] Operation hint passed by model (ignored; always union)"
+    required: []
   topology_role: compound
   kg_predicates: []
-  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add]
-  kernel: replicad
+  synonyms: [union, fuse, booleanunion, "boolean union", bool-union, merge, add, sdfuse, "sd-fuse", "sd fuse"]
+  kernel: kern-wasm
   alias_source: generic_cad_vocabulary
 
 - name: SdBooleanDifference
@@ -535,7 +543,7 @@
   topology_role: solid
   kg_predicates: [hosts]
   synonyms: [difference, cut, subtract, "boolean cut", booleandiff, bool-diff]
-  kernel: replicad
+  kernel: kern-wasm
   alias_source: generic_cad_vocabulary
 
 - name: SdBooleanIntersection
@@ -551,7 +559,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [intersection, intersect, common, bool-intersect]
-  kernel: replicad
+  kernel: kern-wasm
   alias_source: generic_cad_vocabulary
 
 - name: SdBoolean
@@ -652,7 +660,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [fillet, round]
-  kernel: replicad
+  kernel: kern-wasm
   alias_source: generic_cad_vocabulary
 
 - name: SdChamfer
@@ -678,7 +686,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [chamfer, bevel, flat-fillet]
-  kernel: replicad
+  kernel: kern-wasm
   alias_source: generic_cad_vocabulary
 
 - name: SdOffset
@@ -711,7 +719,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [trim]
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 - name: SdExtend
@@ -727,7 +735,7 @@
   topology_role: edge
   kg_predicates: []
   synonyms: [extend]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdSplit
@@ -743,7 +751,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [split, divide]
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 - name: SdShell
@@ -794,7 +802,7 @@
   kg_predicates: []
   synonyms: [move, translate, m, shift]
   hotkey: M
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdRotate
@@ -818,7 +826,7 @@
   topology_role: transform
   kg_predicates: []
   synonyms: [rotate, turn, spin]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdScale
@@ -842,7 +850,7 @@
   topology_role: transform
   kg_predicates: []
   synonyms: [scale, resize, scale-1d, scale-2d]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdMirror
@@ -892,7 +900,7 @@
   topology_role: transform
   kg_predicates: [groupedWith]
   synonyms: [array, repeat, pattern]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdCopy
@@ -920,7 +928,7 @@
   topology_role: transform
   kg_predicates: [duplicates]
   synonyms: [copy, duplicate, clone]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdArrayLinear
@@ -1037,7 +1045,7 @@
   topology_role: transform
   kg_predicates: [groupedWith]
   synonyms: [array along curve, along curve array, path array, distribute along curve]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdAlignObjects
@@ -1052,7 +1060,7 @@
   topology_role: transform
   kg_predicates: []
   synonyms: [align, distribute, align left, align-left, align right, align-right, align top, align-top, align bottom, align-bottom, align center, align center horizontal, align-center-h, align center vertical, align-center-v, distribute horizontal, dist-h, distribute vertical, dist-v]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -1069,10 +1077,12 @@
         type: polyline
       start:
         type: point
-        description: "Start point {x,y,z}. Alternative to profile."
+        description: "Start point {x,y,z} or [x,y,z] array. Alternative to profile."
+        synonyms: [startPoint, start_point]
       end:
         type: point
-        description: "End point {x,y,z}. Alternative to profile."
+        description: "End point {x,y,z} or [x,y,z] array. Alternative to profile."
+        synonyms: [endPoint, end_point]
       length:
         type: number
         unit: m
@@ -1096,7 +1106,7 @@
   kg_predicates: [hosts, containedIn, bounds]
   synonyms: [wall, makewall, drawwall, w, IfcWall, wall-polyline, wall-pick]
   hotkey: W
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCurveWall
@@ -1166,7 +1176,7 @@
   kg_predicates: [containedIn, bounds]
   synonyms: [slab, floor, plate, s, IfcSlab]
   hotkey: S
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdColumn
@@ -1179,10 +1189,21 @@
         type: point3
       profile:
         type: polyline_or_circle
-      height:
+      face_m:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[optional unit=m default=0.3] Section width (X face). Farnsworth W8: 0.203"
+      depth_m:
+        type: number
+        unit: m
+        default: 0.3
+        description: "[optional unit=m default=0.3] Section depth (Y face). Farnsworth W8: 0.210"
+      height_m:
         type: number
         unit: m
         default: 4
+        description: "[optional unit=m default=4] Column height. Farnsworth W8: 4.543"
       level:
         type: string
         description: "Level ID or name."
@@ -1193,7 +1214,7 @@
   topology_role: host
   kg_predicates: [supports, containedIn]
   synonyms: [column, post, pillar, IfcColumn]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdBeam
@@ -1219,7 +1240,7 @@
   topology_role: host
   kg_predicates: [supports, connectedTo]
   synonyms: [beam, joist, girder, IfcBeam]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMember
@@ -1248,7 +1269,7 @@
   topology_role: solid
   kg_predicates: [supports, connectedTo]
   synonyms: [member, mullion, purlin, secondary steel, facade member, IfcMember]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdStair
@@ -1287,7 +1308,7 @@
   topology_role: host
   kg_predicates: [containedIn, connectedTo]
   synonyms: [stair, stairs, steps, staircase, IfcStair, stair-polyline, stair-curve]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdDoor
@@ -1305,6 +1326,12 @@
         enum: [interior, front, terrace]
         default: interior
         description: "FZK-Haus preset — interior: 0.885×2.01m (Innentuer), front: 1.01×2.01m (Haustuer), terrace: 2.01×2.375m (Terrassentuer)."
+      width:
+        type: number
+        description: "[optional unit=m] Custom door width — overrides doorType preset."
+      height:
+        type: number
+        description: "[optional unit=m] Custom door height — overrides doorType preset."
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."
@@ -1313,7 +1340,7 @@
   topology_role: hosted
   kg_predicates: [hosts, containedIn]
   synonyms: [door, doorway, opening, IfcDoor]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdWindow
@@ -1326,11 +1353,21 @@
         type: solid
       position:
         type: point3
+        description: "XY wall position. position[2] (Z) sets floor elevation for multi-storey placement; defaults to active level elevation."
       windowType:
         type: string
         enum: [eg, og]
         default: eg
         description: "FZK-Haus preset — eg: 2.0×1.2m sill=0.8m (EG-Fenster ground floor), og: 1.0×1.0m sill=0.8m (OG-Fenster upper floor)."
+      width:
+        type: number
+        description: "[optional unit=m] Custom window width — overrides windowType preset."
+      height:
+        type: number
+        description: "[optional unit=m] Custom window height — overrides windowType preset."
+      sill:
+        type: number
+        description: "[optional unit=m] Custom sill height — overrides FZK default (0.8m)."
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."
@@ -1339,7 +1376,7 @@
   topology_role: hosted
   kg_predicates: [hosts, containedIn]
   synonyms: [window, IfcWindow]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRoof
@@ -1374,7 +1411,7 @@
   topology_role: host
   kg_predicates: [containedIn, bounds]
   synonyms: [roof, gable, hip, IfcRoof]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdSpace
@@ -1398,7 +1435,7 @@
   topology_role: host
   kg_predicates: [containedIn, bounds]
   synonyms: [space, room, zone, IfcSpace]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdFoundation
@@ -1428,7 +1465,7 @@
   topology_role: host
   kg_predicates: [supports, containedIn]
   synonyms: [foundation, footing, pile cap, slab on grade, pad footing, IfcFoundation]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCeiling
@@ -1462,7 +1499,7 @@
   topology_role: hosted
   kg_predicates: [containedIn, bounds]
   synonyms: [ceiling, soffit, suspended ceiling, dropped ceiling, IfcCeiling]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdCurtainWall
@@ -1481,6 +1518,16 @@
         type: number
         unit: m
         default: 3
+      height_m:
+        type: number
+        unit: m
+        default: 3
+        description: "[optional unit=m default=3] Glazing height (floor-to-soffit). Farnsworth: 2.743"
+      elevation_m:
+        type: number
+        unit: m
+        default: 0
+        description: "[optional unit=m default=0] Bottom Z of glazing above active level. Farnsworth raised floor: 1.600"
       layer:
         type: string
         description: "Layer ID to override automatic creator-to-layer routing."
@@ -1488,7 +1535,7 @@
   topology_role: host
   kg_predicates: [containedIn, bounds]
   synonyms: [curtain wall, glass facade, glazed wall, glass wall, curtainwall, IfcCurtainWall]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdPlate
@@ -1517,7 +1564,7 @@
   topology_role: solid
   kg_predicates: [bounds, containedIn]
   synonyms: [plate, cladding panel, facade panel, cassette, glazing infill, panel, IfcPlate]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdSkylight
@@ -1547,7 +1594,7 @@
   topology_role: hosted
   kg_predicates: [hosts, bounds]
   synonyms: [skylight, rooflight, roof window, velux, overhead glazing, IfcSkylight]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdOpening
@@ -1573,7 +1620,7 @@
   topology_role: hosted
   kg_predicates: [hosts, containedIn]
   synonyms: [opening, void, cutout, aperture, wall opening, IfcOpening]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRamp
@@ -1601,7 +1648,7 @@
   topology_role: host
   kg_predicates: [containedIn, connectedTo]
   synonyms: [ramp, slope, incline, accessibility ramp, ramped surface, IfcRamp]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRailing
@@ -1625,7 +1672,7 @@
   topology_role: hosted
   kg_predicates: [containedIn, connectedTo]
   synonyms: [railing, handrail, balustrade, guardrail, banister, IfcRailing]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRefGrid
@@ -1658,7 +1705,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [grid, structural grid, column grid, reference grid, building grid, IfcGrid]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: setGridVisible
@@ -1734,7 +1781,7 @@
   topology_role: system
   kg_predicates: [containedIn]
   synonyms: [level, floor level, storey, building level, datum level, floor plate, IfcLevel]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdDatum
@@ -1754,7 +1801,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [datum, elevation marker, benchmark, survey point, reference point, IfcDatum]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdReferenceLine
@@ -1773,7 +1820,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [reference line, ref line, datum line, control line, layout line, axis line, IfcReferenceLine]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -1816,7 +1863,7 @@
   topology_role: solid
   kg_predicates: [containedIn]
   synonyms: [furnishing, furniture, desk, chair, counter, cabinet, fixture, medical cabinet, reception, IfcFurnishingElement]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -1839,7 +1886,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [dimension, dim, measure, IfcAnnotationDimension]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdLeader
@@ -1857,7 +1904,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [leader, callout, note]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdText
@@ -1876,7 +1923,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [text, label]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -1897,7 +1944,7 @@
   topology_role: system
   kg_predicates: [groupedWith]
   synonyms: [group, block]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdUngroup
@@ -1911,7 +1958,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [ungroup]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdExplode
@@ -1926,7 +1973,7 @@
   topology_role: compound
   kg_predicates: []
   synonyms: [explode, brep-explode, extract-faces]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdJoin
@@ -1941,7 +1988,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [join, brep-join, joinbrep, merge-surfaces]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdRebuild
@@ -1996,7 +2043,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [layer, setlayer]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdLock
@@ -2012,7 +2059,7 @@
   kg_predicates: []
   synonyms: [lock, freeze]
   note: "Lock a drawing layer. target = layer name (e.g. 'Layer 1') or layer id. Returns {ok, layer_id, layer_name}."
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdUnlock
@@ -2028,7 +2075,7 @@
   kg_predicates: []
   synonyms: [unlock, unfreeze]
   note: "Unlock a drawing layer. target = layer name or layer id. Returns {ok, layer_id, layer_name}."
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdHide
@@ -2044,7 +2091,7 @@
   kg_predicates: []
   synonyms: [hide, conceal]
   note: "Hide a scene object by UUID. Sets obj.visible=false and userData.hidden=true. Returns {ok, uuid}."
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdShow
@@ -2060,7 +2107,7 @@
   kg_predicates: []
   synonyms: [show, unhide, reveal, display]
   note: "Show a previously hidden scene object. target = UUID or 'all'. Returns {ok, uuid} or {ok, revealed: N}."
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2130,7 +2177,7 @@
   kg_predicates: []
   synonyms: [selectall, "select all"]
   hotkey: A
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSelectWindow
@@ -2194,7 +2241,7 @@
   kg_predicates: []
   synonyms: [delete, erase, remove, del]
   hotkey: Delete
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdDeselect
@@ -2206,7 +2253,7 @@
   topology_role: selection
   kg_predicates: []
   synonyms: [deselect, none]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdIsolate
@@ -2221,7 +2268,7 @@
   topology_role: selection
   kg_predicates: []
   synonyms: [isolate, solo]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdIsolateOff
@@ -2233,7 +2280,7 @@
   topology_role: selection
   kg_predicates: []
   synonyms: ["isolate off", "unisolate", "show all"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdFitToObject
@@ -2248,7 +2295,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: ["fit to object", "zoom to object", "frame object"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2265,7 +2312,7 @@
   kg_predicates: []
   synonyms: [zoomextents, "zoom extents", fit, "fit all"]
   hotkey: F
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdZoomSelected
@@ -2277,7 +2324,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [zoomselected, "zoom selected"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSetViewOrtho
@@ -2292,7 +2339,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [ortho, orthographic, parallel, "view top", "view front", "view right", "view left", "view back", "view bottom", "view iso", "view isometric"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSetViewPerspective
@@ -2304,7 +2351,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [perspective, persp, "view perspective", "view 3d"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSetCPlane
@@ -2337,7 +2384,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [setcplane, "set cplane", "set construction plane", cplane, workplane, "work plane"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdResetCPlane
@@ -2349,7 +2396,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [resetcplane, "reset cplane", "reset construction plane", "cplane reset"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdToggleCPlaneGizmo
@@ -2361,7 +2408,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: ["view.cplane.toggle", "toggle cplane", "toggle construction plane gizmo", "show cplane", "hide cplane", "cplane gizmo"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdRenderMode
@@ -2376,7 +2423,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [render_mode, rendermode, display_mode, displaymode, shading, shaded, wireframe, ghosted, realistic, technical]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2396,7 +2443,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [measure, distance]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdMeasureBetween
@@ -2622,7 +2669,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [import, open, load]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdExport
@@ -2654,7 +2701,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [export, save, write, "export ifc", "export glb", "save as ifc", "download ifc", "export obj", "export as obj", "save as obj", "export stl", "export as stl", "save as stl", "download obj", "download stl"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSave
@@ -2668,7 +2715,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [save]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdOpen
@@ -2682,7 +2729,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [open]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdClearScene
@@ -2706,7 +2753,7 @@
   kg_predicates: []
   synonyms: [undo, ctrl-z]
   hotkey: "Ctrl+Z"
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdRedo
@@ -2719,7 +2766,7 @@
   kg_predicates: []
   synonyms: [redo, ctrl-y, ctrl-shift-z]
   hotkey: "Ctrl+Y"
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: setActiveTool
@@ -2733,7 +2780,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [setTool, activateTool, selectTool]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: setActiveLevel
@@ -2748,7 +2795,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [activateLevel, switchLevel, goToLevel]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: setLevelVisible
@@ -2764,7 +2811,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [showLevel, hideLevel, toggleLevel]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: removeLevel
@@ -2779,7 +2826,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [deleteLevel, removeBuildingLevel]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSectionBox
@@ -2800,7 +2847,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [section, sectionbox, "section box", "crop box", "clip box", "section volume"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSectionBoxOff
@@ -2812,7 +2859,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [sectionboxoff, "remove section box", "clear section box", "disable section box"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdClippingPlane
@@ -2856,7 +2903,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [clip, clippingplane, "clipping plane", "cut plane", "section plane", "clip plane", clip-section]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdClippingPlanesClear
@@ -2868,7 +2915,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [clippingplanesclear, "clear clipping planes", "remove all clip planes", "clear clips"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdClippingPlaneRemove
@@ -2883,7 +2930,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [clippingplaneremove, "remove clipping plane", "delete clip plane"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdSetUnits
@@ -2902,7 +2949,7 @@
   topology_role: view
   kg_predicates: []
   synonyms: [setunits, "set units", "switch units", "use metric", "use imperial", "use feet", "use meters", "use metres", "metric", "imperial"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdListObjects
@@ -2914,7 +2961,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [listobjects, "list objects", "list", ls, "what is in the scene", "what's in the scene", "whats in scene", "scene contents", "show objects", "show scene"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdRunCluster
@@ -2936,7 +2983,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [runcluster, "run cluster", "execute cluster", "play cluster", "run macro", "play macro"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdListClusters
@@ -2948,7 +2995,7 @@
   topology_role: annotation
   kg_predicates: []
   synonyms: [listclusters, "list clusters", "show clusters", "list macros", "show macros", "list saved clusters"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: SdInvokeSkill
@@ -2959,7 +3006,23 @@
   topology_role: system
   kg_predicates: []
   synonyms: [invokeskill, "invoke skill", "run skill", "call skill", "use skill"]
-  kernel: replicad
+  kernel: none
+  alias_source: generic_cad_vocabulary
+
+- name: SdRunBuilding
+  kernel_op: runBuilding
+  args:
+    - {name: id, type: string, required: true, description: "Building identifier — one of: farnsworth"}
+    - {name: pavilion_length_m, type: number, required: false, description: "[optional unit=m default=23.571] Override pavilion length"}
+    - {name: pavilion_depth_m,  type: number, required: false, description: "[optional unit=m default=8.738]  Override pavilion depth"}
+    - {name: floor_raise_m,     type: number, required: false, description: "[optional unit=m default=1.600]  Override floor raise above grade"}
+    - {name: interior_height_m, type: number, required: false, description: "[optional unit=m default=2.743]  Override interior clear height"}
+    - {name: bay_spacing_m,     type: number, required: false, description: "[optional unit=m default=6.706]  Override column bay spacing"}
+    - {name: cantilever_m,      type: number, required: false, description: "[optional unit=m default=1.7265] Override end cantilever"}
+  topology_role: system
+  kg_predicates: []
+  synonyms: [runbuilding, "run building", "place building", "load building", "build farnsworth", "farnsworth house"]
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ============================================================
@@ -2983,7 +3046,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [creategoal, "create goal", "set goal", "start goal"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: update_goal
@@ -2999,7 +3062,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [updategoal, "update goal", "complete goal", "mark goal complete", "finish goal"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 - name: get_goal
@@ -3011,7 +3074,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [getgoal, "get goal", "show goal", "current goal", "goal status"]
-  kernel: replicad
+  kernel: none
   alias_source: generic_cad_vocabulary
 
 # ── Issue #321 verbs ────────────────────────────────────────────
@@ -4671,7 +4734,7 @@
   topology_role: compound
   kg_predicates: []
   synonyms: [split-solid, bool-split, boolean-split, divide-solid, split]
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 # ── SdDifferenceWithIndexMap ───────────────────────────────────────────────────
@@ -4696,7 +4759,7 @@
   topology_role: solid
   kg_predicates: [hosts]
   synonyms: [diff-index-map, difference-with-map, cut-indexed, subtract-indexed]
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 # ── Issue #327 verbs ────────────────────────────────────────────
@@ -4873,7 +4936,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [cap holes, cap planar holes, close holes, cap open edges, fill holes]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMergeCoplanarFaces
@@ -4893,7 +4956,7 @@
   topology_role: solid
   kg_predicates: []
   synonyms: [merge faces, merge coplanar, simplify faces, unify faces, merge coplanar faces]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdExtractFace
@@ -5631,7 +5694,7 @@
     - "triangulate boundary"
     - "fill polyline"
     - "planar mesh"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshFromPoints
@@ -5654,7 +5717,7 @@
     - "triangulate points"
     - "point cloud to mesh"
     - "2.5d mesh"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshBoolean
@@ -5685,7 +5748,7 @@
     - "mesh boolean operation"
     - "mesh cut"
     - "mesh fuse"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshWeld
@@ -5710,7 +5773,7 @@
     - "merge vertices"
     - "weld vertices"
     - "merge coincident vertices"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshUnweld
@@ -5736,7 +5799,7 @@
     - "explode mesh"
     - "hard edge mesh"
     - "faceted mesh"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshRepair
@@ -5759,7 +5822,7 @@
     - "fill holes"
     - "remove degenerate faces"
     - "unify normals"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshClosestPoint
@@ -5783,7 +5846,7 @@
     - "project point to mesh"
     - "closest face"
     - "mesh proximity"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshArea
@@ -5803,7 +5866,7 @@
     - "mesh surface area"
     - "surface area of mesh"
     - "total mesh area"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshVolume
@@ -5823,7 +5886,7 @@
     - "volume of mesh"
     - "mesh mass"
     - "enclosed volume"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshCentroid
@@ -5843,7 +5906,7 @@
     - "center of mass mesh"
     - "mesh center"
     - "mesh barycenter"
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshToNurbs
@@ -5904,7 +5967,7 @@
     - "meshing"
     - "analysis mesh"
     - "render mesh"
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshOffset
@@ -5929,7 +5992,7 @@
     - "thicken mesh"
     - "inflate mesh"
     - "deflate mesh"
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 - name: SdMeshIntersect
@@ -5953,7 +6016,7 @@
     - "mesh-mesh intersection"
     - "ray mesh"
     - "plane mesh intersection"
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 # ── Issue #330 verbs ────────────────────────────────────────────
@@ -5999,7 +6062,7 @@
   topology_role: transform
   kg_predicates: [transformed_by]
   synonyms: [orient3pt, orient3point, orient3, alignframe, orient-3-point]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Aligns object by mapping a 3-point source frame to a 3-point target frame. Non-degenerate frames only (points must not be collinear)."
 
@@ -6038,7 +6101,7 @@
   topology_role: transform
   kg_predicates: [transformed_by]
   synonyms: [orientonsurface, orient-on-surface, aligntosurface, orient-surface]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Aligns object Z-axis to surface normal at UV point on a bilinear patch defined by 3–4 corner points."
 
@@ -6062,7 +6125,7 @@
   topology_role: transform
   kg_predicates: [projected_onto]
   synonyms: [project, projecttoplane, project-to-plane, flatten, flattentoplane]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Projects all geometry vertices onto a plane defined by normal + origin. Creates a new flat copy."
 
@@ -6101,7 +6164,7 @@
   topology_role: transform
   kg_predicates: [flowed_to]
   synonyms: [planarflow, planar-flow, planeflow, flowtoplane]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Maps geometry from source plane UV coordinates to target plane UV coordinates. Affine plane-to-plane flow."
 
@@ -6130,7 +6193,7 @@
   topology_role: transform
   kg_predicates: [deformed_by]
   synonyms: [twist, twistdeform, twist-deform]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Rotates geometry cross-sections proportionally along the twist axis. Angle is total rotation from one end to the other."
 
@@ -6165,7 +6228,7 @@
   topology_role: transform
   kg_predicates: [deformed_by]
   synonyms: [taper, taperdeform, taper-deform, scale-along-axis]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Scales cross-sections perpendicularly along the taper axis, interpolating from start_factor to end_factor."
 
@@ -6198,7 +6261,7 @@
   topology_role: transform
   kg_predicates: [deformed_by]
   synonyms: [bend, benddeform, bend-deform, curve-along-axis]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
   note: "Bends geometry along a cylindrical arc. Axis is the spine of the bend cylinder; direction is the axis being curved."
 
@@ -6904,7 +6967,24 @@
   topology_role: system
   kg_predicates: []
   synonyms: [open 3dm, import 3dm, load 3dm, rhino open, open rhino file, import rhino]
-  kernel: replicad
+  kernel: nurbs-ts
+  alias_source: generic_cad_vocabulary
+
+- name: Sd3dmWrite
+  kernel_op: 3dmWrite
+  parameters:
+    type: object
+    properties:
+      filename:
+        type: string
+        description: "[optional] Download filename"
+        default: "model.3dm"
+    required: []
+  topology_role: io
+  kg_predicates: []
+  synonyms: [export 3dm, save 3dm, rhino export, write rhino, save as rhino, download 3dm]
+  note: "Exports scene geometry to Rhino .3dm via rhino3dm.js WASM. Canonical NURBS where available; Rhino Mesh fallback. Void topology preserved as face-absence on mesh path."
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdDxfRead
@@ -6923,7 +7003,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [import dxf, open dxf, load dxf, read dxf, autocad dxf import]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdIfcImport
@@ -6942,7 +7022,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [import ifc, open ifc, load ifc, ifc import, read ifc]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdIgesRead
@@ -6961,7 +7041,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [import iges, open iges, load iges, read iges, iges import]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 # ── Write / export ops ───────────────────────────────────────────────────────
@@ -6983,7 +7063,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [export obj, save obj, obj export, write obj, save as obj, download obj]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdStlWrite
@@ -7003,7 +7083,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [export stl, save stl, stl export, write stl, save as stl, download stl, print, 3d print]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdIgesWrite
@@ -7020,7 +7100,7 @@
   kg_predicates: []
   synonyms: [export iges, save iges, iges export, write iges, save as iges]
   note: "Blocked: kern_iges_write_nurbs not yet in kern.wasm. Returns NotYetImplemented."
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 - name: SdGltfJsonExport
@@ -7036,7 +7116,7 @@
   topology_role: system
   kg_predicates: []
   synonyms: [export gltf, save gltf, gltf export, write gltf, export gltf json, download gltf]
-  kernel: replicad
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 # ── C++ blocked stubs ────────────────────────────────────────────────────────
@@ -7050,12 +7130,18 @@
         type: string
         description: "[optional] Download filename"
         default: "model.step"
+      id:
+        type: string
+        description: "[optional] UUID of scene object to export"
+      replicadJs:
+        type: string
+        description: "[optional] Explicit replicad JS (routes to OCCT worker)"
     required: []
-  topology_role: system
+  topology_role: io
   kg_predicates: []
   synonyms: [export step, save step, step export, write step, save as step]
-  note: "Blocked: kern_step_write not yet in kern.wasm. Returns NotYetImplemented."
-  kernel: replicad
+  note: "Routes: replicadJs arg or userData.chain → replicad-opencascadejs OCCT; canonical nurbs-ts NurbsSurface → exportNurbsToStep."
+  kernel: nurbs-ts
   alias_source: generic_cad_vocabulary
 
 - name: SdDwgRead
@@ -7075,7 +7161,7 @@
   kg_predicates: []
   synonyms: [import dwg, open dwg, load dwg, read dwg, autocad dwg import]
   note: "Blocked: kern_dwg_read requires libredwg/ODA (GPL/proprietary). Convert DWG→DXF first."
-  kernel: replicad
+  kernel: stub
   alias_source: generic_cad_vocabulary
 
 # ── Issue #334 verbs ────────────────────────────────────────────
@@ -7439,14 +7525,17 @@
     properties:
       graphId:
         type: string
-        description: "[required] Component graph session ID"
+        description: "[required] Client-side registry key (inlineGraphId from GhDefSpec)"
+      inputValues:
+        type: object
+        description: "[optional] Map of portRef name → numeric slider value. Defaults to each port's current default."
     required: [graphId]
   topology_role: compound
   kg_predicates: []
   synonyms: [gh_evaluate, gh_graph_evaluate]
   kernel: gh-runtime
   alias_source: generic_cad_vocabulary
-  note: "NotYetImplemented — requires GhComponentGraph evaluator (web/src/gh/gh-component-graph.ts). See docs/spec-334-grasshopper.md § A3."
+  note: "Client-side evaluator (#480): resolves portRefs from inputValues, dispatches each GhComponent. Call registerGraph() first."
 
 - name: GhComponentGraph_LazyEvaluation
   kernel_op: ghComponentGraphLazy

@@ -96,6 +96,52 @@ function formatWallLine(wall: WallEntry): string {
   return `  [[${x1.toFixed(4)},${y1.toFixed(4)}],[${x2.toFixed(4)},${y2.toFixed(4)}]] h=${hM}m(METRES;NOT_${hWrong})`;
 }
 
+// Detect "fuse/union/merge all" intent — applies regardless of turn order.
+function detectFuseAll(prompt: string): boolean {
+  return /\b(fuse|union|merge|combine|join)\b.{0,60}\ball\b|\ball\b.{0,60}\b(fuse|union|merge|combine|join)\b/i.test(
+    prompt,
+  );
+}
+
+// Parse the object type from "fuse all walls" → "wall", "fuse all slabs" → "slab", etc.
+// Returns null when no specific type is named (fuse everything).
+function parseFuseTarget(prompt: string): string | null {
+  // "fuse all walls" / "union all slabs" / "merge all beams"
+  const m = prompt.match(
+    /\b(?:fuse|union|merge|combine|join)\b.{0,40}\ball\s+([\w]+?)(?:s\b|\b)/i,
+  );
+  if (m) return m[1].toLowerCase();
+  // "all walls fuse" / "all slabs merged"
+  const m2 = prompt.match(/\ball\s+([\w]+?)(?:s\b|\b).{0,40}\b(?:fuse|union|merge|combine|join)\b/i);
+  if (m2) return m2[1].toLowerCase();
+  return null;
+}
+
+// Collect UUIDs of brep meshes currently in the scene, optionally filtered by kind.
+// filterKind: partial match against userData.kind (e.g. "wall" matches kind="wall").
+// When undefined, all brep meshes are returned.
+function collectBrepUuids(filterKind?: string): string[] {
+  const win = window as unknown as {
+    __viewer?: { scene?: { traverse: (cb: (o: unknown) => void) => void } };
+  };
+  const scene = win.__viewer?.scene;
+  if (!scene) return [];
+  const uuids: string[] = [];
+  scene.traverse((child) => {
+    const c = child as {
+      uuid?: string;
+      isMesh?: boolean;
+      userData?: { kind?: string; creator?: string };
+    };
+    if (!c.isMesh || !c.uuid) return;
+    const k = c.userData?.kind ?? c.userData?.creator ?? "";
+    if (!k) return;
+    if (filterKind && !k.includes(filterKind)) return;
+    uuids.push(c.uuid);
+  });
+  return uuids;
+}
+
 /**
  * Returns a context string to prepend to the user's prompt for continuation turns,
  * or null if no augmentation is needed.
@@ -108,6 +154,24 @@ export function buildContextAugmentation(
   prompt: string,
   history: Array<{ role: string; content: string }>,
 ): string | null {
+  // Fuse-all: inject exact scene UUIDs so the model emits one n-ary call instead of
+  // creating new geometry or splitting into pairwise calls. Runs before the first-turn
+  // bail because the model has no scene awareness at all without this.
+  if (detectFuseAll(prompt)) {
+    const target = parseFuseTarget(prompt);
+    const uuids = collectBrepUuids(target ?? undefined);
+    if (uuids.length >= 2) {
+      const uuidList = uuids.map((u) => `"${u}"`).join(",");
+      const label = target ? `${uuids.length} ${target} object(s)` : `${uuids.length} brep objects`;
+      return (
+        `[CONTEXT] ${label} are in the scene. ` +
+        `Fuse ALL ${uuids.length} using ONE SdBooleanUnion call: ` +
+        `objects=[${uuidList}]. ` +
+        `Do NOT create new objects. Do NOT split into multiple calls. ONE call, all objects.\n`
+      );
+    }
+  }
+
   // No augmentation on first turn — nothing in history yet.
   if (history.length === 0) return null;
 

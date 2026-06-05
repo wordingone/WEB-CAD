@@ -27,6 +27,7 @@ import { initWallHeightHandle } from "./viewer/wall-height-handle";
 import { initRenderModes } from "./viewer/render-modes";
 import { getSelected, setSelected } from "./viewer/selection-state";
 import { syncLevelOpacities } from "./handlers/datum";
+import { registerGraph } from "./gh/gh-component-graph";
 import { updateLevelSprite } from "./tools/structural";
 import * as THREE from "three";
 import { registerAllHandlers } from "./register-handlers";
@@ -68,6 +69,7 @@ levelStore.subscribe(() => {
 (window as unknown as { __dispatch: typeof dispatch }).__dispatch = dispatch;
 (window as unknown as { __dispatchSync: typeof dispatchSync }).__dispatchSync = dispatchSync;
 (window as unknown as { __dispatchAsync: typeof dispatch }).__dispatchAsync = dispatch;
+(window as unknown as { __ghRegisterGraph: typeof registerGraph }).__ghRegisterGraph = registerGraph;
 (window as unknown as { __clearCommandSession: typeof clearCommandSession }).__clearCommandSession = clearCommandSession;
 (window as unknown as { __getActiveCommandSession: typeof getActiveCommandSession }).__getActiveCommandSession = getActiveCommandSession;
 (window as unknown as { __gridStore: typeof gridStore }).__gridStore = gridStore;
@@ -194,6 +196,16 @@ if (workbenchEl) buildModes(workbenchEl);
 loadDrawingLayers();
 initCmdK();
 initExportDrawer();
+
+// Deterministic ready signal for CDP / headless test harnesses.
+// Fires after all synchronous app init AND after the first rAF (first render
+// frame committed). Palette tools, dispatch, and renderer are all live.
+// CDP scripts await window.__APP_READY__ === true instead of using fixed
+// timeouts — see scripts/verify-496-v3.mjs and future cert scripts.
+requestAnimationFrame(() => {
+  (window as unknown as Record<string, unknown>).__APP_READY__ = true;
+  window.dispatchEvent(new CustomEvent("app:ready"));
+});
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

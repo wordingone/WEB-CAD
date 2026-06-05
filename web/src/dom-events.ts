@@ -148,6 +148,51 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
 
   spawnWorker();
 
+  // ── Worker JS / STEP export hooks ─────────────────────────────────────────
+  // __runWorkerJs: run replicad JS via OCCT worker, return STEP bytes + bounds.
+  // Used by SdStepWrite handler for replicad-reconstructible shapes.
+  type WorkerRunResult = { step: ArrayBuffer; bounds: { min: [number, number, number]; max: [number, number, number] } };
+  (window as any).__runWorkerJs = (js: string): Promise<WorkerRunResult> =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      const timer = setTimeout(() => { workerCallbacks.delete(id); reject(new Error("__runWorkerJs timeout")); }, 60_000);
+      workerCallbacks.set(id, (msg) => {
+        clearTimeout(timer);
+        if (msg.type === "run-ok") resolve({ step: msg.step, bounds: msg.bounds });
+        else if (msg.type === "run-error") reject(new Error((msg as any).error));
+        else reject(new Error("unexpected worker response: " + msg.type));
+      });
+      const send = () => worker.postMessage({ type: "run", id, js });
+      if (workerReady) send(); else pendingRuns.push(send);
+    });
+
+  // __loadStepBytes: load STEP/IGES bytes via OCCT worker, return bounds + triangle count.
+  // Used by SdStepWrite round-trip cert and SdIgesRead (fixing pre-existing hook gap).
+  type WorkerLoadResult = { bounds: { min: [number, number, number]; max: [number, number, number] }; triangles: number };
+  (window as any).__loadStepBuffer = (bytes: ArrayBuffer, _filename: string, fmt: string): void => {
+    const id = nextId++;
+    const fmtSafe = (["step","stp","iges","igs","brep"].includes(fmt) ? fmt : "step") as "step"|"stp"|"iges"|"igs"|"brep";
+    const send = () => worker.postMessage({ type: "load-step", id, bytes, format: fmtSafe }, [bytes]);
+    if (workerReady) send(); else pendingRuns.push(send);
+  };
+  (window as any).__loadStepBytes = (bytes: ArrayBuffer, fmt: string): Promise<WorkerLoadResult> =>
+    new Promise((resolve, reject) => {
+      const id = nextId++;
+      const fmtSafe = (["step","stp","iges","igs","brep"].includes(fmt) ? fmt : "step") as "step"|"stp"|"iges"|"igs"|"brep";
+      const timer = setTimeout(() => { workerCallbacks.delete(id); reject(new Error("__loadStepBytes timeout")); }, 60_000);
+      workerCallbacks.set(id, (msg) => {
+        clearTimeout(timer);
+        if (msg.type === "load-step-ok") {
+          const tri = msg.indices?.length ? msg.indices.length / 3 : (msg.vertices?.length ?? 0) / 9;
+          resolve({ bounds: msg.bounds, triangles: Math.round(tri) });
+        } else if (msg.type === "load-step-error") {
+          reject(new Error((msg as any).error));
+        } else reject(new Error("unexpected worker response: " + msg.type));
+      });
+      const send = () => { const copy = bytes.slice(0); worker.postMessage({ type: "load-step", id, bytes: copy, format: fmtSafe }, [copy]); };
+      if (workerReady) send(); else pendingRuns.push(send);
+    });
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function formatBounds(b: { min: [number, number, number]; max: [number, number, number] }): string {
     const dx = b.max[0] - b.min[0], dy = b.max[1] - b.min[1], dz = b.max[2] - b.min[2];
@@ -615,6 +660,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
           : currentSource.kind === "file" ? `Imported ${currentSource.filename}` : "GemmaCad Element";
         bytes = buildIfc({ vertices: data.vertices, indices: data.indices }, label, { imperial: ifcImperial });
       }
+      (window as unknown as Record<string, unknown>).__lastIfcExport = { filename: `${stem}.ifc`, bytes };
       const result = await ifcRoundTrip(bytes);
       if (result.ok) {
         const { wall, slab, column, beam, proxy, total } = result.counts;

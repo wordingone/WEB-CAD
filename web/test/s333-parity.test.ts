@@ -23,7 +23,6 @@ import {
   handle_SdStlWrite,
   handle_SdGltfJsonExport,
   handle_SdIgesWrite,
-  handle_SdStepWriteStub,
   handle_SdDwgReadStub,
 } from "../src/handlers/s333-impl";
 import { exportObj, exportStl, exportGltfJson } from "../src/io/exporters";
@@ -336,11 +335,9 @@ describe("SdDxfRead handler", () => {
 // ── C++ blocked stub tests ────────────────────────────────────────────────────
 
 describe("C++ blocked stubs — return NotYetImplemented", () => {
-  test.skip("kern_step_write — SdStepWrite stub returns error structure", () => {
-    // blocked: requires general kern_step_write in kern.wasm
-    const result = handle_SdStepWriteStub({});
-    expect(result.error).toBe("NotYetImplemented");
-    expect(result.detail).toContain("kern_step_write");
+  test.skip("kern_step_write — SdStepWrite now live (replaced stub)", () => {
+    // SdStepWrite is no longer a stub — see handle_SdStepWrite.
+    // Round-trip cert: scripts/verify-step-export.mjs on deployed Pages.
   });
 
   test.skip("kern_dwg_read — SdDwgRead stub returns error structure", () => {
@@ -361,10 +358,17 @@ describe("C++ blocked stubs — return NotYetImplemented", () => {
 
 // Run these stubs directly (not skipped) to confirm they compile + return correctly
 describe("C++ blocked stubs — compile + return check (not skipped)", () => {
-  test("SdStepWrite stub returns NotYetImplemented", () => {
-    const result = handle_SdStepWriteStub({});
-    expect(result.error).toBe("NotYetImplemented");
-    expect(result.detail).toContain("kern_step_write");
+  test("SdStepWrite is live — rejects missing id/replicadJs without crash", async () => {
+    // SdStepWrite is no longer a stub. Without id or replicadJs it should return error gracefully.
+    const viewer = makeViewerStub();
+    const result = await (async () => {
+      try {
+        return await import("../src/handlers/s333-impl").then(m => m.handle_SdStepWrite({}, viewer));
+      } catch {
+        return { error: "unexpected throw" };
+      }
+    })();
+    expect(result.error).toContain("provide id or replicadJs");
   });
 
   test("SdDwgRead stub returns NotYetImplemented", () => {

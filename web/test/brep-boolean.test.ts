@@ -256,11 +256,13 @@ describe("top-level dispatch (brepUnion / brepDifference / brepIntersection / br
 describe("SdBooleanUnion / SdBooleanDifference / SdBooleanIntersection — schema (#1828)", () => {
   beforeEach(() => { clearDictionaryCache(); setRuntimeAliases({}); });
 
-  test("SdBooleanUnion in dictionary, a+b required", () => {
+  test("SdBooleanUnion in dictionary, a+b optional (n-ary objects form supported)", () => {
     const entry = getDictionary().find((e) => e.name === "SdBooleanUnion");
     expect(entry).toBeDefined();
-    expect(entry!.args.find((a) => a.name === "a")?.required).toBe(true);
-    expect(entry!.args.find((a) => a.name === "b")?.required).toBe(true);
+    // #459 AC#1: a+b are now optional to allow objects:[] n-ary form
+    expect(entry!.args.find((a) => a.name === "a")?.required).toBe(false);
+    expect(entry!.args.find((a) => a.name === "b")?.required).toBe(false);
+    expect(entry!.args.some((a) => a.name === "objects")).toBe(true);
   });
 
   test("SdBooleanDifference in dictionary, outer+inner required", () => {
@@ -339,9 +341,12 @@ describe("per-variant dispatch routing (#1828)", () => {
     expect(calls[0].b).toBe("id-B");
   });
 
-  test("SdBooleanUnion missing b → ok=false (schema validation)", () => {
-    registerHandler("SdBooleanUnion", () => ({ created: "union" }));
-    expect(dispatchSync("SdBooleanUnion", { a: "id-A" }).ok).toBe(false);
+  test("SdBooleanUnion missing b → handler-level error (schema now optional for n-ary)", () => {
+    // a+b are optional; handler validates at runtime; ok=true with result.error
+    registerHandler("SdBooleanUnion", () => ({ error: "missing-b" }));
+    const r = dispatchSync("SdBooleanUnion", { a: "id-A" });
+    expect(r.ok).toBe(true);
+    expect((r as any).result.error).toBe("missing-b");
   });
 
   test("SdBooleanDifference missing inner → ok=false (schema validation)", () => {

@@ -266,10 +266,11 @@ export function buildSlab(a: { x: number; y: number }, b: { x: number; y: number
   return { mesh, chain };
 }
 
-export function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; chain: string } {
-  const s = 0.3;
-  const h = DEFAULT_COLUMN_HEIGHT;
-  const geom = new THREE.BoxGeometry(s, s, h);
+export function buildColumn(p: { x: number; y: number; face?: number; depth?: number; height?: number }): { mesh: THREE.Mesh; chain: string } {
+  const sFace = p.face ?? 0.3;
+  const sDepth = p.depth ?? 0.3;
+  const h = p.height ?? DEFAULT_COLUMN_HEIGHT;
+  const geom = new THREE.BoxGeometry(sFace, sDepth, h);
   geom.translate(0, 0, h / 2);
   const mat = new THREE.MeshStandardMaterial({ color: 0xd1c5b0, roughness: 0.6, metalness: 0.05 });
   const mesh = new THREE.Mesh(geom, mat);
@@ -280,7 +281,7 @@ export function buildColumn(p: { x: number; y: number }): { mesh: THREE.Mesh; ch
   mesh.userData.endpoints = [
     { x: p.x, y: p.y, z: 0, id: makeSnapId(p.x, p.y, 0) },
   ];
-  const chain = `const col = drawRectangle(${round(s)}, ${round(s)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(p.x)}, ${round(p.y)}, 0]);`;
+  const chain = `const col = drawRectangle(${round(sFace)}, ${round(sDepth)}).sketchOnPlane("XY").extrude(${round(h)}).translate([${round(p.x)}, ${round(p.y)}, 0]);`;
   return { mesh, chain };
 }
 
@@ -1275,9 +1276,11 @@ export function buildRoof(
     // the inner sheathing face; putting it at rH + 0.06 placed it above
     // the panels (#1136 / #1161).
     // FZK First (ridge): 80mm × 160mm cross-section (IFC #40532 BoundingBox).
+    // Lighter ridge-cap color (0xd0b090) for aerial ridge-line discriminability (#281).
+    const ridgeCapMat = new THREE.MeshStandardMaterial({ color: 0xd0b090, roughness: 0.65, metalness: 0.01 });
     const ridgeBeam = landscape
-      ? member(ridgeLenHalf * 2, 0.08, 0.16, frameMat.clone())
-      : member(0.08, ridgeLenHalf * 2, 0.16, frameMat.clone());
+      ? member(ridgeLenHalf * 2, 0.08, 0.16, ridgeCapMat)
+      : member(0.08, ridgeLenHalf * 2, 0.16, ridgeCapMat);
     ridgeBeam.position.set(0, 0, rH - 0.08);
     ridgeBeam.userData.ifcClass = "IfcBeam";
     ridgeBeam.userData.name = "First";
@@ -1389,9 +1392,11 @@ export function buildRoof(
     // slopeRx (π/2+pitch) is correct for rafters (local Z = length) but wrong for
     // the slab (local Y = slope length). With rotation.x = pitchRad, local Y →
     // (0, cos(pitch), sin(pitch)) = slope direction; eave/ridge endpoints verified.
+    // Two-tone slopes: front (0x7a5035) slightly lighter than back (0x5a3a2a) for aerial ridge-line contrast (#281).
+    const sheathFrontMat = new THREE.MeshStandardMaterial({ color: 0x7a5035, roughness: 0.85, metalness: 0.00 });
     const sheathA = landscape
-      ? new THREE.Mesh(new THREE.BoxGeometry(ridgeLenHalf * 2, rafterLen, sheathThick), sheathMat.clone())
-      : new THREE.Mesh(new THREE.BoxGeometry(rafterLen, ridgeLenHalf * 2, sheathThick), sheathMat.clone());
+      ? new THREE.Mesh(new THREE.BoxGeometry(ridgeLenHalf * 2, rafterLen, sheathThick), sheathFrontMat)
+      : new THREE.Mesh(new THREE.BoxGeometry(rafterLen, ridgeLenHalf * 2, sheathThick), sheathFrontMat);
     sheathA.userData.ifcClass = "IfcSlab";
     sheathA.userData.name = "Dach";
     if (landscape) {
@@ -1404,7 +1409,7 @@ export function buildRoof(
     group.add(sheathA);
 
     const sheathB = sheathA.clone();
-    (sheathB.material as THREE.Material) = (sheathA.material as THREE.Material).clone();
+    (sheathB.material as THREE.Material) = sheathMat.clone(); // back slope: darker shade for ridge contrast
     sheathB.userData.name = "Dach";
     if (landscape) {
       sheathB.rotation.x = -pitchRad;
@@ -1509,6 +1514,7 @@ export function buildCeiling(a: { x: number; y: number }, b: { x: number; y: num
 export type CurtainWallParams = {
   mullionSpacing?: number;
   transomSpacing?: number;
+  height_m?: number;
 };
 
 export function buildCurtainWall(
@@ -1519,7 +1525,7 @@ export function buildCurtainWall(
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
   const angDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-  const h    = DEFAULT_WALL_HEIGHT;
+  const h    = params.height_m ?? DEFAULT_WALL_HEIGHT;
   const fp   = 0.05;   // frame profile: 50 mm square
   const fd   = 0.10;   // frame depth: 100 mm (Y axis)
   const mSp  = params.mullionSpacing  ?? 1.5;

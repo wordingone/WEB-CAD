@@ -114,19 +114,25 @@ test("Lossy-format invariant: tessellation volume preserved across no-op round-t
   }
 });
 
-test("Dual-kernel router: replicad and NURBS verbs route to correct kernels", () => {
-  expect(kernelFor("makeBox")).toBe("replicad");
-  expect(kernelFor("makeCylinder")).toBe("replicad");
-  expect(kernelFor("fuse")).toBe("replicad");
-  expect(kernelFor("cut")).toBe("replicad");
-  expect(kernelFor("fillet")).toBe("replicad");
-  expect(kernelFor("chamfer")).toBe("replicad");
+test("Dual-kernel router: kern-wasm / nurbs-ts / nurbs-webgpu ops route correctly (#530)", () => {
+  // kern.wasm ops — custom C++ kernel, no OCCT
+  expect(kernelFor("fuse")).toBe("kern-wasm");
+  expect(kernelFor("cut")).toBe("kern-wasm");
+  expect(kernelFor("fillet")).toBe("kern-wasm");
+  expect(kernelFor("chamfer")).toBe("kern-wasm");
+  // pure TS NURBS handlers
+  expect(kernelFor("makeBox")).toBe("nurbs-ts");
+  expect(kernelFor("makeCylinder")).toBe("nurbs-ts");
+  expect(kernelFor("drawRectangle")).toBe("nurbs-ts");
+  expect(kernelFor("drawCircle")).toBe("nurbs-ts");
+  expect(kernelFor("drawLine")).toBe("nurbs-ts");
+  // planned GPU-accelerated NURBS path (T17)
   expect(kernelFor("nurbsSurface")).toBe("nurbs-webgpu");
   expect(kernelFor("nurbsCurve")).toBe("nurbs-webgpu");
   expect(kernelFor("revolve")).toBe("nurbs-webgpu");
   expect(kernelFor("sweep")).toBe("nurbs-webgpu");
-  // Unknown verbs default to replicad (safer — the existing path takes them).
-  expect(kernelFor("nonexistent_op")).toBe("replicad");
+  // Unknown verbs default to nurbs-ts (TS handler path)
+  expect(kernelFor("nonexistent_op")).toBe("nurbs-ts");
 });
 
 test("Kernel table is frozen and matches the documented contract", () => {

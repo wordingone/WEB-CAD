@@ -974,6 +974,68 @@ export function exportNurbsToStep(surface: NurbsSurface): Uint8Array {
     );
   }
 
+  // ---- BRep topology wrapper for OCCT-readable AP214 output ----
+  // A bare B_SPLINE_SURFACE_WITH_KNOTS entity has no root in the AP214 transfer
+  // graph — OCCT's STEPControl_Reader::TransferRoots() finds 0 shapes without a
+  // SHAPE_DEFINITION_REPRESENTATION anchor. Minimal chain:
+  //   ADVANCED_FACE → OPEN_SHELL → SHELL_BASED_SURFACE_MODEL
+  //   → SHAPE_REPRESENTATION → SHAPE_DEFINITION_REPRESENTATION
+  //   → PRODUCT_DEFINITION_SHAPE → PRODUCT_DEFINITION → product hierarchy
+
+  const faceId = id();
+  // ADVANCED_FACE with no explicit bounds (empty wire list) — parametric domain
+  // of the B-spline surface serves as the implicit domain; OCCT tolerates this.
+  lines.push(`#${faceId}=ADVANCED_FACE('avir-nurbs-face',(),#${surfaceId},.T.);`);
+
+  const shellId = id();
+  lines.push(`#${shellId}=OPEN_SHELL('avir-nurbs-shell',(#${faceId}));`);
+
+  const sbsmId = id();
+  lines.push(`#${sbsmId}=SHELL_BASED_SURFACE_MODEL('avir-nurbs-surface-model',(#${shellId}));`);
+
+  // Geometric context — units + uncertainty
+  const lenUnitId = id();
+  lines.push(`#${lenUnitId}=(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.));`);
+  const angUnitId = id();
+  lines.push(`#${angUnitId}=(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.));`);
+  const solidAngId = id();
+  lines.push(`#${solidAngId}=(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT());`);
+  const uncertId = id();
+  lines.push(
+    `#${uncertId}=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-7),` +
+      `#${lenUnitId},'distance_accuracy_value','Tolerance');`,
+  );
+  const grcId = id();
+  lines.push(
+    `#${grcId}=(` +
+      `GEOMETRIC_REPRESENTATION_CONTEXT(3)` +
+      `GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#${uncertId}))` +
+      `GLOBAL_UNIT_ASSIGNED_CONTEXT((#${lenUnitId},#${angUnitId},#${solidAngId}))` +
+      `REPRESENTATION_CONTEXT('context','3D'));`,
+  );
+
+  // Product hierarchy
+  const appCtxId = id();
+  lines.push(`#${appCtxId}=APPLICATION_CONTEXT('automotive design');`);
+  const prodCtxId = id();
+  lines.push(`#${prodCtxId}=PRODUCT_CONTEXT('',#${appCtxId},'mechanical');`);
+  const prodId = id();
+  lines.push(`#${prodId}=PRODUCT('nurbs-surface','nurbs-surface','',(#${prodCtxId}));`);
+  const formId = id();
+  lines.push(`#${formId}=PRODUCT_DEFINITION_FORMATION('','',#${prodId});`);
+  const defCtxId = id();
+  lines.push(`#${defCtxId}=PRODUCT_DEFINITION_CONTEXT('part definition',#${appCtxId},'design');`);
+  const pdefId = id();
+  lines.push(`#${pdefId}=PRODUCT_DEFINITION('design','',#${formId},#${defCtxId});`);
+  const pdsId = id();
+  lines.push(`#${pdsId}=PRODUCT_DEFINITION_SHAPE('','',#${pdefId});`);
+
+  // Shape representation + root anchor
+  const srId = id();
+  lines.push(`#${srId}=SHAPE_REPRESENTATION('avir-nurbs',(#${sbsmId}),#${grcId});`);
+  const sdrId = id();
+  lines.push(`#${sdrId}=SHAPE_DEFINITION_REPRESENTATION(#${pdsId},#${srId});`);
+
   const ts = new Date().toISOString();
   const header =
     `ISO-10303-21;\n` +
@@ -1002,8 +1064,8 @@ export function exportNurbsToStep(surface: NurbsSurface): Uint8Array {
 export async function exportNurbsTo3dm(surface: NurbsSurface): Promise<Uint8Array> {
   // Lazy-load: rhino3dm is a WASM bundle and we don't want to pay its
   // load cost for callers that never reach this path.
-  const rhino3dmInit = (await import("rhino3dm")).default;
-  const RhinoModule = await rhino3dmInit();
+  const { getRhino3dm } = await import("../io/rhino3dm-init");
+  const RhinoModule = await getRhino3dm();
 
   const { degreeU, degreeV, countU, countV, controlPoints, weights, knotsU, knotsV } = surface;
 

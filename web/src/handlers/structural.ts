@@ -7,7 +7,7 @@ import {
   buildSkylight, buildStair, buildStairOnPolyline, buildStairOnCurve, buildReferenceLine,
   buildBoxPrimitiveBrep, buildGableCapSolidBrep, buildPlanarPanelBrep, buildStairFlightBrep, boxPrimitiveDimensions, planarPanelPoints,
   type RoofParams, type CurtainWallParams, type StairParams,
-  DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS,
+  DEFAULT_WALL_HEIGHT, DEFAULT_SLAB_THICKNESS, DEFAULT_COLUMN_HEIGHT,
 } from "../tools/structural";
 import { buildRamp, buildRailing } from "../tools/sketch";
 import { resolveCPlane } from "../viewer/cplane";
@@ -392,17 +392,28 @@ function linkCompoundMeshBreps(
 export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdWall", (args) => {
     const cplane = resolveCPlane("SdWall", args as Record<string, unknown>, viewer);
-    const startArg = args.start as { x?: number; y?: number } | undefined;
-    const endArg = args.end as { x?: number; y?: number } | undefined;
     const rawProfile = args.profile as [number, number][] | undefined;
     const wallLen = (args.length as number | undefined) ?? 4;
+    // Normalize start/end from any form the model may emit:
+    //   object {x,y[,z]}, array [x,y[,z]], or camelCase startPoint/endPoint aliases.
+    function toWallPt(v: unknown): { x: number; y: number } | undefined {
+      if (!v) return undefined;
+      if (Array.isArray(v) && v.length >= 2) return { x: Number(v[0]), y: Number(v[1]) };
+      if (typeof v === "object" && v !== null) {
+        const o = v as Record<string, unknown>;
+        if (typeof o.x === "number" && typeof o.y === "number") return { x: o.x, y: o.y };
+      }
+      return undefined;
+    }
+    const startPt = toWallPt(args.start ?? args.startPoint ?? args.start_point);
+    const endPt   = toWallPt(args.end   ?? args.endPoint   ?? args.end_point);
     let a: { x: number; y: number }, b: { x: number; y: number };
     if (rawProfile && rawProfile.length >= 2) {
       a = { x: rawProfile[0][0], y: rawProfile[0][1] };
       b = { x: rawProfile[rawProfile.length - 1][0], y: rawProfile[rawProfile.length - 1][1] };
-    } else if (startArg && endArg) {
-      a = { x: startArg.x ?? 0, y: startArg.y ?? 0 };
-      b = { x: endArg.x ?? wallLen, y: endArg.y ?? 0 };
+    } else if (startPt && endPt) {
+      a = startPt;
+      b = endPt;
     } else {
       a = { x: 0, y: 0 };
       b = { x: wallLen, y: 0 };
@@ -515,15 +526,21 @@ export function registerStructuralHandlers(viewer: Viewer): void {
   registerHandler("SdColumn", (args) => {
     const cplane = resolveCPlane("SdColumn", args as Record<string, unknown>, viewer);
     const posArr = args.position as [number, number] | undefined;
-    const p = { x: posArr?.[0] ?? 0, y: posArr?.[1] ?? 0 };
+    const facePx = (args.face_m as number | undefined);
+    const depthPx = (args.depth_m as number | undefined);
+    const heightPx = (args.height_m as number | undefined);
+    const p = { x: posArr?.[0] ?? 0, y: posArr?.[1] ?? 0, face: facePx, depth: depthPx, height: heightPx };
     const { mesh, chain } = buildColumn(p);
+    const colFace = facePx ?? 0.3;
+    const colDepth = depthPx ?? 0.3;
+    const colH = heightPx ?? DEFAULT_COLUMN_HEIGHT;
     mesh.position.z = getActiveLevelElevation();
     mesh.userData.cplaneKind = cplane.kind;
     mesh.userData.layerId = resolveLayerId("SdColumn", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
     mesh.userData.chain = chain;
-    linkExtrudedRectangleBrep(viewer, mesh, -0.15, 0.15, -0.15, 0.15, 4, "SdColumn");
+    linkExtrudedRectangleBrep(viewer, mesh, -colFace / 2, colFace / 2, -colDepth / 2, colDepth / 2, colH, "SdColumn");
     viewer.addMesh(mesh, "brep");
     onElementCommitted(mesh, viewer.getScene());
     return { created: "column" };
@@ -676,7 +693,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       flat: "flat", mansard: "flat", combination: "flat",
     };
     const roofType: RoofParams["type"] = typeMap[rawType] ?? "pitched";
-    const pitchDeg = (args.pitchDeg as number | undefined) ?? (args.pitchAngleDeg as number | undefined) ?? 30;
+    let pitchDeg = (args.pitchDeg as number | undefined) ?? (args.pitchAngleDeg as number | undefined) ?? 30;
     const overhang = (args.overhang as number | undefined) ?? 0.5;
     const thickness = (args.thickness as number | undefined) ?? 0.15;
 
@@ -717,6 +734,14 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         centerY = (maxY + minY) / 2;
       }
     }
+    // rise / ridgeHeight override — convention-independent param for GhDefSpec v0.3+ direct dispatch.
+    // Converts Eli's structural rise to WEB-CAD's clad-based hw span so ridge height is preserved
+    // regardless of internal vs external span convention. pitchDeg arg still accepted as fallback.
+    const riseArg = (args.rise as number | undefined) ?? (args.ridgeHeight as number | undefined);
+    if (riseArg != null) {
+      const hw = (w + 2 * overhang) / 2;
+      pitchDeg = Math.atan(riseArg / hw) * (180 / Math.PI);
+    }
     const a = { x: -w / 2, y: -d / 2 };
     const b = { x: w / 2, y: d / 2 };
     const roofParams: RoofParams = { type: roofType, pitchDeg, overhang, thickness, showStructure: true };
@@ -724,6 +749,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
 
     const activeLevelElev = getActiveLevelElevation();
     let eaveOffset = DEFAULT_WALL_HEIGHT;
+    let eaveWallFound = false;
     {
       const FOOT_EXPAND = 1.5;
       viewer.getScene().traverse((child) => {
@@ -738,7 +764,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         if (midX < centerX - w / 2 - FOOT_EXPAND || midX > centerX + w / 2 + FOOT_EXPAND) return;
         if (midY < centerY - d / 2 - FOOT_EXPAND || midY > centerY + d / 2 + FOOT_EXPAND) return;
         const wh = (child.userData.wallHeight as number | undefined) ?? DEFAULT_WALL_HEIGHT;
-        if (wh > eaveOffset) eaveOffset = wh;
+        if (!eaveWallFound || wh > eaveOffset) { eaveOffset = wh; eaveWallFound = true; }
       });
     }
     mesh.position.set(centerX, centerY, activeLevelElev + eaveOffset);
@@ -804,16 +830,6 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         }
       });
 
-      for (const _c of _gableWallCandidates) {
-        const _grp = (_c as unknown as { _replaceGroup?: THREE.Group })._replaceGroup;
-        if (_grp) {
-          const _parent = _grp.parent ?? viewer.getScene();
-          _parent.remove(_grp);
-          _parent.add(_c);
-          _c.updateMatrixWorld(true);
-        }
-      }
-
       // §#1724: derive gable-end coordinates from scene wall bounding box.
       // §#1756: apply footprint+FOOT_EXPAND filter.
       const FOOT_EXPAND_GABLE = 1.5;
@@ -844,6 +860,16 @@ export function registerStructuralHandlers(viewer: Viewer): void {
         const isGable = Math.abs(vA - vB) < TOL &&
           (Math.abs(vA - sceneGMin) < TOL || Math.abs(vA - sceneGMax) < TOL);
         if (!isGable) continue;
+
+        // Replace void-cut Group with fresh Mesh only for confirmed gable walls.
+        // Non-gable wall Groups (e.g. south wall with window voids) must not be replaced.
+        const _grp = (child as unknown as { _replaceGroup?: THREE.Group })._replaceGroup;
+        if (_grp) {
+          const _parent = _grp.parent ?? viewer.getScene();
+          _parent.remove(_grp);
+          _parent.add(child);
+          child.updateMatrixWorld(true);
+        }
 
         const wallMesh = child;
         const wallEaveH = eaveOffset;
@@ -980,12 +1006,15 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       a = { x: 0, y: 0 };
       b = { x: wallLen, y: 0 };
     }
+    const cwHeight = (args.height_m as number | undefined) ?? DEFAULT_WALL_HEIGHT;
+    const cwElevation = (args.elevation_m as number | undefined) ?? 0;
     const cwParams: CurtainWallParams = {
       mullionSpacing:  (args.mullionSpacing  as number | undefined) ?? undefined,
       transomSpacing:  (args.transomSpacing  as number | undefined) ?? undefined,
+      height_m: cwHeight,
     };
     const { mesh, chain } = buildCurtainWall(a, b, cwParams);
-    mesh.position.z = getActiveLevelElevation();
+    mesh.position.z = getActiveLevelElevation() + cwElevation;
     mesh.userData.layerId = resolveLayerId("SdCurtainWall", args);
     mesh.userData.levelId = getActiveLevelId();
     mesh.userData.dispatchArgs = args;
@@ -997,7 +1026,7 @@ export function registerStructuralHandlers(viewer: Viewer): void {
       _joinShell.userData.levelId = getActiveLevelId();
       _joinShell.userData.layerId = resolveLayerId("SdCurtainWall", args);
     }
-    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, DEFAULT_WALL_HEIGHT, "SdCurtainWall");
+    linkExtrudedRectangleBrep(viewer, mesh, -cwLen / 2, cwLen / 2, -0.05, 0.05, cwHeight, "SdCurtainWall");
     const canonical = viewer.getCanonicalGeometryStore().resolveObjectOrAncestor(mesh);
     if (canonical && _joinShell instanceof THREE.Mesh) {
       viewer.getCanonicalGeometryStore().linkObject(_joinShell, canonical.id);

@@ -33,6 +33,12 @@ import {
   handle_GhComponentGraph_LazyEvaluation,
   handle_GhRhinoScriptSyntax_API,
 } from "../src/handlers/s334-impl";
+import {
+  registerGraph,
+  unregisterGraph,
+  hasGraph,
+  resolveParams,
+} from "../src/gh/gh-component-graph";
 import { Interval } from "../src/nurbs/nurbs-primitives";
 import type { GhPath } from "../src/handlers/s334-impl";
 
@@ -85,11 +91,6 @@ describe("blocked stubs — return NotYetImplemented", () => {
     expect(r.error).toBe("NotYetImplemented");
   });
 
-  test.skip("GhComponentGraph_Evaluator — blocked: needs graph evaluator", () => {
-    const r = handle_GhComponentGraph_Evaluator({ graphId: "g1" }, null);
-    expect(r.error).toBe("NotYetImplemented");
-  });
-
   test.skip("GhComponentGraph_LazyEvaluation — blocked: needs dirty propagation", () => {
     const r = handle_GhComponentGraph_LazyEvaluation({ graphId: "g1", nodeId: "n1" }, null);
     expect(r.error).toBe("NotYetImplemented");
@@ -103,6 +104,106 @@ describe("blocked stubs — return NotYetImplemented", () => {
   test("GhDataTree_Model — returns NotYetImplemented until graph evaluator is built", () => {
     const r = handle_GhDataTree_Model({ op: "create" }) as { error?: string };
     expect(r.error).toBe("NotYetImplemented");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § GhComponentGraph_Evaluator — client-side evaluator (#480)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("GhComponentGraph — registry", () => {
+  const TEST_ID = "test:registry-unit";
+
+  test("registerGraph + hasGraph round-trip", () => {
+    registerGraph(TEST_ID, { inputPorts: [], components: [] });
+    expect(hasGraph(TEST_ID)).toBe(true);
+    unregisterGraph(TEST_ID);
+    expect(hasGraph(TEST_ID)).toBe(false);
+  });
+
+  test("unregisterGraph on unknown id is safe (no throw)", () => {
+    expect(() => unregisterGraph("nonexistent-xyz-abc")).not.toThrow();
+  });
+});
+
+describe("GhComponentGraph — resolveParams", () => {
+  test("portRef substituted from inputValues", () => {
+    const params = { width: { portRef: "w" }, height: { portRef: "h" } };
+    const vals = { w: 5, h: 3 };
+    const result = resolveParams(params, vals);
+    // oracle: portRefs replaced with numeric slider values
+    expect(result).toEqual({ width: 5, height: 3 });
+  });
+
+  test("literal value used when no portRef", () => {
+    const params = { color: { value: "red" }, size: { value: 42 } };
+    const result = resolveParams(params, {});
+    expect(result).toEqual({ color: "red", size: 42 });
+  });
+
+  test("portRef takes precedence when portRef is present and matched", () => {
+    const params = { width: { portRef: "w", value: 999 } };
+    const result = resolveParams(params, { w: 7 });
+    // oracle: portRef wins over value when input has the key
+    expect(result).toEqual({ width: 7 });
+  });
+
+  test("falls back to value when portRef not in inputValues", () => {
+    const params = { depth: { portRef: "missing_key", value: 4 } };
+    const result = resolveParams(params, {});
+    // oracle: portRef not found → literal value used
+    expect(result).toEqual({ depth: 4 });
+  });
+
+  test("param absent from result when neither portRef nor value is set", () => {
+    const params = { orphan: {} };
+    const result = resolveParams(params, { orphan: 1 });
+    // oracle: empty param → nothing in result (no portRef, no value)
+    expect("orphan" in result).toBe(false);
+  });
+
+  test("non-trivial multi-param resolution", () => {
+    const params = {
+      width:   { portRef: "w" },
+      height:  { portRef: "h" },
+      depth:   { portRef: "d" },
+      literal: { value: "box" },
+    };
+    const vals = { w: 3.14, h: 2.72, d: 1.41 };
+    const result = resolveParams(params, vals);
+    expect(result.width).toBeCloseTo(3.14, 10);
+    expect(result.height).toBeCloseTo(2.72, 10);
+    expect(result.depth).toBeCloseTo(1.41, 10);
+    expect(result.literal).toBe("box");
+  });
+});
+
+describe("GhComponentGraph_Evaluator handler — unit (no browser)", () => {
+  test("missing graphId returns ArgValidationError", () => {
+    const r = handle_GhComponentGraph_Evaluator({}, null) as { error: string };
+    expect(r.error).toBe("ArgValidationError");
+  });
+
+  test("unregistered graphId returns error with 'no spec registered'", () => {
+    const r = handle_GhComponentGraph_Evaluator({ graphId: "definitely-not-registered-abc123" }, null) as { error: string };
+    expect(typeof r.error).toBe("string");
+    expect(r.error).toContain("no spec registered");
+  });
+
+  test("registered spec with no components returns error", () => {
+    const id = "test:no-components";
+    registerGraph(id, { inputPorts: [], components: [] });
+    const r = handle_GhComponentGraph_Evaluator({ graphId: id }, null) as { error: string };
+    expect(r.error).toContain("no components");
+    unregisterGraph(id);
+  });
+
+  test("registered spec with undefined components returns error", () => {
+    const id = "test:undefined-components";
+    registerGraph(id, { inputPorts: [] }); // no components field
+    const r = handle_GhComponentGraph_Evaluator({ graphId: id }, null) as { error: string };
+    expect(typeof r.error).toBe("string");
+    unregisterGraph(id);
   });
 });
 
@@ -669,5 +770,71 @@ describe("argument validation", () => {
   test("GhMath_Components without op returns ArgValidationError", () => {
     const r = handle_GhMath_Components({}) as { error: string };
     expect(r.error).toBe("ArgValidationError");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// § parseGhDefJson — AC#4 fail-loud seam parse (#480)
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { parseGhDefJson } from "../src/gh/gh-def-ingester";
+
+describe("parseGhDefJson — AC#4 fail-loud", () => {
+  test("valid spec returns GhDefSpec", () => {
+    const spec = parseGhDefJson(JSON.stringify({
+      inlineGraphId: "test:box",
+      inputPorts: [{ name: "w", min: 1, max: 10, default: 5 }],
+    }));
+    expect(spec.inlineGraphId).toBe("test:box");
+    expect(spec.inputPorts).toHaveLength(1);
+  });
+
+  test("invalid JSON throws descriptive error", () => {
+    expect(() => parseGhDefJson("{not json")).toThrow(/ParseGhDefJson/);
+  });
+
+  test("missing inputPorts throws descriptive error", () => {
+    expect(() => parseGhDefJson(JSON.stringify({ inlineGraphId: "x" }))).toThrow(
+      /inputPorts/,
+    );
+  });
+
+  test("inputPorts non-array throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(JSON.stringify({ inputPorts: "wrong" })),
+    ).toThrow(/inputPorts/);
+  });
+
+  test("component missing id throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ type: "SdBox", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.id/);
+  });
+
+  test("component missing type throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ id: "box1", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.type/);
+  });
+
+  test("component empty id throws descriptive error", () => {
+    expect(() =>
+      parseGhDefJson(
+        JSON.stringify({
+          inputPorts: [],
+          components: [{ id: "", type: "SdBox", params: {} }],
+        }),
+      ),
+    ).toThrow(/components\[0\]\.id/);
   });
 });

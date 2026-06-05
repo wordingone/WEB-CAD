@@ -1,6 +1,12 @@
 import { registerHandler, dispatch } from "../commands/dispatch";
 import { listClusters, getClusterByName, listCanvasClusters, type SkillClusterStep } from "../skills/skill-store";
 import { STARTER_LIBRARY } from "../skills/starter-library";
+import { fetchGhDefSpec, runGhDef } from "../skills/ghdef-runner";
+
+const _BUILDINGS_BASE = import.meta.env.BASE_URL + "buildings/";
+const _KNOWN_BUILDINGS: Record<string, string> = {
+  farnsworth: "gh_def_farnsworth.json",
+};
 
 function _translateClusterStep(params: Record<string, unknown>, anchor: number[]): Record<string, unknown> {
   if (typeof params["hostUuid"] === "string" || typeof params["uuid"] === "string") {
@@ -110,5 +116,21 @@ export function registerSkillHandlers(): void {
     }
 
     return { ok: false, error: `No skill named "${skillName}" found in starter library or saved clusters` };
+  });
+
+  registerHandler("SdRunBuilding", async (args) => {
+    const id = args["id"] as string;
+    const fileName = _KNOWN_BUILDINGS[id];
+    if (!fileName) {
+      return { ok: false, error: `Unknown building: "${id}". Known: ${Object.keys(_KNOWN_BUILDINGS).join(", ")}` };
+    }
+    const url = _BUILDINGS_BASE + fileName;
+    const spec = await fetchGhDefSpec(url);
+    const portOverrides: Record<string, number> = {};
+    for (const port of spec.inputPorts) {
+      if (typeof args[port.name] === "number") portOverrides[port.name] = args[port.name] as number;
+    }
+    const result = await runGhDef(spec, { portOverrides });
+    return { ok: true, ...result, buildingId: id };
   });
 }
