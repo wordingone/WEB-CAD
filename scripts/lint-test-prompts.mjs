@@ -22,6 +22,8 @@ const SCAN_TARGETS = [
   "scripts/dev-as-architect.ts",
   "web/test/coordination.test.ts",
   "web/test/agent-instance.test.ts",
+  "tools/mcp/agent-capability-harness.mjs",
+  "tools/mcp/agent-capability-corpus.json",
 ];
 
 // Match: digit(s) + optional decimal + 'm' not followed by a word char.

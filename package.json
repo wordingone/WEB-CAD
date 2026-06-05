@@ -55,7 +55,8 @@
     "baseline:compare": "bun web/test/capability/baselines/post-comparison.ts",
     "llama:proxy": "bun scripts/llama-proxy.ts",
     "pre-commit-setup": "sh scripts/setup-hooks.sh",
-    "cold-cache:first-visit": "bun scripts/cold-cache-first-visit.mjs"
+    "cold-cache:first-visit": "bun scripts/cold-cache-first-visit.mjs",
+    "cap-harness": "node -e \"process.stderr.write('cap-harness is a CC Workflow — invoke via Workflow({scriptPath:\\\"tools/mcp/agent-capability-harness.mjs\\\",args:{goals,pages_url,runTs}}) from B:/M/WEB-CAD session\\n');process.exit(1)\""
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.0",
