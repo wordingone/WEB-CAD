@@ -141,7 +141,10 @@ def setup_vp(names, cam_loc, cam_dir, cam_up, bb):
     time.sleep(3)
     for _ in range(100):
         Rhino.RhinoApp.Wait()
-    return vw
+    # Read back the actual frustum after ZoomBoundingBox — gives exact scale independent of bb source
+    gf = vp.GetFrustum()   # (ok, left, right, bottom, top, near, far)
+    frust_w = gf[2] - gf[1]   # right - left in view-space meters
+    return vw, frust_w
 
 
 def capture_vp(path):
@@ -238,8 +241,8 @@ print("GATE 2: PASS")
 # --- GATE 3: captures ---
 bb_top = rg.BoundingBox(rg.Point3d(-0.5, -0.5, -1.0),
                          rg.Point3d(W + 0.5, D + 0.5, H_TOTAL + 1.0))
-setup_vp(["top"], rg.Point3d(W/2, D/2, 20.0),
-         rg.Vector3d(0, 0, -1), rg.Vector3d(0, 1, 0), bb_top)
+_, _ = setup_vp(["top"], rg.Point3d(W/2, D/2, 20.0),
+                rg.Vector3d(0, 0, -1), rg.Vector3d(0, 1, 0), bb_top)
 ok, r = capture_vp(PLAN_PATH)
 if not ok:
     report["gate3"] = {"status": "FAIL", "reason": "plan: " + r}
@@ -253,10 +256,11 @@ if not ok:
     System.IO.File.WriteAllText(REPORT_PATH, json.dumps(report, indent=2))
     raise SystemExit(1)
 
-bb_fr = rg.BoundingBox(rg.Point3d(-0.5, -0.5, -0.5),
-                        rg.Point3d(W + 0.5, D + 0.5, H_TOTAL + 0.5))
-setup_vp(["front", "bottom"], rg.Point3d(W/2, -20.0, H_TOTAL/2),
-         rg.Vector3d(0, 1, 0), rg.Vector3d(0, 0, 1), bb_fr)
+# Fixed bounding box — does NOT use W, H_TOTAL params; ZoomBoundingBox gives fixed scale.
+# GetFrustum reads back actual scale after zoom → scale_cal never touches building dimensions.
+_BB_FRONT = rg.BoundingBox(rg.Point3d(-0.5, -0.5, -1.0), rg.Point3d(8.5, 0.5, 10.0))
+_, _frust_w_f = setup_vp(["front", "bottom"], rg.Point3d(W/2, -20.0, H_TOTAL/2),
+                          rg.Vector3d(0, 1, 0), rg.Vector3d(0, 0, 1), _BB_FRONT)
 ok, r = capture_vp(FRONT_PATH)
 if not ok:
     report["gate3"] = {"status": "FAIL", "reason": "front: " + r}
@@ -270,10 +274,10 @@ if not ok:
     System.IO.File.WriteAllText(REPORT_PATH, json.dumps(report, indent=2))
     raise SystemExit(1)
 
-bb_si = rg.BoundingBox(rg.Point3d(-0.5, -0.5, -0.5),
-                        rg.Point3d(W + 0.5, D + 0.5, H_TOTAL + 0.5))
-setup_vp(["right"], rg.Point3d(W + 20.0, D/2, H_TOTAL/2),
-         rg.Vector3d(-1, 0, 0), rg.Vector3d(0, 0, 1), bb_si)
+# Fixed bounding box for side view — does NOT use D or H_TOTAL params
+_BB_SIDE = rg.BoundingBox(rg.Point3d(-0.5, -0.5, -1.0), rg.Point3d(0.5, 8.5, 10.0))
+_, _frust_w_s = setup_vp(["right"], rg.Point3d(W + 20.0, D/2, H_TOTAL/2),
+                          rg.Vector3d(-1, 0, 0), rg.Vector3d(0, 0, 1), _BB_SIDE)
 ok, r = capture_vp(SIDE_PATH)
 if not ok:
     report["gate3"] = {"status": "FAIL", "reason": "side: " + r}
@@ -329,7 +333,7 @@ if left_col is None or right_col is None:
     front_delta["F3_Z_m"]   = dcheck("F3_Z_m",   None, CERT_F3,   TOL_PCT_BAND)
 else:
     W_px     = right_col - left_col
-    scale_cal = W_px / W
+    scale_cal = IMG_W / _frust_w_f   # px/m — from fixed-bb frustum; never touches building dims
     mid_col  = (left_col + right_col) // 2
     top_row  = None
     bot_row  = None
@@ -414,7 +418,7 @@ if lc_s is None or rc_s is None:
     side_delta["H_TOTAL_m_s"]= dcheck("H_TOTAL_m_s",None, H_CERT_S, TOL_PCT_DWG)
 else:
     D_px_s  = rc_s - lc_s
-    scale_s = D_px_s / D  # calibrate from set param, not cert; D_cert is delta reference only
+    scale_s = IMG_SW / _frust_w_s   # px/m — from fixed-bb frustum; never touches D param
     mc_s    = (lc_s + rc_s) // 2
     tr_s    = None
     br_s    = None

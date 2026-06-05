@@ -19,7 +19,7 @@ import { registerSurface325Handlers } from "../src/handlers/s325-impl";
 import { handle_SdBooleanSplit } from "../src/handlers/s326-impl";
 import { handle_SdMeshFromBrep } from "../src/handlers/s329-impl";
 import {
-  handle_SdStepWriteStub,
+  handle_SdStepWrite,
   handle_SdDwgReadStub,
   handle_SdIgesWrite,
 } from "../src/handlers/s333-impl";
@@ -41,7 +41,7 @@ beforeAll(() => {
     handle_SdMeshFromBrep(args as Record<string, unknown>, MOCK_VIEWER),
   );
   registerHandler("SdStepWrite", (args) =>
-    handle_SdStepWriteStub(args as Record<string, unknown>),
+    handle_SdStepWrite(args as Record<string, unknown>, MOCK_VIEWER),
   );
   registerHandler("SdDwgRead", (args) =>
     handle_SdDwgReadStub(args as Record<string, unknown>),
@@ -93,11 +93,13 @@ describe("#422 — advertisement drift: stub verbs return NotYetImplemented", ()
     assertNotImplemented(r, "SdMeshFromBrep");
   });
 
-  test("SdStepWrite: resolves + returns NotYetImplemented (Archie #400 stub)", async () => {
-    // De-conflict: SdStepWrite is Archie's headline (#400). This test ensures the stub
-    // stays honest (clean NotYetImplemented) until he lands the real implementation.
+  test("SdStepWrite: resolves without UnknownVerb (real impl landed, #400)", async () => {
+    // Real handler registered — returns a structured error for missing args, not UnknownVerb.
     const r = await dispatch("SdStepWrite", {});
-    assertNotImplemented(r, "SdStepWrite");
+    if (!r.ok) {
+      expect((r as { error: string }).error).not.toBe("UnknownVerb");
+      expect((r as { error: string }).error).not.toBe("NoHandler");
+    }
   });
 
   test("SdDwgRead: resolves + returns NotYetImplemented", async () => {

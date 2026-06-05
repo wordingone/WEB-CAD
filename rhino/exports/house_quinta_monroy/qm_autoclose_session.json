@@ -1,14 +1,14 @@
 {
   "schema_version": "1",
-  "session_id": "20260604T000945_f1411f",
-  "session_start": "2026-06-04T00:09:45.250822Z",
-  "session_end": "2026-06-04T00:10:11.759454Z",
+  "session_id": "20260604T003140_eda75b",
+  "session_start": "2026-06-04T00:31:40.575076Z",
+  "session_end": "2026-06-04T00:32:07.139061Z",
   "prompt": "#18 autonomous-close: QM geometry target, frozen spec 2026-06-03",
   "design_intent": "Drive QM model params to frozen target_spec via autonomous iterative correction. No human step between iterations. Each revision agent-computed from per-component delta. Convergence = ALL components below TOL simultaneously (not aggregate).",
   "events": [
     {
       "seq": 1,
-      "ts": "2026-06-04T00:09:45.250822Z",
+      "ts": "2026-06-04T00:31:40.575076Z",
       "intent": "build QM geometry (iter 1); capture plan/front/side; gate 4 non-halting delta-check",
       "tool": "run_python",
       "args": {
@@ -26,17 +26,17 @@
     },
     {
       "seq": 2,
-      "ts": "2026-06-04T00:09:58.483453Z",
+      "ts": "2026-06-04T00:31:53.888737Z",
       "intent": "compute param adjustment from per-component delta; proportional correction for all FAIL components",
       "tool": "agent_revision",
       "args": {
         "param_delta": {
-          "W": 1.0,
-          "D": 1.048,
-          "H_WALL": 1.16016,
-          "PARAPET": 0.04834,
-          "F2_Z": 0.441356,
-          "F3_Z": 0.880985
+          "W": 1.002161,
+          "D": 1.063644,
+          "H_WALL": 1.164096,
+          "PARAPET": 0.048504,
+          "F2_Z": 0.437171,
+          "F3_Z": 0.877661
         },
         "revision_driven_by": [
           "W_m",
@@ -47,30 +47,30 @@
           "H_TOTAL_m_s"
         ],
         "new_params": {
-          "W": 6.0,
-          "D": 6.048,
-          "H_WALL": 7.16016,
-          "PARAPET": 0.29834,
-          "F2_Z": 2.34136,
-          "F3_Z": 4.68099
+          "W": 6.00216,
+          "D": 6.06364,
+          "H_WALL": 7.1641,
+          "PARAPET": 0.2985,
+          "F2_Z": 2.33717,
+          "F3_Z": 4.67766
         }
       },
       "result_summary": "revision computed; new_params committed for next iteration"
     },
     {
       "seq": 3,
-      "ts": "2026-06-04T00:09:58.483453Z",
+      "ts": "2026-06-04T00:31:53.888737Z",
       "intent": "build QM geometry (iter 2); capture plan/front/side; gate 4 non-halting delta-check",
       "tool": "run_python",
       "args": {
         "iteration": 2,
         "params": {
-          "W": 6.0,
-          "D": 6.048,
-          "H_WALL": 7.16016,
-          "PARAPET": 0.29834,
-          "F2_Z": 2.34136,
-          "F3_Z": 4.68099
+          "W": 6.00216,
+          "D": 6.06364,
+          "H_WALL": 7.1641,
+          "PARAPET": 0.2985,
+          "F2_Z": 2.33717,
+          "F3_Z": 4.67766
         }
       },
       "result_summary": "overall=PASS"
@@ -100,12 +100,12 @@
   "converged": true,
   "verdict": "PASS -- converged at iteration 2/6",
   "best_delta_per_component": {
-    "W_m": 0.0,
-    "H_TOTAL_m": 0.002,
-    "F2_Z_m": 0.011,
-    "F3_Z_m": 0.0,
-    "D_m": 0.0,
-    "H_TOTAL_m_s": 0.098
+    "W_m": 0.009,
+    "H_TOTAL_m": 0.001,
+    "F2_Z_m": 0.022,
+    "F3_Z_m": 0.013,
+    "D_m": 0.135,
+    "H_TOTAL_m_s": 0.342
   },
   "trajectory": [
     {
@@ -120,44 +120,44 @@
       },
       "deltas": {
         "W_m": {
-          "measured": 5.0,
+          "measured": 4.9982,
           "certified": 6.0,
-          "delta_pct": 16.667,
+          "delta_pct": 16.697,
           "tol_pct": 2.0,
           "status": "FAIL"
         },
         "H_TOTAL_m": {
-          "measured": 6.2515,
+          "measured": 6.2474,
           "certified": 7.46,
-          "delta_pct": 16.2,
+          "delta_pct": 16.255,
           "tol_pct": 2.0,
           "status": "FAIL"
         },
         "F2_Z_m": {
-          "measured": 1.8989,
+          "measured": 1.9023,
           "certified": 2.34,
-          "delta_pct": 18.852,
+          "delta_pct": 18.705,
           "tol_pct": 5.0,
           "status": "FAIL"
         },
         "F3_Z_m": {
-          "measured": 3.7992,
+          "measured": 3.8019,
           "certified": 4.68,
-          "delta_pct": 18.82,
+          "delta_pct": 18.762,
           "tol_pct": 5.0,
           "status": "FAIL"
         },
         "D_m": {
-          "measured": 5.0,
+          "measured": 4.9871,
           "certified": 6.048,
-          "delta_pct": 17.328,
+          "delta_pct": 17.542,
           "tol_pct": 2.0,
           "status": "FAIL"
         },
         "H_TOTAL_m_s": {
-          "measured": 6.2448,
+          "measured": 6.2274,
           "certified": 7.46,
-          "delta_pct": 16.29,
+          "delta_pct": 16.523,
           "tol_pct": 2.0,
           "status": "FAIL"
         }
@@ -172,12 +172,12 @@
       },
       "all_pass": false,
       "param_delta": {
-        "W": 1.0,
-        "D": 1.048,
-        "H_WALL": 1.16016,
-        "PARAPET": 0.04834,
-        "F2_Z": 0.441356,
-        "F3_Z": 0.880985
+        "W": 1.002161,
+        "D": 1.063644,
+        "H_WALL": 1.164096,
+        "PARAPET": 0.048504,
+        "F2_Z": 0.437171,
+        "F3_Z": 0.877661
       },
       "revision_formula": "proportional: new_p = old_p * (target / measured); H_TOTAL error split H_WALL:PARAPET by ratio",
       "revision_driven_by": [
@@ -192,53 +192,53 @@
     {
       "iteration": 2,
       "params": {
-        "W": 6.0,
-        "D": 6.048,
-        "H_WALL": 7.16016,
-        "PARAPET": 0.29834,
-        "F2_Z": 2.34136,
-        "F3_Z": 4.68099
+        "W": 6.00216,
+        "D": 6.06364,
+        "H_WALL": 7.1641,
+        "PARAPET": 0.2985,
+        "F2_Z": 2.33717,
+        "F3_Z": 4.67766
       },
       "deltas": {
         "W_m": {
-          "measured": 6.0,
+          "measured": 6.0006,
           "certified": 6.0,
-          "delta_pct": 0.0,
+          "delta_pct": 0.009,
           "tol_pct": 2.0,
           "status": "PASS"
         },
         "H_TOTAL_m": {
-          "measured": 7.4602,
+          "measured": 7.46,
           "certified": 7.46,
-          "delta_pct": 0.002,
+          "delta_pct": 0.001,
           "tol_pct": 2.0,
           "status": "PASS"
         },
         "F2_Z_m": {
-          "measured": 2.3398,
+          "measured": 2.3395,
           "certified": 2.34,
-          "delta_pct": 0.011,
+          "delta_pct": 0.022,
           "tol_pct": 5.0,
           "status": "PASS"
         },
         "F3_Z_m": {
-          "measured": 4.68,
+          "measured": 4.6794,
           "certified": 4.68,
-          "delta_pct": 0.0,
+          "delta_pct": 0.013,
           "tol_pct": 5.0,
           "status": "PASS"
         },
         "D_m": {
-          "measured": 6.048,
+          "measured": 6.0398,
           "certified": 6.048,
-          "delta_pct": 0.0,
+          "delta_pct": 0.135,
           "tol_pct": 2.0,
           "status": "PASS"
         },
         "H_TOTAL_m_s": {
-          "measured": 7.4527,
+          "measured": 7.4345,
           "certified": 7.46,
-          "delta_pct": 0.098,
+          "delta_pct": 0.342,
           "tol_pct": 2.0,
           "status": "PASS"
         }

@@ -103,7 +103,7 @@ describe("Spatial Dictionary loader", () => {
 
   test("kernel field is one of the known kernels", () => {
     const dict = getDictionary();
-    const allowed = new Set(["replicad", "nurbs-webgpu", "drafting", "gh-runtime"]);
+    const allowed = new Set(["replicad", "nurbs-webgpu", "nurbs-ts", "drafting", "gh-runtime", "kern-wasm", "stub", "none"]);
     for (const entry of dict) {
       expect(
         allowed.has(entry.kernel),

@@ -34,46 +34,46 @@
     },
     "front": {
       "W_m": {
-        "measured": 5.0,
+        "measured": 4.9982,
         "certified": 6.0,
-        "delta_pct": 16.667,
+        "delta_pct": 16.697,
         "tol_pct": 2.0,
         "status": "FAIL"
       },
       "H_TOTAL_m": {
-        "measured": 6.2515,
+        "measured": 6.2474,
         "certified": 7.46,
-        "delta_pct": 16.2,
+        "delta_pct": 16.255,
         "tol_pct": 2.0,
         "status": "FAIL"
       },
       "F2_Z_m": {
-        "measured": 1.8989,
+        "measured": 1.9023,
         "certified": 2.34,
-        "delta_pct": 18.852,
+        "delta_pct": 18.705,
         "tol_pct": 5.0,
         "status": "FAIL"
       },
       "F3_Z_m": {
-        "measured": 3.7992,
+        "measured": 3.8019,
         "certified": 4.68,
-        "delta_pct": 18.82,
+        "delta_pct": 18.762,
         "tol_pct": 5.0,
         "status": "FAIL"
       }
     },
     "side": {
       "D_m": {
-        "measured": 5.0,
+        "measured": 4.9871,
         "certified": 6.048,
-        "delta_pct": 17.328,
+        "delta_pct": 17.542,
         "tol_pct": 2.0,
         "status": "FAIL"
       },
       "H_TOTAL_m_s": {
-        "measured": 6.2448,
+        "measured": 6.2274,
         "certified": 7.46,
-        "delta_pct": 16.29,
+        "delta_pct": 16.523,
         "tol_pct": 2.0,
         "status": "FAIL"
       }
