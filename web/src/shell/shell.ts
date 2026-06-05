@@ -221,10 +221,11 @@ const _BASE = import.meta.env.BASE_URL;
 // base path so texture-paper.png resolves on GitHub Pages subpath deployments.
 document.documentElement.style.setProperty("--chrome-texture", `url("${_BASE}texture-paper.png")`);
 const RIBBON_SCENE_SAMPLES = [
-  { name: "Schultz Residence",  v: "schultz-residence", thumb: `${_BASE}thumbnails/schultz-residence.png` },
-  { name: "IFC - FZK-House",    v: "kit-fzk-haus",      thumb: `${_BASE}thumbnails/kit-fzk-haus.png` },
-  { name: "KIT Institute",      v: "kit-office",         thumb: `${_BASE}thumbnails/kit-office.png` },
-  { name: "Bonsai House",       v: "bonsai-openings",    thumb: `${_BASE}thumbnails/bonsai-openings.png` },
+  { name: "2-Storey House",     v: "house-v2",           thumb: `${_BASE}thumbnails/house-v2.png` },
+  { name: "Schultz Residence",  v: "schultz-residence",  thumb: `${_BASE}thumbnails/schultz-residence.png` },
+  { name: "IFC - FZK-House",    v: "kit-fzk-haus",       thumb: `${_BASE}thumbnails/kit-fzk-haus.png` },
+  { name: "KIT Institute",      v: "kit-office",          thumb: `${_BASE}thumbnails/kit-office.png` },
+  { name: "Bonsai House",       v: "bonsai-openings",     thumb: `${_BASE}thumbnails/bonsai-openings.png` },
 ];
 // All architectural element tools — ARCH (section 4) + COMP (section 5) of the model palette.
 // Shown as clickable tool-activation chips in the ribbon Elements column.
