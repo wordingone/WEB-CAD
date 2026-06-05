@@ -12,7 +12,7 @@ import type { WorkerOut } from "./worker";
 import { getState } from "./app-state";
 import { getLayoutHost, activateMode } from "./shell/modes";
 import { exportLayoutAsSvg, exportLayoutAsPdf, exportLayoutAsDwgFallback, exportLayoutAsDxf, addPanel, getPanels } from "./shell/layout";
-import { buildIfc, buildIfcScene, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
+import { buildIfc, buildIfcScene, populateOpenings, ifcRoundTrip, type IfcSceneElement, type IfcLevel } from "./ifc/ifc";
 import { canonicalGeometryToIfcNurbsSurfaces } from "./ifc/canonical-ifc";
 import { detectFormat, loadMainThreadFormat, buildIfcMesh, buildStepMesh, WORKER_FORMATS, MAIN_THREAD_FORMATS, isSupported, type LoadedScene } from "./io/loader";
 import { exportObj, exportGltfJson, exportGlb, exportUsdz, exportStl, export3dm, exportSvg, exportDxf, exportPdf } from "./io/exporters";
@@ -641,7 +641,7 @@ export function initDomEvents(viewer: Viewer, scenePanel: ScenePanel): { dispose
         dispatchArgs: obj.userData.dispatchArgs as Record<string, unknown> | undefined,
       });
     });
-    return elements;
+    return populateOpenings(elements);
   }
 
   async function exportIfc(stem: string): Promise<void> {
