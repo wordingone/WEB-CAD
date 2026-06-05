@@ -54,6 +54,17 @@ export const SAMPLES: SampleFile[] = [
     size: "48 KB",
     note: "788 entities, IFC4 - BlenderBIM tutorial 'Project 0' starter, fast parse",
   },
+  // Parametric 2-storey single-family house. Generated from Grasshopper definition
+  // in Rhino 8 (bake_house_clean.py). 2 building storeys, 3 walls, 1 floor slab,
+  // 1 roof, 1 window, 3 doors. IFC4. 5.1 MB.
+  {
+    id: "house-v2",
+    label: "2-Storey Single-Family House (Rhino/GH export, IFC4)",
+    path: "samples/house-v2.ifc",
+    format: "ifc",
+    size: "5.1 MB",
+    note: "Parametric 2-storey house: 2 building storeys, 3 walls, 1 floor slab, 1 roof, 1 window w/void, 3 doors. IFC4. Generated from Grasshopper in Rhino 8.",
+  },
   {
     id: "wall-with-opening",
     label: "Wall + window opening (IFC4) - fastest",
