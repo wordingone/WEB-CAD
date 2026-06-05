@@ -880,6 +880,20 @@ async function _handleSessionRefreshInner(): Promise<void> {
     return;
   }
 
+  // §#197-reinit: model was PAUSED (dispose-session cleared _model/_processor). Reload from
+  // stored init data so the next generate call doesn't produce "model not loaded". Use
+  // noWarmup=true — WebGPU shader pipelines persist across dispose-session (worker not
+  // terminated), so warmup re-compilation is unnecessary. Boot flags reset so checkBootComplete()
+  // fires only after all three stages complete (not immediately on the already-true values).
+  if (!_model || !_processor) {
+    _bootModelReady = false;
+    _bootWarmupDone = false;
+    _bootDrafterDone = false;
+    await handleInit({ ..._lastInitData, noWarmup: true } as Record<string, unknown>);
+    post({ type: "session-refresh-complete", skipped: false });
+    return;
+  }
+
   // §#380: drain the GPU queue — completes deferred buffer_manager destructions from
   // prior-turn §A tensor dispose() calls. 200ms settle lets the destructions finalize
   // before T(n+1) inference begins. No model dispose, no reload, no warmup probe.
