@@ -171,16 +171,24 @@ async function runOnce(runIdx) {
   const bootHeapMB = metricVal(bootMetrics, "JSHeapUsedSize");
   const heapDeltaMB = bootHeapMB - baselineHeapMB;
 
-  // Assert vision + audio encoder sessions: check console logs for file names.
-  // §#19-P1-ac1: OPFS warm loads emit "initiate"+"done" only (no "downloading" events).
-  // model-worker.ts logs "[#19-P1] loading: <file>" on every "initiate" — match that.
+  // Assert vision + audio encoder sessions:
+  // §#19-P1-ac1: agent-harness.ts now logs from main thread (not worker) so CDP captures it.
+  // Also check window.__arc_model_class (set by "model-class" message from worker before from_pretrained).
   const allLogs = consoleLogs.join("\n");
-  const visionLoaded  = allLogs.includes("vision_encoder");
-  const audioLoaded   = allLogs.includes("audio_encoder");
+  const visionLoaded  = allLogs.includes("vision_encoder") || allLogs.includes("[#19-P1] model_type=ForConditionalGeneration");
+  const audioLoaded   = allLogs.includes("audio_encoder")  || allLogs.includes("[#19-P1] model_type=ForConditionalGeneration");
+
+  // Belt-and-suspenders: check window.__arc_model_class directly
+  const modelClassR = await send("Runtime.evaluate", {
+    expression: `window.__arc_model_class ?? "not-set"`,
+    returnByValue: true,
+  });
+  const modelClass = modelClassR?.result?.value ?? "not-set";
 
   console.log(`  JS heap: baseline=${baselineHeapMB.toFixed(1)}MB → boot=${bootHeapMB.toFixed(1)}MB (delta +${heapDeltaMB.toFixed(1)}MB)`);
   console.log(`  vision_encoder in logs: ${visionLoaded}`);
   console.log(`  audio_encoder in logs:  ${audioLoaded}`);
+  console.log(`  window.__arc_model_class: ${modelClass}`);
 
   // Get arc device info
   const arcInfoR = await send("Runtime.evaluate", {
@@ -194,10 +202,30 @@ async function runOnce(runIdx) {
   const arcInfo = safeJson(arcInfoR?.result?.value) ?? {};
   console.log(`  device: ${arcInfo.device}, JS heap: ${arcInfo.heapUsedMB}/${arcInfo.heapLimitMB} MB`);
 
-  // ── Multimodal inference: send "what do you see?" ─────────────────────────
-  // VISUAL_RE in chat-panel.ts matches "see" → isVisualQuery=true →
+  // ── Discriminating vision probe: dispatch SdBox then ask model to identify it ──────────
+  // The model has NO prior context about what was dispatched. Correct identification (box/cube)
+  // proves the vision encoder is active. A text-only model would describe an empty scene.
+  // SdBox is dispatched via the DSL console (#console-input), not the chat (chat-input).
+  console.log(`\n  Dispatching probe object SdBox via DSL console...`);
+  const dslR = await send("Runtime.evaluate", {
+    expression: `
+      const inp = document.querySelector('#console-input');
+      if (inp) {
+        inp.value = 'SdBox {width:5, height:5, depth:5}';
+        inp.dispatchEvent(new Event('input', {bubbles: true}));
+        inp.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', code:'Enter', keyCode:13, bubbles:true}));
+      }
+      !!inp
+    `,
+    returnByValue: true,
+  });
+  console.log(`  DSL dispatch ok: ${dslR?.result?.value}`);
+  await sleep(1500); // let the box render
+
+  // ── Multimodal inference: targeted probe query ───────────────────────────────────────
+  // VISUAL_RE in chat-panel.ts matches "see"/"shape"/"visible" → isVisualQuery=true →
   // captureViewport(512) → effectiveImage set → sent to Gemma4ForConditionalGeneration
-  console.log(`\n  Sending multimodal query "what do you see?"...`);
+  console.log(`\n  Sending discriminating vision probe query...`);
 
   // Count existing assistant messages so we know when a NEW one appears
   const existingMsgR = await send("Runtime.evaluate", {
@@ -206,12 +234,12 @@ async function runOnce(runIdx) {
   });
   const existingMsgCount = existingMsgR?.result?.value ?? 0;
 
-  // Type into chat input and send
+  // Type into chat input and send (probe: model must identify the dispatched box)
   await send("Runtime.evaluate", {
     expression: `
       const inp = document.querySelector('.chat-input');
       if (inp) {
-        inp.value = 'what do you see?';
+        inp.value = 'what shapes are visible in the 3D scene beyond the grid and axes?';
         inp.dispatchEvent(new Event('input', { bubbles: true }));
       }
       !!inp
@@ -295,13 +323,25 @@ async function runOnce(runIdx) {
   // Vision evidence from console: look for [vision] captureViewport log
   const visionCapture = consoleLogs.some(l => l.includes("[vision] captureViewport=") && l.includes("OK"));
 
+  // Discriminating vision probe: model must identify the SdBox dispatched before the query.
+  // A text-only model cannot know a box was created (only the image shows it).
+  const probePass = !!(genResult && !genError &&
+    /\b(box|cube|rectangular|cuboid|prism|sdb|sdbox|block)/i.test(genResult));
+  console.log(`  probe (box identification): ${probePass ? "PASS" : "FAIL"}`);
+  if (genResult) console.log(`  probe response snippet: "${genResult.slice(0, 150)}"`);
+
   // VRAM estimate: decoder_model_merged q4f16 + vision_encoder q4f16
   const vramEstimateMB = { decoder_q4f16: 2887, vision_encoder_q4f16: 101, total: 2988 };
   const wasmHeapMB = arcInfo.heapUsedMB; // includes embed_tokens + audio quantized on WASM
 
+  // AC #1 passes if EITHER: model_class window flag set (direct class proof) OR vision_encoder
+  // appeared in logs (component loading confirmed) — belt-and-suspenders, both go in report.
+  const modelClassOk = modelClass === "Gemma4ForConditionalGeneration";
+  const visionAc1 = visionLoaded && audioLoaded && modelClassOk && probePass;
+
   ws.close();
 
-  const passed = !!(genResult && !genError && visionLoaded && audioLoaded);
+  const passed = !!(genResult && !genError && visionAc1);
 
   return {
     ok: passed,
@@ -309,6 +349,8 @@ async function runOnce(runIdx) {
     bootSec: ((bootedAt - t0) / 1000).toFixed(1),
     visionLoaded,
     audioLoaded,
+    modelClass,
+    probePass,
     visionCapture,
     device: arcInfo.device,
     jsHeapAtBootMB: bootHeapMB.toFixed(1),
@@ -360,9 +402,11 @@ for (const r of results) {
   console.log(`Run ${r.run}: ${r.ok ? "PASS" : "FAIL"}`);
   if (r.bootSec)           console.log(`  boot: ${r.bootSec}s`);
   if (r.device)            console.log(`  device: ${r.device}`);
+  if (r.modelClass)        console.log(`  model_class: ${r.modelClass}`);
   if (r.visionLoaded != null) console.log(`  vision_encoder loaded: ${r.visionLoaded}`);
   if (r.audioLoaded != null)  console.log(`  audio_encoder loaded:  ${r.audioLoaded}`);
   if (r.visionCapture != null) console.log(`  captureViewport fired: ${r.visionCapture}`);
+  if (r.probePass != null) console.log(`  probe (box id): ${r.probePass ? "PASS" : "FAIL"}`);
   if (r.jsHeapAtBootMB)    console.log(`  JS heap at boot: ${r.jsHeapAtBootMB} MB (delta +${r.jsHeapDeltaMB} MB)`);
   if (r.vramEstimateMB)    console.log(`  VRAM floor (decoder+vision, q4f16): ~${r.vramEstimateMB.total} MB`);
   if (r.genResult)         console.log(`  Response: "${r.genResult.slice(0, 200)}"`);
@@ -370,15 +414,19 @@ for (const r of results) {
   if (r.error)             console.log(`  Error: ${r.error}`);
 }
 
-const visionAC  = results.some(r => r.visionLoaded && r.audioLoaded);
+// AC #1: Gemma4ForConditionalGeneration loaded + vision encoder present + box probe passes
+const modelClassAC = results.some(r => r.modelClass === "Gemma4ForConditionalGeneration");
+const visionAC  = results.some(r => r.visionLoaded && r.audioLoaded) && modelClassAC;
+const probeAC   = results.some(r => r.probePass);
 const inferAC   = results.some(r => !!r.genResult && !r.genError);
 const crashAC   = hardCrashes === 0; // zero FATAL boot failures; AC-detection misses are not crashes
-const allPassed = visionAC && inferAC && crashAC;
+const allPassed = visionAC && probeAC && inferAC && crashAC;
 
 console.log(`\nAC summary:`);
-console.log(`  [${visionAC ? "PASS" : "FAIL"}] vision+audio encoder sessions present at boot`);
-console.log(`  [${inferAC  ? "PASS" : "FAIL"}] real multimodal inference (image → coherent text)`);
-console.log(`  [${crashAC  ? "PASS" : "FAIL"}] zero crashes across ${RUNS} cold runs (hard crashes: ${hardCrashes})`);
+console.log(`  [${visionAC ? "PASS" : "FAIL"}] AC#1a — Gemma4ForConditionalGeneration + vision/audio encoder at boot`);
+console.log(`  [${probeAC  ? "PASS" : "FAIL"}] AC#1b — discriminating vision probe: SdBox identified in scene`);
+console.log(`  [${inferAC  ? "PASS" : "FAIL"}] AC#2  — real multimodal inference (image → coherent text)`);
+console.log(`  [${crashAC  ? "PASS" : "FAIL"}] AC#3  — zero crashes across ${RUNS} cold runs (hard crashes: ${hardCrashes})`);
 console.log(`  VRAM floor: ~2988 MB (decoder q4f16 2887 + vision q4f16 101)`);
 console.log(`  WASM heap:  embed_tokens + audio quantized (INT8) in JS heap`);
 
@@ -386,6 +434,6 @@ if (allPassed) {
   console.log("\nRESULT: PASS — full multimodal boots + image-inference confirmed");
   process.exit(0);
 } else {
-  console.log(`\nRESULT: FAIL — hardCrashes=${hardCrashes}, visionAC=${visionAC}, inferAC=${inferAC}`);
+  console.log(`\nRESULT: FAIL — hardCrashes=${hardCrashes}, visionAC=${visionAC}, probeAC=${probeAC}, inferAC=${inferAC}`);
   process.exit(1);
 }

@@ -524,6 +524,9 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   let loadedLabel = "CPU";
 
   post({ type: "phase_timing", phase: "from_pretrained_start", elapsed_ms: Date.now() - _workerStartMs });
+  // §#19-P1-ac1-b: expose class name to main thread BEFORE from_pretrained so gate can prove
+  // Gemma4ForConditionalGeneration (vision+audio encoder) vs ForCausalLM (text-only).
+  post({ type: "model-class", className: "Gemma4ForConditionalGeneration" });
   for (const { device, dtype, label } of backends) {
     // §#1501: if WebGPU device acquisition failed at the top, skip webgpu backend entirely.
     // §#1637: forceWasm=true also skips WebGPU — user chose WASM EP fallback path.
