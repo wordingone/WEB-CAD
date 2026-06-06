@@ -211,6 +211,142 @@ struct FilletRecord {
     NurbsSurface surf;             // the extruded arc surface
 };
 
+// ── Cylinder detection + toroidal fillet helpers ──────────────────────────────
+
+struct CylinderInfo {
+    Vec3   axisDir;    // unit axis direction
+    Vec3   axisPoint;  // centroid of the barrel mid-cross-section (a point on the axis)
+    double radius;     // cylinder radius
+};
+
+/// Identify `surf` as a right circular cylinder (works on the degree-1 16×16
+/// tessellated form produced by getNurbsForm in the TS layer).
+/// `dotTol` = max |normal·axis| accepted (0.15 tolerates faceting noise).
+static bool tryGetCylinder(const NurbsSurface& surf, CylinderInfo& out,
+                           double dotTol = 0.15) {
+    Vec3 n0 = surf.normalAt(0.1, 0.5).normalized();
+    Vec3 n2 = surf.normalAt(0.7, 0.5).normalized();
+    Vec3 axis = n0.cross(n2);
+    if (axis.norm() < 1e-6) {
+        Vec3 n1 = surf.normalAt(0.4, 0.5).normalized();
+        axis = n0.cross(n1);
+        if (axis.norm() < 1e-6) return false;
+    }
+    axis.normalize();
+
+    // Verify all normals are ⊥ to the axis (5×4 sample grid).
+    for (int i = 0; i <= 4; ++i) {
+        for (int j = 0; j <= 3; ++j) {
+            Vec3 n = surf.normalAt(0.05 + i*0.18, 0.1 + j*0.25).normalized();
+            if (std::abs(n.dot(axis)) > dotTol) return false;
+        }
+    }
+
+    // Centroid of 8 evenly-spaced surface points at mid-V → axis point + radius.
+    const int K = 8;
+    Vec3 sum = Vec3::Zero();
+    std::vector<Vec3> pts(K);
+    for (int k = 0; k < K; ++k) {
+        pts[k] = surf.evaluate(k / double(K), 0.5);
+        sum += pts[k];
+    }
+    out.axisPoint = sum / K;
+    out.axisDir   = axis;
+
+    double rSum = 0.0;
+    for (const Vec3& p : pts) {
+        Vec3 d = p - out.axisPoint;
+        d -= axis * axis.dot(d);
+        rSum += d.norm();
+    }
+    out.radius = rSum / K;
+    return out.radius > 1e-6;
+}
+
+/// Build NURBS surface of revolution: revolve `profile` a full 2π around
+/// (axisPoint, axisDir).  Returns a degree-(profile.degree, 2) rational surface
+/// with 9 columns in V (standard P&T §7.1 full-circle representation).
+static NurbsSurface buildRevolutionSurface(const NurbsCurve& profile,
+                                           const Vec3& axisPoint,
+                                           const Vec3& axisDir) {
+    const int nU = profile.cvCount;
+    const int nV = 9;
+    const double W1 = std::sqrt(2.0) / 2.0; // cos(π/4)
+    const double vW[9]   = { 1, W1, 1, W1, 1, W1, 1, W1, 1 };
+    const double vAng[9] = { 0, M_PI_4, M_PI_2, 3*M_PI_4,
+                              M_PI, 5*M_PI_4, 3*M_PI_2, 7*M_PI_4, 2*M_PI };
+    const std::vector<double> vKnots = { 0,0,0, .25,.25, .5,.5, .75,.75, 1,1,1 };
+
+    // Establish reference radial frame from the first profile CV.
+    const Vec4& p0h = profile.cvs[0];
+    double w0 = p0h.w();
+    Vec3 p0(p0h.x()/w0, p0h.y()/w0, p0h.z()/w0);
+    Vec3 d0 = p0 - axisPoint;
+    d0 -= axisDir * axisDir.dot(d0);
+    double rho0 = d0.norm();
+    Vec3 rHat = (rho0 > 1e-12) ? (d0 / rho0) : Vec3(1, 0, 0);
+    if (rHat.norm() < 0.5) rHat = axisDir.cross(Vec3(0,1,0)).normalized();
+    Vec3 tHat = axisDir.cross(rHat).normalized();
+
+    NurbsSurface surf;
+    surf.degreeU  = profile.degree;
+    surf.degreeV  = 2;
+    surf.cvCountU = nU;
+    surf.cvCountV = nV;
+    surf.knotsU   = profile.knots;
+    surf.knotsV   = vKnots;
+    surf.cvs.resize(nU * nV);
+
+    for (int i = 0; i < nU; ++i) {
+        const Vec4& ph = profile.cvs[i];
+        double pw = ph.w();
+        Vec3 p(ph.x()/pw, ph.y()/pw, ph.z()/pw);
+        Vec3 d   = p - axisPoint;
+        Vec3 axC = axisDir * axisDir.dot(d);
+        Vec3 rad = d - axC;
+        double rho  = rad.norm();
+        Vec3 lR = (rho > 1e-12) ? (rad / rho) : rHat;
+
+        for (int j = 0; j < nV; ++j) {
+            double cosT = std::cos(vAng[j]), sinT = std::sin(vAng[j]);
+            Vec3 pRot = axisPoint + axC + rho * (cosT*lR + sinT*tHat);
+            double tw = pw * vW[j];
+            surf.cvs[i * nV + j] = Vec4(pRot.x()*tw, pRot.y()*tw, pRot.z()*tw, tw);
+        }
+    }
+    return surf;
+}
+
+/// Build the quarter-circle fillet arc (3-CV degree-2 rational curve) for a
+/// right-angle junction between a cylindrical barrel and a flat cap.
+/// Returns the profile NurbsCurve in the meridional plane (before revolution).
+static NurbsCurve buildCylCapFilletArc(const Vec3& axisDir,
+                                       const Vec3& axisAtEdge,
+                                       const Vec3& rHat,
+                                       const Vec3& capNormal,
+                                       double R, double r) {
+    // Rolling-ball centre (meridional coordinates):
+    //   capAxialComp = axisDir · (-capNormal): signed direction toward cap interior
+    double capAxialComp = axisDir.dot(-capNormal);
+    Vec3 arcCentre = axisAtEdge + rHat*(R - r) + axisDir*(capAxialComp * r);
+
+    Vec3 pStart  = arcCentre + rHat * r;      // point on barrel wall
+    Vec3 pEnd    = arcCentre + capNormal * r;  // point on flat cap
+    Vec3 pCorner = axisAtEdge + rHat * R;      // original sharp edge (tangent corner)
+
+    const double w1 = std::sqrt(2.0) / 2.0;
+    NurbsCurve arc;
+    arc.degree  = 2;
+    arc.cvCount = 3;
+    arc.knots   = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};
+    arc.cvs = {
+        Vec4(pStart.x(),          pStart.y(),          pStart.z(),          1.0),
+        Vec4(pCorner.x()*w1, pCorner.y()*w1, pCorner.z()*w1, w1),
+        Vec4(pEnd.x(),            pEnd.y(),            pEnd.z(),            1.0)
+    };
+    return arc;
+}
+
 } // namespace (anonymous)
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -242,6 +378,7 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
     std::vector<BrepEdge>    outEdges = shell.edges;
     std::vector<BrepFace>    filletFaces;
     std::vector<FilletRecord> filletRecords;
+    std::vector<BrepFace>    torusFaces;  // flat+cylinder toroidal fillets (no seam-sewing)
 
     for (int edgeIdx : targets) {
         if (edgeIdx < 0 || edgeIdx >= static_cast<int>(shell.edges.size())) {
@@ -260,11 +397,58 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         const BrepFace& faceA = shell.faces[edge.faceIndex1];
         const BrepFace& faceB = shell.faces[edge.faceIndex2];
 
-        // ── Planarity check (curved faces → not-yet-implemented) ──────────────
-        if (!isSurfacePlanar(faceA.surface) || !isSurfacePlanar(faceB.surface)) {
+        // ── Planarity check — branch on geometry type ────────────────────────
+        bool isAPlanar = isSurfacePlanar(faceA.surface);
+        bool isBPlanar = isSurfacePlanar(faceB.surface);
+
+        if (!isAPlanar || !isBPlanar) {
+            // Try flat-cap + cylindrical-barrel case (→ toroidal fillet).
+            CylinderInfo cylA, cylB;
+            bool isACyl = !isAPlanar && tryGetCylinder(faceA.surface, cylA);
+            bool isBCyl = !isBPlanar && tryGetCylinder(faceB.surface, cylB);
+
+            if ((isAPlanar && isBCyl) || (isACyl && isBPlanar)) {
+                const CylinderInfo& cyl = isACyl ? cylA : cylB;
+                bool capOrient = isACyl ? faceB.orientation : faceA.orientation;
+                const BrepFace& capFaceRef = isACyl ? faceB : faceA;
+
+                Vec3 capNorm = capFaceRef.surface.normalAt(0.5, 0.5);
+                if (!capOrient) capNorm = -capNorm;
+
+                // Edge height along axis and radial direction at mid-edge.
+                Vec3 edgeMid = edge.curve.evaluate(0.5);
+                double h = cyl.axisDir.dot(edgeMid - cyl.axisPoint);
+                Vec3 axisAtEdge = cyl.axisPoint + cyl.axisDir * h;
+                Vec3 rad = edgeMid - axisAtEdge;
+                rad -= cyl.axisDir * cyl.axisDir.dot(rad);
+                if (rad.norm() < 1e-10) {
+                    Vec3 e2 = edge.curve.evaluate(0.1);
+                    rad = e2 - axisAtEdge;
+                    rad -= cyl.axisDir * cyl.axisDir.dot(rad);
+                }
+                Vec3 rHat = (rad.norm() > 1e-10) ? rad.normalized() : Vec3(1,0,0);
+
+                if (opts.radius >= cyl.radius)
+                    return {false, {}, "fillet: radius exceeds cylinder radius"};
+
+                NurbsCurve arcProf = buildCylCapFilletArc(
+                    cyl.axisDir, axisAtEdge, rHat, capNorm, cyl.radius, opts.radius);
+                NurbsSurface torusSurf = buildRevolutionSurface(
+                    arcProf, axisAtEdge, cyl.axisDir);
+
+                BrepFace ff;
+                ff.surface     = torusSurf;
+                ff.outerLoop   = fullDomainOuterLoop(torusSurf, opts.tolerance);
+                ff.orientation = true;
+                ff.tolerance   = opts.tolerance;
+                torusFaces.push_back(std::move(ff));
+                outEdges[edgeIdx].faceIndex2 = -1;
+                continue;
+            }
+
+            // Both curved or unrecognized combination — honest rejection.
             std::ostringstream os;
-            os << "curved-face fillet not yet implemented: edge "
-               << std::to_string(edgeIdx);
+            os << "curved-face fillet not yet implemented: edge " << edgeIdx;
             return {false, {}, os.str()};
         }
 
@@ -354,6 +538,10 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         // Mark original edge as naked (trimmed out of the topology)
         outEdges[edgeIdx].faceIndex2 = -1;
     }
+
+    // ── Append toroidal fillet faces (flat+cylinder; no seam-sewing needed) ──
+    for (auto& ff : torusFaces)
+        outFaces.push_back(std::move(ff));
 
     // ── Seam-sewing assembly ──────────────────────────────────────────────────
     // Remove filleted edges (they no longer exist in topology)
