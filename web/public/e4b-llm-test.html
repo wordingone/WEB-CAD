@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — LiteRT-LM browser load gate (#19)</title>
+<title>E4B — LiteRT-LM browser load gate (#19 v2)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
@@ -20,10 +20,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: LiteRT-LM Browser Load Gate</h1>
+<h1>E4B: LiteRT-LM Browser Load Gate v2 (PLE-streaming solve)</h1>
 <p>
-  Model: <code>model.litertlm</code> (Gemma-4-E4B-it, INT4, ~4.4 GB)<br>
-  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>CPU</code>
+  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, HuggingFace Hub — CORS-clean)<br>
+  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (default)<br>
+  PLE strategy: streamed off-heap automatically via GPU_ARTISAN ReadableStream path<br>
+  CORS: HuggingFace CDN (<code>Access-Control-Allow-Origin: *</code>)
+</p>
+<p class="warn">
+  v1 used CPU backend + 4.35GB litert-torch export → OOM (bundle > JS heap limit 4.09GB).<br>
+  v2 uses GPU_ARTISAN backend + official 2.97GB web bundle → streaming, no contiguous JS ArrayBuffer.
 </p>
 <button id="run">Run browser gate</button>
 
@@ -42,8 +48,6 @@ const heapInfo = document.getElementById('heap-info');
 const heapFill = document.getElementById('heap-fill');
 const btn      = document.getElementById('run');
 
-// Peak WASM heap tracking via performance.measureUserAgentSpecificMemory (Chrome)
-// or fallback to performance.memory (non-standard but available in CDP)
 let peakHeapMB = 0;
 let heapIntervalId = null;
 
@@ -54,7 +58,7 @@ function sampleHeap() {
   }
   if (mb !== null && mb > peakHeapMB) {
     peakHeapMB = mb;
-    const pct = Math.min(100, (mb / 8192) * 100); // 8 GB scale
+    const pct = Math.min(100, (mb / 8192) * 100);
     heapFill.style.width = pct + '%';
     heapInfo.textContent = `peak = ${peakHeapMB.toFixed(1)} MB  (current = ${mb.toFixed(1)} MB)`;
   }
@@ -66,39 +70,47 @@ function emit(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// E4B bundle — GitHub Release assets (split into 3 × ~1.5 GB due to GitHub 2 GB limit)
-const PART_URLS = [
-  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-aa',
-  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-ab',
-  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-ac',
-];
+// Web-optimized bundle — 2.97GB, explicitly built for browser memory constraints.
+// GPU_ARTISAN backend streams this incrementally: no 4.35GB contiguous ArrayBuffer needed.
+// PLE (Per-Layer Embeddings) stays off-heap automatically in the GPU_ARTISAN path.
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
+const BUNDLE_BYTES = 2969000000; // ~2.97 GB
 
 window.__e4bResult = null;
 
-// Detect WASM memory model: memory64 vs 32-bit
 async function detectWasmMemoryModel() {
   const info = { memory64Supported: false, maxHeapGB: 4, note: '' };
   try {
-    // memory64 proposal: try to instantiate a module with i64 memory index type
     const m64bytes = new Uint8Array([
-      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00, // magic + version
-      0x05,0x04, 0x01,0x04,0x00,0x00,            // memory section: 1 memory, flags=0x04(memory64), min=0, max=0
+      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,
+      0x05,0x04, 0x01,0x04,0x00,0x00,
     ]);
     await WebAssembly.instantiate(m64bytes);
     info.memory64Supported = true;
-    info.maxHeapGB = null; // no 4 GB cap
-    info.note = 'memory64 available — no 4 GB linear-memory cap';
+    info.maxHeapGB = null;
+    info.note = 'memory64 available — no 4 GB linear-memory cap (Chrome 133+)';
   } catch {
     info.memory64Supported = false;
     info.maxHeapGB = 4;
     info.note = '32-bit WASM only — 4 GB linear-memory ceiling applies';
   }
-  // Also check JS heap via performance.memory
   if (performance.memory) {
     info.jsHeapLimitGB = performance.memory.jsHeapSizeLimit / (1024 * 1024 * 1024);
     info.jsHeapLimitNote = `JS heap limit: ${info.jsHeapLimitGB.toFixed(2)} GB`;
   }
   return info;
+}
+
+async function detectWebGPU() {
+  if (!navigator.gpu) return { available: false, note: 'navigator.gpu absent — WebGPU not supported' };
+  try {
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) return { available: false, note: 'No WebGPU adapter found' };
+    const info = await adapter.requestAdapterInfo();
+    return { available: true, note: `WebGPU OK — ${info.description || info.vendor || 'adapter found'}` };
+  } catch (e) {
+    return { available: false, note: `WebGPU probe error: ${e.message}` };
+  }
 }
 
 btn.addEventListener('click', async () => {
@@ -109,108 +121,61 @@ btn.addEventListener('click', async () => {
   heapInfo.textContent = '—';
   window.__e4bResult = null;
 
-  const result = { ok: false, steps: {}, peakHeapMB: null, wasmMemoryModel: null };
+  const result = { ok: false, steps: {}, peakHeapMB: null, wasmMemoryModel: null, webgpu: null };
 
-  // Probe memory model before starting
+  // Probe memory model
   const memModel = await detectWasmMemoryModel();
   result.wasmMemoryModel = memModel;
   emit(`Memory model: ${memModel.note}`, memModel.memory64Supported ? 'ok' : 'warn');
   if (memModel.jsHeapLimitNote) emit(`  ${memModel.jsHeapLimitNote}`, 'info');
-  if (!memModel.memory64Supported) {
-    emit(`  WARNING: 4.35 GB bundle may hit 4 GB WASM ceiling`, 'warn');
+
+  // Probe WebGPU (required for GPU_ARTISAN streaming path)
+  const gpuInfo = await detectWebGPU();
+  result.webgpu = gpuInfo;
+  emit(`WebGPU: ${gpuInfo.note}`, gpuInfo.available ? 'ok' : 'warn');
+  if (!gpuInfo.available) {
+    emit(`  WARNING: GPU_ARTISAN backend requires WebGPU. Will attempt anyway (may fall back).`, 'warn');
+  }
+
+  // Informational ArrayBuffer probe for 2.97 GB (GPU_ARTISAN streams so shouldn't need it)
+  emit(`Info: probing ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) — GPU_ARTISAN path streams, avoids this …`, 'info');
+  try {
+    const probe = new ArrayBuffer(BUNDLE_BYTES);
+    emit(`  ✓ ArrayBuffer(${(probe.byteLength/1e9).toFixed(2)} GB) fits in JS heap`, 'ok');
+    result.steps.arraybuffer_probe = { ok: true, bytes: probe.byteLength };
+  } catch (e) {
+    const msg = e.message || String(e);
+    emit(`  ✗ ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) would OOM in JS heap — streaming path bypasses this`, 'warn');
+    result.steps.arraybuffer_probe = { ok: false, error: msg, note: 'GPU_ARTISAN streaming avoids contiguous allocation' };
   }
 
   heapIntervalId = setInterval(sampleHeap, 500);
 
-  // Pre-flight: probe if JS heap can hold the full 4.35 GB bundle as ArrayBuffer
-  const BUNDLE_BYTES = 4353379680; // aa + ab + ac exact sizes
-  emit(`Pre-flight: probing ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) …`, 'info');
   try {
-    const probe = new ArrayBuffer(BUNDLE_BYTES);
-    emit(`  ✓ ArrayBuffer(${(probe.byteLength/1e9).toFixed(2)} GB) allocated OK`, 'ok');
-    result.steps.arraybuffer_probe = { ok: true, bytes: probe.byteLength };
-  } catch (e) {
-    const msg = e.message || String(e);
-    emit(`  ✗ ArrayBuffer allocation FAILED: ${msg}`, 'err');
-    emit(`    JS heap limit (${memModel.jsHeapLimitGB?.toFixed(2)} GB) < bundle (${(BUNDLE_BYTES/1e9).toFixed(2)} GB)`, 'warn');
-    result.steps.arraybuffer_probe = { ok: false, error: msg };
-    result.heapLimitFinding = {
-      bundleGB: BUNDLE_BYTES / 1e9,
-      jsHeapLimitGB: memModel.jsHeapLimitGB,
-      verdict: 'OOM_BEFORE_ENGINE: bundle exceeds JS heap limit',
-    };
-  }
-
-  try {
-    // 1 — Fetch bundle parts sequentially and concatenate
-    emit(`1. Fetching E4B bundle (3 × ~1.5 GB parts) …`, 'info');
-    const t0 = Date.now();
-    const parts = [];
-    let totalBytes = 0;
-
-    for (let i = 0; i < PART_URLS.length; i++) {
-      const url = PART_URLS[i];
-      emit(`   part ${i + 1}/3: ${url.split('/').pop()} …`, 'info');
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status} on ${url.split('/').pop()}`);
-      const contentLen = resp.headers.get('content-length');
-      const partTotal = contentLen ? parseInt(contentLen) : 0;
-      emit(`   ✓ ${resp.status}${partTotal ? ', ' + (partTotal / 1e9).toFixed(2) + ' GB' : ''}`, 'ok');
-
-      const reader = resp.body.getReader();
-      const chunks = [];
-      let received = 0;
-      let lastLogMB = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        received += value.length;
-        sampleHeap();
-        const mb = received / 1e6;
-        if (mb - lastLogMB > 256) {
-          const pct = partTotal ? ` (${((received / partTotal) * 100).toFixed(1)}%)` : '';
-          emit(`   … ${(totalBytes / 1e6 + mb).toFixed(0)} MB total${pct}`, 'info');
-          lastLogMB = mb;
-        }
-      }
-      const part = new Uint8Array(received);
-      let off = 0;
-      for (const c of chunks) { part.set(c, off); off += c.length; }
-      parts.push(part);
-      totalBytes += received;
-      emit(`   part ${i + 1}/3 done: ${received.toLocaleString()} bytes`, 'ok');
-    }
-
-    // Concatenate
-    emit(`   Concatenating ${(totalBytes / 1e9).toFixed(3)} GB …`, 'info');
-    const buf = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const p of parts) { buf.set(p, offset); offset += p.length; }
-    const fetchSec = (Date.now() - t0) / 1000;
-    emit(`   ✓ ${(totalBytes / 1e9).toFixed(3)} GB assembled in ${fetchSec.toFixed(1)}s`, 'ok');
-    result.steps.fetch = { ok: true, bytes: totalBytes, sec: fetchSec };
-
-    // 2 — Engine.create
-    sampleHeap();
-    emit('2. Engine.create (CPU backend) …', 'info');
-    emit('   (peak heap will rise sharply here)', 'info');
+    // Engine.create with URL string — GPU_ARTISAN default backend.
+    // The runtime fetches MODEL_URL internally as a ReadableStream and feeds WASM incrementally.
+    // PLE stays off-heap automatically. No 4.35GB contiguous JS ArrayBuffer.
+    emit(`1. Engine.create({ model: HF_URL }) — GPU_ARTISAN streaming …`, 'info');
+    emit(`   URL: ${MODEL_URL}`, 'info');
+    emit(`   (download + WASM init may take several minutes — 2.97 GB over network)`, 'info');
     const t1 = Date.now();
-    const stream = new Response(buf).body;
-    const engine = await Engine.create({ model: stream, backend: Backend.CPU });
+    sampleHeap();
+
+    const engine = await Engine.create({ model: MODEL_URL });
+
     sampleHeap();
     const loadSec = (Date.now() - t1) / 1000;
     emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap so far: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     result.steps.engine = { ok: true, sec: loadSec };
 
-    // 3 — Conversation
-    emit('3. engine.createConversation …', 'info');
+    // 2 — Conversation
+    emit('2. engine.createConversation …', 'info');
     const chat = await engine.createConversation();
     emit('   ✓ Conversation created', 'ok');
     result.steps.conversation = { ok: true };
 
-    // 4 — Generate (short prompt to confirm engine output verbatim)
-    emit('4. chat.sendMessage("Hello. Respond with a single word.") …', 'info');
+    // 3 — Generate
+    emit('3. chat.sendMessage("Hello. Respond with a single word.") …', 'info');
     const t2 = Date.now();
     const response = await chat.sendMessage('Hello. Respond with a single word.');
     sampleHeap();
@@ -226,9 +191,10 @@ btn.addEventListener('click', async () => {
     result.ok = true;
     result.peakHeapMB = peakHeapMB;
     sampleHeap();
-    emit(`\n=== PASS: E4B loads AND generates in browser ===\n`, 'ok');
+    emit(`\n=== PASS: E4B loads AND generates via GPU_ARTISAN streaming ===\n`, 'ok');
     emit(`Peak WASM heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     emit(`Memory model: ${memModel.note}`, 'info');
+    emit(`WebGPU: ${gpuInfo.note}`, 'info');
 
   } catch (err) {
     result.error = err.message;
