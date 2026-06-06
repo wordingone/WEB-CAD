@@ -257,7 +257,14 @@ static std::string kern_ssi(const std::string& jsonRequest) noexcept {
 // Emscripten bindings
 // ---------------------------------------------------------------------------
 
+// kern_version: build-time capability marker (update on each capability addition)
+// Checked by CDP proof scripts to confirm the correct binary is deployed.
+static std::string kern_version() noexcept {
+    return R"({"version":"1.1.0","capabilities":["boolean","fillet","chamfer","loft","ssi","fillet-cylinder-flat"]})";
+}
+
 EMSCRIPTEN_BINDINGS(kern) {
+    emscripten::function("kern_version",      &kern_version);
     // Primary single-dispatch entry point (preferred by wasm-backend.ts)
     emscripten::function("kern_boolean",      &kern_boolean);
     emscripten::function("kern_ssi",          &kern_ssi);
