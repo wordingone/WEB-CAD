@@ -3,17 +3,19 @@
  * multimodal-gate.mjs — #19-P1 Phase 1 gate on the real app surface.
  *
  * Runs against https://wordingone.github.io/WEB-CAD/ (model-worker path).
- * Does NOT use the deleted e4b-llm-test.html test page.
  *
- * Evidence collected (per Leo's AC, mail 13724):
- *  1. vision + audio encoder ORT sessions PRESENT at boot (asserted from
- *     progress events logged during from_pretrained — file names in console)
- *  2. Real multimodal inference: "what do you see?" → coherent text response
- *     (VISUAL_RE triggers captureViewport → Gemma4ForConditionalGeneration
- *     processes the image and returns text)
+ * Evidence collected (per Leo's AC, mails 13724/13790/13800/13804):
+ *  1. vision + audio encoder ORT sessions PRESENT at boot (window.__arc_model_class)
+ *  2. Real multimodal inference: SdBox rendered at gate-chosen shape + position,
+ *     model reports that specific shape+position from the captured image (TRACKS stimulus).
+ *     captureViewport fires → Gemma4ForConditionalGeneration processes the image → text.
  *  3. zero crashes across 3 cold-cache runs (tracked via result array)
- *  4. measured peak JS heap (WASM embed_tokens ~776 MB) + estimated VRAM
- *     floor (decoder q4f16 ~2887 MB + vision q4f16 ~101 MB = ~2988 MB)
+ *  4. measured peak JS heap (WASM embed_tokens ~776 MB) + estimated VRAM floor
+ *
+ * Two independent randomized dimensions per run (shape × position):
+ *   Run 0: FLAT (10×0.5×10), center  — chance-pass per dim: 1/2 × 1/3 = 1/6
+ *   Run 1: TALL (0.5×10×0.5), right  — all 3 runs correct by chance: (1/6)^3 ≈ 0.46%
+ *   Run 2: FLAT (10×0.5×10), left
  *
  * Usage: bun scripts/multimodal-gate.mjs
  */
@@ -24,6 +26,32 @@ const BOOT_TIMEOUT_MS  = 90 * 60 * 1000;  // 90 min — cold download ~3.5 GB
 const GEN_TIMEOUT_MS   = 5  * 60 * 1000;  // 5 min for generate after boot
 const RUNS = 3;
 
+// Per-run discriminating stimulus: shape (flat|tall) + position (left|center|right).
+// SdBox creates and auto-selects the box. SdMove (if posX != 0) shifts it.
+const STIMULI = [
+  { shape: 'flat', box: { width: 10, height: 0.5, depth: 10 }, posX:  0, posLabel: 'center' },
+  { shape: 'tall', box: { width: 0.5, height: 10, depth: 0.5 }, posX:  8, posLabel: 'right'  },
+  { shape: 'flat', box: { width: 10, height: 0.5, depth: 10 }, posX: -8, posLabel: 'left'   },
+];
+
+// Disjoint keyword sets for strict shape match (present AND opposite absent).
+const SHAPE_KW = {
+  flat: {
+    pass:   ['flat', 'wide', 'slab', 'low', 'short', 'disk', 'horizontal', 'pancake', 'square', 'thin'],
+    reject: ['tall', 'tower', 'column', 'pillar', 'narrow'],
+  },
+  tall: {
+    pass:   ['tall', 'tower', 'column', 'narrow', 'vertical', 'pillar', 'thin', 'high'],
+    reject: ['flat', 'wide', 'slab', 'low', 'disk', 'pancake', 'square'],
+  },
+};
+// Position keywords (no disjoint needed — left/right/center don't overlap).
+const POS_KW = {
+  center: ['center', 'middle', 'origin', 'centered'],
+  right:  ['right', '+x', 'east'],
+  left:   ['left', '-x', 'west'],
+};
+
 async function cdpGet(path) {
   const r = await fetch(`http://${CDP_HOST}${path}`);
   return r.json();
@@ -32,6 +60,8 @@ async function cdpGet(path) {
 async function runOnce(runIdx) {
   const label = `run ${runIdx + 1}/${RUNS}`;
   console.log(`\n${"=".repeat(60)}\n${label}\n${"=".repeat(60)}`);
+
+  const stim = STIMULI[runIdx];
 
   const tabs = await cdpGet("/json/list");
   let tab = tabs.find(t => t.url?.includes("wordingone.github.io"));
@@ -78,8 +108,6 @@ async function runOnce(runIdx) {
   await send("Network.enable");
   await send("Performance.enable");
 
-  // Cold-cache reset: navigate to about:blank first to clear ES module cache,
-  // then clear HTTP cache, then navigate to Pages.
   console.log("Navigating to about:blank (ES module cache reset)...");
   await send("Page.navigate", { url: "about:blank" });
   await sleep(500);
@@ -88,13 +116,11 @@ async function runOnce(runIdx) {
   await send("Storage.clearDataForOrigin", {
     origin: "https://wordingone.github.io",
     storageTypes: "cache_storage",
-  }).catch(() => {}); // non-fatal if storage domain not enabled
+  }).catch(() => {});
 
-  // Baseline memory before model load
   const baselineMetrics = await send("Performance.getMetrics");
   const baselineHeapMB = metricVal(baselineMetrics, "JSHeapUsedSize");
 
-  // Inject boot-complete marker BEFORE navigate so it fires on the new page
   await send("Page.addScriptToEvaluateOnNewDocument", {
     source: `
       window.__multimodalGateBootComplete = false;
@@ -112,26 +138,22 @@ async function runOnce(runIdx) {
   await send("Page.navigate", { url: PAGES_URL });
   await send("Page.bringToFront");
 
-  // Wait for page load
   const t0 = Date.now();
-  await new Promise(res => setTimeout(res, 3000)); // let app JS init
+  await new Promise(res => setTimeout(res, 3000));
 
   console.log(`\nWaiting for agentmodel:boot-complete (up to ${BOOT_TIMEOUT_MS / 60000}min)...`);
 
-  // Poll for boot-complete by checking window.__arc state
   let bootedAt = null;
   let lastLogLen = consoleLogs.length;
   while (Date.now() - t0 < BOOT_TIMEOUT_MS) {
     await sleep(5000);
 
-    // Print new console output
     if (consoleLogs.length > lastLogLen) {
       const newLines = consoleLogs.slice(lastLogLen).join(" | ").slice(0, 200);
       if (newLines.trim()) process.stdout.write("\n  LOG: " + newLines);
       lastLogLen = consoleLogs.length;
     }
 
-    // Check for fatal errors
     const fatalErr = consoleErrors.find(e =>
       e.text.includes("GatherBlockQuantized") ||
       e.text.includes("ERROR_CODE: 9") ||
@@ -142,8 +164,6 @@ async function runOnce(runIdx) {
       return { ok: false, run: runIdx + 1, error: fatalErr.text, phase: "boot" };
     }
 
-    // Check via event marker (injected via addScriptToEvaluateOnNewDocument)
-    // OR via __arc.state (exposed at window.__arc = _arc in agent-harness.ts:121)
     const bootR = await send("Runtime.evaluate", {
       expression: `JSON.stringify({
         gateMarker: window.__multimodalGateBootComplete === true,
@@ -166,30 +186,18 @@ async function runOnce(runIdx) {
     return { ok: false, run: runIdx + 1, error: "boot-complete timeout", phase: "boot" };
   }
 
-  // Capture post-boot memory metrics
   const bootMetrics = await send("Performance.getMetrics");
   const bootHeapMB = metricVal(bootMetrics, "JSHeapUsedSize");
   const heapDeltaMB = bootHeapMB - baselineHeapMB;
 
-  // Assert vision + audio encoder sessions:
-  // §#19-P1-ac1-a: OPFS warm loads emit NO progress events (initiate/downloading fire only on
-  // network downloads). For warm loads, window.__arc_model_class is the authoritative signal —
-  // set by agent-harness.ts on "model-class" message (posted by worker before from_pretrained).
-  // ForConditionalGeneration by definition loads vision+audio encoders at construction time.
   const allLogs = consoleLogs.join("\n");
 
-  // Read window.__arc_model_class FIRST — needed by visionLoaded/audioLoaded computation below.
   const modelClassR = await send("Runtime.evaluate", {
     expression: `window.__arc_model_class ?? "not-set"`,
     returnByValue: true,
   });
   const modelClass = modelClassR?.result?.value ?? "not-set";
 
-  // §#19-P1-ac1-b: window.__arc_model_class is the primary detector; log check is fallback for
-  // cold-network loads (where progress callbacks DO fire and emit [#19-P1] loading: vision_encoder).
-  // NOTE: the log check in prior PRs used "ForConditionalGeneration" as a substring check against
-  // "[#19-P1] model_type=Gemma4ForConditionalGeneration" — but "ForConditionalGeneration" does NOT
-  // appear alone in that string (it's "Gemma4ForConditionalGeneration"), so that check always failed.
   const modelClassOk  = modelClass === "Gemma4ForConditionalGeneration";
   const visionLoaded  = modelClassOk || allLogs.includes("vision_encoder");
   const audioLoaded   = modelClassOk || allLogs.includes("audio_encoder");
@@ -199,7 +207,6 @@ async function runOnce(runIdx) {
   console.log(`  audio_encoder in logs:  ${audioLoaded}`);
   console.log(`  window.__arc_model_class: ${modelClass}`);
 
-  // Get arc device info
   const arcInfoR = await send("Runtime.evaluate", {
     expression: `JSON.stringify({
       device: window.__arc?.deviceLabel ?? 'unknown',
@@ -211,19 +218,75 @@ async function runOnce(runIdx) {
   const arcInfo = safeJson(arcInfoR?.result?.value) ?? {};
   console.log(`  device: ${arcInfo.device}, JS heap: ${arcInfo.heapUsedMB}/${arcInfo.heapLimitMB} MB`);
 
-  // ── Discriminating vision probe: default scene as known stimulus ────────────────────
-  // The WEB-CAD default scene (dark bg + colored X/Y/Z axis lines + grid) is the known
-  // stimulus. The gate logs DOM state before submission for debugging, then sends "what do
-  // you see?" which triggers VISUAL_RE → captureViewport → image sent to the model.
-  // A vision-live model reports dark bg, axis colors (red/green/blue), and grid. A text-only
-  // model cannot reliably report these specific visual properties without seeing the image.
-  //
-  // §NOTE: SdBox DSL dispatch removed — document.querySelector('#console-input') returns null
-  // in the deployed Pages (debug console panel not open by default). Default scene is
-  // non-hallucinatable: dark bg + colored axes are NOT inferable from training alone.
+  // ── Discriminating vision probe — per-run randomized stimulus ──────────────────
+  // Renders a SdBox at a gate-chosen shape + position via window.__wcDispatch
+  // (bypasses #console-input which is null in deployed Pages).
+  // Two independent dimensions ensure the model's report TRACKS the varied stimulus:
+  // a text-only model cannot know which shape (flat/tall) or position (L/C/R) was chosen.
+  console.log(`\n  Stimulus: shape=${stim.shape} dims=${JSON.stringify(stim.box)} posX=${stim.posX} (${stim.posLabel})`);
+
+  // Step 1: Baseline scene count before dispatch
+  const baselineListR = await send("Runtime.evaluate", {
+    expression: `window.__wcDispatch("SdListObjects", {})`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  const baselineList = safeJson(baselineListR?.result?.value);
+  // SdListObjects returns {objects: [...]} per MCP handler; fallback handles array root.
+  const baselineObjs = baselineList?.objects ?? (Array.isArray(baselineList) ? baselineList : []);
+  const baselineCount = baselineObjs.length;
+  console.log(`  Baseline scene objects: ${baselineCount}`);
+
+  // Step 2: Dispatch SdBox — creates and auto-selects the box
+  const boxDispR = await send("Runtime.evaluate", {
+    expression: `window.__wcDispatch("SdBox", ${JSON.stringify(stim.box)})`,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  const boxDispOk = !!boxDispR?.result?.value;
+  console.log(`  SdBox dispatch: ok=${boxDispOk} result=${(boxDispR?.result?.value ?? 'null').slice(0, 80)}`);
+
+  // Step 3: Move to position if not center (SdMove operates on the selected object)
+  let moveOk = stim.posX === 0;
+  let moveResult = 'n/a';
+  if (stim.posX !== 0) {
+    const moveR = await send("Runtime.evaluate", {
+      expression: `window.__wcDispatch("SdMove", ${JSON.stringify({ x: stim.posX, y: 0, z: 0 })})`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    moveResult = (moveR?.result?.value ?? 'null').slice(0, 80);
+    moveOk = !!moveR?.result?.value;
+    console.log(`  SdMove x=${stim.posX}: ok=${moveOk} result=${moveResult}`);
+  }
+
+  // Step 4: Render-confirm — poll until scene count increases from baseline
+  let renderConfirmed = false;
+  let confirmedCount = baselineCount;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await sleep(350);
+    const listR = await send("Runtime.evaluate", {
+      expression: `window.__wcDispatch("SdListObjects", {})`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const list = safeJson(listR?.result?.value);
+    const objs = list?.objects ?? (Array.isArray(list) ? list : []);
+    confirmedCount = objs.length;
+    if (confirmedCount > baselineCount) {
+      renderConfirmed = true;
+      console.log(`  Render confirmed: ${confirmedCount} objects (baseline=${baselineCount})`);
+      break;
+    }
+  }
+  if (!renderConfirmed) {
+    console.log(`  WARNING: SdBox not confirmed in scene — count unchanged at ${confirmedCount}`);
+  }
+  await sleep(500); // extra paint cycle before capture
+
+  // ── Send vision query ───────────────────────────────────────────────────────────
   console.log(`\n  Sending discriminating vision probe query...`);
 
-  // §debug: log DOM state to expose silent submission failures
   const domPreR = await send("Runtime.evaluate", {
     expression: `JSON.stringify({
       chatInput: !!document.querySelector('.chat-input'),
@@ -237,19 +300,20 @@ async function runOnce(runIdx) {
   });
   console.log(`  DOM pre-send: ${domPreR?.result?.value}`);
 
-  // Count existing assistant messages so we know when a NEW one appears
   const existingMsgR = await send("Runtime.evaluate", {
     expression: `document.querySelectorAll('.chat-msg-assistant:not(.chat-thinking)').length`,
     returnByValue: true,
   });
   const existingMsgCount = existingMsgR?.result?.value ?? 0;
 
-  // Type into chat input (proven working query — matches VISUAL_RE → captureViewport → image sent)
+  // Query matches VISUAL_RE (see, what, scene) → captureViewport fires → image sent.
+  // "what do you see in the scene?" is concise and does not trigger skill-direct path.
+  const PROBE_QUERY = 'what do you see in the scene?';
   const inputR = await send("Runtime.evaluate", {
     expression: `
       const inp = document.querySelector('.chat-input');
       if (inp) {
-        inp.value = 'what do you see?';
+        inp.value = ${JSON.stringify(PROBE_QUERY)};
         inp.dispatchEvent(new Event('input', { bubbles: true }));
       }
       JSON.stringify({found: !!inp, valueLen: inp?.value?.length ?? -1})
@@ -259,7 +323,6 @@ async function runOnce(runIdx) {
   console.log(`  chat-input set: ${inputR?.result?.value}`);
   await sleep(200);
 
-  // Submit by clicking send button — log button state before click to detect disabled-btn failure
   const clickR = await send("Runtime.evaluate", {
     expression: `
       const btn = document.querySelector('.chat-send-btn');
@@ -276,14 +339,12 @@ async function runOnce(runIdx) {
   });
   console.log(`  chat-btn click: ${clickR?.result?.value}`);
 
-  // Also try Enter key as fallback
   await sleep(500);
   const sentR = await send("Runtime.evaluate", {
     expression: `!!document.querySelector('.chat-thinking, .chat-loading, [data-thinking]')`,
     returnByValue: true,
   });
   if (!sentR?.result?.value) {
-    // Try keydown Enter on the input
     await send("Runtime.evaluate", {
       expression: `
         const inp = document.querySelector('.chat-input');
@@ -307,7 +368,6 @@ async function runOnce(runIdx) {
       lastGenLog = consoleLogs.length;
     }
 
-    // Poll DOM: new assistant message (not thinking) = generate complete
     const domR = await send("Runtime.evaluate", {
       expression: `JSON.stringify({
         msgCount: document.querySelectorAll('.chat-msg-assistant:not(.chat-thinking)').length,
@@ -332,53 +392,66 @@ async function runOnce(runIdx) {
     }
   }
 
-  // Capture final heap after inference
   const inferMetrics = await send("Performance.getMetrics");
   const inferHeapMB = metricVal(inferMetrics, "JSHeapUsedSize");
 
-  // Vision evidence from console: look for [vision] text= and captureViewport= log lines
-  // Both fire from main thread (chat-panel.ts:680,684) so CDP Runtime.consoleAPICalled captures them.
   const visionTextSent = consoleLogs.some(l => l.includes("[vision] text="));
   const visionCapture  = consoleLogs.some(l => l.includes("[vision] captureViewport=") && l.includes("OK"));
   console.log(`  [vision] text= log: ${visionTextSent}`);
   console.log(`  [vision] captureViewport fired: ${visionCapture}`);
 
-  // Discriminating vision probe: model correctly describes WEB-CAD default scene visual details.
-  // Known stimulus: dark background + colored X/Y/Z axis lines + grid.
-  // Proof chain: captureViewport fired (image sent) + model mentions scene-specific visual details
-  // that are only observable from the image (not inferable from training alone).
-  const probePass = !!(genResult && !genError && visionCapture &&
-    /(dark|black|navy|grid|axis|axes|x.?axis|y.?axis|z.?axis|red|green|blue|background|lines?|persp|3.?d|space|empty|scene|viewport)/i.test(genResult));
-  console.log(`  probe (scene description): ${probePass ? "PASS" : "FAIL"}`);
-  if (genResult) console.log(`  probe response snippet: "${genResult.slice(0, 200)}"`);
+  // ── Probe check: strict disjoint shape + position match ────────────────────────
+  // Shape: target class keywords PRESENT and opposite class keywords ABSENT.
+  // Position: expected direction keyword present in response.
+  const shapeKw = SHAPE_KW[stim.shape];
+  const posKw   = POS_KW[stim.posLabel];
+  const lowerResp = (genResult ?? '').toLowerCase();
 
-  // VRAM estimate: decoder_model_merged q4f16 + vision_encoder q4f16
+  const shapePresent = shapeKw.pass.some(k => lowerResp.includes(k));
+  const shapeAbsent  = !shapeKw.reject.some(k => lowerResp.includes(k));
+  const shapeOk      = shapePresent && shapeAbsent;
+  const posOk        = posKw.some(k => lowerResp.includes(k));
+
+  // Full probe pass: render confirmed + captureViewport fired + both dimensions match.
+  const probePass = !!(genResult && !genError && visionCapture && renderConfirmed && shapeOk && posOk);
+  // Shape-only pass (fallback — still discriminating with 3 runs × 2 classes = 12.5% chance).
+  const shapeOnlyPass = !!(genResult && !genError && visionCapture && renderConfirmed && shapeOk);
+
+  console.log(`  shape match: ${shapeOk ? "YES" : "NO"} (present=${shapePresent} absent=${shapeAbsent})`);
+  console.log(`  position match: ${posOk ? "YES" : "NO"}`);
+  console.log(`  probe (shape+pos): ${probePass ? "PASS" : "FAIL"}`);
+  if (genResult) console.log(`  response: "${genResult.slice(0, 200)}"`);
+  if (genError)  console.log(`  gen error: ${genError}`);
+
   const vramEstimateMB = { decoder_q4f16: 2887, vision_encoder_q4f16: 101, total: 2988 };
-  const wasmHeapMB = arcInfo.heapUsedMB; // includes embed_tokens + audio quantized on WASM
 
-  // AC #1: model class (ForConditionalGeneration = vision+audio loaded by construction)
-  // + discriminating probe (model describes WEB-CAD scene from captured image).
   const visionAc1 = visionLoaded && audioLoaded && modelClassOk && probePass;
 
   ws.close();
 
-  const passed = !!(genResult && !genError && visionAc1);
-
   return {
-    ok: passed,
+    ok: !!(genResult && !genError && visionAc1),
     run: runIdx + 1,
     bootSec: ((bootedAt - t0) / 1000).toFixed(1),
     visionLoaded,
     audioLoaded,
     modelClass,
+    stimShape: stim.shape,
+    stimPos: stim.posLabel,
+    stimPosX: stim.posX,
+    boxDispOk,
+    moveOk,
+    renderConfirmed,
+    shapeOk,
+    posOk,
     probePass,
+    shapeOnlyPass,
     visionTextSent,
     visionCapture,
     device: arcInfo.device,
     jsHeapAtBootMB: bootHeapMB.toFixed(1),
     jsHeapDeltaMB: heapDeltaMB.toFixed(1),
     jsHeapAfterInferMB: inferHeapMB.toFixed(1),
-    wasmHeapMB,
     vramEstimateMB,
     genResult: genResult?.slice(0, 400),
     genError,
@@ -389,25 +462,25 @@ async function runOnce(runIdx) {
 function metricVal(metricsResult, name) {
   const metrics = metricsResult?.metrics ?? [];
   const m = metrics.find(m => m.name === name);
-  return m ? m.value / (1024 * 1024) : 0; // bytes → MB
+  return m ? m.value / (1024 * 1024) : 0;
 }
 
 function safeJson(str) {
   try { return JSON.parse(str); } catch { return null; }
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────────
+// ── Main ────────────────────────────────────────────────────────────────────────
 
 const results = [];
-let hardCrashes = 0; // fatal boot failures / exceptions (OOM, timeout, exception) — NOT AC-detection misses
+let hardCrashes = 0;
 
 for (let i = 0; i < RUNS; i++) {
   try {
     const r = await runOnce(i);
     results.push(r);
-    // Only count hard crashes (fatal error during boot), not runs that failed AC detection checks
     if (!r.ok && r.error) hardCrashes++;
-    console.log(`\n  run ${i + 1} result: ${r.ok ? "PASS" : "FAIL"} — ${r.genError ?? r.error ?? r.genResult?.slice(0, 100) ?? "ok"}`);
+    const stimLabel = `shape=${r.stimShape} pos=${r.stimPos}`;
+    console.log(`\n  run ${i + 1} result: ${r.ok ? "PASS" : "FAIL"} — [${stimLabel}] → "${r.genResult?.slice(0, 100) ?? r.genError ?? r.error ?? 'ok'}"`);
   } catch (e) {
     hardCrashes++;
     results.push({ ok: false, run: i + 1, error: e.message, phase: "exception" });
@@ -427,9 +500,16 @@ for (const r of results) {
   if (r.modelClass)        console.log(`  model_class: ${r.modelClass}`);
   if (r.visionLoaded != null) console.log(`  vision_encoder loaded: ${r.visionLoaded}`);
   if (r.audioLoaded != null)  console.log(`  audio_encoder loaded:  ${r.audioLoaded}`);
+  if (r.stimShape)         console.log(`  stimulus: shape=${r.stimShape} pos=${r.stimPos} (posX=${r.stimPosX})`);
+  if (r.boxDispOk != null) console.log(`  SdBox dispatch: ${r.boxDispOk}`);
+  if (r.moveOk != null)    console.log(`  SdMove ok: ${r.moveOk}`);
+  if (r.renderConfirmed != null) console.log(`  render confirmed: ${r.renderConfirmed}`);
   if (r.visionTextSent != null) console.log(`  _send() called: ${r.visionTextSent}`);
   if (r.visionCapture != null) console.log(`  captureViewport fired: ${r.visionCapture}`);
-  if (r.probePass != null) console.log(`  probe (box id): ${r.probePass ? "PASS" : "FAIL"}`);
+  if (r.shapeOk != null)   console.log(`  shape match: ${r.shapeOk}`);
+  if (r.posOk != null)     console.log(`  position match: ${r.posOk}`);
+  if (r.probePass != null) console.log(`  probe (shape+pos): ${r.probePass ? "PASS" : "FAIL"}`);
+  if (r.shapeOnlyPass != null && !r.probePass) console.log(`  probe (shape-only fallback): ${r.shapeOnlyPass ? "PASS" : "FAIL"}`);
   if (r.jsHeapAtBootMB)    console.log(`  JS heap at boot: ${r.jsHeapAtBootMB} MB (delta +${r.jsHeapDeltaMB} MB)`);
   if (r.vramEstimateMB)    console.log(`  VRAM floor (decoder+vision, q4f16): ~${r.vramEstimateMB.total} MB`);
   if (r.genResult)         console.log(`  Response: "${r.genResult.slice(0, 200)}"`);
@@ -437,29 +517,41 @@ for (const r of results) {
   if (r.error)             console.log(`  Error: ${r.error}`);
 }
 
-// AC #1a: model_class=Gemma4ForConditionalGeneration — direct proof vision+audio encoders loaded at boot
-// AC #1b: captureViewport fired + model describes WEB-CAD scene visual details (non-hallucinatable)
-// AC #2:  real multimodal inference: image → coherent text response
-// AC #3:  zero hard crashes (OOM/timeout) across 3 cold-cache runs
+// Stimulus-tracking summary: shows per-run [stimulus → response] to prove the model
+// output changes as stimulus changes — the key AC#1b tracking requirement.
+console.log("\nStimulus → Response tracking:");
+for (const r of results) {
+  const stim = `shape=${r.stimShape} pos=${r.stimPos}`;
+  const resp = r.genResult ? `"${r.genResult.slice(0, 120)}"` : (r.genError ?? r.error ?? "no response");
+  const match = r.shapeOk && r.posOk ? "✓" : r.shapeOnlyPass ? "~shape" : "✗";
+  console.log(`  Run ${r.run} [${stim}] → ${resp} [${match}]`);
+}
+
 const modelClassAC = results.some(r => r.modelClass === "Gemma4ForConditionalGeneration");
 const visionAC  = modelClassAC && results.some(r => r.visionLoaded && r.audioLoaded);
-const probeAC   = results.some(r => r.probePass);
+// Probe AC: all 3 runs pass on both dimensions.
+const probeAC   = results.length === RUNS && results.every(r => r.probePass);
+// Shape-only AC fallback (if position tracking fails but shape tracks correctly).
+const shapeAC   = results.length === RUNS && results.every(r => r.shapeOnlyPass);
 const inferAC   = results.some(r => !!r.genResult && !r.genError);
 const crashAC   = hardCrashes === 0;
 const allPassed = visionAC && probeAC && inferAC && crashAC;
 
 console.log(`\nAC summary:`);
 console.log(`  [${visionAC    ? "PASS" : "FAIL"}] AC#1a — model_class=Gemma4ForConditionalGeneration (window flag) + vision/audio loaded`);
-console.log(`  [${probeAC     ? "PASS" : "FAIL"}] AC#1b — discriminating probe: captureViewport fired + scene description matches known stimulus`);
+console.log(`  [${probeAC     ? "PASS" : "FAIL"}] AC#1b — discriminating probe: shape+position BOTH track stimulus across all runs`);
+if (!probeAC && shapeAC) {
+  console.log(`  [NOTE] shape-only tracking PASS (position tracking partial) — see per-run detail`);
+}
 console.log(`  [${inferAC     ? "PASS" : "FAIL"}] AC#2  — real multimodal inference (image → coherent text)`);
-console.log(`  [${crashAC  ? "PASS" : "FAIL"}] AC#3  — zero crashes across ${RUNS} cold runs (hard crashes: ${hardCrashes})`);
+console.log(`  [${crashAC     ? "PASS" : "FAIL"}] AC#3  — zero crashes across ${RUNS} cold runs (hard crashes: ${hardCrashes})`);
 console.log(`  VRAM floor: ~2988 MB (decoder q4f16 2887 + vision q4f16 101)`);
 console.log(`  WASM heap:  embed_tokens + audio quantized (INT8) in JS heap`);
 
 if (allPassed) {
-  console.log("\nRESULT: PASS — full multimodal boots + image-inference confirmed");
+  console.log("\nRESULT: PASS — full multimodal boots + image-inference + stimulus-tracking confirmed");
   process.exit(0);
 } else {
-  console.log(`\nRESULT: FAIL — hardCrashes=${hardCrashes}, visionAC=${visionAC}, probeAC=${probeAC}, inferAC=${inferAC}`);
+  console.log(`\nRESULT: FAIL — hardCrashes=${hardCrashes}, visionAC=${visionAC}, probeAC=${probeAC}, shapeAC=${shapeAC}, inferAC=${inferAC}`);
   process.exit(1);
 }
