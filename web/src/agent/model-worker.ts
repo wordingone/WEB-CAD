@@ -288,11 +288,15 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       // §A-shard-boundary (#1216): "initiate" fires when a new shard fetch starts,
       // before first bytes arrive. Without this, the 30s stall watchdog fires
       // during the CDN inter-shard gap, producing variable STALLED screen counts.
+      const initFile = ((info.name as string | undefined) ?? "").split("/").pop() ?? "";
+      // §#19-P1-ac1: log component names so CDP gate detects them on OPFS warm loads
+      // (OPFS hits emit "initiate"+"done" only — no "downloading" events with file names)
+      if (initFile) console.log("[#19-P1] loading:", initFile);
       post({
         type: "progress",
         phase: "model",
         progress: 0,
-        file: ((info.name as string | undefined) ?? "").split("/").pop() ?? "",
+        file: initFile,
         bytes: 0,
         total: 0,
         throughputBytesPerSec: 0,
