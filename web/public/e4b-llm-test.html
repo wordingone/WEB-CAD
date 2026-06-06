@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v8)</title>
+<title>E4B — ORT-web gate (#19 v9)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,7 +22,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v8)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v9)</h1>
 <p>
   Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16, WebGPU)<br>
   Runtime: <code>@huggingface/transformers@4</code> | Vision: separate ONNX session
@@ -148,12 +148,29 @@ btn.addEventListener('click', async () => {
   heapIntervalId = setInterval(sampleHeap, 500);
 
   emit('0. WebGPU probe …', 'info');
+  let gpuDevice = null;
   try {
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter) throw new Error('navigator.gpu.requestAdapter() returned null');
     const adapterLabel = adapter.label || adapter.info?.description || 'adapter found';
+    // Request device to get memory limits
+    gpuDevice = await adapter.requestDevice();
+    const maxBufBinding = gpuDevice.limits.maxStorageBufferBindingSize;
+    const maxBufSize = gpuDevice.limits.maxBufferSize;
     emit(`   ✓ WebGPU adapter: ${adapterLabel}`, 'ok');
-    result.webgpu = { available: true, adapter: adapterLabel };
+    emit(`   maxStorageBufferBindingSize: ${(maxBufBinding / (1024**3)).toFixed(2)} GB`, 'info');
+    emit(`   maxBufferSize: ${(maxBufSize / (1024**3)).toFixed(2)} GB`, 'info');
+    // Listen for device-lost
+    gpuDevice.lost.then(info => {
+      result.gpuDeviceLost = { reason: info.reason, message: info.message };
+      emit(`   ✗ GPU device lost: ${info.reason} — ${info.message}`, 'err');
+    });
+    result.webgpu = {
+      available: true,
+      adapter: adapterLabel,
+      maxStorageBufferBindingSizeGB: maxBufBinding / (1024**3),
+      maxBufferSizeGB: maxBufSize / (1024**3),
+    };
   } catch (e) {
     emit(`   ✗ WebGPU unavailable: ${e.message}`, 'err');
     result.webgpu = { available: false, error: e.message };
@@ -185,8 +202,18 @@ btn.addEventListener('click', async () => {
     });
     const loadSec = (Date.now() - t1) / 1000;
     sampleHeap();
+    // Capture detailed memory after model load
+    const memAfterLoad = performance.memory ? {
+      usedJSHeapMB: performance.memory.usedJSHeapSize / (1024*1024),
+      totalJSHeapMB: performance.memory.totalJSHeapSize / (1024*1024),
+      jsHeapLimitMB: performance.memory.jsHeapSizeLimit / (1024*1024),
+    } : null;
     emit(`   ✓ Model loaded in ${loadSec.toFixed(1)}s | peak JS heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
-    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB };
+    if (memAfterLoad) {
+      emit(`   Memory after load: used=${memAfterLoad.usedJSHeapMB.toFixed(0)}MB total=${memAfterLoad.totalJSHeapMB.toFixed(0)}MB limit=${memAfterLoad.jsHeapLimitMB.toFixed(0)}MB`, 'info');
+      emit(`   Note: WebGPU weights (~5GB) in VRAM; JS heap includes staging ArrayBuffers during upload`, 'info');
+    }
+    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB, memAfterLoad };
 
     emit('3. Building test RawImage (128×128: blue #336699 bg + yellow #ffcc44 circle r=40) …', 'info');
     const rawImage = makeTestRawImage();
@@ -213,9 +240,11 @@ btn.addEventListener('click', async () => {
       enable_thinking: false,
       add_generation_prompt: true,
     });
-    const inputs = await processor(prompt, rawImage, { add_special_tokens: false });
+    // Pass null for audios (3rd arg) — signature is (text, images, audios, options)
+    // Passing options as 3rd arg routes to Gemma4AudioFeatureExtractor and throws
+    const inputs = await processor(prompt, rawImage, null, { add_special_tokens: false });
     sampleHeap();
-    emit(`   ✓ Inputs prepared`, 'ok');
+    emit(`   ✓ Inputs prepared (input_ids shape: ${inputs.input_ids?.dims ?? 'unknown'})`, 'ok');
     result.steps.preprocess = { ok: true };
 
     emit('5. model.generate (max_new_tokens=200) …', 'info');
