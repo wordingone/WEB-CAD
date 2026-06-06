@@ -122,6 +122,25 @@ btn.addEventListener('click', async () => {
 
   heapIntervalId = setInterval(sampleHeap, 500);
 
+  // Pre-flight: probe if JS heap can hold the full 4.35 GB bundle as ArrayBuffer
+  const BUNDLE_BYTES = 4353379680; // aa + ab + ac exact sizes
+  emit(`Pre-flight: probing ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) …`, 'info');
+  try {
+    const probe = new ArrayBuffer(BUNDLE_BYTES);
+    emit(`  ✓ ArrayBuffer(${(probe.byteLength/1e9).toFixed(2)} GB) allocated OK`, 'ok');
+    result.steps.arraybuffer_probe = { ok: true, bytes: probe.byteLength };
+  } catch (e) {
+    const msg = e.message || String(e);
+    emit(`  ✗ ArrayBuffer allocation FAILED: ${msg}`, 'err');
+    emit(`    JS heap limit (${memModel.jsHeapLimitGB?.toFixed(2)} GB) < bundle (${(BUNDLE_BYTES/1e9).toFixed(2)} GB)`, 'warn');
+    result.steps.arraybuffer_probe = { ok: false, error: msg };
+    result.heapLimitFinding = {
+      bundleGB: BUNDLE_BYTES / 1e9,
+      jsHeapLimitGB: memModel.jsHeapLimitGB,
+      verdict: 'OOM_BEFORE_ENGINE: bundle exceeds JS heap limit',
+    };
+  }
+
   try {
     // 1 — Fetch bundle parts sequentially and concatenate
     emit(`1. Fetching E4B bundle (3 × ~1.5 GB parts) …`, 'info');
