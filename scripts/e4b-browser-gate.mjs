@@ -10,7 +10,7 @@
 
 const PAGES_URL  = 'https://wordingone.github.io/WEB-CAD/e4b-llm-test.html';
 const CDP_HOST   = 'localhost:9222';
-const TIMEOUT_MS = 45 * 60 * 1000;  // 45 min: 2.97 GB HF download + GPU_ARTISAN init
+const TIMEOUT_MS = 90 * 60 * 1000;  // 90 min: ~5 GB download (decoder_q4f16 2.9GB + vision 101MB + embed_tokens 2GB) + WebGPU init
 
 async function cdpGet(path) {
   const r = await fetch(`http://${CDP_HOST}${path}`);
@@ -117,15 +117,24 @@ async function main() {
   }
 
   console.log('\n=== GATE SUMMARY ===');
-  console.log(`Peak WASM heap:   ${result.peakHeapMB?.toFixed(1) ?? 'unknown'} MB`);
+  console.log(`Move:             ${result.move ?? 'unknown'}`);
+  console.log(`Peak JS heap:     ${result.peakHeapMB?.toFixed(1) ?? 'unknown'} MB`);
+  console.log(`WebGPU:           ${JSON.stringify(result.webgpu)}`);
+  console.log(`Vision verdict:   ${result.visionVerdict ?? 'none'}`);
+  if (result.steps?.model) {
+    console.log(`Model load:       ${result.steps.model.sec?.toFixed(1)}s | peak heap at load: ${result.steps.model.peakHeapMBAtLoad?.toFixed(1)} MB`);
+  }
   if (result.steps?.generate?.output) {
-    console.log(`Engine output:    ${result.steps.generate.output.slice(0, 200)}`);
+    console.log(`\nVerbatim output:\n${result.steps.generate.output.slice(0, 600)}`);
+  }
+  if (result.steps?.image) {
+    console.log(`\nTest image:       ${result.steps.image.content}`);
   }
   if (result.ok) {
-    console.log('RESULT: PASS — E4B loads and generates in browser');
+    console.log('\nRESULT: PASS — E4B ORT-web loads + image-grounded output');
     process.exit(0);
   } else {
-    console.log('RESULT: FAIL —', result.error);
+    console.log('\nRESULT: FAIL —', result.error ?? result.visionVerdict ?? 'unknown');
     process.exit(1);
   }
 }
