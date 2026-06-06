@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — LiteRT-LM browser load gate (#19 v3)</title>
+<title>E4B — LiteRT-LM browser load gate (#19 v4)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
@@ -20,9 +20,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: LiteRT-LM Browser Load Gate v3 (multimodal — image prompt)</h1>
+<h1>E4B: LiteRT-LM Browser Load Gate v4 (multimodal — image prompt)</h1>
 <p>
-  Model: <code>model.litertlm</code> (3.66 GB, full multimodal, HuggingFace Hub)<br>
+  Model: <code>gemma-4-E4B-it.litertlm</code> (3.66 GB, full multimodal, HuggingFace Hub)<br>
   Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (streaming)<br>
   Vision: <code>SessionConfig.visionModalityEnabled=true</code> + image via EMFS<br>
   Prompt: image + text → image-grounded output (E4B multimodal gate)
@@ -69,7 +69,7 @@ function emit(msg, cls = '') {
 // Full multimodal bundle — includes vision encoder.
 // GPU_ARTISAN backend: weights streamed to WASM incrementally (no contiguous JS ArrayBuffer).
 // PLE off-heap automatically. Resident ≈ 3GB (text decoder + embedder + vision on-demand).
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/model.litertlm';
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
 
 // Test image — a small CORS-clean Wikimedia photo (ant macro shot, ~25KB JPEG)
 const IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/200px-Camponotus_flavomarginatus_ant.jpg';
@@ -105,8 +105,9 @@ async function detectWebGPU() {
   try {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return { available: false, note: 'No WebGPU adapter found' };
-    const info = await adapter.requestAdapterInfo();
-    return { available: true, note: `WebGPU OK — ${info.description || info.vendor || 'adapter found'}` };
+    // requestAdapterInfo() is not available in all Chrome versions — adapter non-null is sufficient
+    const label = adapter.label || (adapter.info?.description) || 'adapter found';
+    return { available: true, note: `WebGPU OK — ${label}` };
   } catch (e) {
     return { available: false, note: `WebGPU probe error: ${e.message}` };
   }
@@ -139,7 +140,7 @@ btn.addEventListener('click', async () => {
   try {
     // 1 — Load full multimodal bundle via GPU_ARTISAN streaming.
     // GPU_ARTISAN is the default when backend is omitted.
-    emit(`1. Engine.create — full multimodal model.litertlm (3.66 GB, GPU_ARTISAN) …`, 'info');
+    emit(`1. Engine.create — full multimodal gemma-4-E4B-it.litertlm (3.66 GB, GPU_ARTISAN) …`, 'info');
     emit(`   URL: ${MODEL_URL}`, 'info');
     emit(`   (stream download + WASM init — may take several minutes)`, 'info');
     const t1 = Date.now();
