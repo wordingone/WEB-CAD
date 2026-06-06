@@ -530,12 +530,25 @@ function initWorkerIfNeeded(): Worker {
         } else {
           const pct = msg.progress != null ? `${Math.round(msg.progress as number)}%` : "";
           const file = (msg.file as string | undefined) ?? "";
+          // §#19-P1-ac1-a: log component file names from main thread (worker console.log not
+          // visible to CDP Runtime.consoleAPICalled; main thread is required for gate capture)
+          if (file.includes("vision_encoder") || file.includes("audio_encoder")) {
+            console.log("[#19-P1] loading:", file);
+          }
           const label = [pct, file].filter(Boolean).join(" ");
           if (label) updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ${label}`);
           window.dispatchEvent(new CustomEvent("agentmodel:loading", {
             detail: { progress: msg.progress ?? 0, file, bytes, total, throughputBytesPerSec, phase },
           }));
         }
+        break;
+      }
+      case "model-class": {
+        // §#19-P1-ac1-b: worker posts class name before from_pretrained; expose on window
+        // and log from main thread so CDP gate can detect ForConditionalGeneration at boot.
+        const cls = (msg.className as string | undefined) ?? "unknown";
+        (window as unknown as Record<string, unknown>)["__arc_model_class"] = cls;
+        console.log("[#19-P1] model_type=" + cls);
         break;
       }
       case "model-ready":
