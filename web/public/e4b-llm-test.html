@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v9)</title>
+<title>E4B — ORT-web gate (#19 v10-PLE)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,12 +22,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v9)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v10 — PLE streaming)</h1>
 <p>
-  Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16, WebGPU)<br>
-  Runtime: <code>@huggingface/transformers@4</code> | Vision: separate ONNX session
+  Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16)<br>
+  Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → CPU (PLE off-VRAM)
 </p>
-<button id="run">Run MOVE 2 gate</button>
+<button id="run">Run PLE-streaming gate</button>
 
 <h2>Download Progress</h2>
 <div id="dl-bar"><div id="dl-fill"></div></div>
@@ -191,13 +191,22 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Processor loaded (${procSec.toFixed(1)}s)`, 'ok');
     result.steps.processor = { ok: true, sec: procSec };
 
-    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (q4f16, WebGPU) …`, 'info');
-    emit(`   Files: decoder_model_merged_q4f16 (~2.9 GB) + vision_encoder_q4f16 (~101 MB) + embed_tokens_q4f16 (~2 GB)`, 'warn');
+    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (PLE streaming) …`, 'info');
+    emit(`   decoder_model_merged + vision_encoder → WebGPU (~3.0 GB VRAM)`, 'info');
+    emit(`   embed_tokens + audio_encoder → CPU/WASM (~2.0 GB off-VRAM)`, 'info');
     sampleHeap();
     const t1 = Date.now();
+    // PLE streaming: route embed_tokens to CPU so it doesn't occupy VRAM
+    // E4B's Per-Layer-Embeddings are architecturally designed to stream per-layer,
+    // not sit fully resident in device memory. Keeps ~2 GB off VRAM.
     const model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: 'q4f16',
-      device: 'webgpu',
+      device: {
+        decoder_model_merged: 'webgpu',
+        vision_encoder: 'webgpu',
+        embed_tokens: 'cpu',
+        audio_encoder: 'cpu',
+      },
       progress_callback: progressCallback,
     });
     const loadSec = (Date.now() - t1) / 1000;
@@ -211,9 +220,13 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Model loaded in ${loadSec.toFixed(1)}s | peak JS heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     if (memAfterLoad) {
       emit(`   Memory after load: used=${memAfterLoad.usedJSHeapMB.toFixed(0)}MB total=${memAfterLoad.totalJSHeapMB.toFixed(0)}MB limit=${memAfterLoad.jsHeapLimitMB.toFixed(0)}MB`, 'info');
-      emit(`   Note: WebGPU weights (~5GB) in VRAM; JS heap includes staging ArrayBuffers during upload`, 'info');
     }
-    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB, memAfterLoad };
+    // VRAM estimate: decoder_model_merged (~2887 MB) + vision_encoder (~101 MB) = ~2988 MB
+    // embed_tokens (~2017 MB) + audio_encoder (~small) now on CPU → off VRAM
+    const vramEstimateMB = { decoder: 2887, vision_encoder: 101, total: 2988, embed_tokens_on_cpu: 2017 };
+    emit(`   Estimated VRAM: decoder(${vramEstimateMB.decoder}MB) + vision_encoder(${vramEstimateMB.vision_encoder}MB) = ~${vramEstimateMB.total}MB`, 'ok');
+    emit(`   embed_tokens (~${vramEstimateMB.embed_tokens_on_cpu}MB) on CPU — off VRAM`, 'ok');
+    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB, memAfterLoad, vramEstimateMB };
 
     emit('3. Building test RawImage (128×128: blue #336699 bg + yellow #ffcc44 circle r=40) …', 'info');
     const rawImage = makeTestRawImage();
