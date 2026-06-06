@@ -49,9 +49,9 @@ btn.addEventListener('click', async () => {
 
   try {
     // 1 — Fetch .task bytes
-    emit('1. Fetching /test/micro_lm.task …');
-    const resp = await fetch('/test/micro_lm.task');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status} on /test/micro_lm.task`);
+    emit('1. Fetching test/micro_lm.task …');
+    const resp = await fetch('test/micro_lm.task');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} on test/micro_lm.task`);
     emit(`   ✓ ${resp.status} ${resp.headers.get('content-type')}, reading bytes…`, 'ok');
     const bytes = await resp.arrayBuffer();
     emit(`   ✓ ${bytes.byteLength.toLocaleString()} bytes fetched`, 'ok');
