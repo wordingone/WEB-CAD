@@ -183,10 +183,76 @@ clicks "Run test", polls `window.__phase0Result`, reports PASS/FAIL with engine 
 
 ---
 
-## Phase 1 next steps
+## Phase 1 — E4B multimodal full export
 
-- Pull E4B multimodal checkpoint's vision tower
-- Export vision subgraphs with names expected by `LlmVisionInferenceCalculator`:
-  `TF_LITE_VISION_ENCODER`, `TF_LITE_VISION_ADAPTER`, `TF_LITE_EMBEDDER`
-- Vision encoder: ~985MB f16 → ~250MB q4 target
-- Browser proof on GPU backend (`Backend.GPU_ARTISAN`) to validate 2.86× perf claim
+**Target:** `google/gemma-4-E4B-it` (~8B total / 4.5B effective, integrated vision encoder ~150M params)
+
+litert-torch 0.9.1 has native Gemma-4 support at `litert_torch/generative/export_hf/model_ext/gemma4/`.
+
+### Export command (Python API)
+
+```python
+from litert_torch.generative.export_hf import export as lt_export
+
+lt_export.export(
+    model='google/gemma-4-E4B-it',
+    output_dir='/home/jun/e4b_export',
+    task='image_text_to_text',             # multimodal (decoder + vision)
+    quantization_recipe='weight_only_wi4_afp32',
+    export_vision_encoder=True,
+    vision_encoder_quantization_recipe='weight_only_wi4_afp32',
+    bundle_litert_lm=True,
+    prefill_lengths=[512],
+    cache_length=1024,
+)
+```
+
+Or CLI:
+```bash
+source /home/jun/litert-venv/bin/activate
+HF_HOME=/home/jun/hf_models python3 -m litert_torch.generative.export_hf \
+  google/gemma-4-E4B-it /home/jun/e4b_export \
+  --task=image_text_to_text \
+  --quantization_recipe=weight_only_wi4_afp32 \
+  --export_vision_encoder=True \
+  --vision_encoder_quantization_recipe=weight_only_wi4_afp32 \
+  --bundle_litert_lm=True \
+  --prefill_lengths=[512] \
+  --cache_length=1024
+```
+
+### Available quantization recipes (ai_edge_quantizer)
+
+| Recipe | Description |
+|---|---|
+| `weight_only_wi4_afp32` | Weight-only INT4, activation fp32 (**use this for memory reduction**) |
+| `weight_only_wi8_afp32` | Weight-only INT8, activation fp32 |
+| `dynamic_wi4_afp32` | Dynamic INT4 w + fp32 activation |
+| `dynamic_wi8_afp32` | Dynamic INT8 w + fp32 activation (litert-torch default) |
+| `static_wi8_ai8` | Static INT8 w + INT8 activation |
+
+### Expected output sizes
+
+- Decoder .tflite (INT4 weight-only): ~2.5-3GB
+- Vision encoder .tflite (INT4): ~75MB
+- Bundled .task: ~2.6-3GB
+
+### System requirements
+
+- WSL2 RAM: ≥32GB (model loads ~16GB BF16; conversion needs ~32-48GB virtual)
+- Download: 16GB safetensors (`model.safetensors`)
+- HF_HOME: set to writable path (e.g. `/home/jun/hf_models`) — `/home/jun/.cache/huggingface/hub` may have permission issues
+- Auto-enabled by litert-torch: `externalize_embedder=True`, `single_token_embedder=True` (required for Gemma-4 Per-Layer-Embeddings)
+
+### Browser load
+
+Use `weight_only_wi4_afp32` for both decoder and vision encoder.
+Browser target: GPU backend (`Backend.GPU_ARTISAN`) for real perf measurement.
+Image tiling: E4B has native visual-token-budget knob (70/140/280/560/1120 tokens) —
+start low (`vision_soft_tokens_per_image=70`) to bound peak activation memory.
+
+### Two separate OOMs (Leo note)
+
+1. **Conversion RAM OOM** — solve on conversion side (layer streaming, free other processes).
+   Do NOT downsize model to avoid conversion OOM.
+2. **Browser WASM heap OOM** — the real deliverable gate. Must measure peak heap with numbers.
