@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Phase 0 — LiteRT-LM browser load test</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; }
+.ok   { color: #4f4; }
+.err  { color: #f44; }
+.info { color: #8be; }
+h2 { color: #8be; margin-top: 1.5rem; }
+button { background: #444; color: #eee; border: 1px solid #777; padding: 0.5rem 1rem;
+         cursor: pointer; font-family: monospace; font-size: 0.9rem; }
+button:hover { background: #555; }
+</style>
+</head>
+<body>
+<h1>Phase 0: LiteRT-LM Browser Load Test</h1>
+<p>
+  Model: <code>/test/micro_lm.task</code> (micro Gemma, vocab=64, 1 layer, 330KB)<br>
+  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>CPU</code>
+</p>
+<button id="run">Run test</button>
+
+<h2>Log</h2>
+<pre id="log">Click "Run test" to start.</pre>
+
+<script type="module">
+import { Engine, Backend } from 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.13.1/+esm';
+
+const logEl = document.getElementById('log');
+const btn   = document.getElementById('run');
+
+function emit(msg, cls = '') {
+  const ts = new Date().toISOString().slice(11, 23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+window.__phase0Result = null;
+
+btn.addEventListener('click', async () => {
+  btn.disabled = true;
+  logEl.innerHTML = '';
+  window.__phase0Result = null;
+
+  const result = { ok: false, steps: {} };
+
+  try {
+    // 1 — Fetch .task bytes
+    emit('1. Fetching /test/micro_lm.task …');
+    const resp = await fetch('/test/micro_lm.task');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} on /test/micro_lm.task`);
+    emit(`   ✓ ${resp.status} ${resp.headers.get('content-type')}, reading bytes…`, 'ok');
+    const bytes = await resp.arrayBuffer();
+    emit(`   ✓ ${bytes.byteLength.toLocaleString()} bytes fetched`, 'ok');
+    result.steps.fetch = { ok: true, bytes: bytes.byteLength };
+
+    // 2 — Create engine (CPU backend, pass model as ReadableStream)
+    emit('2. Engine.create (CPU backend) …', 'info');
+    emit('   (loading litertlm_wasm from CDN, ~3 MB WASM cold)', 'info');
+    const stream = new Response(bytes).body;
+    const engine = await Engine.create({ model: stream, backend: Backend.CPU });
+    emit('   ✓ Engine ready', 'ok');
+    result.steps.engine = { ok: true };
+
+    // 3 — Create conversation
+    emit('3. engine.createConversation …', 'info');
+    const chat = await engine.createConversation();
+    emit('   ✓ Conversation created', 'ok');
+    result.steps.conversation = { ok: true };
+
+    // 4 — Send a short message (single token prompt; expect garbage output from micro model)
+    emit('4. chat.sendMessage("hi") …', 'info');
+    const response = await chat.sendMessage('hi');
+    const text = JSON.stringify(response);
+    emit(`   ✓ Response: ${text}`, 'ok');
+    result.steps.generate = { ok: true, response: text };
+
+    await chat.delete();
+    await engine.delete();
+
+    result.ok = true;
+    emit('\n=== PASS: .task loads AND generates in browser ===\n', 'ok');
+
+  } catch (err) {
+    emit(`\n✗ ${err.message}`, 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0,6).join('\n'), 'err');
+    result.error = err.message;
+  }
+
+  window.__phase0Result = result;
+  console.log('__phase0Result', JSON.stringify(result, null, 2));
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
