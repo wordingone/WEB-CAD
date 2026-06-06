@@ -53,9 +53,18 @@ async function main() {
   await send('Runtime.enable');
   await send('Page.enable');
   await send('Network.enable');
+
+  // Navigate to about:blank first to reset Chrome's ES module registry.
+  // Network.clearBrowserCache clears HTTP cache but NOT the ES module map.
+  // about:blank navigation clears the module map so the importmap in the gate
+  // page applies to fresh module loads (not cached onnxruntime-web dev builds).
+  console.log('Navigating to about:blank to reset ES module cache...');
+  await send('Page.navigate', { url: 'about:blank' });
+  await sleep(500);
+  await send('Network.setCacheDisabled', { cacheDisabled: true });
   await send('Network.clearBrowserCache');
 
-  console.log(`\nNavigating to ${PAGES_URL} (cache cleared) ...`);
+  console.log(`\nNavigating to ${PAGES_URL} (module cache reset, HTTP cache disabled) ...`);
   await send('Page.navigate', { url: PAGES_URL });
 
   const loaded = await Promise.race([

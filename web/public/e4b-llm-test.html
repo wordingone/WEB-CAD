@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v13-importmap)</title>
+<title>E4B — ORT-web gate (#19 v14-ep-measured)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,11 +22,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v13 — importmap ORT module swap)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v14 — EP measured + importmap)</h1>
 <p>
   Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16)<br>
   Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → WASM (PLE off-VRAM)<br>
-  ORT module swap: importmap remaps dev 1.26.0-dev.20260416 → stable <code>onnxruntime-web@1.26.0</code>
+  ORT module swap: importmap + gate navigates about:blank first to reset ES module cache
 </p>
 <button id="run">Run PLE-streaming gate</button>
 
@@ -206,19 +206,20 @@ btn.addEventListener('click', async () => {
     emit(`2. Gemma4ForConditionalGeneration.from_pretrained (PLE streaming, ORT stable WASM) …`, 'info');
     emit(`   decoder_model_merged + vision_encoder → WebGPU (~3.0 GB VRAM)`, 'info');
     emit(`   embed_tokens + audio_encoder → WASM/CPU (ORT 1.26.0 stable — GatherBlockQuantized CPU-EP fix)`, 'info');
+    const deviceAssignment = {
+      decoder_model_merged: 'webgpu',
+      vision_encoder: 'webgpu',
+      embed_tokens: 'wasm',
+      audio_encoder: 'wasm',
+    };
+    emit(`   Device assignment: ${JSON.stringify(deviceAssignment)}`, 'info');
+    // Capture JS heap BEFORE model load — delta will show embed_tokens WASM allocation (~2017 MB)
+    const heapBeforeModelMB = performance.memory ? performance.memory.usedJSHeapSize / (1024*1024) : null;
     sampleHeap();
     const t1 = Date.now();
-    // PLE streaming: route embed_tokens to CPU so it doesn't occupy VRAM
-    // E4B's Per-Layer-Embeddings are architecturally designed to stream per-layer,
-    // not sit fully resident in device memory. Keeps ~2 GB off VRAM.
     const model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
       dtype: 'q4f16',
-      device: {
-        decoder_model_merged: 'webgpu',
-        vision_encoder: 'webgpu',
-        embed_tokens: 'wasm',
-        audio_encoder: 'wasm',
-      },
+      device: deviceAssignment,
       progress_callback: progressCallback,
     });
     const loadSec = (Date.now() - t1) / 1000;
@@ -229,9 +230,25 @@ btn.addEventListener('click', async () => {
       totalJSHeapMB: performance.memory.totalJSHeapSize / (1024*1024),
       jsHeapLimitMB: performance.memory.jsHeapSizeLimit / (1024*1024),
     } : null;
+    const heapDeltaMB = (heapBeforeModelMB !== null && memAfterLoad)
+      ? memAfterLoad.usedJSHeapMB - heapBeforeModelMB : null;
     emit(`   ✓ Model loaded in ${loadSec.toFixed(1)}s | peak JS heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     if (memAfterLoad) {
       emit(`   Memory after load: used=${memAfterLoad.usedJSHeapMB.toFixed(0)}MB total=${memAfterLoad.totalJSHeapMB.toFixed(0)}MB limit=${memAfterLoad.jsHeapLimitMB.toFixed(0)}MB`, 'info');
+    }
+    // EP confirmation evidence:
+    // If embed_tokens is on WASM/CPUExecutionProvider, its weights (~2017 MB) land in
+    // JS heap / WASM linear memory — confirmed by heapDelta >> v9 baseline (~2109 MB total).
+    // If embed_tokens silently fell back to WebGPU, heapDelta would be small (<500 MB).
+    const epEvidence = heapDeltaMB !== null ? {
+      heapBeforeMB: heapBeforeModelMB.toFixed(0),
+      heapAfterMB: memAfterLoad.usedJSHeapMB.toFixed(0),
+      heapDeltaMB: heapDeltaMB.toFixed(0),
+      embedTokensOnWasm: heapDeltaMB > 1500, // ~2017 MB expected if on WASM, <500 MB if GPU
+    } : null;
+    if (epEvidence) {
+      emit(`   JS heap delta from model load: +${epEvidence.heapDeltaMB} MB`, 'info');
+      emit(`   EP evidence: embed_tokens on WASM = ${epEvidence.embedTokensOnWasm} (delta > 1500 MB → WASM; < 500 MB → silent GPU fallback)`, epEvidence.embedTokensOnWasm ? 'ok' : 'warn');
     }
     // VRAM estimate: decoder_model_merged (~2887 MB) + vision_encoder (~101 MB) = ~2988 MB
     // embed_tokens (~2017 MB) + audio_encoder (~small) now on CPU → off VRAM
