@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v10-PLE)</title>
+<title>E4B — ORT-web gate (#19 v11-PLE)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,7 +22,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v10 — PLE streaming)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v11 — PLE streaming)</h1>
 <p>
   Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16)<br>
   Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → CPU (PLE off-VRAM)
@@ -204,8 +204,8 @@ btn.addEventListener('click', async () => {
       device: {
         decoder_model_merged: 'webgpu',
         vision_encoder: 'webgpu',
-        embed_tokens: 'cpu',
-        audio_encoder: 'cpu',
+        embed_tokens: 'wasm',
+        audio_encoder: 'wasm',
       },
       progress_callback: progressCallback,
     });
