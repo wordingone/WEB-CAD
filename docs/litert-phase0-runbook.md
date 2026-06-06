@@ -183,6 +183,7 @@ clicks "Run test", polls `window.__phase0Result`, reports PASS/FAIL with engine 
 | `AttributeError: 'FeedForwardType' has no attribute 'GATED_LINEAR_UNIT'` | Use `cfg.FeedForwardType.GATED` (not `GATED_LINEAR_UNIT`) |
 | `TypeError: peek_litertlm_file() missing 2 required positional arguments` | Signature: `(path, dump_files_dir, output_stream)`. Pass all 3. |
 | HTTP 404 on `.task` file in Pages | Use relative fetch path, not absolute (`/test/...` → `test/...`) |
+| `SIGTERM at MLIR lowering (exit 15)` | MLIR lowering peaks at 40-60GB RAM on E4B. Add `experimental_lightweight_conversion=True` to `lt_export.export()` — reduces peak RAM by streaming MLIR conversion. Clean up leftover `tmp*/` dirs from the killed run first. |
 
 ---
 
@@ -207,6 +208,7 @@ lt_export.export(
     bundle_litert_lm=True,
     prefill_lengths=[512],
     cache_length=1024,
+    experimental_lightweight_conversion=True,  # required: prevents OOM at MLIR lowering
 )
 ```
 
