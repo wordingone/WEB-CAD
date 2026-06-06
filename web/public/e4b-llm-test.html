@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v11-PLE)</title>
+<title>E4B — ORT-web gate (#19 v12-ORT-stable)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,10 +22,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v11 — PLE streaming)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v12 — ORT stable WASM)</h1>
 <p>
   Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16)<br>
-  Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → CPU (PLE off-VRAM)
+  Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → WASM (PLE off-VRAM)<br>
+  ORT WASM override: <code>onnxruntime-web@1.26.0</code> stable (GatherBlockQuantized CPU-EP kernel fix)
 </p>
 <button id="run">Run PLE-streaming gate</button>
 
@@ -45,6 +46,11 @@ import { env, AutoProcessor, Gemma4ForConditionalGeneration, TextStreamer, RawIm
 
 env.allowRemoteModels = true;
 env.allowLocalModels = false;
+// Override ORT-web WASM binary to stable 1.26.0 — the dev build bundled by transformers@4
+// (1.26.0-dev.20260416) was compiled without contrib ops, missing GatherBlockQuantized in
+// the CPU EP. Stable 1.26.0 (2026-05-08) has it registered under CPUExecutionProvider,
+// enabling embed_tokens routing to 'wasm' without the "Kernel not found" error.
+env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/';
 
 const logEl    = document.getElementById('log');
 const heapInfo = document.getElementById('heap-info');
@@ -191,9 +197,9 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Processor loaded (${procSec.toFixed(1)}s)`, 'ok');
     result.steps.processor = { ok: true, sec: procSec };
 
-    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (PLE streaming) …`, 'info');
+    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (PLE streaming, ORT stable WASM) …`, 'info');
     emit(`   decoder_model_merged + vision_encoder → WebGPU (~3.0 GB VRAM)`, 'info');
-    emit(`   embed_tokens + audio_encoder → CPU/WASM (~2.0 GB off-VRAM)`, 'info');
+    emit(`   embed_tokens + audio_encoder → WASM/CPU (ORT 1.26.0 stable — GatherBlockQuantized CPU-EP fix)`, 'info');
     sampleHeap();
     const t1 = Date.now();
     // PLE streaming: route embed_tokens to CPU so it doesn't occupy VRAM
