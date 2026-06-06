@@ -75,6 +75,32 @@ const PART_URLS = [
 
 window.__e4bResult = null;
 
+// Detect WASM memory model: memory64 vs 32-bit
+async function detectWasmMemoryModel() {
+  const info = { memory64Supported: false, maxHeapGB: 4, note: '' };
+  try {
+    // memory64 proposal: try to instantiate a module with i64 memory index type
+    const m64bytes = new Uint8Array([
+      0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00, // magic + version
+      0x05,0x04, 0x01,0x04,0x00,0x00,            // memory section: 1 memory, flags=0x04(memory64), min=0, max=0
+    ]);
+    await WebAssembly.instantiate(m64bytes);
+    info.memory64Supported = true;
+    info.maxHeapGB = null; // no 4 GB cap
+    info.note = 'memory64 available — no 4 GB linear-memory cap';
+  } catch {
+    info.memory64Supported = false;
+    info.maxHeapGB = 4;
+    info.note = '32-bit WASM only — 4 GB linear-memory ceiling applies';
+  }
+  // Also check JS heap via performance.memory
+  if (performance.memory) {
+    info.jsHeapLimitGB = performance.memory.jsHeapSizeLimit / (1024 * 1024 * 1024);
+    info.jsHeapLimitNote = `JS heap limit: ${info.jsHeapLimitGB.toFixed(2)} GB`;
+  }
+  return info;
+}
+
 btn.addEventListener('click', async () => {
   btn.disabled = true;
   logEl.innerHTML = '';
@@ -83,7 +109,16 @@ btn.addEventListener('click', async () => {
   heapInfo.textContent = '—';
   window.__e4bResult = null;
 
-  const result = { ok: false, steps: {}, peakHeapMB: null };
+  const result = { ok: false, steps: {}, peakHeapMB: null, wasmMemoryModel: null };
+
+  // Probe memory model before starting
+  const memModel = await detectWasmMemoryModel();
+  result.wasmMemoryModel = memModel;
+  emit(`Memory model: ${memModel.note}`, memModel.memory64Supported ? 'ok' : 'warn');
+  if (memModel.jsHeapLimitNote) emit(`  ${memModel.jsHeapLimitNote}`, 'info');
+  if (!memModel.memory64Supported) {
+    emit(`  WARNING: 4.35 GB bundle may hit 4 GB WASM ceiling`, 'warn');
+  }
 
   heapIntervalId = setInterval(sampleHeap, 500);
 
@@ -174,6 +209,7 @@ btn.addEventListener('click', async () => {
     sampleHeap();
     emit(`\n=== PASS: E4B loads AND generates in browser ===\n`, 'ok');
     emit(`Peak WASM heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
+    emit(`Memory model: ${memModel.note}`, 'info');
 
   } catch (err) {
     result.error = err.message;
