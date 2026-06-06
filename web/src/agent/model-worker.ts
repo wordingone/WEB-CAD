@@ -235,9 +235,8 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   let _opfsReturningUserPosted = isReturning;
 
   // Emit manifest with estimated total bytes so the overlay can show aggregate %.
-  // E4B multimodal: decoder q4f16 ≈ 2.5 GB + vision_encoder q4f16 ≈ 101 MB + embed_tokens quantized ≈ 776 MB
-  //   + audio_encoder quantized ≈ small + drafter ≈ 158 MB + tokenizer ≈ 5 MB → ~3.5 GB total download.
-  // 5.5 GB ceiling kept as headroom to prevent bar freeze at 69% when actual > estimate (#1452).
+  // E4B: model ONNX q4f16 ≈ 2.5 GB + embed_tokens ≈ 2.0 GB + drafter ≈ 158 MB + tokenizer ≈ 5 MB.
+  // 5.5 GB ceiling (~300 MB headroom) prevents bar freeze at 69% when actual > estimate (#1452).
   const ESTIMATED_MODEL_BYTES = 5_500_000_000;
   post({ type: "manifest", totalBytesExpected: ESTIMATED_MODEL_BYTES });
 
@@ -514,30 +513,14 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
     console.log(`[#1627-C] classification-triggered-wasm-fallback adClass=${_adClassification} — cpu device (WASM ORT EP)`);
     post({ type: "phase_timing", phase: "wasm_fallback_classification", elapsed_ms: Date.now() - _workerStartMs, adClass: _adClassification });
   }
-  // §#19-P1: per-component dtype/device — embed_tokens + audio_encoder on WASM (INT8/quantized)
-  // to reduce VRAM floor; decoder_model_merged + vision_encoder stay on WebGPU (q4f16).
-  // "quantized" maps to *_quantized.onnx files at runtime; not yet in transformers.js TS types.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const _mmDtype: any = {
-    decoder_model_merged: "q4f16",
-    vision_encoder: "q4f16",
-    embed_tokens: "quantized",
-    audio_encoder: "quantized",
-  };
-  const _mmDevice = {
-    decoder_model_merged: "webgpu" as const,
-    vision_encoder: "webgpu" as const,
-    embed_tokens: "wasm" as const,
-    audio_encoder: "wasm" as const,
-  };
-  const backends: Array<{ device: "webgpu"; label: string }> = [
-    { device: "webgpu", label: "GPU" },
+  const backends: Array<{ device: "webgpu"; dtype: "q4f16"; label: string }> = [
+    { device: "webgpu", dtype: "q4f16", label: "GPU" },
   ];
 
   let loadedLabel = "CPU";
 
   post({ type: "phase_timing", phase: "from_pretrained_start", elapsed_ms: Date.now() - _workerStartMs });
-  for (const { device, label } of backends) {
+  for (const { device, dtype, label } of backends) {
     // §#1501: if WebGPU device acquisition failed at the top, skip webgpu backend entirely.
     // §#1637: forceWasm=true also skips WebGPU — user chose WASM EP fallback path.
     if (device === "webgpu" && (!_preAcquiredGpuDevice || forceWasm)) continue;
@@ -546,7 +529,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
       let model: Awaited<ReturnType<typeof Gemma4ForConditionalGeneration.from_pretrained>>;
       try {
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
-          dtype: _mmDtype, device: _mmDevice, progress_callback: progressCb,
+          dtype, device, progress_callback: progressCb,
         });
       } catch (loadErr) {
         // §B-cache-retry (#1316): Cache.put() failure on fresh chromium profiles causes
@@ -558,7 +541,7 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
         tfEnv.useBrowserCache = false;
         await new Promise<void>(r => setTimeout(r, 500));
         model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
-          dtype: _mmDtype, device: _mmDevice, progress_callback: progressCb,
+          dtype, device, progress_callback: progressCb,
         });
       }
       const processor = await AutoProcessor.from_pretrained(modelId);
@@ -689,8 +672,14 @@ async function handleInit(data: Record<string, unknown>): Promise<void> {
   post({ type: "warmup-done", skipped: noWarmup }); // #1313: skipped=true when noWarmup (recycle path)
   checkBootComplete();
 
-  // §#19-P1: MTP wired live — drafter enabled when drafterUrl provided.
-  const _effectiveDrafterUrl: string | null = drafterUrl || null;
+  // §#1471-diag: Force drafter disabled — definitive isolation for +60s turn-1 OOM.
+  // b336897 (iter-3) + 2e18375 (iter-8) both used WASM-only drafter (zero GPU VRAM) and
+  // still showed +60s OOM. VRAM competition theory falsified. This diagnostic removes the
+  // drafter entirely (no fetch, no session.create, no CPU RAM overhead) to test whether
+  // drafter LOADING in any form triggers the OOM vs main-model decode being the source.
+  // If OOM disappears → some aspect of drafter loading (shared ORT state, async init, event
+  // loop pressure) is the trigger. If OOM persists → drafter is irrelevant, decode path itself.
+  const _effectiveDrafterUrl: string | null = null;
   // Drafter load — fire after warmup; drafter-error is non-fatal (standard path covers)
   if (_effectiveDrafterUrl) {
     // §#1454: hoisted so catch block can check byteLength for WASM fallback.
