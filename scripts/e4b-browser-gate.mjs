@@ -134,6 +134,16 @@ async function main() {
   console.log(`Vision verdict:   ${result.visionVerdict ?? 'none'}`);
   if (result.steps?.model) {
     console.log(`Model load:       ${result.steps.model.sec?.toFixed(1)}s | peak heap at load: ${result.steps.model.peakHeapMBAtLoad?.toFixed(1)} MB`);
+    if (result.steps.model.dtypeAssignment) {
+      console.log(`Dtype assignment: ${JSON.stringify(result.steps.model.dtypeAssignment)}`);
+    }
+    if (result.steps.model.epEvidence) {
+      const ep = result.steps.model.epEvidence;
+      console.log(`EP confirmation:  heapDelta=+${ep.heapDeltaMB}MB, embedTokensOnWasm=${ep.embedTokensOnWasm}`);
+    }
+    if (result.steps.model.vramEstimateMB) {
+      console.log(`VRAM estimate:    ~${result.steps.model.vramEstimateMB.total}MB (decoder+vision only)`);
+    }
   }
   if (result.steps?.generate?.output) {
     console.log(`\nVerbatim output:\n${result.steps.generate.output.slice(0, 600)}`);

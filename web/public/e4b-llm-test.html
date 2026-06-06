@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v14-ep-measured)</title>
+<title>E4B — ORT-web gate (#19 v15-q4-cpu-ep)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,11 +22,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2, v14 — EP measured + importmap)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v15 — q4 CPU-EP)</h1>
 <p>
-  Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16)<br>
-  Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → WASM (PLE off-VRAM)<br>
-  ORT module swap: importmap + gate navigates about:blank first to reset ES module cache
+  Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> — decoder+vision: q4f16, embed_tokens: q4<br>
+  Runtime: <code>@huggingface/transformers@4</code> | decoder+vision → WebGPU | embed_tokens → WASM<br>
+  MOVE B: embed_tokens q4 uses standard ONNX ops (DequantizeLinear+Gather) — no GatherBlockQuantized
 </p>
 <button id="run">Run PLE-streaming gate</button>
 
@@ -150,7 +150,7 @@ btn.addEventListener('click', async () => {
 
   const result = {
     ok: false,
-    move: 'MOVE2_ort_web',
+    move: 'MOVE2B_q4_cpu_ep',
     steps: {},
     peakHeapMB: null,
     webgpu: null,
@@ -203,22 +203,30 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Processor loaded (${procSec.toFixed(1)}s)`, 'ok');
     result.steps.processor = { ok: true, sec: procSec };
 
-    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (PLE streaming, ORT stable WASM) …`, 'info');
-    emit(`   decoder_model_merged + vision_encoder → WebGPU (~3.0 GB VRAM)`, 'info');
-    emit(`   embed_tokens + audio_encoder → WASM/CPU (ORT 1.26.0 stable — GatherBlockQuantized CPU-EP fix)`, 'info');
+    emit(`2. Gemma4ForConditionalGeneration.from_pretrained (MOVE B: q4 CPU-EP) …`, 'info');
+    emit(`   decoder_model_merged + vision_encoder → WebGPU/q4f16 (~3.0 GB VRAM)`, 'info');
+    emit(`   embed_tokens → WASM/q4 (standard ONNX ops, no GatherBlockQuantized)`, 'info');
+    emit(`   audio_encoder → WASM/q4`, 'info');
     const deviceAssignment = {
       decoder_model_merged: 'webgpu',
       vision_encoder: 'webgpu',
       embed_tokens: 'wasm',
       audio_encoder: 'wasm',
     };
-    emit(`   Device assignment: ${JSON.stringify(deviceAssignment)}`, 'info');
-    // Capture JS heap BEFORE model load — delta will show embed_tokens WASM allocation (~2017 MB)
+    const dtypeAssignment = {
+      decoder_model_merged: 'q4f16',
+      vision_encoder: 'q4f16',
+      embed_tokens: 'q4',     // Standard Q4: DequantizeLinear+Gather, not GatherBlockQuantized
+      audio_encoder: 'q4',
+    };
+    emit(`   Device: ${JSON.stringify(deviceAssignment)}`, 'info');
+    emit(`   Dtype:  ${JSON.stringify(dtypeAssignment)}`, 'info');
+    // Capture JS heap BEFORE model load — delta will show embed_tokens WASM allocation
     const heapBeforeModelMB = performance.memory ? performance.memory.usedJSHeapSize / (1024*1024) : null;
     sampleHeap();
     const t1 = Date.now();
     const model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
-      dtype: 'q4f16',
+      dtype: dtypeAssignment,
       device: deviceAssignment,
       progress_callback: progressCallback,
     });
@@ -255,7 +263,7 @@ btn.addEventListener('click', async () => {
     const vramEstimateMB = { decoder: 2887, vision_encoder: 101, total: 2988, embed_tokens_on_cpu: 2017 };
     emit(`   Estimated VRAM: decoder(${vramEstimateMB.decoder}MB) + vision_encoder(${vramEstimateMB.vision_encoder}MB) = ~${vramEstimateMB.total}MB`, 'ok');
     emit(`   embed_tokens (~${vramEstimateMB.embed_tokens_on_cpu}MB) on CPU — off VRAM`, 'ok');
-    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB, memAfterLoad, vramEstimateMB };
+    result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB, memAfterLoad, vramEstimateMB, dtypeAssignment, epEvidence };
 
     emit('3. Building test RawImage (128×128: blue #336699 bg + yellow #ffcc44 circle r=40) …', 'info');
     const rawImage = makeTestRawImage();
