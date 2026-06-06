@@ -236,11 +236,21 @@ HF_HOME=/home/jun/hf_models python3 -m litert_torch.generative.export_hf \
 | `dynamic_wi8_afp32` | Dynamic INT8 w + fp32 activation (litert-torch default) |
 | `static_wi8_ai8` | Static INT8 w + INT8 activation |
 
-### Expected output sizes
+### Actual output sizes (E4B, verified 2026-06-05)
 
-- Decoder .tflite (INT4 weight-only): ~2.5-3GB
-- Vision encoder .tflite (INT4): ~75MB
-- Bundled .task: ~2.6-3GB
+| Artifact | Size |
+|---|---|
+| Decoder INT4 (`model_quantized.tflite`) | 2.5 GB |
+| Embedder INT4 (`embedder_quantized.tflite`) | 338.7 MB |
+| Per-layer embedder INT4 (`per_layer_embedder_quantized.tflite`) | 1412.4 MB |
+| Vision encoder INT4 (`vision_encoder_quantized.tflite`) | 142.7 MB |
+| Vision adapter INT4 (`vision_adapter_quantized.tflite`) | 1.0 MB |
+| Tokenizer (`tokenizer.json`) | 32.2 MB |
+| **Bundle .litertlm** | **4.353 GB** |
+
+Bundle is ~4.4 GB (not ~2.6 GB) because Gemma-4 uses Per-Layer Embeddings (PLE):
+`externalize_embedder=True` + `single_token_embedder=True` exports a per_layer_embedder
+that is 1.4 GB — much larger than a shared embedder. This is expected architecture overhead.
 
 ### System requirements
 
@@ -255,6 +265,69 @@ Use `weight_only_wi4_afp32` for both decoder and vision encoder.
 Browser target: GPU backend (`Backend.GPU_ARTISAN`) for real perf measurement.
 Image tiling: E4B has native visual-token-budget knob (70/140/280/560/1120 tokens) —
 start low (`vision_soft_tokens_per_image=70`) to bound peak activation memory.
+
+### Three upstream bugs in litert-torch 0.9.1 — required patches
+
+The `export_hf.export()` path has three bugs on 32 GB machines. All must be patched for a successful E4B export. See `C:/WINDOWS/TEMP/phase1-recovery-v3.py` for the full recovery script.
+
+#### Bug 1 — Decoder MLIR OOM (fixed by export flag)
+
+`export_text_prefill_decode_model` peaks at 40-60 GB during MLIR lowering unless `experimental_lightweight_conversion=True` is passed to `lt_export.export()`. This is documented but easy to miss. **Fix:** always pass `experimental_lightweight_conversion=True`.
+
+#### Bug 2 — per_layer_embedder MLIR OOM (`export_additional_models_impl`)
+
+`export_additional_models_impl` calls `converter.convert(strict_export=False)` **without** `lightweight_conversion`. MLIR lowering of the per_layer_embedder OOMs on 32 GB machines. **Fix:** monkey-patch the function:
+
+```python
+from litert_torch.generative.export_hf.core import export_lib
+from litert_torch._convert import interface as converter_utils
+import dataclasses, gc
+
+def _patched_additional_models_impl(
+    name, exportable_module_cls, source_model_artifacts, export_config, exported_model_artifacts
+):
+    model = source_model_artifacts.model
+    text_model_config = source_model_artifacts.text_model_config
+    quantization_recipe = export_config.quantization_recipe
+    work_dir = export_config.work_dir
+    embedder_module = exportable_module_cls(model)
+    converter = converter_utils.Converter()
+    sample_inputs = embedder_module.get_sample_inputs(text_model_config, export_config)
+    for sig_name, (s_inputs, _) in sample_inputs.items():
+        converter.add_signature(sig_name, embedder_module.eval(), sample_kwargs=s_inputs)
+    lrt_model = converter.convert(
+        lightweight_conversion=export_config.experimental_lightweight_conversion,
+        strict_export=False,
+    )
+    model_path = os.path.join(work_dir, f'{name}.tflite')
+    lrt_model.export(model_path)
+    recipe_list = quantization_recipe.split(',') if quantization_recipe else [None]
+    for recipe in recipe_list:
+        model_path = export_lib.maybe_quantize_model(model_path, recipe)
+        gc.collect()
+    additional = exported_model_artifacts.additional_model_paths or {}
+    additional[name] = model_path
+    return dataclasses.replace(exported_model_artifacts, additional_model_paths=additional)
+
+export_lib.export_additional_models_impl = _patched_additional_models_impl
+```
+
+**Correct import path:** `from litert_torch._convert import interface as converter_utils` (NOT `litert_torch.generative.export_hf.core.converter_utils` — that module doesn't exist).
+
+#### Bug 3 — Vision encoder MLIR OOM (`export_vision_encoder_models`)
+
+`export_vision_encoder_models` has **two** `converter.convert(strict_export=False)` calls — both missing `lightweight_conversion`. Both the encoder and adapter OOM. **Fix:** replace the entire function. See `phase1-recovery-v3.py` for the full replacement.
+
+#### Phase-split for 32 GB RAM
+
+With model loaded (24 GB), only 8 GB free for MLIR. The decoder quantization step also needs its own phase because it reads an 18 GB tflite and writes a 2.5 GB output — doing this with the HF model also in RAM = OOM.
+
+**Phase order:**
+1. `quantize_model(decoder_raw, recipe)` — standalone, no HF model loaded, peak ~22 GB
+2. Load HF model, seed artifacts with quantized decoder path
+3. `export_additional_models` (with Bug 2 patch)
+4. `export_vision_encoder_models` (with Bug 3 patch)
+5. `export_tokenizer`, `package_model`
 
 ### Two separate OOMs (Leo note)
 
