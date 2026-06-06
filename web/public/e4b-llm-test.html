@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — LiteRT-LM browser load gate (#19 v4)</title>
+<title>E4B — LiteRT-LM browser load gate (#19 v5)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
@@ -20,12 +20,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: LiteRT-LM Browser Load Gate v4 (multimodal — image prompt)</h1>
+<h1>E4B: LiteRT-LM Browser Load Gate v5 (MOVE 1 — text bundle + vision probe)</h1>
 <p>
-  Model: <code>gemma-4-E4B-it.litertlm</code> (3.66 GB, full multimodal, HuggingFace Hub)<br>
+  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, text-only web bundle, confirmed loads)<br>
   Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (streaming)<br>
-  Vision: <code>SessionConfig.visionModalityEnabled=true</code> + image via EMFS<br>
-  Prompt: image + text → image-grounded output (E4B multimodal gate)
+  MOVE 1: <code>visionModalityEnabled=true</code> + image via EMFS — does text bundle accept vision tokens?<br>
+  Binary answer: ACCEPT (projection layer present) vs REJECT (no projection path in web export)
 </p>
 <button id="run">Run browser gate</button>
 
@@ -66,12 +66,11 @@ function emit(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// Full multimodal bundle — includes vision encoder.
-// GPU_ARTISAN backend: weights streamed to WASM incrementally (no contiguous JS ArrayBuffer).
-// PLE off-heap automatically. Resident ≈ 3GB (text decoder + embedder + vision on-demand).
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
+// Text-only web bundle — confirmed loads via GPU_ARTISAN (PR #572).
+// MOVE 1: probe whether this bundle's session can ingest vision tokens.
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
 
-// Test image — a small CORS-clean Wikimedia photo (ant macro shot, ~25KB JPEG)
+// Test image — small CORS-clean Wikimedia photo (~25KB JPEG)
 const IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/200px-Camponotus_flavomarginatus_ant.jpg';
 const IMAGE_EMFS_PATH = '/tmp/gate_test_image.jpg';
 
@@ -101,11 +100,10 @@ async function detectWasmMemoryModel() {
 }
 
 async function detectWebGPU() {
-  if (!navigator.gpu) return { available: false, note: 'navigator.gpu absent — WebGPU not supported' };
+  if (!navigator.gpu) return { available: false, note: 'navigator.gpu absent' };
   try {
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) return { available: false, note: 'No WebGPU adapter found' };
-    // requestAdapterInfo() not available in all Chrome versions — adapter non-null is sufficient
+    if (!adapter) return { available: false, note: 'No WebGPU adapter' };
     const label = adapter.label || (adapter.info?.description) || 'adapter found';
     return { available: true, note: `WebGPU OK — ${label}` };
   } catch (e) {
@@ -122,8 +120,10 @@ btn.addEventListener('click', async () => {
   window.__e4bResult = null;
 
   const result = {
-    ok: false, steps: {}, peakHeapMB: null,
-    wasmMemoryModel: null, webgpu: null
+    ok: false, move: 'MOVE1_litert_separate_encoder',
+    steps: {}, peakHeapMB: null,
+    wasmMemoryModel: null, webgpu: null,
+    visionVerdict: null
   };
 
   const memModel = await detectWasmMemoryModel();
@@ -138,11 +138,9 @@ btn.addEventListener('click', async () => {
   heapIntervalId = setInterval(sampleHeap, 500);
 
   try {
-    // 1 — Load full multimodal bundle via GPU_ARTISAN streaming.
-    // GPU_ARTISAN is the default when backend is omitted.
-    emit(`1. Engine.create — full multimodal gemma-4-E4B-it.litertlm (3.66 GB, GPU_ARTISAN) …`, 'info');
+    // 1 — Load text-only web bundle via GPU_ARTISAN (confirmed path from PR #572).
+    emit(`1. Engine.create — text bundle gemma-4-E4B-it-web.litertlm (2.97 GB, GPU_ARTISAN) …`, 'info');
     emit(`   URL: ${MODEL_URL}`, 'info');
-    emit(`   (stream download + WASM init — may take several minutes)`, 'info');
     const t1 = Date.now();
     sampleHeap();
 
@@ -153,48 +151,66 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     result.steps.engine = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB };
 
-    // 2 — Fetch test image and write to Emscripten virtual filesystem.
-    // getOrLoadGlobalLiteRtLm() returns the same WASM module the engine loaded.
+    // 2 — Fetch test image and write to EMFS.
     emit(`2. Fetching test image …`, 'info');
-    emit(`   URL: ${IMAGE_URL}`, 'info');
     const imgResp = await fetch(IMAGE_URL);
     if (!imgResp.ok) throw new Error(`Image fetch HTTP ${imgResp.status}`);
     const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
-    emit(`   ✓ Image fetched: ${imgBytes.byteLength.toLocaleString()} bytes`, 'ok');
+    emit(`   ✓ Image: ${imgBytes.byteLength.toLocaleString()} bytes`, 'ok');
     result.steps.image_fetch = { ok: true, bytes: imgBytes.byteLength };
 
-    // Write image to EMFS so the WASM layer can access it by path.
-    emit(`   Writing image to EMFS at ${IMAGE_EMFS_PATH} …`, 'info');
     const litert = await getOrLoadGlobalLiteRtLm();
     litert.liteRtLmWasm.FS.writeFile(IMAGE_EMFS_PATH, imgBytes);
-    emit(`   ✓ Image written to EMFS`, 'ok');
-    result.steps.emfs_write = { ok: true, path: IMAGE_EMFS_PATH };
+    emit(`   ✓ Written to EMFS at ${IMAGE_EMFS_PATH}`, 'ok');
+    result.steps.emfs_write = { ok: true };
 
-    // 3 — Create vision-enabled conversation.
-    emit(`3. engine.createConversation({ sessionConfig: { visionModalityEnabled: true } }) …`, 'info');
-    const chat = await engine.createConversation({
-      sessionConfig: { visionModalityEnabled: true }
-    });
-    emit(`   ✓ Vision-enabled conversation created`, 'ok');
-    result.steps.conversation = { ok: true, visionModalityEnabled: true };
+    // 3 — MOVE 1 make-or-break: createConversation with visionModalityEnabled=true.
+    // Verbatim error captured to determine ACCEPT vs REJECT.
+    emit(`3. MOVE 1: engine.createConversation({ visionModalityEnabled: true }) …`, 'info');
+    let chat;
+    try {
+      chat = await engine.createConversation({
+        sessionConfig: { visionModalityEnabled: true }
+      });
+      emit(`   ✓ Conversation created with visionModalityEnabled=true`, 'ok');
+      result.steps.conversation = { ok: true, visionModalityEnabled: true };
+    } catch (convErr) {
+      result.visionVerdict = 'REJECT_AT_CONVERSATION';
+      result.visionRejectError = convErr.message;
+      result.visionRejectStack = convErr.stack?.split('\n').slice(0, 4).join('\n');
+      emit(`   ✗ REJECTED at createConversation: ${convErr.message}`, 'err');
+      result.steps.conversation = { ok: false, error: convErr.message };
+      throw convErr;
+    }
 
-    // 4 — Send image + text prompt.
-    emit(`4. chat.sendMessage(image + "Describe this image briefly.") …`, 'info');
+    // 4 — Send image + text prompt. REJECT here = projection layer missing.
+    emit(`4. chat.sendMessage(image + text) …`, 'info');
     const t2 = Date.now();
-    const response = await chat.sendMessage({
-      role: 'user',
-      content: [
-        { type: 'image', path: IMAGE_EMFS_PATH },
-        { type: 'text', text: 'Describe this image briefly in one sentence.' }
-      ]
-    });
-    sampleHeap();
-    const genSec = (Date.now() - t2) / 1000;
-    const text = typeof response === 'string' ? response
-      : (response?.content ? JSON.stringify(response.content) : JSON.stringify(response));
-    emit(`   ✓ Engine output: ${text.slice(0, 400)}`, 'ok');
-    emit(`   (${genSec.toFixed(1)}s)`, 'info');
-    result.steps.generate = { ok: true, output: text.slice(0, 400), sec: genSec };
+    let response;
+    try {
+      response = await chat.sendMessage({
+        role: 'user',
+        content: [
+          { type: 'image', path: IMAGE_EMFS_PATH },
+          { type: 'text', text: 'Describe this image briefly in one sentence.' }
+        ]
+      });
+      sampleHeap();
+      const genSec = (Date.now() - t2) / 1000;
+      const text = typeof response === 'string' ? response
+        : (response?.content ? JSON.stringify(response.content) : JSON.stringify(response));
+      emit(`   ✓ Engine output: ${text.slice(0, 400)}`, 'ok');
+      emit(`   (${genSec.toFixed(1)}s)`, 'info');
+      result.steps.generate = { ok: true, output: text.slice(0, 400), sec: genSec };
+      result.visionVerdict = 'ACCEPT';
+    } catch (genErr) {
+      result.visionVerdict = 'REJECT_AT_GENERATE';
+      result.visionRejectError = genErr.message;
+      result.visionRejectStack = genErr.stack?.split('\n').slice(0, 4).join('\n');
+      emit(`   ✗ REJECTED at sendMessage: ${genErr.message}`, 'err');
+      result.steps.generate = { ok: false, error: genErr.message };
+      throw genErr;
+    }
 
     await chat.delete();
     await engine.delete();
@@ -202,30 +218,21 @@ btn.addEventListener('click', async () => {
     result.ok = true;
     result.peakHeapMB = peakHeapMB;
     sampleHeap();
-    emit(`\n=== PASS: E4B MULTIMODAL — image prompt accepted, vision output produced ===\n`, 'ok');
+    emit(`\n=== PASS: MOVE 1 ACCEPT — text bundle ingests vision tokens ===`, 'ok');
     emit(`Peak WASM heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
-    emit(`Memory model: ${memModel.note}`, 'info');
-    emit(`WebGPU: ${gpuInfo.note}`, 'info');
 
   } catch (err) {
-    result.error = err.message;
-    result.errorStack = err.stack?.split('\n').slice(0, 6).join('\n') || '';
-    result.peakHeapMB = peakHeapMB;
-    emit(`\n✗ FAIL: ${err.message}`, 'err');
-    if (err.stack) emit(err.stack.split('\n').slice(0, 6).join('\n'), 'err');
-    emit(`Peak heap at failure: ${peakHeapMB.toFixed(1)} MB`, 'warn');
-    // Capture verbatim for terminal finding if vision is unimplemented
-    if (err.message.includes('VisionInferenceCalculator') ||
-        err.message.includes('vision') ||
-        err.message.includes('modality')) {
-      result.terminalFinding = {
-        verdict: 'RUNTIME_VISION_UNSUPPORTED',
-        error: err.message,
-        note: 'LiteRT-LM web WASM runtime does not support vision modality — terminal finding'
-      };
-      emit(`\nTerminal finding: web runtime cannot initialize vision calculator`, 'warn');
-      emit(`This requires user juncture on model size / architecture.`, 'warn');
+    if (!result.visionVerdict) {
+      result.error = err.message;
+      result.errorStack = err.stack?.split('\n').slice(0, 6).join('\n') || '';
     }
+    result.peakHeapMB = peakHeapMB;
+    if (!result.visionVerdict) {
+      emit(`\n✗ FAIL: ${err.message}`, 'err');
+      if (err.stack) emit(err.stack.split('\n').slice(0, 4).join('\n'), 'err');
+    }
+    emit(`Peak heap at failure: ${peakHeapMB.toFixed(1)} MB`, 'warn');
+    emit(`visionVerdict: ${result.visionVerdict || 'ERROR_BEFORE_PROBE'}`, 'warn');
   }
 
   clearInterval(heapIntervalId);
