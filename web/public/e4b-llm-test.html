@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — ORT-web gate (#19 v7)</title>
+<title>E4B — ORT-web gate (#19 v8)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 60vh; }
@@ -22,7 +22,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: ORT-web Browser Gate (MOVE 2)</h1>
+<h1>E4B: ORT-web Browser Gate (MOVE 2, v8)</h1>
 <p>
   Model: <code>onnx-community/gemma-4-E4B-it-ONNX</code> (q4f16, WebGPU)<br>
   Runtime: <code>@huggingface/transformers@4</code> | Vision: separate ONNX session
@@ -41,7 +41,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 <pre id="log">Click "Run MOVE 2 gate" to start.</pre>
 
 <script type="module">
-import { env, AutoProcessor, Gemma4ForConditionalGeneration, TextStreamer } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4/+esm';
+import { env, AutoProcessor, Gemma4ForConditionalGeneration, TextStreamer, RawImage } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4/+esm';
 
 env.allowRemoteModels = true;
 env.allowLocalModels = false;
@@ -108,7 +108,9 @@ function makeProgressCallback() {
   };
 }
 
-function makeTestImageBlob() {
+// Build test RawImage directly from canvas pixel data — avoids blob URL fetch path
+// that fails with "i.rgb is not a function" in transformers.js image preprocessor
+function makeTestRawImage() {
   const canvas = document.createElement('canvas');
   canvas.width = 128; canvas.height = 128;
   const ctx = canvas.getContext('2d');
@@ -118,7 +120,8 @@ function makeTestImageBlob() {
   ctx.beginPath();
   ctx.arc(64, 64, 40, 0, Math.PI * 2);
   ctx.fill();
-  return new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
+  const imageData = ctx.getImageData(0, 0, 128, 128);
+  return new RawImage(imageData.data, 128, 128, 4);
 }
 
 window.__e4bResult = null;
@@ -185,17 +188,18 @@ btn.addEventListener('click', async () => {
     emit(`   ✓ Model loaded in ${loadSec.toFixed(1)}s | peak JS heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     result.steps.model = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB };
 
-    emit('3. Generating test image (128×128 JPEG: blue #336699 bg + yellow #ffcc44 circle, r=40, center) …', 'info');
-    const blob = await makeTestImageBlob();
-    const imageUrl = URL.createObjectURL(blob);
-    emit(`   ✓ Test image: ${blob.size} bytes`, 'ok');
+    emit('3. Building test RawImage (128×128: blue #336699 bg + yellow #ffcc44 circle r=40) …', 'info');
+    const rawImage = makeTestRawImage();
+    emit(`   ✓ RawImage: ${rawImage.width}×${rawImage.height} (${rawImage.channels}ch RGBA)`, 'ok');
     result.steps.image = {
       ok: true,
-      bytes: blob.size,
-      content: '128×128 JPEG — blue #336699 background, yellow #ffcc44 filled circle centered at (64,64) radius 40',
+      width: rawImage.width,
+      height: rawImage.height,
+      channels: rawImage.channels,
+      content: '128×128 — blue #336699 background, yellow #ffcc44 filled circle centered at (64,64) radius 40',
     };
 
-    emit('4. processor() — tokenize + encode image …', 'info');
+    emit('4. processor() — apply_chat_template + encode image …', 'info');
     const messages = [
       {
         role: 'user',
@@ -209,8 +213,7 @@ btn.addEventListener('click', async () => {
       enable_thinking: false,
       add_generation_prompt: true,
     });
-    const inputs = await processor(prompt, imageUrl, { add_special_tokens: false });
-    URL.revokeObjectURL(imageUrl);
+    const inputs = await processor(prompt, rawImage, { add_special_tokens: false });
     sampleHeap();
     emit(`   ✓ Inputs prepared`, 'ok');
     result.steps.preprocess = { ok: true };
@@ -236,10 +239,8 @@ btn.addEventListener('click', async () => {
     const genSec = (Date.now() - t2) / 1000;
 
     if (!outputText) {
-      const decoded = processor.tokenizer.batch_decode(
-        await model.generate({ ...inputs, max_new_tokens: 200, do_sample: false }),
-        { skip_special_tokens: false }
-      );
+      const genOut = await model.generate({ ...inputs, max_new_tokens: 200, do_sample: false });
+      const decoded = processor.tokenizer.batch_decode(genOut, { skip_special_tokens: false });
       outputText = decoded[0] || '';
     }
 
