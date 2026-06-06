@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>E4B — LiteRT-LM browser load gate (#19)</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
+.ok   { color: #4f4; }
+.err  { color: #f44; }
+.info { color: #8be; }
+.warn { color: #fa4; }
+h2 { color: #8be; margin-top: 1.5rem; }
+button { background: #444; color: #eee; border: 1px solid #777; padding: 0.5rem 1rem;
+         cursor: pointer; font-family: monospace; font-size: 0.9rem; }
+button:hover { background: #555; }
+button:disabled { opacity: 0.5; cursor: default; }
+#heap-bar { width: 100%; height: 20px; background: #333; border-radius: 3px; margin: 0.5rem 0; }
+#heap-fill { height: 100%; background: #4f4; border-radius: 3px; transition: width 0.3s; width: 0%; }
+</style>
+</head>
+<body>
+<h1>E4B: LiteRT-LM Browser Load Gate</h1>
+<p>
+  Model: <code>model.litertlm</code> (Gemma-4-E4B-it, INT4, ~4.4 GB)<br>
+  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>CPU</code>
+</p>
+<button id="run">Run browser gate</button>
+
+<h2>WASM Heap</h2>
+<div id="heap-bar"><div id="heap-fill"></div></div>
+<pre id="heap-info">—</pre>
+
+<h2>Log</h2>
+<pre id="log">Click "Run browser gate" to start.</pre>
+
+<script type="module">
+import { Engine, Backend } from 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.13.1/+esm';
+
+const logEl    = document.getElementById('log');
+const heapInfo = document.getElementById('heap-info');
+const heapFill = document.getElementById('heap-fill');
+const btn      = document.getElementById('run');
+
+// Peak WASM heap tracking via performance.measureUserAgentSpecificMemory (Chrome)
+// or fallback to performance.memory (non-standard but available in CDP)
+let peakHeapMB = 0;
+let heapIntervalId = null;
+
+function sampleHeap() {
+  let mb = null;
+  if (performance.memory) {
+    mb = performance.memory.usedJSHeapSize / (1024 * 1024);
+  }
+  if (mb !== null && mb > peakHeapMB) {
+    peakHeapMB = mb;
+    const pct = Math.min(100, (mb / 8192) * 100); // 8 GB scale
+    heapFill.style.width = pct + '%';
+    heapInfo.textContent = `peak = ${peakHeapMB.toFixed(1)} MB  (current = ${mb.toFixed(1)} MB)`;
+  }
+}
+
+function emit(msg, cls = '') {
+  const ts = new Date().toISOString().slice(11, 23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// E4B bundle — GitHub Release assets (split into 3 × ~1.5 GB due to GitHub 2 GB limit)
+const PART_URLS = [
+  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-aa',
+  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-ab',
+  'https://github.com/wordingone/WEB-CAD/releases/download/v0-e4b-bundle/model.part-ac',
+];
+
+window.__e4bResult = null;
+
+btn.addEventListener('click', async () => {
+  btn.disabled = true;
+  logEl.innerHTML = '';
+  peakHeapMB = 0;
+  heapFill.style.width = '0%';
+  heapInfo.textContent = '—';
+  window.__e4bResult = null;
+
+  const result = { ok: false, steps: {}, peakHeapMB: null };
+
+  heapIntervalId = setInterval(sampleHeap, 500);
+
+  try {
+    // 1 — Fetch bundle parts sequentially and concatenate
+    emit(`1. Fetching E4B bundle (3 × ~1.5 GB parts) …`, 'info');
+    const t0 = Date.now();
+    const parts = [];
+    let totalBytes = 0;
+
+    for (let i = 0; i < PART_URLS.length; i++) {
+      const url = PART_URLS[i];
+      emit(`   part ${i + 1}/3: ${url.split('/').pop()} …`, 'info');
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} on ${url.split('/').pop()}`);
+      const contentLen = resp.headers.get('content-length');
+      const partTotal = contentLen ? parseInt(contentLen) : 0;
+      emit(`   ✓ ${resp.status}${partTotal ? ', ' + (partTotal / 1e9).toFixed(2) + ' GB' : ''}`, 'ok');
+
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let received = 0;
+      let lastLogMB = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        sampleHeap();
+        const mb = received / 1e6;
+        if (mb - lastLogMB > 256) {
+          const pct = partTotal ? ` (${((received / partTotal) * 100).toFixed(1)}%)` : '';
+          emit(`   … ${(totalBytes / 1e6 + mb).toFixed(0)} MB total${pct}`, 'info');
+          lastLogMB = mb;
+        }
+      }
+      const part = new Uint8Array(received);
+      let off = 0;
+      for (const c of chunks) { part.set(c, off); off += c.length; }
+      parts.push(part);
+      totalBytes += received;
+      emit(`   part ${i + 1}/3 done: ${received.toLocaleString()} bytes`, 'ok');
+    }
+
+    // Concatenate
+    emit(`   Concatenating ${(totalBytes / 1e9).toFixed(3)} GB …`, 'info');
+    const buf = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const p of parts) { buf.set(p, offset); offset += p.length; }
+    const fetchSec = (Date.now() - t0) / 1000;
+    emit(`   ✓ ${(totalBytes / 1e9).toFixed(3)} GB assembled in ${fetchSec.toFixed(1)}s`, 'ok');
+    result.steps.fetch = { ok: true, bytes: totalBytes, sec: fetchSec };
+
+    // 2 — Engine.create
+    sampleHeap();
+    emit('2. Engine.create (CPU backend) …', 'info');
+    emit('   (peak heap will rise sharply here)', 'info');
+    const t1 = Date.now();
+    const stream = new Response(buf).body;
+    const engine = await Engine.create({ model: stream, backend: Backend.CPU });
+    sampleHeap();
+    const loadSec = (Date.now() - t1) / 1000;
+    emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap so far: ${peakHeapMB.toFixed(1)} MB`, 'ok');
+    result.steps.engine = { ok: true, sec: loadSec };
+
+    // 3 — Conversation
+    emit('3. engine.createConversation …', 'info');
+    const chat = await engine.createConversation();
+    emit('   ✓ Conversation created', 'ok');
+    result.steps.conversation = { ok: true };
+
+    // 4 — Generate (short prompt to confirm engine output verbatim)
+    emit('4. chat.sendMessage("Hello. Respond with a single word.") …', 'info');
+    const t2 = Date.now();
+    const response = await chat.sendMessage('Hello. Respond with a single word.');
+    sampleHeap();
+    const genSec = (Date.now() - t2) / 1000;
+    const text = typeof response === 'string' ? response : JSON.stringify(response);
+    emit(`   ✓ Engine output: ${text.slice(0, 300)}`, 'ok');
+    emit(`   (${genSec.toFixed(1)}s)`, 'info');
+    result.steps.generate = { ok: true, output: text, sec: genSec };
+
+    await chat.delete();
+    await engine.delete();
+
+    result.ok = true;
+    result.peakHeapMB = peakHeapMB;
+    sampleHeap();
+    emit(`\n=== PASS: E4B loads AND generates in browser ===\n`, 'ok');
+    emit(`Peak WASM heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
+
+  } catch (err) {
+    result.error = err.message;
+    result.peakHeapMB = peakHeapMB;
+    emit(`\n✗ FAIL: ${err.message}`, 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0, 8).join('\n'), 'err');
+    emit(`Peak heap at failure: ${peakHeapMB.toFixed(1)} MB`, 'warn');
+  }
+
+  clearInterval(heapIntervalId);
+  window.__e4bResult = result;
+  console.log('__e4bResult', JSON.stringify(result, null, 2));
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
