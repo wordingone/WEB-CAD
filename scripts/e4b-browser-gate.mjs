@@ -52,8 +52,10 @@ async function main() {
 
   await send('Runtime.enable');
   await send('Page.enable');
+  await send('Network.enable');
+  await send('Network.clearBrowserCache');
 
-  console.log(`\nNavigating to ${PAGES_URL} ...`);
+  console.log(`\nNavigating to ${PAGES_URL} (cache cleared) ...`);
   await send('Page.navigate', { url: PAGES_URL });
 
   const loaded = await Promise.race([
