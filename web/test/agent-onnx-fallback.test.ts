@@ -7,12 +7,13 @@ function source(path: string): string {
 
 describe("Gemma ONNX fallback compatibility", () => {
   test("model worker does not attempt unsupported ONNX Q4 CPU/WASM fallback", () => {
-    const worker = source("agent/model-worker.ts");
+    // #591 P0: fallback guard lives in OnnxTransformersBackend, not the thin shell.
+    const backend = source("agent/onnx-transformers-backend.ts");
 
-    expect(worker).toContain("GatherBlockQuantized");
-    expect(worker).toContain("GEMMA_ONNX_CPU_UNSUPPORTED");
-    expect(worker).not.toContain('{ device: "cpu", dtype: "q4" }');
-    expect(worker).not.toContain("device: _wasmFallback ? \"cpu\" : \"auto\"");
+    expect(backend).toContain("GatherBlockQuantized");
+    expect(backend).toContain("GEMMA_ONNX_CPU_UNSUPPORTED");
+    expect(backend).not.toContain('{ device: "cpu", dtype: "q4" }');
+    expect(backend).not.toContain("device: _wasmFallback ? \"cpu\" : \"auto\"");
   });
 
   test("boot capability modal does not offer unavailable WASM fallback without GGUF config", () => {
