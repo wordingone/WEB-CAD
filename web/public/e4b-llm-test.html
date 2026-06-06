@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — LiteRT-LM browser load gate (#19 v2)</title>
+<title>E4B — LiteRT-LM browser load gate (#19 v3)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
@@ -20,16 +20,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: LiteRT-LM Browser Load Gate v2 (PLE-streaming solve)</h1>
+<h1>E4B: LiteRT-LM Browser Load Gate v3 (multimodal — image prompt)</h1>
 <p>
-  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, HuggingFace Hub — CORS-clean)<br>
-  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (default)<br>
-  PLE strategy: streamed off-heap automatically via GPU_ARTISAN ReadableStream path<br>
-  CORS: HuggingFace CDN (<code>Access-Control-Allow-Origin: *</code>)
-</p>
-<p class="warn">
-  v1 used CPU backend + 4.35GB litert-torch export → OOM (bundle > JS heap limit 4.09GB).<br>
-  v2 uses GPU_ARTISAN backend + official 2.97GB web bundle → streaming, no contiguous JS ArrayBuffer.
+  Model: <code>model.litertlm</code> (3.66 GB, full multimodal, HuggingFace Hub)<br>
+  Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (streaming)<br>
+  Vision: <code>SessionConfig.visionModalityEnabled=true</code> + image via EMFS<br>
+  Prompt: image + text → image-grounded output (E4B multimodal gate)
 </p>
 <button id="run">Run browser gate</button>
 
@@ -41,7 +37,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 <pre id="log">Click "Run browser gate" to start.</pre>
 
 <script type="module">
-import { Engine, Backend } from 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.13.1/+esm';
+import { Engine, Backend, getOrLoadGlobalLiteRtLm } from 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.13.1/+esm';
 
 const logEl    = document.getElementById('log');
 const heapInfo = document.getElementById('heap-info');
@@ -70,11 +66,14 @@ function emit(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// Web-optimized bundle — 2.97GB, explicitly built for browser memory constraints.
-// GPU_ARTISAN backend streams this incrementally: no 4.35GB contiguous ArrayBuffer needed.
-// PLE (Per-Layer Embeddings) stays off-heap automatically in the GPU_ARTISAN path.
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
-const BUNDLE_BYTES = 2969000000; // ~2.97 GB
+// Full multimodal bundle — includes vision encoder.
+// GPU_ARTISAN backend: weights streamed to WASM incrementally (no contiguous JS ArrayBuffer).
+// PLE off-heap automatically. Resident ≈ 3GB (text decoder + embedder + vision on-demand).
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/model.litertlm';
+
+// Test image — a small CORS-clean Wikimedia photo (ant macro shot, ~25KB JPEG)
+const IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/200px-Camponotus_flavomarginatus_ant.jpg';
+const IMAGE_EMFS_PATH = '/tmp/gate_test_image.jpg';
 
 window.__e4bResult = null;
 
@@ -121,43 +120,28 @@ btn.addEventListener('click', async () => {
   heapInfo.textContent = '—';
   window.__e4bResult = null;
 
-  const result = { ok: false, steps: {}, peakHeapMB: null, wasmMemoryModel: null, webgpu: null };
+  const result = {
+    ok: false, steps: {}, peakHeapMB: null,
+    wasmMemoryModel: null, webgpu: null
+  };
 
-  // Probe memory model
   const memModel = await detectWasmMemoryModel();
   result.wasmMemoryModel = memModel;
   emit(`Memory model: ${memModel.note}`, memModel.memory64Supported ? 'ok' : 'warn');
   if (memModel.jsHeapLimitNote) emit(`  ${memModel.jsHeapLimitNote}`, 'info');
 
-  // Probe WebGPU (required for GPU_ARTISAN streaming path)
   const gpuInfo = await detectWebGPU();
   result.webgpu = gpuInfo;
   emit(`WebGPU: ${gpuInfo.note}`, gpuInfo.available ? 'ok' : 'warn');
-  if (!gpuInfo.available) {
-    emit(`  WARNING: GPU_ARTISAN backend requires WebGPU. Will attempt anyway (may fall back).`, 'warn');
-  }
-
-  // Informational ArrayBuffer probe for 2.97 GB (GPU_ARTISAN streams so shouldn't need it)
-  emit(`Info: probing ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) — GPU_ARTISAN path streams, avoids this …`, 'info');
-  try {
-    const probe = new ArrayBuffer(BUNDLE_BYTES);
-    emit(`  ✓ ArrayBuffer(${(probe.byteLength/1e9).toFixed(2)} GB) fits in JS heap`, 'ok');
-    result.steps.arraybuffer_probe = { ok: true, bytes: probe.byteLength };
-  } catch (e) {
-    const msg = e.message || String(e);
-    emit(`  ✗ ArrayBuffer(${(BUNDLE_BYTES/1e9).toFixed(2)} GB) would OOM in JS heap — streaming path bypasses this`, 'warn');
-    result.steps.arraybuffer_probe = { ok: false, error: msg, note: 'GPU_ARTISAN streaming avoids contiguous allocation' };
-  }
 
   heapIntervalId = setInterval(sampleHeap, 500);
 
   try {
-    // Engine.create with URL string — GPU_ARTISAN default backend.
-    // The runtime fetches MODEL_URL internally as a ReadableStream and feeds WASM incrementally.
-    // PLE stays off-heap automatically. No 4.35GB contiguous JS ArrayBuffer.
-    emit(`1. Engine.create({ model: HF_URL }) — GPU_ARTISAN streaming …`, 'info');
+    // 1 — Load full multimodal bundle via GPU_ARTISAN streaming.
+    // GPU_ARTISAN is the default when backend is omitted.
+    emit(`1. Engine.create — full multimodal model.litertlm (3.66 GB, GPU_ARTISAN) …`, 'info');
     emit(`   URL: ${MODEL_URL}`, 'info');
-    emit(`   (download + WASM init may take several minutes — 2.97 GB over network)`, 'info');
+    emit(`   (stream download + WASM init — may take several minutes)`, 'info');
     const t1 = Date.now();
     sampleHeap();
 
@@ -165,25 +149,51 @@ btn.addEventListener('click', async () => {
 
     sampleHeap();
     const loadSec = (Date.now() - t1) / 1000;
-    emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap so far: ${peakHeapMB.toFixed(1)} MB`, 'ok');
-    result.steps.engine = { ok: true, sec: loadSec };
+    emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
+    result.steps.engine = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB };
 
-    // 2 — Conversation
-    emit('2. engine.createConversation …', 'info');
-    const chat = await engine.createConversation();
-    emit('   ✓ Conversation created', 'ok');
-    result.steps.conversation = { ok: true };
+    // 2 — Fetch test image and write to Emscripten virtual filesystem.
+    // getOrLoadGlobalLiteRtLm() returns the same WASM module the engine loaded.
+    emit(`2. Fetching test image …`, 'info');
+    emit(`   URL: ${IMAGE_URL}`, 'info');
+    const imgResp = await fetch(IMAGE_URL);
+    if (!imgResp.ok) throw new Error(`Image fetch HTTP ${imgResp.status}`);
+    const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+    emit(`   ✓ Image fetched: ${imgBytes.byteLength.toLocaleString()} bytes`, 'ok');
+    result.steps.image_fetch = { ok: true, bytes: imgBytes.byteLength };
 
-    // 3 — Generate
-    emit('3. chat.sendMessage("Hello. Respond with a single word.") …', 'info');
+    // Write image to EMFS so the WASM layer can access it by path.
+    emit(`   Writing image to EMFS at ${IMAGE_EMFS_PATH} …`, 'info');
+    const litert = await getOrLoadGlobalLiteRtLm();
+    litert.liteRtLmWasm.FS.writeFile(IMAGE_EMFS_PATH, imgBytes);
+    emit(`   ✓ Image written to EMFS`, 'ok');
+    result.steps.emfs_write = { ok: true, path: IMAGE_EMFS_PATH };
+
+    // 3 — Create vision-enabled conversation.
+    emit(`3. engine.createConversation({ sessionConfig: { visionModalityEnabled: true } }) …`, 'info');
+    const chat = await engine.createConversation({
+      sessionConfig: { visionModalityEnabled: true }
+    });
+    emit(`   ✓ Vision-enabled conversation created`, 'ok');
+    result.steps.conversation = { ok: true, visionModalityEnabled: true };
+
+    // 4 — Send image + text prompt.
+    emit(`4. chat.sendMessage(image + "Describe this image briefly.") …`, 'info');
     const t2 = Date.now();
-    const response = await chat.sendMessage('Hello. Respond with a single word.');
+    const response = await chat.sendMessage({
+      role: 'user',
+      content: [
+        { type: 'image', path: IMAGE_EMFS_PATH },
+        { type: 'text', text: 'Describe this image briefly in one sentence.' }
+      ]
+    });
     sampleHeap();
     const genSec = (Date.now() - t2) / 1000;
-    const text = typeof response === 'string' ? response : JSON.stringify(response);
-    emit(`   ✓ Engine output: ${text.slice(0, 300)}`, 'ok');
+    const text = typeof response === 'string' ? response
+      : (response?.content ? JSON.stringify(response.content) : JSON.stringify(response));
+    emit(`   ✓ Engine output: ${text.slice(0, 400)}`, 'ok');
     emit(`   (${genSec.toFixed(1)}s)`, 'info');
-    result.steps.generate = { ok: true, output: text, sec: genSec };
+    result.steps.generate = { ok: true, output: text.slice(0, 400), sec: genSec };
 
     await chat.delete();
     await engine.delete();
@@ -191,17 +201,30 @@ btn.addEventListener('click', async () => {
     result.ok = true;
     result.peakHeapMB = peakHeapMB;
     sampleHeap();
-    emit(`\n=== PASS: E4B loads AND generates via GPU_ARTISAN streaming ===\n`, 'ok');
+    emit(`\n=== PASS: E4B MULTIMODAL — image prompt accepted, vision output produced ===\n`, 'ok');
     emit(`Peak WASM heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     emit(`Memory model: ${memModel.note}`, 'info');
     emit(`WebGPU: ${gpuInfo.note}`, 'info');
 
   } catch (err) {
     result.error = err.message;
+    result.errorStack = err.stack?.split('\n').slice(0, 6).join('\n') || '';
     result.peakHeapMB = peakHeapMB;
     emit(`\n✗ FAIL: ${err.message}`, 'err');
-    if (err.stack) emit(err.stack.split('\n').slice(0, 8).join('\n'), 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0, 6).join('\n'), 'err');
     emit(`Peak heap at failure: ${peakHeapMB.toFixed(1)} MB`, 'warn');
+    // Capture verbatim for terminal finding if vision is unimplemented
+    if (err.message.includes('VisionInferenceCalculator') ||
+        err.message.includes('vision') ||
+        err.message.includes('modality')) {
+      result.terminalFinding = {
+        verdict: 'RUNTIME_VISION_UNSUPPORTED',
+        error: err.message,
+        note: 'LiteRT-LM web WASM runtime does not support vision modality — terminal finding'
+      };
+      emit(`\nTerminal finding: web runtime cannot initialize vision calculator`, 'warn');
+      emit(`This requires user juncture on model size / architecture.`, 'warn');
+    }
   }
 
   clearInterval(heapIntervalId);
