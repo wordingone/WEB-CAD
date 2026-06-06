@@ -224,12 +224,15 @@ struct CylinderInfo {
 /// `dotTol` = max |normal·axis| accepted (0.15 tolerates faceting noise).
 static bool tryGetCylinder(const NurbsSurface& surf, CylinderInfo& out,
                            double dotTol = 0.15) {
-    Vec3 n0 = surf.normalAt(0.1, 0.5).normalized();
-    Vec3 n2 = surf.normalAt(0.7, 0.5).normalized();
+    // For RevSurface barrels (U=height, V=angular), vary V to get distinct radial normals.
+    // Fallback tries U-variation for transposed or non-standard orientations.
+    Vec3 n0 = surf.normalAt(0.5, 0.1).normalized();
+    Vec3 n2 = surf.normalAt(0.5, 0.7).normalized();
     Vec3 axis = n0.cross(n2);
     if (axis.norm() < 1e-6) {
-        Vec3 n1 = surf.normalAt(0.4, 0.5).normalized();
-        axis = n0.cross(n1);
+        Vec3 n0u = surf.normalAt(0.1, 0.5).normalized();
+        Vec3 n2u = surf.normalAt(0.7, 0.5).normalized();
+        axis = n0u.cross(n2u);
         if (axis.norm() < 1e-6) return false;
     }
     axis.normalize();
@@ -242,12 +245,13 @@ static bool tryGetCylinder(const NurbsSurface& surf, CylinderInfo& out,
         }
     }
 
-    // Centroid of 8 evenly-spaced surface points at mid-V → axis point + radius.
+    // 8 evenly-spaced points around the circle at mid-height → axis point + radius.
+    // Vary V (angular) at fixed U=0.5 (mid-height) to sample a full circle cross-section.
     const int K = 8;
     Vec3 sum = Vec3::Zero();
     std::vector<Vec3> pts(K);
     for (int k = 0; k < K; ++k) {
-        pts[k] = surf.evaluate(k / double(K), 0.5);
+        pts[k] = surf.evaluate(0.5, k / double(K));
         sum += pts[k];
     }
     out.axisPoint = sum / K;
