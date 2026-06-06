@@ -10,7 +10,7 @@
 
 const PAGES_URL  = 'https://wordingone.github.io/WEB-CAD/e4b-llm-test.html';
 const CDP_HOST   = 'localhost:9222';
-const TIMEOUT_MS = 30 * 60 * 1000;  // 30 min: 4.4 GB download + engine init
+const TIMEOUT_MS = 45 * 60 * 1000;  // 45 min: 2.97 GB HF download + GPU_ARTISAN init
 
 async function cdpGet(path) {
   const r = await fetch(`http://${CDP_HOST}${path}`);
