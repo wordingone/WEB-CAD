@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>E4B — LiteRT-LM browser load gate (#19 v5)</title>
+<title>E4B — LiteRT-LM browser load gate (#19 v6)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.85rem; white-space: pre-wrap; max-height: 70vh; }
@@ -20,12 +20,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
-<h1>E4B: LiteRT-LM Browser Load Gate v5 (MOVE 1 — text bundle + vision probe)</h1>
+<h1>E4B: LiteRT-LM Browser Load Gate v6 (MOVE 1 — text bundle + vision probe)</h1>
 <p>
-  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, text-only web bundle, confirmed loads)<br>
+  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, text-only web bundle)<br>
   Runtime: <code>@litert-lm/core@0.13.1</code> | Backend: <code>GPU_ARTISAN</code> (streaming)<br>
-  MOVE 1: <code>visionModalityEnabled=true</code> + image via EMFS — does text bundle accept vision tokens?<br>
-  Binary answer: ACCEPT (projection layer present) vs REJECT (no projection path in web export)
+  Image: canvas-generated 128×128 JPEG (no external fetch — v5 Wikimedia got HTTP 400)<br>
+  MOVE 1: does text bundle accept <code>visionModalityEnabled=true</code> + image content?
 </p>
 <button id="run">Run browser gate</button>
 
@@ -49,9 +49,7 @@ let heapIntervalId = null;
 
 function sampleHeap() {
   let mb = null;
-  if (performance.memory) {
-    mb = performance.memory.usedJSHeapSize / (1024 * 1024);
-  }
+  if (performance.memory) mb = performance.memory.usedJSHeapSize / (1024 * 1024);
   if (mb !== null && mb > peakHeapMB) {
     peakHeapMB = mb;
     const pct = Math.min(100, (mb / 8192) * 100);
@@ -66,12 +64,26 @@ function emit(msg, cls = '') {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-// Text-only web bundle — confirmed loads via GPU_ARTISAN (PR #572).
-// MOVE 1: probe whether this bundle's session can ingest vision tokens.
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
+function makeTestImageBytes() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#336699';
+  ctx.fillRect(0, 0, 128, 128);
+  ctx.fillStyle = '#ffcc44';
+  ctx.beginPath();
+  ctx.arc(64, 64, 40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('E4B test', 64, 68);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  const b64 = dataUrl.split(',')[1];
+  return new Uint8Array(atob(b64).split('').map(c => c.charCodeAt(0)));
+}
 
-// Test image — small CORS-clean Wikimedia photo (~25KB JPEG)
-const IMAGE_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/Camponotus_flavomarginatus_ant.jpg/200px-Camponotus_flavomarginatus_ant.jpg';
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
 const IMAGE_EMFS_PATH = '/tmp/gate_test_image.jpg';
 
 window.__e4bResult = null;
@@ -79,18 +91,15 @@ window.__e4bResult = null;
 async function detectWasmMemoryModel() {
   const info = { memory64Supported: false, maxHeapGB: 4, note: '' };
   try {
-    const m64bytes = new Uint8Array([
+    await WebAssembly.instantiate(new Uint8Array([
       0x00,0x61,0x73,0x6d, 0x01,0x00,0x00,0x00,
       0x05,0x04, 0x01,0x04,0x00,0x00,
-    ]);
-    await WebAssembly.instantiate(m64bytes);
-    info.memory64Supported = true;
-    info.maxHeapGB = null;
-    info.note = 'memory64 available — no 4 GB linear-memory cap (Chrome 133+)';
+    ]));
+    info.memory64Supported = true; info.maxHeapGB = null;
+    info.note = 'memory64 available — no 4 GB cap';
   } catch {
-    info.memory64Supported = false;
-    info.maxHeapGB = 4;
-    info.note = '32-bit WASM only — 4 GB linear-memory ceiling applies';
+    info.memory64Supported = false; info.maxHeapGB = 4;
+    info.note = '32-bit WASM only — 4 GB ceiling';
   }
   if (performance.memory) {
     info.jsHeapLimitGB = performance.memory.jsHeapSizeLimit / (1024 * 1024 * 1024);
@@ -104,8 +113,7 @@ async function detectWebGPU() {
   try {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) return { available: false, note: 'No WebGPU adapter' };
-    const label = adapter.label || (adapter.info?.description) || 'adapter found';
-    return { available: true, note: `WebGPU OK — ${label}` };
+    return { available: true, note: `WebGPU OK — ${adapter.label || 'adapter found'}` };
   } catch (e) {
     return { available: false, note: `WebGPU probe error: ${e.message}` };
   }
@@ -138,42 +146,31 @@ btn.addEventListener('click', async () => {
   heapIntervalId = setInterval(sampleHeap, 500);
 
   try {
-    // 1 — Load text-only web bundle via GPU_ARTISAN (confirmed path from PR #572).
-    emit(`1. Engine.create — text bundle gemma-4-E4B-it-web.litertlm (2.97 GB, GPU_ARTISAN) …`, 'info');
-    emit(`   URL: ${MODEL_URL}`, 'info');
+    emit(`1. Engine.create — gemma-4-E4B-it-web.litertlm (2.97 GB, GPU_ARTISAN) …`, 'info');
     const t1 = Date.now();
     sampleHeap();
-
     const engine = await Engine.create({ model: MODEL_URL });
-
     sampleHeap();
     const loadSec = (Date.now() - t1) / 1000;
     emit(`   ✓ Engine ready in ${loadSec.toFixed(1)}s | peak heap: ${peakHeapMB.toFixed(1)} MB`, 'ok');
     result.steps.engine = { ok: true, sec: loadSec, peakHeapMBAtLoad: peakHeapMB };
 
-    // 2 — Fetch test image and write to EMFS.
-    emit(`2. Fetching test image …`, 'info');
-    const imgResp = await fetch(IMAGE_URL);
-    if (!imgResp.ok) throw new Error(`Image fetch HTTP ${imgResp.status}`);
-    const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+    emit(`2. Generating test image via canvas (128×128 JPEG) …`, 'info');
+    const imgBytes = makeTestImageBytes();
     emit(`   ✓ Image: ${imgBytes.byteLength.toLocaleString()} bytes`, 'ok');
-    result.steps.image_fetch = { ok: true, bytes: imgBytes.byteLength };
+    result.steps.image_gen = { ok: true, bytes: imgBytes.byteLength };
 
     const litert = await getOrLoadGlobalLiteRtLm();
     litert.liteRtLmWasm.FS.writeFile(IMAGE_EMFS_PATH, imgBytes);
     emit(`   ✓ Written to EMFS at ${IMAGE_EMFS_PATH}`, 'ok');
     result.steps.emfs_write = { ok: true };
 
-    // 3 — MOVE 1 make-or-break: createConversation with visionModalityEnabled=true.
-    // Verbatim error captured to determine ACCEPT vs REJECT.
     emit(`3. MOVE 1: engine.createConversation({ visionModalityEnabled: true }) …`, 'info');
     let chat;
     try {
-      chat = await engine.createConversation({
-        sessionConfig: { visionModalityEnabled: true }
-      });
-      emit(`   ✓ Conversation created with visionModalityEnabled=true`, 'ok');
-      result.steps.conversation = { ok: true, visionModalityEnabled: true };
+      chat = await engine.createConversation({ sessionConfig: { visionModalityEnabled: true } });
+      emit(`   ✓ Vision conversation created`, 'ok');
+      result.steps.conversation = { ok: true };
     } catch (convErr) {
       result.visionVerdict = 'REJECT_AT_CONVERSATION';
       result.visionRejectError = convErr.message;
@@ -183,12 +180,10 @@ btn.addEventListener('click', async () => {
       throw convErr;
     }
 
-    // 4 — Send image + text prompt. REJECT here = projection layer missing.
-    emit(`4. chat.sendMessage(image + text) …`, 'info');
+    emit(`4. chat.sendMessage({ image + text }) …`, 'info');
     const t2 = Date.now();
-    let response;
     try {
-      response = await chat.sendMessage({
+      const response = await chat.sendMessage({
         role: 'user',
         content: [
           { type: 'image', path: IMAGE_EMFS_PATH },
@@ -214,7 +209,6 @@ btn.addEventListener('click', async () => {
 
     await chat.delete();
     await engine.delete();
-
     result.ok = true;
     result.peakHeapMB = peakHeapMB;
     sampleHeap();
@@ -225,13 +219,11 @@ btn.addEventListener('click', async () => {
     if (!result.visionVerdict) {
       result.error = err.message;
       result.errorStack = err.stack?.split('\n').slice(0, 6).join('\n') || '';
-    }
-    result.peakHeapMB = peakHeapMB;
-    if (!result.visionVerdict) {
       emit(`\n✗ FAIL: ${err.message}`, 'err');
       if (err.stack) emit(err.stack.split('\n').slice(0, 4).join('\n'), 'err');
     }
-    emit(`Peak heap at failure: ${peakHeapMB.toFixed(1)} MB`, 'warn');
+    result.peakHeapMB = peakHeapMB;
+    emit(`Peak heap: ${peakHeapMB.toFixed(1)} MB`, 'warn');
     emit(`visionVerdict: ${result.visionVerdict || 'ERROR_BEFORE_PROBE'}`, 'warn');
   }
 
