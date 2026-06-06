@@ -35,6 +35,9 @@ pip install litert-lm-builder==0.13.0
 
 # Tokenizer
 pip install sentencepiece==0.2.1
+
+# Required for multimodal export (AutoImageProcessor)
+pip install torchvision --index-url https://download.pytorch.org/whl/cu130
 ```
 
 **Import names:**
