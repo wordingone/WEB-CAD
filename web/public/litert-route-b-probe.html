@@ -32,8 +32,8 @@ function emit(msg, cls = '') {
 }
 </script>
 
-<!-- CDN WASM compat — same as vision gate -->
-<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_compat_internal.js"></script>
+<!-- Try non-compat WASM build: litertlm_wasm_internal.js (~17.99MB vs 17.95MB compat) -->
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_internal.js"></script>
 
 <script>
 const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
