@@ -10,10 +10,10 @@
 //   nurbs-ts   : drawRectangle, drawCircle, drawLine, drawPolyline, makeBox, makeCylinder
 //   nurbs-webgpu (planned): nurbsSurface, nurbsCurve, revolve, sweep
 //
-// NOTE: this module's executeOp() is currently unused — detail.kernel is
-// threaded through dispatch events (dispatch.ts:497) but consumed at zero
-// read-sites. The table is kept for documentation; wiring executeOp() into
-// actual dispatch is tracked as a follow-up to #530.
+// NOTE: this module's executeOp() is currently unused. detail.kernel was
+// removed from dispatch events (#532 dead-data cleanup — zero read-sites).
+// KERNEL_TABLE is kept for documentation of actual routing; wiring executeOp()
+// into dispatch is deferred (#530).
 
 import {
   NurbsKernel,
