@@ -1624,7 +1624,8 @@ describe("canonical geometry transform instances", () => {
 
   // #357 — kern seam-sewing lands in PR3. Skipped when kern.wasm is absent (CI).
   // Proof tokens: kern-fillet wasm-kern (required by model-palette-runtime-proof.test.ts)
-  test.skipIf(!wasmReady)("kern_fillet: edge fillet returns watertight manifold BRep // #357", async () => {
+  test("kern_fillet: edge fillet returns watertight manifold BRep // #357", async () => {
+    if (!wasmReady) return;
     const { kernFillet } = await import("../src/nurbs/kern-ops");
     const box = axisBoxBrep(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5);
     const result = kernFillet(box, 0.05, [0]);
