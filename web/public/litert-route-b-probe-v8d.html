@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiteRT Probe v8d — full E4B bundle (tf_lite_prefill_decode) text smoke</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 75vh; }
+.ok{color:#4f4}.err{color:#f44}.info{color:#8be}.warn{color:#fa4}
+h2{color:#8be;margin-top:1.2rem}
+</style>
+</head>
+<body>
+<h1>LiteRT Probe v8d — full E4B bundle text smoke</h1>
+<p>
+  Full bundle: <code>gemma-4-E4B-it.litertlm</code> (3.66 GB, vision+audio+MTP sections).<br>
+  Fixes v8c bugs: BigInt offsets from WASM now use <code>Number()</code> not unary <code>+</code>;
+  each backend attempt uses a fresh <code>fetch()</code> to avoid stream-lock on retry.<br>
+  Tries Backend.GPU first; if Engine.createStreaming fails, retries Backend.GPU_ARTISAN.
+</p>
+<h2>Log</h2>
+<pre id="log">Starting...</pre>
+
+<script>
+const logEl = document.getElementById('log');
+function emit(msg, cls='') {
+  const ts = new Date().toISOString().slice(11,23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_internal.js"></script>
+
+<script>
+const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
+
+// ── ReadableStreamDataStreamWrapper (BigInt-safe) ─────────────────────────────
+
+class Slice {
+  constructor(size) {
+    this.size = size; this.data = null;
+    this.fullyDiscarded = false; this.discardedRegions = [];
+  }
+  discard(s, e) {
+    if (this.fullyDiscarded) return;
+    this.discardedRegions.push([s, e]);
+    this.discardedRegions.sort((a,b) => a[0]-b[0]);
+    const m = [];
+    for (const r of this.discardedRegions) {
+      const l = m[m.length-1];
+      if (!l || l[1] < r[0]) m.push([r[0], r[1]]); else l[1] = Math.max(l[1], r[1]);
+    }
+    this.discardedRegions = m;
+    if (m.length===1 && m[0][0]===0 && m[0][1]===this.size) {
+      this.fullyDiscarded = true; this.data = undefined;
+    }
+  }
+  hasDiscard(s, e) { return this.discardedRegions.some(([a,b]) => a<e && b>s); }
+}
+
+class ReadableStreamDataStreamWrapper {
+  constructor(stream, getWasmHeap, bps = 10_000_000) {
+    this.getWasmHeap = getWasmHeap; this.bps = bps;
+    this.slices = []; this.streamDone = false; this.globalPos = 0;
+    this.leftover = undefined; this.reading = false;
+    try { this.byobR = stream.getReader({mode:'byob'}); }
+    catch { this.defR = stream.getReader(); }
+  }
+
+  *getViews(start, end) {
+    if (start >= end) return;
+    let scratch, prev, pos = start;
+    while (pos < end) {
+      const si = Math.floor(pos / this.bps);
+      const sp = pos % this.bps;
+      const sliceStart = si * this.bps;
+      let sl = this.slices[si];
+      if (!sl) {
+        if (!prev || !prev.fullyDiscarded) scratch = new Uint8Array(this.bps);
+        sl = new Slice(this.bps); sl.data = scratch; this.slices[si] = sl;
+      }
+      const ve = Math.min(this.bps, end - sliceStart);
+      const vl = ve - sp;
+      const cs = sl, csp = sp, cve = ve;
+      yield {
+        getView: () => new Uint8Array(cs.data.buffer, cs.data.byteOffset + csp, vl),
+        discardView: () => cs.discard(csp, cve),
+        setView: v => { cs.data = new Uint8Array(v.buffer, 0, v.buffer.byteLength); scratch = cs.data; },
+      };
+      prev = sl; pos += vl;
+    }
+  }
+
+  async fillBuf(buf) {
+    const bl = buf.byteLength; if (!bl) return buf;
+    let br = 0, ab = buf.buffer; const bo = buf.byteOffset;
+    while (br < bl) {
+      if (this.streamDone && (!this.leftover || !this.leftover.length))
+        throw new Error(`EOF at ${this.globalPos}`);
+      if (this.byobR) {
+        const v = new Uint8Array(ab, bo + br, bl - br);
+        const r = await this.byobR.read(v);
+        if (r.done) this.streamDone = true;
+        if (!r.value) throw new Error('null value from BYOB reader');
+        this.globalPos += r.value.byteLength; br += r.value.byteLength; ab = r.value.buffer;
+      } else {
+        let c;
+        if (this.leftover && this.leftover.length) { c = this.leftover; this.leftover = undefined; }
+        else {
+          const r = await this.defR.read();
+          if (r.done) { this.streamDone = true; if (!r.value) continue; }
+          if (!r.value) throw new Error('null value from default reader');
+          c = r.value;
+        }
+        const need = bl - br, cp = Math.min(c.length, need);
+        new Uint8Array(ab, bo + br, cp).set(c.subarray(0, cp));
+        if (c.length > cp) this.leftover = c.subarray(cp);
+        this.globalPos += cp; br += cp;
+      }
+    }
+    return new Uint8Array(ab, bo, br);
+  }
+
+  async readInternal(dest, off, cnt, discard) {
+    if (this.reading) throw new Error('concurrent read');
+    this.reading = true;
+    try {
+      for (const {getView, setView} of this.getViews(this.globalPos, off)) {
+        const nv = await this.fillBuf(getView()); setView(nv); if (!nv.length) break;
+      }
+      const ec = Math.min(this.globalPos, off + cnt); let d = dest;
+      for (const {getView, discardView} of this.getViews(off, ec)) {
+        const v = getView(); this.getWasmHeap().set(v, d); if (discard) discardView(); d += v.length;
+      }
+      const su = Math.max(ec, off);
+      for (const {getView, setView, discardView} of this.getViews(su, off + cnt)) {
+        if (this.streamDone && this.globalPos <= su) break;
+        const nv = await this.fillBuf(getView()); setView(nv);
+        this.getWasmHeap().set(nv, d); if (discard) discardView(); d += nv.length;
+      }
+    } finally { this.reading = false; }
+  }
+
+  // WASM may pass BigInt for large file offsets — use Number() not unary + (which throws on BigInt)
+  async readAndDiscard(da, o, c) {
+    try { await this.readInternal(da >>> 0, Number(o), Number(c), true); return {}; }
+    catch (e) { return {error: e}; }
+  }
+  async readAndPreserve(da, o, c) {
+    try { await this.readInternal(da >>> 0, Number(o), Number(c), false); return {}; }
+    catch (e) { return {error: e}; }
+  }
+  async discard(o, c) {
+    try {
+      const start = Number(o), end = Number(o) + Number(c);
+      for (const {discardView} of this.getViews(start, end)) discardView();
+      return {};
+    } catch (e) { return {error: e}; }
+  }
+}
+
+// ── Per-attempt probe (separate fetch each time) ──────────────────────────────
+
+async function attemptTextInference(m, backendEnum, backendName) {
+  emit(`--- attempt: ${backendName} ---`, 'info');
+
+  emit(`  fetch (fresh stream)...`, 'info');
+  const resp = await fetch(MODEL_URL);
+  if (!resp.ok) throw new Error(`fetch ${resp.status}`);
+  const total = parseInt(resp.headers.get('content-length') || '0', 10);
+  emit(`  content-length: ${(total/1e9).toFixed(2)} GB`, 'info');
+
+  const wrapper = new ReadableStreamDataStreamWrapper(resp.body, () => m.HEAPU8);
+  const dataStream = m.ReadableStreamDataStream.create(wrapper);
+  const modelAssets = m.ModelAssets.createStreaming(dataStream);
+
+  const settings = m.EngineSettings.createDefault(modelAssets, backendEnum);
+  settings.setParallelFileSectionLoading(false);
+  settings.setSingleThreadedExecution(true);
+
+  emit(`  Engine.createStreaming(${backendName})...`, 'info');
+  const engine = await m.Engine.createStreaming(settings, '');
+  dataStream.delete();
+  emit('  ✓ Engine created', 'ok');
+
+  const sessionConfig = m.SessionConfig.createDefault();
+  sessionConfig.setVisionModalityEnabled(false);
+  const convConfig = m.ConversationConfig.createCustom(engine, sessionConfig, false, false, false, '');
+  emit('  Conversation.create...', 'info');
+  const conv = await m.Conversation.create(engine, convConfig);
+  emit('  ✓ Conversation ready', 'ok');
+
+  emit('  sendMessage("Reply with one word: hello")...', 'info');
+  const rs = await conv.sendMessage(
+    JSON.stringify({role:'user', content:[{type:'text', text:'Reply with one word: hello'}]})
+  );
+  let text;
+  try { const r = JSON.parse(rs); text = Array.isArray(r?.content) ? r.content.map(c=>c.text||'').join('') : String(r); }
+  catch { text = String(rs); }
+  return {text, backend: backendName};
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+window.addEventListener('load', async () => {
+  emit('=== LiteRT Probe v8d — full E4B bundle (3.66GB) text smoke ===', 'info');
+  const wasmLog = [];
+  let m;
+
+  try {
+    emit('1. ModuleFactory (CDN WASM 0.12.1)...', 'info');
+    m = await ModuleFactory({
+      locateFile: p => `${CDN_WASM_BASE}/${p}`,
+      print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
+      printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
+    });
+    if (m.setupLogging) m.setupLogging();
+    emit('   ✓ WASM ready', 'ok');
+
+    emit('2. WebGPU device...', 'info');
+    if (!navigator.gpu) throw new Error('no navigator.gpu');
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new Error('no WebGPU adapter');
+    const device = await adapter.requestDevice();
+    m.preinitializedWebGPUDevice = device;
+    emit('   ✓ WebGPU ready', 'ok');
+
+    // Backend.GPU — natural for tf_lite_prefill_decode (standard path)
+    let result = null, gpuError = null;
+    try {
+      result = await attemptTextInference(m, m.Backend.GPU, 'Backend.GPU');
+    } catch (e) {
+      gpuError = e;
+      emit(`  GPU failed (${e.message.slice(0,120)}) — retrying GPU_ARTISAN with fresh fetch`, 'warn');
+      result = await attemptTextInference(m, m.Backend.GPU_ARTISAN, 'Backend.GPU_ARTISAN');
+    }
+
+    emit(`\n   response (${result.backend}): "${result.text.slice(0,300)}"`, 'ok');
+    emit('\n=== VERDICT: FULL_BUNDLE_TEXT_PASS ===', 'ok');
+    window.__routeBResult = {ok:true, verdict:'FULL_BUNDLE_TEXT_PASS', backend:result.backend, responseText:result.text, gpuError:gpuError?.message, wasmLog};
+
+  } catch (err) {
+    const msg = err.message || String(err);
+    emit(`\n✗ ${msg}`, 'err');
+    const isAbort   = /Aborted/i.test(msg);
+    const isMissing = /No TFLite model|missing section|Failed to.*encoder|Failed to.*adapter/i.test(msg);
+    const isBackend = /Unsupported backend/i.test(msg);
+    const verdict   = isAbort ? 'WASM_ABORT' : isMissing ? 'SECTION_MISSING' : isBackend ? 'BACKEND_UNSUPPORTED' : 'FULL_BUNDLE_TEXT_FAIL';
+    emit(`\n=== VERDICT: ${verdict} ===`, 'err');
+    wasmLog.filter(l=>l.s==='err').slice(-20).forEach(l => emit(`  ${l.t}`, 'warn'));
+    window.__routeBResult = {ok:false, verdict, error:msg, wasmLog};
+  }
+  console.log('__routeBResult', JSON.stringify(window.__routeBResult, null, 2));
+});
+</script>
+</body>
+</html>
