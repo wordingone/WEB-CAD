@@ -54,6 +54,10 @@ static Eigen::Vector4d deBoor(const std::vector<double>& knots,
 // allocations in the hot findSeedsRec path.
 static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
     constexpr int kMaxDeg = 7;
+    if (s.degreeU > kMaxDeg || s.degreeV > kMaxDeg)
+        throw std::runtime_error(
+            "degree " + std::to_string(std::max(s.degreeU, s.degreeV)) +
+            " exceeds kMaxDeg=" + std::to_string(kMaxDeg));
     int spanU = knotSpan(s.knotsU, s.degreeU, s.cvCountU, u);
     // tempCtrl size = cvCountV; for typical box faces (cvCountV=2) this is tiny.
     std::vector<Eigen::Vector4d> tempCtrl(s.cvCountV);

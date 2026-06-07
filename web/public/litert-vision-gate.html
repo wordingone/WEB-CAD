@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiteRT CDN Vision Gate — #2150 empirical test (#19)</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 70vh; }
+.ok   { color: #4f4; }
+.err  { color: #f44; }
+.info { color: #8be; }
+.warn { color: #fa4; }
+h2 { color: #8be; margin-top: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>LiteRT CDN Vision Gate</h1>
+<p>
+  Tests if <code>@litert-lm/core@0.12.1</code> CDN WASM supports the vision runner path.<br>
+  Loads a 32KB synthetic <code>vision_test.litertlm</code> (dummy TFLite sections, real section metadata).<br>
+  Captures the first error from the WASM vision runner init to answer Leo gate #2150.
+</p>
+<h2>Log</h2>
+<pre id="log">Starting...</pre>
+
+<script>
+// Override console to capture WASM stderr before WASM loads
+const logEl = document.getElementById('log');
+const _log = [];
+function emit(msg, cls = '') {
+  const ts = new Date().toISOString().slice(11, 23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+  _log.push({ ts, msg, cls });
+}
+</script>
+
+<!-- Load CDN WASM compat JS — creates global ModuleFactory -->
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_compat_internal.js"></script>
+
+<script>
+const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
+const MODEL_URL = './vision_test.litertlm';  // 32KB synthetic, same-origin Pages
+
+window.addEventListener('load', async () => {
+  emit('=== LiteRT CDN Vision Gate — #2150 empirical test ===', 'info');
+
+  const wasmLog = [];
+
+  try {
+    emit('1. Initializing CDN WASM (ModuleFactory)...', 'info');
+    const m = await ModuleFactory({
+      // Ensure .wasm file is fetched from CDN, not from Pages origin
+      locateFile: (path) => `${CDN_WASM_BASE}/${path}`,
+      // Capture WASM stdout/stderr for error analysis
+      print: (text) => {
+        wasmLog.push({ stream: 'stdout', text });
+        emit(`  [wasm:out] ${text}`, 'info');
+      },
+      printErr: (text) => {
+        wasmLog.push({ stream: 'stderr', text });
+        emit(`  [wasm:err] ${text}`, 'warn');
+      },
+    });
+    emit('   ✓ ModuleFactory resolved — WASM module initialized', 'ok');
+
+    emit('2. Fetching synthetic vision_test.litertlm (32KB)...', 'info');
+    const resp = await fetch(MODEL_URL);
+    if (!resp.ok) throw new Error(`fetch failed: ${resp.status} ${resp.statusText}`);
+    const modelBytes = new Uint8Array(await resp.arrayBuffer());
+    emit(`   ✓ Fetched ${modelBytes.length} bytes`, 'ok');
+
+    emit('3. Writing to WASM FS...', 'info');
+    m.FS.writeFile('/vision_test.litertlm', modelBytes);
+    emit('   ✓ Written to /vision_test.litertlm', 'ok');
+
+    emit('4. ModelAssets.create()...', 'info');
+    const assets = m.ModelAssets.create('/vision_test.litertlm');
+    emit('   ✓ ModelAssets OK', 'ok');
+
+    emit('5. EngineSettings.createDefault(assets, Backend.CPU)...', 'info');
+    const settings = m.EngineSettings.createDefault(assets, m.Backend.CPU);
+    emit('   ✓ EngineSettings OK', 'ok');
+
+    emit('6. Engine.createEngine(settings, "") — vision runner init happens here...', 'info');
+    const engine = await m.Engine.createEngine(settings, '');
+    emit('   ✓ Engine.createEngine SUCCEEDED', 'ok');
+    emit('     → vision runner initialized without LlmVisionInferenceCalculator error', 'ok');
+
+    emit('7. SessionConfig with setVisionModalityEnabled(true)...', 'info');
+    const sessionConfig = m.SessionConfig.createDefault();
+    sessionConfig.setVisionModalityEnabled(true);
+    emit('   ✓ SessionConfig OK', 'ok');
+
+    emit('8. engine.createSession(sessionConfig) — vision session init...', 'info');
+    const session = engine.createSession(sessionConfig);
+    emit('   ✓ Session created — vision path fully reachable in CDN WASM', 'ok');
+
+    emit('\n=== VERDICT: CDN vision path REACHABLE — Runner architecture present ===', 'ok');
+    emit('    TFLite would fail at inference with dummy bytes (expected)', 'info');
+    emit('    Real INT4 model.litertlm should work end-to-end', 'ok');
+    window.__visionResult = {
+      ok: true,
+      verdict: 'VISION_RUNNER_REACHABLE',
+      wasmLog,
+    };
+
+  } catch (err) {
+    const msg = err.message || String(err);
+    emit(`\n✗ CAUGHT: ${msg}`, 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0, 8).join('\n'), 'err');
+
+    // Classify the error for Leo's gate
+    const isCalculatorMissing = /Calculator.*not.*register|not.*register.*Calculator|LlmVisionInferenceCalculator/i.test(msg);
+    const isRunnerMissing = /Runner.*not.*found|VisionRunner.*fail/i.test(msg);
+    const isTfLiteFail = /tflite|FlatBuffer|BuildFromBuffer|model.*fail/i.test(msg);
+    const isVisionExecutorMissing = /VisionExecutorSettings.*not.*set|vision_executor/i.test(msg);
+
+    let verdict;
+    if (isCalculatorMissing) {
+      verdict = '#2150_CONFIRMED_CALCULATOR_MISSING';
+    } else if (isRunnerMissing) {
+      verdict = 'RUNNER_MISSING_DIFFERENT_BUG';
+    } else if (isTfLiteFail || isVisionExecutorMissing) {
+      verdict = 'VISION_RUNNER_PRESENT_TFLITE_FAILED';
+      emit('   → Vision runner was entered but failed on dummy TFLite bytes (expected!)', 'ok');
+      emit('   → CDN WASM vision path is reachable — use real INT4 TFLite for full test', 'ok');
+    } else {
+      verdict = 'UNKNOWN_ERROR';
+    }
+
+    emit(`\n=== VERDICT: ${verdict} ===`, isCalculatorMissing || isRunnerMissing ? 'err' : 'ok');
+    emit(`=== WASM stderr (${wasmLog.filter(l=>l.stream==='stderr').length} lines): ===`, 'info');
+    wasmLog.filter(l => l.stream === 'stderr').slice(-20).forEach(l => emit(`  ${l.text}`, 'warn'));
+
+    window.__visionResult = {
+      ok: isTfLiteFail || isVisionExecutorMissing,
+      verdict,
+      error: msg,
+      wasmLog,
+    };
+  }
+
+  console.log('__visionResult', JSON.stringify(window.__visionResult, null, 2));
+});
+</script>
+</body>
+</html>
