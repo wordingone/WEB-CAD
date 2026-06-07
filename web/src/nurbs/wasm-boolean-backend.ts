@@ -21,7 +21,7 @@
 //   - IBooleanBackend: brep-boolean.ts:100-121
 //   - OCCT BRepAlgoAPI_BooleanOperation objects/tools vocabulary: brep-boolean.ts:92-98
 
-// kern.js and kern.wasm are generated Emscripten outputs (not present until `cmake --build`).
+// kern.mjs and kern.wasm are generated Emscripten outputs (not present until `cmake --build`).
 // Use dynamic imports so module load doesn't fail when the WASM is absent.
 //
 // Path arithmetic: Vite dev serves modules from their source tree depth
@@ -30,7 +30,7 @@
 // non-prod default ('../../') also resolves correctly in the bun/CI test env where
 // import.meta.env.DEV is undefined — the DEV ternary fell through to the prod branch
 // and resolved ../kern.wasm → web/src/kern.wasm (missing), breaking the #617 guard.
-const _kernJsPath = import.meta.env.PROD ? '../kern.js' : '../../kern.js';
+const _kernJsPath = import.meta.env.PROD ? '../kern.mjs' : '../../kern.mjs';
 const _kernWasmPath = import.meta.env.PROD ? '../kern.wasm' : '../../kern.wasm';
 
 import type { Brep } from './nurbs-brep';
@@ -301,7 +301,7 @@ let _mod: KernModule | null = null;
  */
 async function getKern(): Promise<KernModule> {
   if (_mod) return _mod;
-  // Dynamic import so the module loads cleanly even before cmake produces kern.js.
+  // Dynamic import so the module loads cleanly even before cmake produces kern.mjs.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { default: createKernModule } = await import(/* @vite-ignore */ _kernJsPath) as any;
   const wasmUrl = new URL(_kernWasmPath, import.meta.url).href;
