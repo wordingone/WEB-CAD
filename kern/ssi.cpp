@@ -13,6 +13,11 @@
 
 namespace kern {
 
+// Stack-allocated de Boor arrays in evalSurf are sized kMaxDeg+1.
+// Surfaces with degree > kMaxDeg are rejected with a runtime_error.
+// Most CAD geometry is degree 3–5; kMaxDeg=7 covers bicubic→degree-7 NURBS.
+constexpr int kMaxDeg = 7;
+
 // ---------------------------------------------------------------------------
 // §0 — NURBS evaluation helpers (de Boor, tensor-product)
 // ---------------------------------------------------------------------------
@@ -53,7 +58,6 @@ static Eigen::Vector4d deBoor(const std::vector<double>& knots,
 // Inner d[] arrays are stack-allocated (max degree 7) to avoid per-call heap
 // allocations in the hot findSeedsRec path.
 static Eigen::Vector3d evalSurf(const NurbsSurface& s, double u, double v) {
-    constexpr int kMaxDeg = 7;
     int spanU = knotSpan(s.knotsU, s.degreeU, s.cvCountU, u);
     // tempCtrl size = cvCountV; for typical box faces (cvCountV=2) this is tiny.
     std::vector<Eigen::Vector4d> tempCtrl(s.cvCountV);
@@ -442,6 +446,27 @@ static SsiCurve marchCurve(const NurbsSurface& A, const NurbsSurface& B,
 
 SsiResult ssi(const NurbsSurface& a, const NurbsSurface& b, const SsiOptions& opts) {
     SsiResult result;
+
+    // Degree-bound guard: evalSurf uses stack arrays sized kMaxDeg+1;
+    // inputs above that bound would write past the end of the array.
+    auto degStr = [](int dU, int dV) {
+        return "degreeU=" + std::to_string(dU) + " degreeV=" + std::to_string(dV);
+    };
+    if (a.degreeU > kMaxDeg || a.degreeV > kMaxDeg) {
+        result.ok    = false;
+        result.error = "SSI: surfA " + degStr(a.degreeU, a.degreeV) +
+                       " exceeds evalSurf stack limit kMaxDeg=" + std::to_string(kMaxDeg) +
+                       " — buffer overflow prevented";
+        return result;
+    }
+    if (b.degreeU > kMaxDeg || b.degreeV > kMaxDeg) {
+        result.ok    = false;
+        result.error = "SSI: surfB " + degStr(b.degreeU, b.degreeV) +
+                       " exceeds evalSurf stack limit kMaxDeg=" + std::to_string(kMaxDeg) +
+                       " — buffer overflow prevented";
+        return result;
+    }
+
     result.ok = true;
 
     // Stage 1: find seeds

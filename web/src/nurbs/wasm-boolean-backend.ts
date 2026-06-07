@@ -71,6 +71,8 @@ interface KernModule {
   kern_chamfer(jsonRequest: string): string;
   // Loft: { profiles: NurbsCurve[], degree? } → { ok, result? | error? }
   kern_loft(jsonRequest: string): string;
+  // Build metadata: { version, capabilities[] }
+  kern_version(): string;
 }
 
 // ── Kernel response shape (parsed from JSON) ──────────────────────────────────
