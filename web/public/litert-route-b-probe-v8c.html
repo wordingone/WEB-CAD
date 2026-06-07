@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiteRT Probe v8c — full E4B bundle (tf_lite_prefill_decode) text smoke</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 75vh; }
+.ok   { color: #4f4; }
+.err  { color: #f44; }
+.info { color: #8be; }
+.warn { color: #fa4; }
+h2 { color: #8be; margin-top: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>LiteRT Probe v8c — full E4B bundle text smoke</h1>
+<p>
+  Full bundle: <code>gemma-4-E4B-it.litertlm</code> (3.66 GB, has vision+audio+MTP sections).<br>
+  Stock CDN WASM (0.12.1) — vision NOT enabled (no createDefaultWithVision binding yet).<br>
+  Question: does <code>tf_lite_prefill_decode</code> (standard path) load + text-infer via Engine.createStreaming?<br>
+  Tries Backend.GPU first; if it rejects, retries Backend.GPU_ARTISAN.
+</p>
+<h2>Log</h2>
+<pre id="log">Starting...</pre>
+
+<script>
+const logEl = document.getElementById('log');
+function emit(msg, cls = '') {
+  const ts = new Date().toISOString().slice(11, 23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_internal.js"></script>
+
+<script>
+const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
+// FULL bundle — has tf_lite_vision_encoder + tf_lite_vision_adapter + tf_lite_prefill_decode
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
+
+// ── Streaming wrapper (same as v8b) ───────────────────────────────────────────
+
+class Slice {
+  constructor(size) { this.size=size; this.data=null; this.fullyDiscarded=false; this.discardedRegions=[]; }
+  discard(s,e) {
+    if(this.fullyDiscarded)return;
+    this.discardedRegions.push([s,e]);
+    this.discardedRegions.sort((a,b)=>a[0]-b[0]);
+    const m=[];for(const r of this.discardedRegions){const l=m[m.length-1];if(!l||l[1]<r[0])m.push([r[0],r[1]]);else l[1]=Math.max(l[1],r[1]);}
+    this.discardedRegions=m;
+    if(m.length===1&&m[0][0]===0&&m[0][1]===this.size){this.fullyDiscarded=true;this.data=undefined;}
+  }
+  getDiscardedRegions(s,e){return this.discardedRegions.filter(([a,b])=>a<e&&b>s);}
+}
+
+class ReadableStreamDataStreamWrapper {
+  constructor(stream,getWasmHeap,bytesPerSlice=10_000_000){
+    this.getWasmHeap=getWasmHeap;this.bytesPerSlice=bytesPerSlice;
+    this.slices=[];this.streamDone=false;this.globalPosition=0;
+    this.leftoverData=undefined;this.isReading=false;
+    try{this.byobReader=stream.getReader({mode:'byob'});}catch{this.defaultReader=stream.getReader();}
+  }
+  *getViews(start,end){
+    if(start>=end)return;let scratch,prev;let pos=start;
+    while(pos<end){
+      const si=Math.floor(pos/this.bytesPerSlice),sp=pos%this.bytesPerSlice,ss=si*this.bytesPerSlice;
+      let slice=this.slices[si];
+      if(!slice){if(!prev||!prev.fullyDiscarded)scratch=new Uint8Array(this.bytesPerSlice);slice=new Slice(this.bytesPerSlice);slice.data=scratch;this.slices[si]=slice;}
+      const ve=Math.min(this.bytesPerSlice,end-ss),vl=ve-sp;
+      const cs=slice,csp=sp,cve=ve;
+      yield{getView:()=>new Uint8Array(cs.data.buffer,cs.data.byteOffset+csp,vl),discardView:()=>cs.discard(csp,cve),setView:v=>{cs.data=new Uint8Array(v.buffer,0,v.buffer.byteLength);scratch=cs.data;},checkReadable:()=>{if(cs.getDiscardedRegions(csp,cve).length)throw new Error('overlap');if(!cs.data)throw new Error('no buf');}};
+      prev=slice;pos+=vl;
+    }
+  }
+  async fillBuffer(buf){
+    const bl=buf.byteLength;if(!bl)return buf;let br=0,ab=buf.buffer;const bo=buf.byteOffset;
+    while(br<bl){
+      if(this.streamDone&&(!this.leftoverData||!this.leftoverData.length))throw new Error(`EOF@${this.globalPosition}`);
+      if(this.byobReader){const v=new Uint8Array(ab,bo+br,bl-br);const r=await this.byobReader.read(v);if(r.done)this.streamDone=true;if(!r.value)throw new Error('null');this.globalPosition+=r.value.byteLength;br+=r.value.byteLength;ab=r.value.buffer;}
+      else{let c;if(this.leftoverData?.length){c=this.leftoverData;this.leftoverData=undefined;}else{const r=await this.defaultReader.read();if(r.done){this.streamDone=true;if(!r.value)continue;}if(!r.value)throw new Error('null');c=r.value;}const n=bl-br,cp=Math.min(c.length,n);new Uint8Array(ab,bo+br,cp).set(c.subarray(0,cp));if(c.length>cp)this.leftoverData=c.subarray(cp);this.globalPosition+=cp;br+=cp;}
+    }
+    return new Uint8Array(ab,bo,br);
+  }
+  async readInternal(dest,off,cnt,discard){
+    if(this.isReading)throw new Error('concurrent');this.isReading=true;
+    try{
+      for(const{getView,setView}of this.getViews(this.globalPosition,off)){const nv=await this.fillBuffer(getView());setView(nv);if(!nv.length)break;}
+      const ec=Math.min(this.globalPosition,off+cnt);let d=dest;
+      for(const{getView,discardView}of this.getViews(off,ec)){const v=getView();this.getWasmHeap().set(v,d);if(discard)discardView();d+=v.length;}
+      const su=Math.max(ec,off);
+      for(const{getView,setView,discardView}of this.getViews(su,off+cnt)){if(this.streamDone&&this.globalPosition<=su)break;const nv=await this.fillBuffer(getView());setView(nv);this.getWasmHeap().set(nv,d);if(discard)discardView();d+=nv.length;}
+    }finally{this.isReading=false;}
+  }
+  async readAndDiscard(da,o,c){try{await this.readInternal(da>>>0,+o,+c,true);return{};}catch(e){return{error:e};}}
+  async readAndPreserve(da,o,c){try{await this.readInternal(da>>>0,+o,+c,false);return{};}catch(e){return{error:e};}}
+  async discard(o,c){try{for(const{discardView}of this.getViews(+o,+o+ +c))discardView();return{};}catch(e){return{error:e};}}
+}
+
+// ── Probe with backend retry ──────────────────────────────────────────────────
+
+async function tryTextInference(m, device, modelStream, totalBytes, backend, backendName) {
+  emit(`--- attempt: ${backendName} ---`, 'info');
+
+  // Need a fresh stream for each attempt — clone is not possible after reading.
+  // We only retry if the first stream attempt fails before consuming it.
+  const wrapper = new ReadableStreamDataStreamWrapper(modelStream, () => m.HEAPU8);
+  const dataStream = m.ReadableStreamDataStream.create(wrapper);
+  const modelAssets = m.ModelAssets.createStreaming(dataStream);
+
+  const settings = m.EngineSettings.createDefault(modelAssets, backend);
+  settings.setParallelFileSectionLoading(false);
+  settings.setSingleThreadedExecution(true);
+
+  emit(`  Engine.createStreaming(${backendName})...`, 'info');
+  const engine = await m.Engine.createStreaming(settings, '');
+  dataStream.delete();
+  emit('  ✓ Engine created', 'ok');
+
+  const sessionConfig = m.SessionConfig.createDefault();
+  sessionConfig.setVisionModalityEnabled(false);
+  const convConfig = m.ConversationConfig.createCustom(engine, sessionConfig, false, false, false, '');
+  const conv = await m.Conversation.create(engine, convConfig);
+  emit('  ✓ Conversation created', 'ok');
+
+  emit('  sendMessage("Reply with one word: hello")...', 'info');
+  const resultStr = await conv.sendMessage(
+    JSON.stringify({role:'user',content:[{type:'text',text:'Reply with one word: hello'}]})
+  );
+  let text;
+  try {
+    const r = JSON.parse(resultStr);
+    text = Array.isArray(r?.content) ? r.content.map(c=>c.text||'').join('') : String(r);
+  } catch { text = String(resultStr); }
+  return text;
+}
+
+window.addEventListener('load', async () => {
+  emit('=== LiteRT Probe v8c — full E4B bundle (3.66GB), text smoke ===', 'info');
+  const wasmLog = [];
+  let m;
+
+  try {
+    emit('1. ModuleFactory...', 'info');
+    m = await ModuleFactory({
+      locateFile: p => `${CDN_WASM_BASE}/${p}`,
+      print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`,'info'); },
+      printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`,'warn'); },
+    });
+    if(m.setupLogging) m.setupLogging();
+    emit('   ✓ WASM ready','ok');
+
+    emit('2. WebGPU device...','info');
+    if(!navigator.gpu) throw new Error('no navigator.gpu');
+    const adapter = await navigator.gpu.requestAdapter();
+    if(!adapter) throw new Error('no WebGPU adapter');
+    const device = await adapter.requestDevice();
+    m.preinitializedWebGPUDevice = device;
+    emit('   ✓ WebGPU ready','ok');
+
+    emit(`3. Fetch full bundle (streaming)...`,'info');
+    const resp = await fetch(MODEL_URL);
+    if(!resp.ok) throw new Error(`fetch ${resp.status}`);
+    const total = parseInt(resp.headers.get('content-length')||'0');
+    emit(`   content-length: ${(total/1e9).toFixed(2)} GB`,'info');
+
+    // Try GPU first (natural for tf_lite_prefill_decode); GPU_ARTISAN is the artisan path
+    let responseText, usedBackend;
+    let gpuError = null;
+    try {
+      responseText = await tryTextInference(m, device, resp.body, total, m.Backend.GPU, 'Backend.GPU');
+      usedBackend = 'GPU';
+    } catch(e) {
+      gpuError = e;
+      emit(`  GPU failed: ${e.message} — retrying with GPU_ARTISAN on same stream`, 'warn');
+      // Note: if the stream was partially consumed, GPU_ARTISAN will also fail.
+      // In that case the error tells us the full bundle doesn't stream via either path.
+      try {
+        responseText = await tryTextInference(m, device, resp.body, total, m.Backend.GPU_ARTISAN, 'Backend.GPU_ARTISAN');
+        usedBackend = 'GPU_ARTISAN';
+      } catch(e2) {
+        throw new Error(`GPU: ${gpuError.message} | GPU_ARTISAN: ${e2.message}`);
+      }
+    }
+
+    emit(`\n=== response (${usedBackend}): ${responseText.slice(0,300)} ===`,'ok');
+    emit('\n=== VERDICT: FULL_BUNDLE_TEXT_PASS ===','ok');
+    window.__routeBResult = {ok:true,verdict:'FULL_BUNDLE_TEXT_PASS',backend:usedBackend,responseText,wasmLog};
+
+  } catch(err) {
+    const msg = err.message || String(err);
+    emit(`\n✗ ${msg}`,'err');
+    const isAbort  = /Aborted/i.test(msg);
+    const isOom    = /Array buffer allocation|out of memory/i.test(msg);
+    const isMissing = /missing section|Failed to.*encoder|Failed to.*adapter|kTfLiteVisionEncoder|kTfLitePrefill/i.test(msg);
+    const isBackend = /Unsupported backend|backend.*artisan|artisan.*backend/i.test(msg);
+    const verdict = isAbort?'WASM_ABORT':isOom?'JS_OOM':isMissing?'SECTION_MISSING':isBackend?'BACKEND_UNSUPPORTED':'FULL_BUNDLE_TEXT_FAIL';
+    emit(`\n=== VERDICT: ${verdict} ===`,'err');
+    const stderrLines = wasmLog.filter(l=>l.s==='err').slice(-25).map(l=>l.t);
+    stderrLines.forEach(l=>emit(`  ${l}`,'warn'));
+    window.__routeBResult = {ok:false,verdict,error:msg,wasmLog};
+  }
+  console.log('__routeBResult', JSON.stringify(window.__routeBResult,null,2));
+});
+</script>
+</body>
+</html>
