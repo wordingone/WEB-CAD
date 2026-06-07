@@ -37,9 +37,9 @@ function emit(msg, cls = '') {
 
 <script>
 const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
-// fake_gemma4.litertlm — 32MB, has tokenizer + vision + prefill/decode sections
-// (vision_test.litertlm was 32KB with no tokenizer — fails at tokenizer load)
-const MODEL_URL = './fake_gemma4.litertlm';
+// Real E2B model — has vision encoder/adapter + tokenizer + LLM TFLite (~1.87GB)
+// Using HuggingFace URL (same-origin fetch from Pages doesn't work for large CDN files)
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm';
 
 // Minimal 1×1 PNG, base64 — smallest valid image to exercise the vision path
 const TEST_IMAGE_B64 =
@@ -61,12 +61,33 @@ window.addEventListener('load', async () => {
     });
     emit('   ✓ WASM ready', 'ok');
 
-    // ── 2. Model bytes ────────────────────────────────────────────────────────
-    emit(`2. Fetch ${MODEL_URL}...`, 'info');
+    // ── 2. Model bytes (streaming progress for large HuggingFace model) ──────
+    emit(`2. Fetch ${MODEL_URL.slice(0, 80)}...`, 'info');
     const resp = await fetch(MODEL_URL);
-    if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
-    const modelBytes = new Uint8Array(await resp.arrayBuffer());
-    emit(`   ✓ ${modelBytes.length} bytes`, 'ok');
+    if (!resp.ok) throw new Error(`fetch failed: ${resp.status} ${resp.statusText}`);
+    const totalBytes = parseInt(resp.headers.get('content-length') || '0', 10);
+    emit(`   content-length: ${(totalBytes / 1e9).toFixed(2)} GB`, 'info');
+    // Stream with progress
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    let lastPct = 0;
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      const pct = totalBytes > 0 ? Math.floor(loaded / totalBytes * 100) : 0;
+      if (pct >= lastPct + 10) {
+        lastPct = pct;
+        emit(`   download: ${pct}% (${(loaded / 1e6).toFixed(0)} MB)`, 'info');
+      }
+    }
+    // Concatenate
+    const modelBytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const c of chunks) { modelBytes.set(c, offset); offset += c.length; }
+    emit(`   ✓ ${loaded} bytes downloaded`, 'ok');
 
     m.FS.writeFile('/probe.litertlm', modelBytes);
     emit('   ✓ Written to WASM FS', 'ok');
