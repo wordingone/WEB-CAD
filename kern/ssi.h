@@ -12,10 +12,11 @@ struct SsiOptions {
     int    maxIter        = 50;     // Newton iterations per seed
     double marchStep      = 0.01;   // march distance, world units
     int    maxSteps       = 1000;   // safety cap per march half
-    int    maxLeaves      = 200;    // cap on bbox-leaf Newton calls per face pair;
+    int    maxLeaves      = 2000;   // cap on bbox-leaf Newton calls per face pair;
                                     //   planar pairs: typically 10-30 leaves
                                     //   curved pairs: may legitimately need 50-200 leaves
-                                    //   degenerate/coincident pairs: hit 65536+, still fast-fails at 200
+                                    //   line intersections (deg-1 × deg-1): may need 256-500 leaves
+                                    //   degenerate/coincident pairs: hit 65536+, still fast-fails at 2000
 };
 
 struct SsiCurve {
