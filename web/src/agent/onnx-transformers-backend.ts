@@ -424,8 +424,10 @@ export class OnnxTransformersBackend implements InferenceBackend {
       console.log(`[#1627-C] classification-triggered-wasm-fallback adClass=${_adClassification} — cpu device (WASM ORT EP)`);
       this._post({ type: "phase_timing", phase: "wasm_fallback_classification", elapsed_ms: Date.now() - this._workerStartMs, adClass: _adClassification });
     }
-    const backends: Array<{ device: "webgpu"; dtype: "q4f16"; label: string }> = [
-      { device: "webgpu", dtype: "q4f16", label: "GPU" },
+    // opts.dtype=undefined → let transformers.js_config in config.json drive (QAT model uses q2f16/fp16).
+    const _backendDtype = (opts.dtype as string | undefined) ?? "q4f16";
+    const backends: Array<{ device: "webgpu"; dtype: string | undefined; label: string }> = [
+      { device: "webgpu", dtype: _backendDtype, label: "GPU" },
     ];
 
     let loadedLabel = "CPU";
@@ -440,8 +442,11 @@ export class OnnxTransformersBackend implements InferenceBackend {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let model: Awaited<ReturnType<typeof Gemma4ForConditionalGeneration.from_pretrained>>;
         try {
+          // dtype undefined → transformers.js reads transformers.js_config.dtype from config.json
           model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
-            dtype, device, progress_callback: progressCb,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(dtype !== undefined ? { dtype: dtype as any } : {}),
+            device, progress_callback: progressCb,
           });
         } catch (loadErr) {
           // §B-cache-retry (#1316): Cache.put() failure → retry with browser cache disabled.
@@ -451,11 +456,17 @@ export class OnnxTransformersBackend implements InferenceBackend {
           tfEnv.useBrowserCache = false;
           await new Promise<void>(r => setTimeout(r, 500));
           model = await Gemma4ForConditionalGeneration.from_pretrained(modelId, {
-            dtype, device, progress_callback: progressCb,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ...(dtype !== undefined ? { dtype: dtype as any } : {}),
+            device, progress_callback: progressCb,
           });
         }
         const processor = await AutoProcessor.from_pretrained(modelId);
-        this._post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - this._workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource });
+        // §#19-qat: JS heap measurement for footprint eval (Chrome only, non-fatal).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const _perf = (globalThis as any).performance as (Performance & { memory?: { usedJSHeapSize?: number; totalJSHeapSize?: number } }) | undefined;
+        const _heapUsed = _perf?.memory?.usedJSHeapSize ?? null;
+        this._post({ type: "phase_timing", phase: "from_pretrained_end", elapsed_ms: Date.now() - this._workerStartMs, downloaded_bytes: _cumulativeBytes, load_source: _modelLoadSource, heap_used_bytes: _heapUsed });
 
         // WebGPU sanity probe.
         if (device === "webgpu" && !noWarmup) {
