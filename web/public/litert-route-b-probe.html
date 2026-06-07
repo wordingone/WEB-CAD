@@ -32,14 +32,14 @@ function emit(msg, cls = '') {
 }
 </script>
 
-<!-- Try non-compat WASM build: litertlm_wasm_internal.js (~17.99MB vs 17.95MB compat) -->
+<!-- Non-compat WASM — same as v6; now testing E4B (deliverable target, ~2.97GB) -->
 <script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_internal.js"></script>
 
 <script>
 const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
-// Real E2B model — has vision encoder/adapter + tokenizer + LLM TFLite (~1.87GB)
-// Using HuggingFace URL (same-origin fetch from Pages doesn't work for large CDN files)
-const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm';
+// E4B model (deliverable) — text-only web variant, ~2.97GB; testing if same WASM-init
+// wall applies as E2B (which also crashed at gpu_artisan tokenizer-async-load)
+const MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
 
 // Minimal 1×1 PNG, base64 — smallest valid image to exercise the vision path
 const TEST_IMAGE_B64 =
