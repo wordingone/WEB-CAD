@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiteRT Route B Probe — #19 sendMessage+vision a/b/c</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 75vh; }
+.ok   { color: #4f4; }
+.err  { color: #f44; }
+.info { color: #8be; }
+.warn { color: #fa4; }
+h2 { color: #8be; margin-top: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>LiteRT Route B Probe — #19</h1>
+<p>
+  Extends the CDN vision gate through <code>Conversation.create()</code> + <code>sendMessage()</code>.<br>
+  Observes: (a) image-grounded response / (b) text-only fallback / (c) throws at LlmVisionInferenceCalculator.
+</p>
+<h2>Log</h2>
+<pre id="log">Starting...</pre>
+
+<script>
+const logEl = document.getElementById('log');
+function emit(msg, cls = '') {
+  const ts = new Date().toISOString().slice(11, 23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+</script>
+
+<!-- CDN WASM compat — same as vision gate -->
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_compat_internal.js"></script>
+
+<script>
+const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
+// Same synthetic model used in the vision gate — already deployed to Pages
+const MODEL_URL = './vision_test.litertlm';
+
+// Minimal 1×1 PNG, base64 — smallest valid image to exercise the vision path
+const TEST_IMAGE_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+window.addEventListener('load', async () => {
+  emit('=== LiteRT Route B Probe — #19 a/b/c isolation ===', 'info');
+
+  const wasmLog = [];
+  let m;
+
+  try {
+    // ── 1. WASM init ──────────────────────────────────────────────────────────
+    emit('1. ModuleFactory (CDN WASM)...', 'info');
+    m = await ModuleFactory({
+      locateFile: (path) => `${CDN_WASM_BASE}/${path}`,
+      print:    (text) => { wasmLog.push({ s: 'out', text }); emit(`  [wasm:out] ${text}`, 'info'); },
+      printErr: (text) => { wasmLog.push({ s: 'err', text }); emit(`  [wasm:err] ${text}`, 'warn'); },
+    });
+    emit('   ✓ WASM ready', 'ok');
+
+    // ── 2. Model bytes ────────────────────────────────────────────────────────
+    emit(`2. Fetch ${MODEL_URL}...`, 'info');
+    const resp = await fetch(MODEL_URL);
+    if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`);
+    const modelBytes = new Uint8Array(await resp.arrayBuffer());
+    emit(`   ✓ ${modelBytes.length} bytes`, 'ok');
+
+    m.FS.writeFile('/probe.litertlm', modelBytes);
+    emit('   ✓ Written to WASM FS', 'ok');
+
+    // ── 3. Engine ─────────────────────────────────────────────────────────────
+    emit('3. ModelAssets + EngineSettings...', 'info');
+    const assets   = m.ModelAssets.create('/probe.litertlm');
+    const settings = m.EngineSettings.createDefault(assets, m.Backend.CPU);
+    emit('   ✓ Settings ready', 'ok');
+
+    emit('4. Engine.createEngine()...', 'info');
+    const engine = await m.Engine.createEngine(settings, '');
+    emit('   ✓ Engine created', 'ok');
+
+    // ── 4. SessionConfig with vision enabled ──────────────────────────────────
+    emit('5. SessionConfig { visionModalityEnabled: true }...', 'info');
+    const sessionConfig = m.SessionConfig.createDefault();
+    sessionConfig.setVisionModalityEnabled(true);
+    emit('   ✓ visionModalityEnabled=true set', 'ok');
+
+    // ── 5. ConversationConfig ─────────────────────────────────────────────────
+    emit('6. ConversationConfig.createCustom(engine, sessionConfig, ...)...', 'info');
+    // enableConstrainedDecoding=false, prefillPrefaceOnInit=false,
+    // filterChannelContentFromKvCache=false, prefaceJson=''
+    const convConfig = m.ConversationConfig.createCustom(
+      engine, sessionConfig, false, false, false, ''
+    );
+    emit('   ✓ ConversationConfig created', 'ok');
+
+    // ── 6. Conversation.create ────────────────────────────────────────────────
+    emit('7. Conversation.create(engine, convConfig)...', 'info');
+    const conv = await m.Conversation.create(engine, convConfig);
+    emit('   ✓ Conversation created — proceeding to sendMessage', 'ok');
+
+    // ── 7. sendMessage with vision content ───────────────────────────────────
+    emit('8. sendMessage({ role:"user", content:[text+image] })...', 'info');
+    const msgJson = JSON.stringify({
+      role: 'user',
+      content: [
+        { type: 'text',  text: 'What do you see in this image?' },
+        { type: 'image', blob: TEST_IMAGE_B64 },
+      ],
+    });
+    emit(`   payload length: ${msgJson.length} chars`, 'info');
+
+    const resultStr = await conv.sendMessage(msgJson);
+    emit('   ✓ sendMessage returned', 'ok');
+
+    let result;
+    try { result = JSON.parse(resultStr); } catch { result = resultStr; }
+    const responseText = (typeof result === 'object' && result?.content)
+      ? (Array.isArray(result.content)
+          ? result.content.map(c => c.text || '').join('')
+          : String(result.content))
+      : String(resultStr);
+
+    emit(`   response text: ${responseText.slice(0, 300)}`, 'ok');
+
+    // Classify (a) vs (b): does the response reference image content?
+    const imageRefs = /color|pixel|image|see|show|depict|visual|picture|look/i.test(responseText);
+    const verdict = imageRefs ? 'OUTCOME_A_IMAGE_GROUNDED' : 'OUTCOME_B_TEXT_ONLY_FALLBACK';
+
+    emit(`\n=== VERDICT: ${verdict} ===`, 'ok');
+    window.__routeBResult = { ok: true, verdict, responseText, wasmLog };
+
+  } catch (err) {
+    const msg = err.message || String(err);
+    emit(`\n✗ CAUGHT: ${msg}`, 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0, 8).join('\n'), 'err');
+
+    // Classify (c) and sub-variants
+    const isVisionCalc  = /LlmVisionInferenceCalculator|VisionInference.*Calc|Calculator.*not.*regist|not.*regist.*Calculator/i.test(msg);
+    const isVisionRunner = /VisionRunner|vision.*runner|MultiModal.*runner/i.test(msg);
+    const isTfLite      = /TFLite|FlatBuffer|BuildFromBuffer|model.*invalid|flatbuf/i.test(msg);
+    const isTokenizer   = /tokeniz|vocab|token.*fail/i.test(msg);
+    const isConvCreate  = /Conversation.*creat|createCustom|convConfig/i.test(msg);
+
+    let verdict;
+    if (isVisionCalc)  verdict = 'OUTCOME_C_VISION_CALC_MISSING';
+    else if (isVisionRunner) verdict = 'OUTCOME_C_RUNNER_MISSING';
+    else if (isTfLite) verdict = 'MODEL_INVALID_TFLITE_NOT_C';
+    else if (isTokenizer) verdict = 'MODEL_TOKENIZER_FAIL_NOT_C';
+    else if (isConvCreate) verdict = 'CONV_CREATE_FAIL_PRE_SENDMSG';
+    else                   verdict = 'UNKNOWN_ERROR';
+
+    // Include last 20 wasm stderr lines for diagnosis
+    const stderrLines = wasmLog.filter(l => l.s === 'err').slice(-20).map(l => l.text);
+    emit(`\n=== VERDICT: ${verdict} ===`, isVisionCalc || isVisionRunner ? 'err' : 'warn');
+    emit(`=== last WASM stderr (${stderrLines.length} lines): ===`, 'info');
+    stderrLines.forEach(l => emit(`  ${l}`, 'warn'));
+
+    window.__routeBResult = { ok: false, verdict, error: msg, wasmLog };
+  }
+
+  console.log('__routeBResult', JSON.stringify(window.__routeBResult, null, 2));
+});
+</script>
+</body>
+</html>
