@@ -145,8 +145,9 @@ function activateStandardBackend(): void {
 
 // Model candidates — E4B is default; switch to E2B via ?gemma_model=e2b URL param.
 export const MODEL_ID_CANDIDATES = {
-  e2b: "onnx-community/gemma-4-E2B-it-ONNX",
-  e4b: "onnx-community/gemma-4-E4B-it-ONNX",
+  e2b:     "onnx-community/gemma-4-E2B-it-ONNX",
+  e4b:     "onnx-community/gemma-4-E4B-it-ONNX",
+  e4b_qat: "onnx-community/gemma-4-E4B-it-qat-mobile-ONNX",
 } as const;
 
 const _modelParam =
@@ -154,8 +155,12 @@ const _modelParam =
     ? (new URLSearchParams(window.location.search).get("gemma_model") ?? "").toLowerCase()
     : "";
 export const MODEL_ID: string =
-  _modelParam === "e2b" ? MODEL_ID_CANDIDATES.e2b : MODEL_ID_CANDIDATES.e4b;
-const MODEL_LABEL: string = _modelParam === "e2b" ? "E2B" : "E4B";
+  _modelParam === "e2b"     ? MODEL_ID_CANDIDATES.e2b     :
+  _modelParam === "e4b_qat" ? MODEL_ID_CANDIDATES.e4b_qat :
+  MODEL_ID_CANDIDATES.e4b;
+const MODEL_LABEL: string = _modelParam === "e2b" ? "E2B" : _modelParam === "e4b_qat" ? "E4B-QAT" : "E4B";
+// dtype: undefined → let transformers.js_config in config.json drive (q2f16/fp16 per component).
+const MODEL_DTYPE: string | undefined = _modelParam === "e4b_qat" ? undefined : "q4f16";
 
 // ?mtp=off disables spec-decode even when all other gates pass — used for A/B tg baseline.
 const _MTP_OFF =
@@ -625,6 +630,35 @@ function initWorkerIfNeeded(): Worker {
           console.info(`[METRIC] boot:total_boot duration_ms=${Math.round(_totalDur)} expected_ms=${_totalExp} ratio=${_totalRatio.toFixed(2)}`);
           (window as unknown as Record<string, unknown>).__bootMetrics = _metrics;
         }
+        // CDP probe hook — always set; used by eval probes to detect boot.
+        (window as unknown as Record<string, unknown>).__agentBootComplete = true;
+        // §#19-qat: expose test-inference API when running QAT eval (?gemma_model=e4b_qat).
+        if (_modelParam === "e4b_qat" && _inferenceWorker) {
+          const _w = _inferenceWorker;
+          (window as unknown as Record<string, unknown>).__qatRunTest = (
+            imageUrl: string | null, text: string
+          ): Promise<string> => new Promise((resolve, reject) => {
+            const tid = "qat-" + Date.now();
+            const handler = (ev: MessageEvent<Record<string, unknown>>) => {
+              const d = ev.data;
+              if (d.type === "generate-done" && d.turnId === tid) {
+                _w.removeEventListener("message", handler);
+                resolve(d.text as string);
+              } else if ((d.type === "generate-error" || d.type === "error") && (d.turnId === tid || !d.turnId)) {
+                _w.removeEventListener("message", handler);
+                reject(new Error(d.error as string));
+              }
+            };
+            _w.addEventListener("message", handler);
+            _w.postMessage({
+              type: "generate", turnId: tid,
+              imageUrl: imageUrl ?? undefined, videoUrls: undefined,
+              messages: [{ role: "user", content: text }],
+              maxNewTokens: 50, eosId: 1, draftK: 0, useMtp: false,
+            });
+            setTimeout(() => { _w.removeEventListener("message", handler); reject(new Error("qat-test-timeout")); }, 180_000);
+          });
+        }
         break;
       case "ready":
         // workerReady already set by MODEL_READY dispatch — no additional state mutation needed
@@ -860,6 +894,8 @@ function initWorkerIfNeeded(): Worker {
         console.error("[gemma] model load failed:", _errMsg); // #1036 DevTools AC1
         setGpuHealthTier("red", "GPU error — model load failed");
         (window as unknown as Record<string, unknown>).__ghostPath = `P2-case-error-fatal:${_errMsg.slice(0, 80)}`; // §diag-ghost
+        // CDP probe hook — set error flag so probes can detect fatal boot failures.
+        (window as unknown as Record<string, unknown>).__agentBootError = _errMsg;
         updateBadge(`<span class="v">G</span>EMMA·4·${MODEL_LABEL}  ·  ERROR`);
         window.dispatchEvent(new CustomEvent("agentmodel:error", { detail: msg.error }));
         for (const [, cb] of _generateCallbacks) cb.reject(new Error(_errMsg));
@@ -1002,6 +1038,7 @@ function initWorkerIfNeeded(): Worker {
   _inferenceWorker.postMessage({
     type:             "init",
     modelId:          MODEL_ID,
+    dtype:            MODEL_DTYPE,
     drafterUrl:       DRAFTER_ONNX_URL,
     drafterCacheKey:  DRAFTER_CACHE_KEY,
     noWarmup:         _noWarmup,
