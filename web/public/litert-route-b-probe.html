@@ -95,7 +95,9 @@ window.addEventListener('load', async () => {
     // ── 3. Engine ─────────────────────────────────────────────────────────────
     emit('3. ModelAssets + EngineSettings...', 'info');
     const assets   = m.ModelAssets.create('/probe.litertlm');
-    const settings = m.EngineSettings.createDefault(assets, m.Backend.CPU);
+    // E2B web model has section_backend_constraint: gpu_artisan → use GPU_ARTISAN
+    // GPU_ARTISAN = 2 in the WASM Backend enum (maps to WebGPU Artisan path)
+    const settings = m.EngineSettings.createDefault(assets, m.Backend.GPU_ARTISAN);
     emit('   ✓ Settings ready', 'ok');
 
     emit('4. Engine.createEngine()...', 'info');
