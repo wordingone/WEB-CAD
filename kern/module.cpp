@@ -260,7 +260,7 @@ static std::string kern_ssi(const std::string& jsonRequest) noexcept {
 // kern_version: build-time capability marker (update on each capability addition)
 // Checked by CDP proof scripts to confirm the correct binary is deployed.
 static std::string kern_version() noexcept {
-    return R"({"version":"1.1.0","capabilities":["boolean","fillet","chamfer","loft","ssi","fillet-cylinder-flat"]})";
+    return R"({"version":"1.2.0","capabilities":["boolean","fillet","chamfer","loft","ssi","fillet-cylinder-flat","ssi-degree-guard"]})";
 }
 
 EMSCRIPTEN_BINDINGS(kern) {
