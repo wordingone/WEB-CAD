@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>QAT-ONNX eval — gemma-4-E4B-it-qat-mobile-ONNX</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 75vh; }
+.ok{color:#4f4}.err{color:#f44}.info{color:#8be}.warn{color:#fa4}
+h2{color:#8be;margin-top:1.2rem}
+</style>
+</head>
+<body>
+<h1>QAT-ONNX eval — E4B QAT mobile (q2f16)</h1>
+<p>
+  Evaluates <code>onnx-community/gemma-4-E4B-it-qat-mobile-ONNX</code> on the
+  deployed transformers.js + ORT-web stack.<br>
+  dtype: auto (from <code>transformers.js_config</code> → q2f16 decoder/embed/audio, fp16 vision).<br>
+  AC: text load, vision load (mmproj intact), cold-cache zero-crash.
+</p>
+<h2>Log</h2>
+<pre id="log">Starting...</pre>
+
+<script type="module">
+import { Gemma4ForConditionalGeneration, AutoProcessor, RawImage } from
+  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.web.js";
+
+const MODEL_ID = "onnx-community/gemma-4-E4B-it-qat-mobile-ONNX";
+// Small public image (stable HF-hosted PNG, 256×256 white-house photo)
+const VISION_IMAGE_URL = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers/tasks/car.jpg";
+
+const logEl = document.getElementById('log');
+function emit(msg, cls='') {
+  const ts = new Date().toISOString().slice(11,23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+window.__qatResult = null;
+
+(async () => {
+  const downloadBytes = new Map();
+  let cumBytes = 0;
+  let lastProgressLog = 0;
+
+  const progressCb = (info) => {
+    if (info.status === 'downloading') {
+      const name = (info.name ?? '').split('/').pop() ?? '';
+      const prev = downloadBytes.get(name) ?? 0;
+      downloadBytes.set(name, info.loaded ?? 0);
+      cumBytes += (info.loaded ?? 0) - prev;
+      const now = Date.now();
+      if (now - lastProgressLog > 10_000) {
+        lastProgressLog = now;
+        const gb = (cumBytes / 1e9).toFixed(2);
+        emit(`  ↓ ${gb} GB — ${name} ${Math.round(info.progress ?? 0)}%`, 'info');
+      }
+    } else if (info.status === 'initiate') {
+      const fn = (info.name ?? '').split('/').pop();
+      emit(`  → loading: ${fn}`, 'info');
+    } else if (info.status === 'loading') {
+      emit(`  ● model-init (graph construction)…`, 'info');
+    }
+  };
+
+  try {
+    emit('=== QAT-ONNX eval v1 ===', 'info');
+
+    // ── 1. WebGPU adapter ────────────────────────────────────────────────────
+    emit('1. WebGPU adapter…', 'info');
+    if (!navigator.gpu) throw new Error('no navigator.gpu');
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('no WebGPU adapter');
+    const device = await adapter.requestDevice();
+    const info = adapter.info ?? {};
+    emit(`   ✓ WebGPU: ${info.vendor ?? '?'} / ${info.architecture ?? '?'}`, 'ok');
+
+    // ── 2. Load model (dtype from config.json → q2f16 / fp16) ────────────────
+    emit(`2. Gemma4ForConditionalGeneration.from_pretrained(${MODEL_ID})…`, 'info');
+    emit(`   dtype: auto (transformers.js_config in config.json drives this)`, 'info');
+    const t0 = performance.now();
+    let model;
+    try {
+      model = await Gemma4ForConditionalGeneration.from_pretrained(MODEL_ID, {
+        device: 'webgpu',
+        // dtype omitted: session.js reads transformers.js_config.dtype from config.json
+        progress_callback: progressCb,
+      });
+    } catch (loadErr) {
+      const msg = String(loadErr?.message ?? loadErr);
+      // Fast-fail on missing operator → ORT-web doesn't support q2f16
+      if (/GatherBlockQuantized|unsupported op|no kernel|unknown operator|could not find kernel/i.test(msg)) {
+        emit(`   ✗ ORT-web kernel missing for q2f16: ${msg.slice(0, 200)}`, 'err');
+        window.__qatResult = { ok: false, verdict: 'ORT_KERNEL_MISSING', error: msg };
+        emit('=== VERDICT: ORT_KERNEL_MISSING ===', 'err');
+        console.log('__qatResult', JSON.stringify(window.__qatResult));
+        return;
+      }
+      throw loadErr;
+    }
+    const tLoad = performance.now();
+    emit(`   ✓ model loaded in ${Math.round((tLoad - t0) / 1000)}s, ${(cumBytes/1e9).toFixed(2)} GB`, 'ok');
+
+    // ── 3. AutoProcessor ─────────────────────────────────────────────────────
+    emit('3. AutoProcessor.from_pretrained…', 'info');
+    const processor = await AutoProcessor.from_pretrained(MODEL_ID);
+    emit('   ✓ processor ready', 'ok');
+
+    // ── 4. Text-only probe ───────────────────────────────────────────────────
+    emit('4. Text-only probe ("Reply with one word: hello")…', 'info');
+    const chatText = processor.apply_chat_template(
+      [{ role: 'user', content: 'Reply with one word: hello' }],
+      { add_generation_prompt: true, tokenize: false }
+    );
+    const textInputs = await processor(chatText, null);
+    const t1 = performance.now();
+    const textOut = await model.generate({ ...textInputs, max_new_tokens: 8, do_sample: false });
+    const t2 = performance.now();
+    const [decoded] = processor.batch_decode(textOut, { skip_special_tokens: true });
+    emit(`   ✓ text response: "${decoded.trim()}" (${Math.round(t2-t1)}ms)`, 'ok');
+    try { textInputs.input_ids?.dispose?.(); textOut?.dispose?.(); } catch {}
+
+    // ── 5. Vision probe (mmproj intact) ──────────────────────────────────────
+    emit('5. Vision probe — mmproj / vision_encoder…', 'info');
+    let visionVerdict = 'VISION_SKIPPED';
+    let visionText = null;
+    let visionError = null;
+    try {
+      const img = await RawImage.fromURL(VISION_IMAGE_URL);
+      emit(`   ✓ image fetched: ${img.width}×${img.height}`, 'ok');
+      const visionMessages = [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', image: img },
+            { type: 'text', text: 'What is in this image? Reply in 5 words.' }
+          ]
+        }
+      ];
+      const visionChatText = processor.apply_chat_template(visionMessages, {
+        add_generation_prompt: true, tokenize: false
+      });
+      const visionInputs = await processor(visionChatText, [img]);
+      const t3 = performance.now();
+      const visionOut = await model.generate({ ...visionInputs, max_new_tokens: 20, do_sample: false });
+      const t4 = performance.now();
+      const [vDecoded] = processor.batch_decode(visionOut, { skip_special_tokens: true });
+      visionText = vDecoded.trim();
+      emit(`   ✓ vision response: "${visionText}" (${Math.round(t4-t3)}ms)`, 'ok');
+      try { for (const v of Object.values(visionInputs ?? {})) v?.dispose?.(); visionOut?.dispose?.(); } catch {}
+      visionVerdict = 'VISION_PASS';
+    } catch (visionErr) {
+      visionError = String(visionErr?.message ?? visionErr);
+      emit(`   ⚠ vision failed: ${visionError.slice(0, 200)}`, 'warn');
+      visionVerdict = 'VISION_FAIL';
+    }
+
+    // ── 6. Cold-cache verdict ────────────────────────────────────────────────
+    const verdict = visionVerdict === 'VISION_PASS' ? 'QAT_ONNX_PASS' :
+                    visionVerdict === 'VISION_FAIL' ? 'QAT_ONNX_TEXT_ONLY_PASS' :
+                    'QAT_ONNX_TEXT_ONLY_PASS';
+    emit(`\n=== VERDICT: ${verdict} ===`, verdict === 'QAT_ONNX_PASS' ? 'ok' : 'warn');
+    window.__qatResult = {
+      ok: verdict.includes('PASS'),
+      verdict,
+      textResponse: decoded.trim(),
+      visionVerdict,
+      visionResponse: visionText,
+      visionError,
+      loadSecs: Math.round((tLoad - t0) / 1000),
+      bytesGB: parseFloat((cumBytes / 1e9).toFixed(2)),
+    };
+    console.log('__qatResult', JSON.stringify(window.__qatResult, null, 2));
+
+  } catch (err) {
+    const msg = String(err?.message ?? err);
+    emit(`\n✗ ${msg}`, 'err');
+
+    const isMissingOp = /GatherBlockQuantized|unsupported op|no kernel|unknown operator|could not find kernel/i.test(msg);
+    const isOom      = /out of memory|oom|allocation failed/i.test(msg);
+    const isNetwork  = /fetch|network|404|403/i.test(msg);
+    const verdict    = isMissingOp ? 'ORT_KERNEL_MISSING' :
+                       isOom       ? 'OOM_FAIL' :
+                       isNetwork   ? 'NETWORK_FAIL' : 'QAT_ONNX_FAIL';
+
+    emit(`\n=== VERDICT: ${verdict} ===`, 'err');
+    window.__qatResult = { ok: false, verdict, error: msg };
+    console.log('__qatResult', JSON.stringify(window.__qatResult, null, 2));
+  }
+})();
+</script>
+</body>
+</html>
