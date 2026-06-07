@@ -468,7 +468,10 @@ export class OnnxTransformersBackend implements InferenceBackend {
             ) as string;
             const probeIn = await proc(probeText);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await (model as any).generate({ ...probeIn, max_new_tokens: 1 });
+            const _sanityOut: any = await (model as any).generate({ ...probeIn, max_new_tokens: 1 });
+            // §#67: dispose sanity-probe tensors.
+            try { _sanityOut?.dispose?.(); } catch { /* non-fatal */ }
+            for (const _spv of Object.values(probeIn ?? {})) { try { (_spv as any)?.dispose?.(); } catch { /* non-fatal */ } }
           } catch {
             if (_adClassification === "igpu" || _adClassification === "software") {
               console.log(`[#1627-C] webgpu-probe-failed adClass=${_adClassification} — falling back to WASM EP`);
@@ -525,10 +528,13 @@ export class OnnxTransformersBackend implements InferenceBackend {
         if (tokCount < WEBGPU_CONTEXT_LIMIT - 64) {
           // §#1587: cold-cache uses 64 steps; warm-cache stays at 8.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await Promise.race([
+          const _warmupOut: any = await Promise.race([
             (this._model as any).generate({ ...inputs, max_new_tokens: this._coldCacheBoot ? 64 : 8, do_sample: false }),
             new Promise<void>(r => setTimeout(r, 30_000)),
           ]);
+          // §#67: explicit dispose — prevents ORT pending-buffer-destruction burst that pins GPU after warmup.
+          try { _warmupOut?.dispose?.(); } catch { /* non-fatal */ }
+          for (const _wv of Object.values(inputs ?? {})) { try { (_wv as any)?.dispose?.(); } catch { /* non-fatal */ } }
           // §#1463: flush GPU queue after warmup.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const _wgpuDev = (ort.env as any)?.webgpu?.device as
@@ -624,10 +630,14 @@ export class OnnxTransformersBackend implements InferenceBackend {
         ) as string;
         const _syncIn = await proc(_syncText, null);
         if ((_syncIn.input_ids?.dims?.[1] ?? 0) < WEBGPU_CONTEXT_LIMIT - 64) {
-          await Promise.race([
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const _postDrafterOut: any = await Promise.race([
             (this._model as any).generate({ ..._syncIn, max_new_tokens: this._coldCacheBoot ? 64 : 1, do_sample: false }),
             new Promise<void>(r => setTimeout(r, 30_000)),
           ]);
+          // §#67: dispose post-drafter probe tensors to drain ORT pending buffer-destructions.
+          try { _postDrafterOut?.dispose?.(); } catch { /* non-fatal */ }
+          for (const _pdv of Object.values(_syncIn ?? {})) { try { (_pdv as any)?.dispose?.(); } catch { /* non-fatal */ } }
           // §#1463: post-drafter GPU queue flush.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const _wgpuDev2 = (ort.env as any)?.webgpu?.device as
@@ -693,6 +703,19 @@ export class OnnxTransformersBackend implements InferenceBackend {
     }
     this._processor = null;
     await this._flushWgpuQueue("dispose-session");
+    // §#67: destroy WebGPU device to stop ORT's internal 1-second buffer-pool flush interval.
+    // Without this, ORT continues submitting GPU commands every ~1 s even when no model is loaded.
+    try {
+      const _d = (ort.env as any)?.webgpu?.device as { destroy?: () => void } | undefined;
+      if (_d?.destroy) { _d.destroy(); }
+    } catch { /* non-fatal */ }
+    try {
+      if ((ort.env as any)?.webgpu) { (ort.env as any).webgpu = { ...((ort.env as any).webgpu ?? {}), device: null }; }
+    } catch { /* non-fatal */ }
+    try {
+      const _backends = (tfEnv.backends as any);
+      if (_backends?.onnx?.webgpu) { _backends.onnx.webgpu.device = null; }
+    } catch { /* non-fatal */ }
     this._post({ type: "session-disposed" });
   }
 
