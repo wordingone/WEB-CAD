@@ -37,8 +37,9 @@ function emit(msg, cls = '') {
 
 <script>
 const CDN_WASM_BASE = 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm';
-// Same synthetic model used in the vision gate — already deployed to Pages
-const MODEL_URL = './vision_test.litertlm';
+// fake_gemma4.litertlm — 32MB, has tokenizer + vision + prefill/decode sections
+// (vision_test.litertlm was 32KB with no tokenizer — fails at tokenizer load)
+const MODEL_URL = './fake_gemma4.litertlm';
 
 // Minimal 1×1 PNG, base64 — smallest valid image to exercise the vision path
 const TEST_IMAGE_B64 =
