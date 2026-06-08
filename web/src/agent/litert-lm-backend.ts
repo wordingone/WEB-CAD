@@ -13,6 +13,7 @@
 // DO NOT remove route-b (litert-route-b-probe files) until route-c renders a real vision result.
 
 import type { InferenceBackend, LoadOpts, PostFn } from "./inference-backend.js";
+import { loadLiteRtLmBundle, type LoadBundleOpts, type LiteRtBundleUrls } from "./litert-lm-loader.js";
 
 // ── InputData variant types (mirrors io_types.h) ─────────────────────────────
 
@@ -45,27 +46,33 @@ export type InputData = InputText | InputImageBytes | InputImageTensor | InputIm
 // ── GenerateContent result ────────────────────────────────────────────────────
 
 export interface LiteRtLmResult {
-  tokenIds: Int32Array;
+  /** Decoded output text — engine handles tokenize→generate→detokenize internally. */
+  text: string;
+  /** Output token count (for generate-done tokensOut field). */
+  tokensOut: number;
+  /** Prefill phase duration in ms. */
   prefillMs: number;
+  /** Decode phase duration in ms. */
   decodeMs: number;
 }
 
-export type StreamCallback = (token: string) => void;
+/** Per-token streaming callback — receives partial decoded text per step. */
+export type StreamCallback = (partial: string, tokensOut: number) => void;
 
 // ── LiteRtLmModule — stub for Leo's #66 WASM bundle ─────────────────────────
 // When litert_lm.wasm/.js lands, it must implement this interface.
 // setLiteRtLmModule() wires it in — zero redesign needed.
 
 export interface LiteRtLmModule {
-  /** Load model weights (OPFS-cached if opfsKey provided). */
+  /** Load model weights — engine reads from OPFS via FileSystemSyncAccessHandle when opfsKey set. */
   load(source: string | ArrayBuffer, opts?: { opfsKey?: string }): Promise<void>;
-  /** Single-call inference: interleaved text/image inputs → output tokens.
-   *  Internally orchestrates vision encode → prefill → decode. */
+  /** Single-call inference: interleaved text/image inputs → decoded text.
+   *  Engine internally orchestrates vision encode → prefill → decode → detokenize. */
   generateContent(
     contents: InputData[],
     opts?: { maxNewTokens?: number; eosId?: number },
   ): Promise<LiteRtLmResult>;
-  /** Streaming variant — fires callback per decoded token. */
+  /** Streaming variant — fires callback with partial decoded text per step. */
   generateContentStream(
     contents: InputData[],
     callback: StreamCallback,
@@ -185,51 +192,66 @@ export class LiteRtLmBackend implements InferenceBackend {
     this._post = post;
   }
 
-  async load(modelId: string, opts: LoadOpts): Promise<void> {
-    if (!_module) {
-      this._post({ type: "error", error: "LiteRT-LM WASM module not loaded — awaiting #66 bundle" });
-      return;
+  async load(_modelId: string, opts: LoadOpts): Promise<void> {
+    // bundleUrls can be forwarded from the "init" message for local testing overrides.
+    const bundleOpts: LoadBundleOpts = {
+      urls: (opts.bundleUrls as Partial<LiteRtBundleUrls> | undefined) ?? {},
+      forceRefresh: (opts.forceRefresh as boolean | undefined) ?? false,
+    };
+    try {
+      const instance = await loadLiteRtLmBundle(this._post, bundleOpts);
+      setLiteRtLmModule(instance);
+      this._loaded = true;
+      this._post({ type: "model-ready" });
+      this._post({ type: "boot-complete" });
+    } catch (e) {
+      this._post({ type: "error", error: `LiteRT-LM bundle load failed: ${(e as Error).message}` });
     }
-    this._post({ type: "progress", phase: "model", progress: 0, file: "litert_lm.wasm", bytes: 0, total: 0, throughputBytesPerSec: 0 });
-    await _module.load(modelId, { opfsKey: modelId });
-    this._loaded = true;
-    this._post({ type: "model-ready" });
-    this._post({ type: "boot-complete", coldCache: opts.noWarmup !== true });
   }
 
   async generate(req: Record<string, unknown>): Promise<void> {
     if (!_module || !this._loaded) {
-      this._post({ type: "error", error: "LiteRT-LM not ready" });
+      this._post({ type: "generate-error", turnId: req.turnId, error: "LiteRT-LM not ready" });
       return;
     }
 
+    const turnId       = req.turnId as string;
     const messages     = req.messages as Array<{ role: string; content: string }>;
     const imageUrl     = req.imageUrl as string | undefined;
     const maxNewTokens = (req.maxNewTokens as number | undefined) ?? 512;
     const eosId        = (req.eosId as number | undefined) ?? 1;
-    const t0           = performance.now();
 
     const contents = await buildContents(messages, imageUrl);
 
-    this._post({ type: "progress", phase: "inference", progress: 0, throughputBytesPerSec: 0 });
+    // Streaming path — fires generate-progress heartbeat per token batch so the
+    // watchdog timer resets during long responses (mirrors ONNX backend every-50-tokens pattern).
+    let _tokensGenerated = 0;
+    const onToken: StreamCallback = (_partial, tOut) => {
+      _tokensGenerated = tOut;
+      if (tOut === 1 || tOut % 50 === 0) {
+        this._post({ type: "generate-progress", turnId, tokens_generated: tOut });
+      }
+    };
 
-    const result = await _module.generateContent(contents, { maxNewTokens, eosId });
+    let result: LiteRtLmResult;
+    try {
+      result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId });
+    } catch {
+      // Streaming not available in this build — fall back to blocking generateContent().
+      result = await _module.generateContent(contents, { maxNewTokens, eosId });
+    }
 
-    const elapsed = performance.now() - t0;
-    const tps = result.tokenIds.length > 0
-      ? Math.round(result.tokenIds.length / (result.decodeMs / 1000))
-      : 0;
-
+    // ONNX parity: post generate-done with the same field names the agent-harness reads.
     this._post({
-      type:       "generate-done",
-      turnId:     req.turnId,
-      tokenIds:   Array.from(result.tokenIds),
-      prefill_ms: result.prefillMs,
-      decode_ms:  result.decodeMs,
-      elapsed_ms: elapsed,
-      tg_tps:     tps,
-      tokens_out: result.tokenIds.length,
-      eos_hit:    result.tokenIds[result.tokenIds.length - 1] === eosId,
+      type:         "generate-done",
+      turnId,
+      text:         result.text,
+      specAttempts: 0,
+      specAccepts:  0,
+      prefillMs:    result.prefillMs,
+      decodeMs:     result.decodeMs,
+      inputLength:  0,   // LiteRT engine handles tokenization internally — not exposed to JS
+      tokensOut:    result.tokensOut,
     });
   }
 
@@ -237,6 +259,16 @@ export class LiteRtLmBackend implements InferenceBackend {
     _module?.dispose();
     this._loaded = false;
     this._post({ type: "shutdown-complete" });
+  }
+
+  // Model lifecycle parity with OnnxTransformersBackend — LiteRT doesn't expose a
+  // disposeSession/sessionRefresh split yet (no separate ORT session to reclaim).
+  // Stubs satisfy the InferenceBackend interface contract.
+  async disposeSession(): Promise<void> {
+    this._post({ type: "session-disposed" });
+  }
+  async sessionRefresh(): Promise<void> {
+    this._post({ type: "session-refresh-complete", skipped: true, reason: "litert-no-session-split" });
   }
 }
 
