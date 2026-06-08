@@ -493,8 +493,9 @@ export function installDefaultHandlers(): void {
   for (const entry of dict) {
     if (handlers.has(entry.name)) continue;
     handlers.set(entry.name, (args, e) => {
-      // The generic CustomEvent contract: detail = { id: kernel_op, args, canonical, kernel }.
-      emitCommand(e.kernel_op, { ...args, canonical: e.name, kernel: e.kernel });
+      // The generic CustomEvent contract: detail = { id: kernel_op, args, canonical }.
+      // kernel annotation removed (#532): detail.kernel had zero consumer read-sites.
+      emitCommand(e.kernel_op, { ...args, canonical: e.name });
       return { dispatched: e.kernel_op };
     });
   }

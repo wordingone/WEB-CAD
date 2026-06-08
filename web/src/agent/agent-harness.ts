@@ -632,8 +632,8 @@ function initWorkerIfNeeded(): Worker {
         }
         // CDP probe hook — always set; used by eval probes to detect boot.
         (window as unknown as Record<string, unknown>).__agentBootComplete = true;
-        // §#19-qat: expose test-inference API when running QAT eval (?gemma_model=e4b_qat).
-        if (_modelParam === "e4b_qat" && _inferenceWorker) {
+        // §#19-qat: expose test-inference API for CDP probes (any model — used for QAT quality comparison).
+        if (_inferenceWorker) {
           const _w = _inferenceWorker;
           (window as unknown as Record<string, unknown>).__qatRunTest = (
             imageUrl: string | null, text: string

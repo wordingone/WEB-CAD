@@ -425,7 +425,8 @@ export class OnnxTransformersBackend implements InferenceBackend {
       this._post({ type: "phase_timing", phase: "wasm_fallback_classification", elapsed_ms: Date.now() - this._workerStartMs, adClass: _adClassification });
     }
     // opts.dtype=undefined → let transformers.js_config in config.json drive (QAT model uses q2f16/fp16).
-    const _backendDtype = (opts.dtype as string | undefined) ?? "q4f16";
+    // No "q4f16" fallback: preserve undefined so the conditional spread in from_pretrained omits dtype.
+    const _backendDtype = opts.dtype as string | undefined;
     const backends: Array<{ device: "webgpu"; dtype: string | undefined; label: string }> = [
       { device: "webgpu", dtype: _backendDtype, label: "GPU" },
     ];
