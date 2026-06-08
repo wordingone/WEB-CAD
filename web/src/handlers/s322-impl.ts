@@ -961,28 +961,6 @@ export function handle_SdChamferCorner(
 }
 
 /**
- * SdBlendCurve
- *
- * C++ signature (OpenNURBS / Rhino):
- *   bool RhBlendCurve(
- *     const ON_Curve* curve0, double t0, int continuity0,
- *     const ON_Curve* curve1, double t1, int continuity1,
- *     ON_NurbsCurve& blend,
- *     double tolerance
- *   );
- *
- * Blocked: requires G0/G1/G2 blend-curve solver in kern.wasm.
- */
-export function handle_SdBlendCurve(
-  _args: Record<string, unknown>,
-): { error: string; detail: string } {
-  return {
-    error: "NotYetImplemented",
-    detail: "blocked: requires RhBlendCurve G0/G1/G2 solver in kern.wasm",
-  };
-}
-
-/**
  * SdProjectToSurface
  *
  * C++ signature (OpenNURBS):
@@ -1235,7 +1213,7 @@ export function registerS322Handlers(_viewer: Viewer): void {
   registerHandler("SdOffsetCurveOnSurface", (args) => handle_SdOffsetCurveOnSurface(args));
   registerHandler("SdFilletCorner", (args) => handle_SdFilletCorner(args));
   registerHandler("SdChamferCorner", (args) => handle_SdChamferCorner(args));
-  registerHandler("SdBlendCurve", (args) => handle_SdBlendCurve(args));
+  // SdBlendCurve: creation verb — registered by s321 (viewer required for scene add)
   registerHandler("SdProjectToSurface", (args) => handle_SdProjectToSurface(args));
   registerHandler("SdProjectToMesh", (args) => handle_SdProjectToMesh(args));
   registerHandler("SdPull", (args) => handle_SdPull(args));
