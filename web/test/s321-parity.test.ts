@@ -16,6 +16,7 @@ import {
   buildBezierNurbs,
   buildSpiralPolyline,
   buildHelixPolyline,
+  blendCurveNurbs,
 } from "../src/handlers/s321-impl";
 import {
   pointAt,
@@ -450,12 +451,7 @@ describe("C++-blocked stubs", () => {
     void "SdConicArc blocked";
   });
 
-  test.skip("blocked: needs kern_blendCurve in kern.wasm", () => {
-    // kern_blendCurve: G0/G1/G2 continuity blend.
-    // C++ signature: kern_blendCurve(cA: KernCurve, tA: f64, cB: KernCurve, tB: f64, continuity: u8) -> KernCurve
-    // Expected: handle_SdBlendCurve returns { error: "NotYetImplemented", detail: ... }
-    void "SdBlendCurve blocked";
-  });
+  // SdBlendCurve implemented in pure TS — see blendCurveNurbs tests below
 
   test("blocked stubs return NotYetImplemented error objects synchronously", () => {
     // Verify the stub objects are exported and return the right shape
@@ -476,11 +472,128 @@ describe("C++-blocked stubs", () => {
     };
     expect(conicArc.error).toBe("NotYetImplemented");
 
-    const blendCurve = {
-      error: "NotYetImplemented",
-      detail: "blocked: requires kern_blendCurve in kern.wasm — G0/G1/G2 continuity matching at curve endpoints",
-      created: null,
-    };
-    expect(blendCurve.error).toBe("NotYetImplemented");
+    // SdBlendCurve no longer stubbed — implemented in pure TS via blendCurveNurbs
+  });
+});
+
+// ── blendCurveNurbs (pure-math, no viewer) ───────────────────────────────────
+
+describe("blendCurveNurbs — G0/G1/G2 Hermite blend", () => {
+  // Fixture: two line curves meeting at a 90° corner.
+  // cA: (0,0,0) → (1,0,0)  tangent at end = (1,0,0)
+  // cB: (1,1,0) → (1,2,0)  tangent at start = (0,1,0)
+  const lineX = createClampedUniformNurbs(3, 2, [
+    { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 },
+  ]);
+  const lineY = createClampedUniformNurbs(3, 2, [
+    { x: 1, y: 1, z: 0 }, { x: 1, y: 2, z: 0 },
+  ]);
+  const domX = domain(lineX);
+  const domY = domain(lineY);
+
+  test("G0: degree-1 line between endpoints", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G0");
+    expect(nc.kind).toBe("nurbs");
+    expect(nc.order).toBe(2); // degree 1
+    expect(nc.cvCount).toBe(2);
+    const p0 = pointAt(nc, domain(nc).min);
+    const p1 = pointAt(nc, domain(nc).max);
+    expect(p0.x).toBeCloseTo(1, 6);
+    expect(p0.y).toBeCloseTo(0, 6);
+    expect(p1.x).toBeCloseTo(1, 6);
+    expect(p1.y).toBeCloseTo(1, 6);
+  });
+
+  test("G1: cubic Bezier — endpoints match, CP offsets follow tangent", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G1");
+    expect(nc.order).toBe(4); // degree 3
+    expect(nc.cvCount).toBe(4);
+    // endpoints
+    const p0 = pointAt(nc, domain(nc).min);
+    const p1 = pointAt(nc, domain(nc).max);
+    expect(p0.x).toBeCloseTo(1, 5); expect(p0.y).toBeCloseTo(0, 5);
+    expect(p1.x).toBeCloseTo(1, 5); expect(p1.y).toBeCloseTo(1, 5);
+    // c1 = (1,0) + (1,0)*chord/3  chord=1 → (1.333, 0)
+    expect(nc.cvs[3]).toBeCloseTo(1 + 1/3, 5); // c1.x
+    expect(nc.cvs[4]).toBeCloseTo(0, 5);         // c1.y
+    // c2 = (1,1) − (0,1)*chord/3 → (1, 1−1/3)
+    expect(nc.cvs[6]).toBeCloseTo(1, 5);         // c2.x
+    expect(nc.cvs[7]).toBeCloseTo(1 - 1/3, 5);  // c2.y
+  });
+
+  test("G1: tangent direction at t=0 points along cA tangent", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G1");
+    // Finite-difference tangent of blend at start
+    const h = domain(nc).max * 1e-4;
+    const pA = pointAt(nc, domain(nc).min);
+    const pB = pointAt(nc, domain(nc).min + h);
+    const tx = pB.x - pA.x, ty = pB.y - pA.y;
+    const len = Math.sqrt(tx*tx + ty*ty);
+    // Should point in (1,0,0) direction (tangent of lineX at its end)
+    expect(tx/len).toBeCloseTo(1, 2);
+    expect(ty/len).toBeCloseTo(0, 2);
+  });
+
+  test("G1: tangent direction at t=1 points along cB tangent", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G1");
+    const dom = domain(nc);
+    const h = (dom.max - dom.min) * 1e-4;
+    const pA = pointAt(nc, dom.max - h);
+    const pB = pointAt(nc, dom.max);
+    const tx = pB.x - pA.x, ty = pB.y - pA.y;
+    const len = Math.sqrt(tx*tx + ty*ty);
+    // Should point in (0,1,0) direction (tangent of lineY at its start)
+    expect(tx/len).toBeCloseTo(0, 2);
+    expect(ty/len).toBeCloseTo(1, 2);
+  });
+
+  test("G2: quintic Bezier — degree 5, 6 CVs, endpoints match", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G2");
+    expect(nc.order).toBe(6); // degree 5
+    expect(nc.cvCount).toBe(6);
+    const p0 = pointAt(nc, domain(nc).min);
+    const p1 = pointAt(nc, domain(nc).max);
+    expect(p0.x).toBeCloseTo(1, 5); expect(p0.y).toBeCloseTo(0, 5);
+    expect(p1.x).toBeCloseTo(1, 5); expect(p1.y).toBeCloseTo(1, 5);
+  });
+
+  test("G2: tangent at start/end matches G1 directions (lines have zero curvature)", () => {
+    // For straight lines, curvature vector = 0, so G2 == G1 tangent match
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G2");
+    const dom = domain(nc);
+    const h = (dom.max - dom.min) * 1e-4;
+    const pStartA = pointAt(nc, dom.min);
+    const pStartB = pointAt(nc, dom.min + h);
+    const txS = pStartB.x - pStartA.x, tyS = pStartB.y - pStartA.y;
+    const lenS = Math.sqrt(txS*txS + tyS*tyS);
+    expect(txS/lenS).toBeCloseTo(1, 2); // cA tangent direction
+    expect(tyS/lenS).toBeCloseTo(0, 2);
+
+    const pEndA = pointAt(nc, dom.max - h);
+    const pEndB = pointAt(nc, dom.max);
+    const txE = pEndB.x - pEndA.x, tyE = pEndB.y - pEndA.y;
+    const lenE = Math.sqrt(txE*txE + tyE*tyE);
+    expect(txE/lenE).toBeCloseTo(0, 2); // cB tangent direction
+    expect(tyE/lenE).toBeCloseTo(1, 2);
+  });
+
+  test("default continuity 'G1' — non-collinear blend is not straight", () => {
+    const nc = blendCurveNurbs(lineX, domX.max, lineY, domY.min, "G1");
+    // midpoint should deviate from straight line between endpoints
+    const mid = pointAt(nc, (domain(nc).min + domain(nc).max) / 2);
+    // straight line mid = (1, 0.5) — blend should deviate due to tangent influence
+    const deviation = Math.abs(mid.x - 1) + Math.abs(mid.y - 0.5);
+    expect(deviation).toBeGreaterThan(0.01);
+  });
+
+  test("degenerate: coincident endpoints (chord ≈ 0) — G1 uses fallback scale", () => {
+    // Both curves start/end at same point — blend should still return a valid NURBS
+    const nc = blendCurveNurbs(lineX, domX.max, lineX, domX.max, "G1");
+    expect(nc.kind).toBe("nurbs");
+    expect(nc.cvCount).toBe(4);
+    const p0 = pointAt(nc, domain(nc).min);
+    const p1 = pointAt(nc, domain(nc).max);
+    expect(p0.x).toBeCloseTo(p1.x, 3);
+    expect(p0.y).toBeCloseTo(p1.y, 3);
   });
 });

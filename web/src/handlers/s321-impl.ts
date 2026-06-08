@@ -19,6 +19,9 @@ import {
   createInterpolatingCubicBSpline,
   trim as curveTrim,
   domain as curveDomain,
+  pointAt,
+  tangentAt,
+  derivativeAt,
   type Curve,
   type NurbsCurve,
 } from "../nurbs/nurbs-curves";
@@ -528,16 +531,132 @@ export function handle_SdConicArc(
   };
 }
 
+// ── SdBlendCurve ─────────────────────────────────────────────────────────────
+// G0/G1/G2 Hermite blend between two curve endpoints — pure TS, no C++ needed.
+// G0: degree-1 line segment. G1: cubic Bezier (tangent match). G2: quintic Bezier (curvature match).
+
+function parseCurveArg(raw: unknown, label: string): Curve {
+  if (!raw || typeof raw !== "object") throw new Error(`${label}: expected curve object`);
+  const obj = raw as Record<string, unknown>;
+  if (obj["kind"] === "nurbs" && Array.isArray(obj["knots"]) && Array.isArray(obj["cvs"])) {
+    return {
+      kind: "nurbs",
+      dim: (obj["dim"] as number) ?? 3,
+      isRational: (obj["isRational"] as boolean) ?? false,
+      order: obj["order"] as number,
+      cvCount: typeof obj["cvCount"] === "number" ? (obj["cvCount"] as number)
+        : (obj["cvs"] as number[]).length / ((obj["cvStride"] as number) ?? 3),
+      knots: obj["knots"] as number[],
+      cvs: obj["cvs"] as number[],
+      cvStride: (obj["cvStride"] as number) ?? 3,
+    } as Curve;
+  }
+  if (obj["kind"] === "line") {
+    const f = obj["from"] as number[], t = obj["to"] as number[];
+    const dx = t[0]-f[0], dy = t[1]-f[1], dz = (t[2]??0)-(f[2]??0);
+    return { kind: "line",
+      from: { x: f[0], y: f[1], z: f[2]??0 },
+      to:   { x: t[0], y: t[1], z: t[2]??0 },
+      domain: { min: 0, max: Math.sqrt(dx*dx + dy*dy + dz*dz) } };
+  }
+  if (Array.isArray(obj["points"])) {
+    const pts = (obj["points"] as number[][]).map((p) => ({ x: p[0]??0, y: p[1]??0, z: p[2]??0 }));
+    let len = 0;
+    const params = [0];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i-1], b = pts[i];
+      len += Math.sqrt((b.x-a.x)**2 + (b.y-a.y)**2 + (b.z-a.z)**2);
+      params.push(len);
+    }
+    return { kind: "polyline", points: pts, parameters: params };
+  }
+  throw new Error(`${label}: unrecognised curve format (kind=${String(obj["kind"])})`);
+}
+
+/** G0/G1/G2 Hermite blend NURBS — exported for unit tests. */
+export function blendCurveNurbs(
+  cA: Curve, tA: number,
+  cB: Curve, tB: number,
+  continuity: "G0" | "G1" | "G2",
+): NurbsCurve {
+  const P0 = pointAt(cA, tA);
+  const P1 = pointAt(cB, tB);
+  const dx = P1.x-P0.x, dy = P1.y-P0.y, dz = P1.z-P0.z;
+  const chord = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+  if (continuity === "G0") {
+    return createClampedUniformNurbs(3, 2, [P0, P1]);
+  }
+
+  const T0 = tangentAt(cA, tA);
+  const T1 = tangentAt(cB, tB);
+  const s = chord > 1e-12 ? chord : 1;
+
+  if (continuity === "G1") {
+    return createClampedUniformNurbs(3, 4, [
+      P0,
+      { x: P0.x + T0.x*s/3, y: P0.y + T0.y*s/3, z: P0.z + T0.z*s/3 },
+      { x: P1.x - T1.x*s/3, y: P1.y - T1.y*s/3, z: P1.z - T1.z*s/3 },
+      P1,
+    ]);
+  }
+
+  // G2: quintic Bezier — match curvature vectors κ*N = (a - (a·T̂)*T̂) / |v|²
+  const dA = derivativeAt(cA, tA, 2);
+  const dB = derivativeAt(cB, tB, 2);
+  const v0 = dA[1], a0 = dA[2];
+  const v1 = dB[1], a1 = dB[2];
+  const l0sq = v0.x*v0.x + v0.y*v0.y + v0.z*v0.z;
+  const l1sq = v1.x*v1.x + v1.y*v1.y + v1.z*v1.z;
+  const d0 = a0.x*T0.x + a0.y*T0.y + a0.z*T0.z;
+  const d1 = a1.x*T1.x + a1.y*T1.y + a1.z*T1.z;
+  const k0 = l0sq > 1e-20
+    ? { x:(a0.x-d0*T0.x)/l0sq, y:(a0.y-d0*T0.y)/l0sq, z:(a0.z-d0*T0.z)/l0sq }
+    : { x:0, y:0, z:0 };
+  const k1 = l1sq > 1e-20
+    ? { x:(a1.x-d1*T1.x)/l1sq, y:(a1.y-d1*T1.y)/l1sq, z:(a1.z-d1*T1.z)/l1sq }
+    : { x:0, y:0, z:0 };
+  const s2_20 = s*s/20;
+  return createClampedUniformNurbs(3, 6, [
+    P0,
+    { x: P0.x + T0.x*s/5,       y: P0.y + T0.y*s/5,       z: P0.z + T0.z*s/5 },
+    { x: P0.x + 2*T0.x*s/5 + k0.x*s2_20, y: P0.y + 2*T0.y*s/5 + k0.y*s2_20, z: P0.z + 2*T0.z*s/5 + k0.z*s2_20 },
+    { x: P1.x - 2*T1.x*s/5 + k1.x*s2_20, y: P1.y - 2*T1.y*s/5 + k1.y*s2_20, z: P1.z - 2*T1.z*s/5 + k1.z*s2_20 },
+    { x: P1.x - T1.x*s/5,       y: P1.y - T1.y*s/5,       z: P1.z - T1.z*s/5 },
+    P1,
+  ]);
+}
+
 export function handle_SdBlendCurve(
-  _args: Record<string, unknown>,
-  _viewer: Viewer,
+  args: Record<string, unknown>,
+  viewer: Viewer,
 ): unknown {
-  // oracle: replicad G0/G1/G2 blend
-  return {
-    error: "NotYetImplemented",
-    detail: "blocked: requires kern_blendCurve in kern.wasm — G0/G1/G2 continuity matching at curve endpoints",
-    created: null,
-  };
+  try {
+    const rawA = args["curveA"];
+    const rawB = args["curveB"];
+    if (!rawA || !rawB) {
+      return { error: "SdBlendCurve: curveA and curveB are required", created: null };
+    }
+    const cA = parseCurveArg(rawA, "curveA");
+    const cB = parseCurveArg(rawB, "curveB");
+    const domA = curveDomain(cA);
+    const domB = curveDomain(cB);
+    const tA = typeof args["tA"] === "number" ? (args["tA"] as number) : domA.max;
+    const tB = typeof args["tB"] === "number" ? (args["tB"] as number) : domB.min;
+    const contRaw = String(args["continuity"] ?? "G1").toUpperCase();
+    const continuity = (contRaw === "G0" || contRaw === "G2" ? contRaw : "G1") as "G0" | "G1" | "G2";
+
+    const nurbs = blendCurveNurbs(cA, tA, cB, tB, continuity);
+    const pts = tessellate(nurbs, Math.max(64, nurbs.cvCount * 16));
+    const obj = new THREE.Line(polylineGeom(pts), curveMat());
+    obj.userData.kind = "blend-curve";
+    obj.userData.creator = "blend-curve";
+    linkCanonicalCurve(viewer, obj, nurbs, "SdBlendCurve", { curveA: rawA, tA, curveB: rawB, tB, continuity });
+    viewer.addMesh(obj, "mesh");
+    return { created: "blend-curve", continuity };
+  } catch (e) {
+    return { error: String(e), created: null };
+  }
 }
 
 // ── Registration entry point ─────────────────────────────────────────────────

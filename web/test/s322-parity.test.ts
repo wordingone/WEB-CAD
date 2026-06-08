@@ -60,7 +60,6 @@ import {
   handle_SdOffsetCurveOnSurface,
   handle_SdFilletCorner,
   handle_SdChamferCorner,
-  handle_SdBlendCurve,
   handle_SdProjectToSurface,
   handle_SdProjectToMesh,
   handle_SdPull,
@@ -642,11 +641,6 @@ describe("C++ blocked stubs", () => {
     expect(result.error).toBe("NotYetImplemented");
   });
 
-  test.skip("blocked: needs G0/G1/G2 blend-curve solver in kern.wasm", () => {
-    const result = handle_SdBlendCurve({});
-    expect(result.error).toBe("NotYetImplemented");
-  });
-
   test.skip("blocked: needs ON_ProjectCurveToSurface (SSI) in kern.wasm", () => {
     const result = handle_SdProjectToSurface({});
     expect(result.error).toBe("NotYetImplemented");
@@ -684,11 +678,6 @@ describe("C++ stub return contract", () => {
 
   test("SdChamferCorner returns NotYetImplemented", () => {
     const result = handle_SdChamferCorner({});
-    expect(result.error).toBe("NotYetImplemented");
-  });
-
-  test("SdBlendCurve returns NotYetImplemented", () => {
-    const result = handle_SdBlendCurve({});
     expect(result.error).toBe("NotYetImplemented");
   });
 
