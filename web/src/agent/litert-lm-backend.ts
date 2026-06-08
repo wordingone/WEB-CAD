@@ -211,7 +211,8 @@ export class LiteRtLmBackend implements InferenceBackend {
   readonly caps = { multimodal: true, mtp: false } as const;
 
   private readonly _post: PostFn;
-  private _loaded = false;
+  private _loaded   = false;
+  private _disposed = false;
 
   constructor(post: PostFn) {
     this._post = post;
@@ -245,6 +246,8 @@ export class LiteRtLmBackend implements InferenceBackend {
     const imageUrl     = req.imageUrl as string | undefined;
     const maxNewTokens = (req.maxNewTokens as number | undefined) ?? 512;
     const eosId        = (req.eosId as number | undefined) ?? 1;
+    // _watchdogMs: injectable timeout for tests; production callers omit it.
+    const watchdogMs   = req._watchdogMs as number | undefined;
 
     const contents = await buildContents(messages, imageUrl);
 
@@ -258,41 +261,72 @@ export class LiteRtLmBackend implements InferenceBackend {
       }
     };
 
+    // Watchdog: race any generate call against the timeout when _watchdogMs injected.
+    // Catches WORKER_RECYCLED-class silent hangs — fires generate-error so harness can recover.
+    let _watchdogHandle: ReturnType<typeof setTimeout> | null = null;
+    const withWatchdog = <T>(p: Promise<T>): Promise<T> => {
+      if (!watchdogMs) return p;
+      return Promise.race([
+        p,
+        new Promise<T>((_, reject) => {
+          _watchdogHandle = setTimeout(() => reject(new Error("generate watchdog timeout")), watchdogMs);
+        }),
+      ]);
+    };
+
     let result: LiteRtLmResult;
-    // MTP path: use generateContentWithMtp if the bundle exposes it (caps.mtp flips true when wired).
-    if (_module.generateContentWithMtp) {
-      try {
-        result = await _module.generateContentWithMtp(contents, onToken, { maxNewTokens, eosId });
-      } catch {
-        // MTP failed — fall through to standard streaming path.
-        result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId })
-          .catch(() => _module!.generateContent(contents, { maxNewTokens, eosId }));
+    try {
+      // MTP path: use generateContentWithMtp if the bundle exposes it (caps.mtp flips true when wired).
+      if (_module.generateContentWithMtp) {
+        try {
+          result = await withWatchdog(_module.generateContentWithMtp(contents, onToken, { maxNewTokens, eosId }));
+        } catch (e) {
+          if ((e as Error).message === "generate watchdog timeout") throw e;
+          // MTP failed — fall through to standard streaming path.
+          result = await withWatchdog(
+            _module.generateContentStream(contents, onToken, { maxNewTokens, eosId })
+              .catch(() => _module!.generateContent(contents, { maxNewTokens, eosId })),
+          );
+        }
+      } else {
+        try {
+          result = await withWatchdog(_module.generateContentStream(contents, onToken, { maxNewTokens, eosId }));
+        } catch (e) {
+          if ((e as Error).message === "generate watchdog timeout") throw e;
+          // Streaming not available in this build — fall back to blocking generateContent().
+          result = await _module.generateContent(contents, { maxNewTokens, eosId });
+        }
       }
-    } else {
-      try {
-        result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId });
-      } catch {
-        // Streaming not available in this build — fall back to blocking generateContent().
-        result = await _module.generateContent(contents, { maxNewTokens, eosId });
-      }
+    } catch (e) {
+      if (_watchdogHandle) clearTimeout(_watchdogHandle);
+      this._post({ type: "generate-error", turnId, error: (e as Error).message ?? "generate-failed" });
+      return;
+    }
+    if (_watchdogHandle) clearTimeout(_watchdogHandle);
+
+    // If dispose() was called while generate was awaiting, post error instead of done.
+    if (this._disposed) {
+      this._post({ type: "generate-error", turnId, error: "disposed during generate" });
+      return;
     }
 
     // ONNX parity: post generate-done with the same field names the agent-harness reads.
-    // specAttempts/specAccepts forwarded from engine result (0 when MTP not active).
+    // Defensive defaults handle malformed/partial engine results (old bundle builds may omit fields).
     this._post({
       type:         "generate-done",
       turnId,
-      text:         result.text,
+      text:         result.text         ?? "",
       specAttempts: result.specAttempts ?? 0,
       specAccepts:  result.specAccepts  ?? 0,
-      prefillMs:    result.prefillMs,
-      decodeMs:     result.decodeMs,
+      prefillMs:    result.prefillMs    ?? 0,
+      decodeMs:     result.decodeMs     ?? 0,
       inputLength:  0,   // LiteRT engine handles tokenization internally — not exposed to JS
-      tokensOut:    result.tokensOut,
+      tokensOut:    result.tokensOut    ?? 0,
     });
   }
 
   async dispose(): Promise<void> {
+    this._disposed = true;
     _module?.dispose();
     this._loaded = false;
     this._post({ type: "shutdown-complete" });

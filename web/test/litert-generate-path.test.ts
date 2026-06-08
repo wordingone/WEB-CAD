@@ -188,3 +188,169 @@ describe("createMockLiteRtLmModule", () => {
     expect(result.specAccepts).toBe(8);
   });
 });
+
+// ── Dispose-mid-stream ────────────────────────────────────────────────────────
+
+describe("dispose-mid-stream", () => {
+  test("dispose during stalled generate posts shutdown-complete and does not hang silently", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "result", stallForMs: 30 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    // Start generate (stalls 30ms) and dispose concurrently — simulates session teardown mid-inference.
+    await Promise.all([
+      backend.generate({ turnId: "t-disp", messages: [{ role: "user", content: "hi" }] }),
+      backend.dispose(),
+    ]);
+
+    const shutdown = findMsg(msgs, "shutdown-complete");
+    const done     = findMsg(msgs, "generate-done");
+    const err      = findMsg(msgs, "generate-error");
+
+    // shutdown-complete must always fire
+    expect(shutdown).toBeDefined();
+    // generate path must not be silent — either done (if fast enough) or error (disposed-during)
+    expect(done !== undefined || err !== undefined).toBe(true);
+  });
+
+  test("generate after dispose posts generate-error (not-ready guard)", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "result" }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.dispose();
+    // Reset message list; call generate on a disposed backend
+    msgs.length = 0;
+    await backend.generate({ turnId: "t-after-disp", messages: [{ role: "user", content: "hi" }] });
+
+    const err = findMsg(msgs, "generate-error");
+    expect(err).toBeDefined();
+    expect(err!.turnId).toBe("t-after-disp");
+  });
+});
+
+// ── Progress-watchdog timeout → recovery ─────────────────────────────────────
+
+describe("progress-watchdog timeout", () => {
+  test("stalled generate with _watchdogMs posts generate-error containing 'watchdog'", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "slow", stallForMs: 200 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({
+      turnId: "t-wdog",
+      messages: [{ role: "user", content: "hi" }],
+      _watchdogMs: 5,  // 5ms watchdog << 200ms stall
+    });
+
+    const err = findMsg(msgs, "generate-error");
+    expect(err).toBeDefined();
+    expect((err!.error as string)).toContain("watchdog");
+    expect(findMsg(msgs, "generate-done")).toBeUndefined();
+  });
+
+  test("fast generate completes normally even when _watchdogMs set", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "fast", tokensOut: 2 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({
+      turnId: "t-fast",
+      messages: [{ role: "user", content: "hi" }],
+      _watchdogMs: 500,  // generous timeout — should not fire
+    });
+
+    expect(findMsg(msgs, "generate-done")).toBeDefined();
+    expect(findMsg(msgs, "generate-error")).toBeUndefined();
+  });
+});
+
+// ── Malformed / partial generate-done fields (defensive parse) ───────────────
+
+describe("malformed generate-done fields (defensive parse)", () => {
+  test("engine returning partial result: missing numeric fields default to 0", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+
+    // Inline mock: bare result with only text — simulates older bundle build missing timing fields.
+    const bareResult = { text: "partial" } as import("../src/agent/litert-lm-backend.js").LiteRtLmResult;
+    setLiteRtLmModule({
+      async load()                  { return; },
+      async generateContent()       { return bareResult; },
+      async generateContentStream(_c, cb) { cb("partial", 1); return bareResult; },
+      dispose()                     { return; },
+    });
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "t-partial", messages: [{ role: "user", content: "hi" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.text).toBe("partial");
+    expect(done!.tokensOut).toBe(0);
+    expect(done!.prefillMs).toBe(0);
+    expect(done!.decodeMs).toBe(0);
+    expect(done!.specAttempts).toBe(0);
+    expect(done!.specAccepts).toBe(0);
+  });
+
+  test("engine returning undefined text: text defaults to empty string", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+
+    const emptyResult = {} as import("../src/agent/litert-lm-backend.js").LiteRtLmResult;
+    setLiteRtLmModule({
+      async load()                  { return; },
+      async generateContent()       { return emptyResult; },
+      async generateContentStream(_c, cb) { cb("", 1); return emptyResult; },
+      dispose()                     { return; },
+    });
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "t-empty", messages: [{ role: "user", content: "hi" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.text).toBe("");
+  });
+});
+
+// ── Back-to-back turns (slot reuse) ──────────────────────────────────────────
+
+describe("back-to-back turns without reinit (slot reuse)", () => {
+  test("two sequential generates both post generate-done with correct turnIds", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "answer", tokensOut: 3 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "turn-A", messages: [{ role: "user", content: "first" }] });
+    await backend.generate({ turnId: "turn-B", messages: [{ role: "user", content: "second" }] });
+
+    const doneA = msgs.find(m => m.type === "generate-done" && m.turnId === "turn-A");
+    const doneB = msgs.find(m => m.type === "generate-done" && m.turnId === "turn-B");
+    expect(doneA).toBeDefined();
+    expect(doneB).toBeDefined();
+    expect(doneA!.text).toBe("answer");
+    expect(doneB!.text).toBe("answer");
+  });
+
+  test("three sequential turns all complete without cross-contamination", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "ok", tokensOut: 1 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    for (const id of ["tA", "tB", "tC"]) {
+      await backend.generate({ turnId: id, messages: [{ role: "user", content: id }] });
+    }
+
+    const dones = msgs.filter(m => m.type === "generate-done");
+    expect(dones.length).toBe(3);
+    expect(dones.map(d => d.turnId)).toEqual(["tA", "tB", "tC"]);
+  });
+});
