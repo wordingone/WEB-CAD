@@ -80,8 +80,13 @@ async function streamToOpfs(
   const fh       = await root.getFileHandle(key, { create: true });
   const writable = await fh.createWritable();
 
-  const resp = await fetch(url, { headers: { Accept: "*/*" } });
-  if (!resp.ok) throw new Error(`fetch ${url} → HTTP ${resp.status}`);
+  // Explicit mode:"cors" — HF is cross-origin; a CORS failure must throw typed, not silently return opaque.
+  // Wrap TypeError (network/CORS refusal) so the error surfaces the URL and cause, not just "Failed to fetch".
+  const resp = await fetch(url, { headers: { Accept: "*/*" }, mode: "cors" })
+    .catch((e: Error) => {
+      throw new Error(`network/CORS error fetching ${phase} (${url}): ${e.message}`);
+    });
+  if (!resp.ok) throw new Error(`fetch ${phase} ${url} → HTTP ${resp.status} ${resp.statusText}`);
 
   const total = Number(resp.headers.get("content-length") ?? 0);
   let   bytes = 0;
@@ -116,12 +121,23 @@ async function opfsReadBuffer(key: string): Promise<ArrayBuffer> {
   return f.arrayBuffer();
 }
 
+// ── WASM binary integrity checks ─────────────────────────────────────────────
+
+/** Returns true if buf begins with the WASM magic bytes `\0asm` (00 61 73 6d).
+ *  Called before WebAssembly.instantiate to catch truncated or corrupt downloads
+ *  before they reach the engine and produce an opaque CompileError. */
+export function isWasmMagic(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 4) return false;
+  const u8 = new Uint8Array(buf, 0, 4);
+  return u8[0] === 0x00 && u8[1] === 0x61 && u8[2] === 0x73 && u8[3] === 0x6d;
+}
+
 // ── Memory64 detection ────────────────────────────────────────────────────────
 // A WASM binary using memory64 encodes the memory section flags byte with bit 2 set (0x04).
 // wasm32 = 0x00. E4B is 4-bit quantized (~3-4GB total) — may require memory64 for weight buffer.
 // Chrome 126+ supports memory64 unflagged. Earlier Chromium versions need --enable-experimental-webassembly-features.
 
-function detectMemory64(wasmBytes: ArrayBuffer): boolean {
+export function detectMemory64(wasmBytes: ArrayBuffer): boolean {
   const u8 = new Uint8Array(wasmBytes, 0, Math.min(wasmBytes.byteLength, 8192));
   let i = 8; // skip magic (0000061 61736d) + version
   while (i < u8.length - 2) {
@@ -176,9 +192,24 @@ export async function loadLiteRtLmBundle(
     await streamToOpfs(urls.wasmUrl, wasmKey, post, "wasm");
   }
 
-  // ── 2. Memory64 check ─────────────────────────────────────────────────────
+  // ── 2. WASM integrity + Memory64 check ───────────────────────────────────
   // Read WASM header only (first 8KB is enough for the memory section).
   const wasmBytes = await opfsReadBuffer(wasmKey); // tens of MB — acceptable
+
+  // Pre-instantiate integrity guard: reject truncated/corrupt downloads BEFORE
+  // they reach WebAssembly.instantiate (which would produce an opaque CompileError).
+  // Evict the bad cache entry so the next load attempt re-downloads from source.
+  if (!isWasmMagic(wasmBytes)) {
+    try {
+      const root = await navigator.storage.getDirectory();
+      await root.removeEntry(wasmKey);
+    } catch { /* eviction best-effort — non-fatal */ }
+    throw new Error(
+      `WASM integrity check failed: ${wasmKey} is not a valid WASM binary ` +
+      `(${wasmBytes.byteLength} bytes). Evicted from OPFS cache — retry will re-download.`,
+    );
+  }
+
   if (detectMemory64(wasmBytes)) {
     const mem64Supported = (() => {
       try { new WebAssembly.Memory({ initial: 1, index: "i64" } as WebAssembly.MemoryDescriptor); return true; }
