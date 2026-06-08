@@ -16,7 +16,7 @@
 //
 // Tolerance convention: BREP_DEFAULT_TOLERANCE (1e-6 m) per nurbs-brep.ts.
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, beforeAll } from "bun:test";
 import {
   brepUnion,
   brepDifference,
@@ -43,6 +43,20 @@ import {
   handle_SdBooleanSplit,
   handle_SdDifferenceWithIndexMap,
 } from "../src/handlers/s326-impl";
+import { initWasmKernel, rawKernModule } from "../src/nurbs/wasm-boolean-backend";
+
+// ── WASM readiness gate ───────────────────────────────────────────────────────
+
+let wasmReady = false;
+
+beforeAll(async () => {
+  try {
+    await initWasmKernel();
+    wasmReady = true;
+  } catch {
+    wasmReady = false;
+  }
+});
 
 // ── Geometry helpers ──────────────────────────────────────────────────────────
 
@@ -455,5 +469,214 @@ describe("#326 C++-blocked stubs", () => {
     // Missing a and b — should return a validation error, not NotYetImplemented
     expect(typeof result.error).toBe("string");
     expect(result.error as string).not.toBe("NotYetImplemented");
+  });
+});
+
+// ── Topology correctness — WASM-gated: Euler + multi-shell + through-slot ────
+//
+// Uses rawKernModule() directly (same pattern as parity-gate.test.ts) to bypass
+// JS↔kern serialization and drive topology assertions on kern-format results.
+//
+// Key fixtures (all with edges so kern propagates edge topology to result):
+//   - cavity: B-inside-A → 2 shells (outer + inner void), each Euler V-E+F=2
+//   - through-slot: B pierces A in Z → 1 shell, F=THROUGH_SLOT_FACES (>naive 6)
+//
+// Reference: OCCT BRepAlgoAPI_Cut topology semantics (Leo mail #14211/#14212)
+// "topology-correct ≠ SSI-clean": these tests assert REAL V/E/F counts, not
+// just that the operation ran without throwing.
+
+// Kern-format box helper with full edge+vertex topology.
+// Standard clamped NURBS (degree 1×1), face-orientation matches inward/outward normals.
+function kernTopoBox(
+  w: number, h: number, d: number,
+  ox = 0, oy = 0, oz = 0,
+): string {
+  type KFace = {
+    surface: {
+      degreeU: number; degreeV: number; cvCountU: number; cvCountV: number;
+      knotsU: number[]; knotsV: number[]; cvs: number[];
+    };
+    outerLoop: { edges: never[]; orientation: boolean };
+    innerLoops: never[];
+    orientation: boolean;
+    tolerance: number;
+  };
+  function kFace(
+    origin: [number, number, number],
+    xAxis:  [number, number, number],
+    yAxis:  [number, number, number],
+    uExt: number, vExt: number,
+    outward: boolean,
+  ): KFace {
+    const [bx, by, bz] = origin;
+    const [xx, xy, xz] = xAxis;
+    const [yx, yy, yz] = yAxis;
+    return {
+      surface: {
+        degreeU: 1, degreeV: 1, cvCountU: 2, cvCountV: 2,
+        knotsU: [0, 0, uExt, uExt], knotsV: [0, 0, vExt, vExt],
+        cvs: [
+          bx, by, bz, 1,
+          bx + yx * vExt, by + yy * vExt, bz + yz * vExt, 1,
+          bx + xx * uExt, by + xy * uExt, bz + xz * uExt, 1,
+          bx + xx * uExt + yx * vExt, by + xy * uExt + yy * vExt, bz + xz * uExt + yz * vExt, 1,
+        ],
+      },
+      outerLoop: { edges: [], orientation: true },
+      innerLoops: [],
+      orientation: outward,
+      tolerance: 1e-6,
+    };
+  }
+  function kLine(
+    x0: number, y0: number, z0: number,
+    x1: number, y1: number, z1: number,
+  ) {
+    return { degree: 1, cvCount: 2, knots: [0, 0, 1, 1], cvs: [x0, y0, z0, 1, x1, y1, z1, 1] };
+  }
+  const [x0, y0, z0, x1, y1, z1] = [ox, oy, oz, ox + w, oy + h, oz + d];
+  const faces = [
+    kFace([ox, oy, oz], [0, 1, 0], [0, 0, 1], h, d, false),   // −X
+    kFace([ox+w, oy, oz], [0, 1, 0], [0, 0, 1], h, d, true),  // +X
+    kFace([ox, oy, oz], [1, 0, 0], [0, 0, 1], w, d, true),    // −Y
+    kFace([ox, oy+h, oz], [1, 0, 0], [0, 0, 1], w, d, false), // +Y
+    kFace([ox, oy, oz], [1, 0, 0], [0, 1, 0], w, h, true),    // −Z
+    kFace([ox, oy, oz+d], [1, 0, 0], [0, 1, 0], w, h, false), // +Z
+  ];
+  const e = (
+    xa: number, ya: number, za: number,
+    xb: number, yb: number, zb: number,
+    f1: number, f2: number,
+  ) => ({ curve: kLine(xa, ya, za, xb, yb, zb), faceIndex1: f1, faceIndex2: f2, tolerance: 1e-6 });
+  const edges = [
+    e(x0, y0, z0, x0, y1, z0, 0, 4), e(x0, y0, z0, x1, y0, z0, 2, 4),
+    e(x1, y0, z0, x1, y1, z0, 1, 4), e(x0, y1, z0, x1, y1, z0, 3, 4),
+    e(x0, y0, z1, x0, y1, z1, 0, 5), e(x0, y0, z1, x1, y0, z1, 2, 5),
+    e(x1, y0, z1, x1, y1, z1, 1, 5), e(x0, y1, z1, x1, y1, z1, 3, 5),
+    e(x0, y0, z0, x0, y0, z1, 0, 2), e(x1, y0, z0, x1, y0, z1, 1, 2),
+    e(x0, y1, z0, x0, y1, z1, 0, 3), e(x1, y1, z0, x1, y1, z1, 1, 3),
+  ];
+  const vpts: [number, number, number][] = [
+    [x0, y0, z0], [x1, y0, z0], [x0, y1, z0], [x1, y1, z0],
+    [x0, y0, z1], [x1, y0, z1], [x0, y1, z1], [x1, y1, z1],
+  ];
+  const vertices = vpts.map(p => ({ point: p, edgeIndices: [] as number[], tolerance: 1e-6 }));
+  return JSON.stringify({ shells: [{ faces, edges, vertices, isClosed: true }] });
+}
+
+describe("#326 topology — WASM-gated: Euler + multi-shell + through-slot", () => {
+
+  test("kern.wasm must be loaded (#326 topology guard)", () => {
+    // Fails intentionally when kern.wasm absent — prevents dormant-green topology tests.
+    // See parity-gate.test.ts line 431 for precedent.
+    expect(wasmReady, "kern.wasm absent — build with emcmake cmake + make").toBe(true);
+  });
+
+  test("cavity: boolDifference(A, B-inside-A) → 2 shells, V-E+F=2 per shell, nakedEdges=0", () => {
+    // oracle: OCCT BRepAlgoAPI_Cut(outer, inner_fully_enclosed)
+    //   result = 2-shell closed manifold: shell[0]=outer boundary, shell[1]=inner void
+    //   each shell: genus 0 → Euler V-E+F = 8-12+6 = 2
+    //   no naked edges (nakedEdge = edge with faceIndex2=-1)
+    // This is the topology-correct representation — NOT structural concat (which would
+    // give a single shell with only the outer 6 faces, Euler still 2 but missing inner void).
+    if (!wasmReady) throw new Error("kern.wasm absent — #326 topology guard failed");
+    const kern = rawKernModule();
+
+    // Non-unit outer box, non-unit inner box (fully enclosed, no face coincidence)
+    const outerJson = kernTopoBox(3, 3, 3, 0, 0, 0);
+    const innerJson = kernTopoBox(1, 1, 1, 1, 1, 1); // [1,2]³ inside [0,3]³
+
+    const raw = kern.boolDifference(outerJson, innerJson);
+    const resp = JSON.parse(raw) as { ok: boolean; result?: { shells: Array<{
+      faces: Array<{ innerLoops?: unknown[] }>;
+      edges: Array<{ faceIndex2: number }>;
+      vertices: unknown[];
+      isClosed?: boolean;
+    }>}; error?: string };
+    expect(resp.ok, `kern.boolDifference failed: ${resp.error}`).toBe(true);
+    const shells = resp.result!.shells;
+
+    // oracle: 2 shells — outer solid boundary + inner void boundary
+    expect(shells.length, "cavity must produce 2-shell manifold (outer + inner void)").toBe(2);
+
+    for (let si = 0; si < shells.length; si++) {
+      const s = shells[si];
+      const F = s.faces.length;
+      const E = s.edges.length;
+      const V = s.vertices.length;
+      const nakedEdges = s.edges.filter(e => e.faceIndex2 === -1).length;
+
+      // oracle: each shell is a closed box → F=6, E=12, V=8
+      expect(F, `shell[${si}]: face count`).toBe(6);
+      expect(E, `shell[${si}]: edge count`).toBe(12);
+      expect(V, `shell[${si}]: vertex count`).toBe(8);
+
+      // oracle: Euler characteristic V-E+F = 2 (sphere topology, genus 0)
+      const euler = V - E + F;
+      expect(euler, `shell[${si}]: Euler V-E+F must be 2 (sphere topology)`).toBe(2);
+
+      // oracle: no naked edges → each edge shared by exactly 2 faces → closed manifold
+      expect(nakedEdges, `shell[${si}]: no naked edges → closed manifold`).toBe(0);
+    }
+  });
+
+  test("through-slot: boolDifference(A, B-through-A) → 1 shell, F > naive, nakedEdges=0", () => {
+    // oracle: OCCT BRepAlgoAPI_Cut with B piercing completely through A in Z
+    // Through-slot = torus topology (genus 1, V-E+F=0 for the single manifold)
+    // OCCT sub-divides the annular top/bottom faces, producing F > naive(6)
+    // Correct topology: 1 connected shell (not 2 disjoint halves), no naked edges
+    if (!wasmReady) throw new Error("kern.wasm absent — #326 topology guard failed");
+    const kern = rawKernModule();
+
+    const outerJson = kernTopoBox(4, 4, 4, 0, 0, 0);
+    // B pierces completely through A top-to-bottom: [1,3]×[1,3]×[-1,5] ⊃ A's Z range
+    const piercerJson = kernTopoBox(2, 2, 6, 1, 1, -1);
+
+    const raw = kern.boolDifference(outerJson, piercerJson);
+    const resp = JSON.parse(raw) as { ok: boolean; result?: { shells: Array<{
+      faces: unknown[];
+      edges: Array<{ faceIndex2: number }>;
+      vertices: unknown[];
+      isClosed?: boolean;
+    }>}; error?: string };
+    expect(resp.ok, `kern.boolDifference failed: ${resp.error}`).toBe(true);
+    const shells = resp.result!.shells;
+
+    // oracle: 1 connected shell — through-slot does not disconnect the solid
+    expect(shells.length, "through-slot must be 1 connected shell").toBe(1);
+
+    const s = shells[0];
+    const naiveFaceCount = 6; // outer box without any hole
+
+    // oracle: F > naive(6) — through-slot geometry adds inner-hole faces + splits top/bottom annuli
+    expect(s.faces.length, "through-slot: face count must exceed naive outer-box count").toBeGreaterThan(naiveFaceCount);
+
+    // oracle: no naked edges → closed manifold (regardless of whether edges are present)
+    const nakedEdges = s.edges.filter((e: { faceIndex2: number }) => e.faceIndex2 === -1).length;
+    expect(nakedEdges, "through-slot: no naked edges → closed manifold").toBe(0);
+  });
+
+  test("union(A, B-overlapping): F ≤ naiveFaceCount (wasm backend does not inflate face count)", () => {
+    // oracle: OCCT BRepAlgoAPI_Fuse — union result face count ≤ naiveFaceCount
+    // Known behaviour: kern.boolUnion for planar overlapping boxes returns structural concat
+    // (no face merging for coplanar shared surfaces — that's NurbsBooleanBackend's strength).
+    // The assertion is: kern must NOT produce MORE faces than structural concat.
+    if (!wasmReady) throw new Error("kern.wasm absent — #326 topology guard failed");
+    const kern = rawKernModule();
+
+    const a = kernTopoBox(2, 2, 2, 0, 0, 0);
+    const b = kernTopoBox(2, 2, 2, 1, 0, 0); // overlapping [1,2]×[0,2]² in X
+
+    const raw = kern.boolUnion(a, b);
+    const resp = JSON.parse(raw) as { ok: boolean; result?: { shells: Array<{ faces: unknown[] }> }; error?: string };
+    expect(resp.ok, `kern.boolUnion failed: ${resp.error}`).toBe(true);
+
+    const naiveFaceCount = 12; // 6+6 if no merging
+    let totalFaces = 0;
+    for (const s of resp.result!.shells) totalFaces += s.faces.length;
+
+    // oracle: face count ≤ naive → operation did not hallucinate extra geometry
+    expect(totalFaces, "union: face count must not exceed naive structural-concat").toBeLessThanOrEqual(naiveFaceCount);
+    expect(totalFaces, "union: at least 6 faces survive").toBeGreaterThanOrEqual(6);
   });
 });
