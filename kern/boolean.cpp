@@ -139,6 +139,11 @@ TrimLoop _ssiToTrimLoop(const SsiCurve& curve, bool useParamsA)
 }
 
 // [5] Build BrepEdge list; match coincident endpoints within tol.
+//
+// T-joint resolution: unsplit side faces carry full-extent boundary edges while
+// adjacent split faces produce multiple shorter sub-edges along the same boundary.
+// Before endpoint matching we split any long line-segment half-edge at interior
+// points belonging to other half-edges, producing exact endpoint coincidence.
 void _stitchEdges(BrepShell& shell, double tol)
 {
     shell.edges.clear();
@@ -150,6 +155,75 @@ void _stitchEdges(BrepShell& shell, double tol)
         for (const TrimEdge& te : shell.faces[fi].outerLoop.edges)
             half.push_back({te.curve3d, fi});
 
+    // Build a degree-1 line-segment NurbsCurve.
+    auto makeSeg3d = [](Vec3 p0, Vec3 p1) -> NurbsCurve {
+        NurbsCurve c;
+        c.degree = 1; c.cvCount = 2;
+        c.knots  = {0.0, 0.0, 1.0, 1.0};
+        c.cvs    = {Vec4(p0.x(),p0.y(),p0.z(),1.0), Vec4(p1.x(),p1.y(),p1.z(),1.0)};
+        return c;
+    };
+
+    // T-joint splitting: iterate until no new splits occur.
+    bool anyNewSplit = true;
+    while (anyNewSplit) {
+        anyNewSplit = false;
+        int n = static_cast<int>(half.size());
+        std::vector<HalfEdge> additions;
+        std::vector<bool>     removed(n, false);
+
+        for (int i = 0; i < n; ++i) {
+            if (removed[i] || half[i].curve.cvs.size() < 2) continue;
+            Vec3 si = half[i].curve.evaluate(half[i].curve.knots.front());
+            Vec3 ei = half[i].curve.evaluate(half[i].curve.knots.back());
+            Vec3 d  = ei - si;
+            double lenSq = d.squaredNorm();
+            if (lenSq < tol * tol) continue;
+            double invLen = 1.0 / std::sqrt(lenSq);
+
+            // Collect t-parameters where other half-edge endpoints project
+            // strictly onto the interior of this segment.
+            std::vector<double> tSplits;
+            auto checkPt = [&](Vec3 P) {
+                double t = d.dot(P - si) / lenSq;
+                if (t <= tol * invLen || t >= 1.0 - tol * invLen) return;
+                if ((si + t * d - P).norm() > tol) return;
+                tSplits.push_back(t);
+            };
+            for (int j = 0; j < n; ++j) {
+                if (i == j || removed[j] || half[j].curve.cvs.size() < 2) continue;
+                checkPt(half[j].curve.evaluate(half[j].curve.knots.front()));
+                checkPt(half[j].curve.evaluate(half[j].curve.knots.back()));
+            }
+            if (tSplits.empty()) continue;
+
+            std::sort(tSplits.begin(), tSplits.end());
+            tSplits.erase(std::unique(tSplits.begin(), tSplits.end(),
+                [&](double a, double b){ return std::abs(a - b) < tol * invLen; }),
+                tSplits.end());
+
+            Vec3 prev = si;
+            for (double t : tSplits) {
+                Vec3 mid = si + t * d;
+                additions.push_back({makeSeg3d(prev, mid), half[i].faceIdx});
+                prev = mid;
+            }
+            additions.push_back({makeSeg3d(prev, ei), half[i].faceIdx});
+            removed[i]  = true;
+            anyNewSplit = true;
+        }
+
+        if (anyNewSplit) {
+            std::vector<HalfEdge> next;
+            next.reserve(n + static_cast<int>(additions.size()));
+            for (int i = 0; i < n; ++i)
+                if (!removed[i]) next.push_back(std::move(half[i]));
+            for (auto& h : additions) next.push_back(std::move(h));
+            half = std::move(next);
+        }
+    }
+
+    // Endpoint matching.
     std::vector<bool> matched(half.size(), false);
     for (int i = 0; i < static_cast<int>(half.size()); ++i) {
         if (matched[i]) continue;
@@ -172,6 +246,25 @@ void _stitchEdges(BrepShell& shell, double tol)
         }
         matched[i] = true;
         shell.edges.push_back(edge);
+    }
+
+    // Populate vertices: collect unique endpoints from all finalized edges.
+    {
+        auto getOrAdd = [&](Vec3 p) -> int {
+            for (int vi = 0; vi < static_cast<int>(shell.vertices.size()); ++vi)
+                if ((shell.vertices[vi].point - p).norm() < tol) return vi;
+            BrepVertex v; v.point = p;
+            shell.vertices.push_back(v);
+            return static_cast<int>(shell.vertices.size()) - 1;
+        };
+        for (int ei = 0; ei < static_cast<int>(shell.edges.size()); ++ei) {
+            const NurbsCurve& c = shell.edges[ei].curve;
+            if (c.cvs.empty()) continue;
+            int vi0 = getOrAdd(c.evaluate(c.knots.front()));
+            int vi1 = getOrAdd(c.evaluate(c.knots.back()));
+            shell.vertices[vi0].edgeIndices.push_back(ei);
+            if (vi1 != vi0) shell.vertices[vi1].edgeIndices.push_back(ei);
+        }
     }
 }
 
@@ -206,6 +299,55 @@ void _applyFaceSplit(const BrepFace& face, const SsiCurve& sc,
     }
 }
 
+// Build 4 boundary TrimEdges for a degree-1 bilinear face.
+// p00/p01/p10/p11 are the 4 corners; u0/u1/v0/v1 are the parameter extents.
+static void _buildDeg1Edges(
+    BrepFace& f,
+    Vec3 c00, Vec3 c01, Vec3 c10, Vec3 c11,
+    double u0, double u1, double v0, double v1)
+{
+    auto makeSeg3d = [](Vec3 p0, Vec3 p1) -> NurbsCurve {
+        NurbsCurve c;
+        c.degree = 1; c.cvCount = 2;
+        c.knots  = {0.0, 0.0, 1.0, 1.0};
+        c.cvs    = {Vec4(p0.x(),p0.y(),p0.z(),1.0), Vec4(p1.x(),p1.y(),p1.z(),1.0)};
+        return c;
+    };
+    auto makeSegUV = [](double ua, double va, double ub, double vb) -> NurbsCurve {
+        NurbsCurve c;
+        c.degree = 1; c.cvCount = 2;
+        c.knots  = {0.0, 0.0, 1.0, 1.0};
+        c.cvs    = {Vec4(ua,va,0.0,1.0), Vec4(ub,vb,0.0,1.0)};
+        return c;
+    };
+    auto trim = [&](Vec3 p0, Vec3 p1, double ua, double va, double ub, double vb) -> TrimEdge {
+        TrimEdge te;
+        te.curve3d = makeSeg3d(p0, p1);
+        te.curveUV = makeSegUV(ua, va, ub, vb);
+        return te;
+    };
+    f.outerLoop.isOuter = true;
+    f.outerLoop.edges = {
+        trim(c00, c10, u0,v0, u1,v0),  // bottom (v=v0, u0→u1)
+        trim(c10, c11, u1,v0, u1,v1),  // right  (u=u1, v0→v1)
+        trim(c11, c01, u1,v1, u0,v1),  // top    (v=v1, u1→u0)
+        trim(c01, c00, u0,v1, u0,v0),  // left   (u=u0, v1→v0)
+    };
+}
+
+// Populate outerLoop.edges for a degree-1 bilinear face that has none.
+// No-op for higher-degree faces or when edges already present.
+static void _ensureDeg1Edges(BrepFace& f) {
+    if (!f.outerLoop.edges.empty()) return;
+    const NurbsSurface& s = f.surface;
+    if (s.degreeU != 1 || s.degreeV != 1 || s.cvs.size() < 4) return;
+    double u0 = s.knotsU.front(), u1 = s.knotsU.back();
+    double v0 = s.knotsV.front(), v1 = s.knotsV.back();
+    Vec3 c00 = s.evaluate(u0, v0), c01 = s.evaluate(u0, v1);
+    Vec3 c10 = s.evaluate(u1, v0), c11 = s.evaluate(u1, v1);
+    _buildDeg1Edges(f, c00, c01, c10, c11, u0, u1, v0, v1);
+}
+
 // Rebuild a degree-1 bilinear face covering sub-rectangle [u0,u1]×[v0,v1].
 // Evaluates the 4 corner points on the original surface; inherits orientation.
 BrepFace _makeSubFace(const BrepFace& orig, double u0, double u1, double v0, double v1)
@@ -224,6 +366,7 @@ BrepFace _makeSubFace(const BrepFace& orig, double u0, double u1, double v0, dou
         Vec4(c10.x(), c10.y(), c10.z(), 1.0),
         Vec4(c11.x(), c11.y(), c11.z(), 1.0),
     };
+    _buildDeg1Edges(f, c00, c01, c10, c11, u0, u1, v0, v1);
     return f;
 }
 
@@ -411,7 +554,7 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
 
         if (hits.empty()) {
             auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesA[ia]), b, tol), false);
-            if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
+            if (keep) { BrepFace f = *facesA[ia]; if (rev) f.orientation=!f.orientation; _ensureDeg1Edges(f); outFaces.push_back(f); }
         } else {
             const NurbsSurface& surf = facesA[ia]->surface;
             if (surf.degreeU == 1 && surf.degreeV == 1) {
@@ -460,7 +603,7 @@ BooleanResult boolOp(const Brep& a, const Brep& b, BooleanOp op, double tol)
 
         if (hits.empty()) {
             auto [keep, rev] = classify(_pointInBrep(_faceCentroid(*facesB[ib]), a, tol), true);
-            if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; outFaces.push_back(f); }
+            if (keep) { BrepFace f = *facesB[ib]; if (rev) f.orientation=!f.orientation; _ensureDeg1Edges(f); outFaces.push_back(f); }
         } else {
             const NurbsSurface& surf = facesB[ib]->surface;
             if (surf.degreeU == 1 && surf.degreeV == 1) {

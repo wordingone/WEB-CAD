@@ -651,9 +651,19 @@ describe("#326 topology — WASM-gated: Euler + multi-shell + through-slot", () 
     // oracle: F > naive(6) — through-slot geometry adds inner-hole faces + splits top/bottom annuli
     expect(s.faces.length, "through-slot: face count must exceed naive outer-box count").toBeGreaterThan(naiveFaceCount);
 
-    // oracle: no naked edges → closed manifold (regardless of whether edges are present)
+    // oracle: non-vacuous — edge set must be non-empty before checking nakedEdges
+    expect(s.edges.length, "through-slot: edges present (nakedEdges=0 must be non-vacuous)").toBeGreaterThan(0);
+
+    // oracle: no naked edges → every edge shared by exactly 2 faces → closed manifold
     const nakedEdges = s.edges.filter((e: { faceIndex2: number }) => e.faceIndex2 === -1).length;
     expect(nakedEdges, "through-slot: no naked edges → closed manifold").toBe(0);
+
+    // oracle: Euler V-E+F=0 (genus-1 torus topology — one through-hole)
+    const F = s.faces.length;
+    const E = s.edges.length;
+    const V = s.vertices.length;
+    const euler = V - E + F;
+    expect(euler, "through-slot: Euler V-E+F=0 (genus-1 torus)").toBe(0);
   });
 
   test("union(A, B-overlapping): F ≤ naiveFaceCount (wasm backend does not inflate face count)", () => {
