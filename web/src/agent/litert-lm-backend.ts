@@ -13,6 +13,7 @@
 // DO NOT remove route-b (litert-route-b-probe files) until route-c renders a real vision result.
 
 import type { InferenceBackend, LoadOpts, PostFn } from "./inference-backend.js";
+import { loadLiteRtLmBundle, type LoadBundleOpts, type LiteRtBundleUrls } from "./litert-lm-loader.js";
 
 // ── InputData variant types (mirrors io_types.h) ─────────────────────────────
 
@@ -185,16 +186,21 @@ export class LiteRtLmBackend implements InferenceBackend {
     this._post = post;
   }
 
-  async load(modelId: string, opts: LoadOpts): Promise<void> {
-    if (!_module) {
-      this._post({ type: "error", error: "LiteRT-LM WASM module not loaded — awaiting #66 bundle" });
-      return;
+  async load(_modelId: string, opts: LoadOpts): Promise<void> {
+    // bundleUrls can be forwarded from the "init" message for local testing overrides.
+    const bundleOpts: LoadBundleOpts = {
+      urls: (opts.bundleUrls as Partial<LiteRtBundleUrls> | undefined) ?? {},
+      forceRefresh: (opts.forceRefresh as boolean | undefined) ?? false,
+    };
+    try {
+      const instance = await loadLiteRtLmBundle(this._post, bundleOpts);
+      setLiteRtLmModule(instance);
+      this._loaded = true;
+      this._post({ type: "model-ready" });
+      this._post({ type: "boot-complete" });
+    } catch (e) {
+      this._post({ type: "error", error: `LiteRT-LM bundle load failed: ${(e as Error).message}` });
     }
-    this._post({ type: "progress", phase: "model", progress: 0, file: "litert_lm.wasm", bytes: 0, total: 0, throughputBytesPerSec: 0 });
-    await _module.load(modelId, { opfsKey: modelId });
-    this._loaded = true;
-    this._post({ type: "model-ready" });
-    this._post({ type: "boot-complete", coldCache: opts.noWarmup !== true });
   }
 
   async generate(req: Record<string, unknown>): Promise<void> {
