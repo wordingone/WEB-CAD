@@ -471,30 +471,30 @@ FilletResult fillet(const Brep& input, const FilletOptions& opts) {
         // ── Inward offset distance ─────────────────────────────────────────────
         double d = opts.radius / std::tan(theta / 2.0);
 
-        // ── Edge geometry: start / end / mid / direction ─────────────────────
+        // ── Edge geometry: start / end / direction ───────────────────────────
         const NurbsCurve& edgeCurve = edge.curve;
         Vec3 edgeStart  = edgeCurve.evaluate(0.0);
         Vec3 edgeEnd    = edgeCurve.evaluate(1.0);
-        Vec3 edgeMid    = edgeCurve.evaluate(0.5);
         Vec3 edgeDir    = (edgeEnd - edgeStart);
         double edgeLen  = edgeDir.norm();
         if (edgeLen < 1e-10) continue;
         edgeDir /= edgeLen;
 
         // ── Fillet arc cross-section ──────────────────────────────────────────
-        // The rolling-ball centre lies at distance `d` inside each face from
-        // the edge, and at distance `radius` from the edge itself along the
-        // bisector normal.
+        // The rolling-ball centre lies at distance `radius` from each face.
+        // Along the bisector of (-nA,-nB), that distance requires travelling
+        // radius/sin(theta/2) — not just radius.
         //
-        // Compute the bisector of the two inward normals (−nA, −nB).
+        // Cross-section is anchored at edgeStart so V=0..1 maps to the
+        // full edge extent without any V-shift.
         Vec3 bisector = (-nA + -nB);
         if (bisector.norm() < 1e-10)
             bisector = nA.cross(nB).cross(nA).normalized(); // fallback
         else
             bisector.normalize();
 
-        // Arc centre in the cross-section plane at the edge midpoint
-        Vec3 arcCentre = edgeMid + bisector * opts.radius;
+        // Arc centre at edge start, at correct rolling-ball distance from each face
+        Vec3 arcCentre = edgeStart + bisector * (opts.radius / std::sin(theta / 2.0));
 
         // Start and end points of the arc on each face's offset line
         Vec3 arcStart = arcCentre + nA.normalized() * opts.radius;
