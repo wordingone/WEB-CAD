@@ -23,6 +23,8 @@ export interface MockLiteRtLmOpts {
   failWith?: string;
   /** Stream token chunks — if provided, fires callback once per chunk. */
   streamChunks?: string[];
+  /** Stall for this many ms before resolving — lets tests exercise watchdog/dispose-mid-stream. */
+  stallForMs?: number;
 }
 
 /**
@@ -39,6 +41,7 @@ export function createMockLiteRtLmModule(opts: MockLiteRtLmOpts = {}): LiteRtLmM
     specAccepts  = 0,
     failWith,
     streamChunks,
+    stallForMs,
   } = opts;
 
   const result: LiteRtLmResult = { text, tokensOut, prefillMs, decodeMs, specAttempts, specAccepts };
@@ -50,6 +53,7 @@ export function createMockLiteRtLmModule(opts: MockLiteRtLmOpts = {}): LiteRtLmM
 
     async generateContent(_contents: InputData[], _opts?: { maxNewTokens?: number; eosId?: number }): Promise<LiteRtLmResult> {
       if (failWith) throw new Error(failWith);
+      if (stallForMs) await new Promise(r => setTimeout(r, stallForMs));
       return result;
     },
 
@@ -59,6 +63,7 @@ export function createMockLiteRtLmModule(opts: MockLiteRtLmOpts = {}): LiteRtLmM
       _opts?: { maxNewTokens?: number; eosId?: number },
     ): Promise<LiteRtLmResult> {
       if (failWith) throw new Error(failWith);
+      if (stallForMs) await new Promise(r => setTimeout(r, stallForMs));
       if (streamChunks && streamChunks.length > 0) {
         for (let i = 0; i < streamChunks.length; i++) {
           callback(streamChunks[i], i + 1);
