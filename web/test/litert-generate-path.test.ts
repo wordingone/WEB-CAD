@@ -416,14 +416,18 @@ describe("MTP generate path mock-validated (#72)", () => {
     expect("specAccepts"  in done!).toBe(true);
   });
 
-  test("MTP with draftK forwarded to module", async () => {
+  test("MTP: backend passes draftK hint through opts to module (§2: engine determines actual K from model at load)", async () => {
+    // §2 contract: num_draft_steps_ is read from verifier input_pos tensor shape [G+1] at
+    // model-load time — the engine IGNORES opts.draftK. This test only verifies backend
+    // pass-through wiring; it does NOT assert the engine will use K=7 tokens per draft step.
+    // #72 real-bundle confirmation must NOT assert draftK was honored.
     const { post, msgs } = makePost();
     const backend = new LiteRtLmBackend(post);
     let capturedDraftK: number | undefined;
     const mod: LiteRtLmModule = {
       ...createMockLiteRtLmModuleWithMtp({ specAttempts: 5, specAccepts: 4 }),
       async generateContentWithMtp(_c, cb, opts) {
-        capturedDraftK = opts?.draftK;
+        capturedDraftK = opts?.draftK;  // mock captures it; real engine ignores it (§2)
         cb("tok", 1);
         return { text: "ok", tokensOut: 1, prefillMs: 0, decodeMs: 0, specAttempts: 5, specAccepts: 4 };
       },
@@ -437,8 +441,83 @@ describe("MTP generate path mock-validated (#72)", () => {
       draftK: 7,
     });
 
+    // Asserts backend wired the param through — not that the engine used it.
     expect(capturedDraftK).toBe(7);
     expect(findMsg(msgs, "generate-done")).toBeDefined();
+  });
+
+  test("MTP active + spec stats absent in return = PASS (§5 CPU/GPU path, not NPU)", async () => {
+    // §5: Only the NPU executor surfaces spec stats in its return; the CPU/GPU executor
+    // (which is what the WASM build uses — no in-browser NPU) logs stats at destructor only,
+    // NOT in the per-generate return payload. MTP may be ACTIVE while stats are ABSENT.
+    // This MUST be a PASS: detect MTP-ran by module-symbol presence, not by non-null counters.
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    const mod: LiteRtLmModule = {
+      ...createMockLiteRtLmModule({ text: "mtp-result", tokensOut: 5 }),
+      async generateContentWithMtp(_c, cb, _opts) {
+        cb("mtp-result", 5);
+        // Returns WITHOUT specAttempts/specAccepts — mirrors the real CPU/GPU WASM path.
+        return { text: "mtp-result", tokensOut: 5, prefillMs: 10, decodeMs: 50 } as import("../src/agent/litert-lm-backend.js").LiteRtLmResult;
+      },
+    };
+    setLiteRtLmModule(mod);
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    expect(backend.caps.mtp).toBe(true);
+    await backend.generate({ turnId: "mtp-no-stats", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.text).toBe("mtp-result");
+    expect(done!.tokensOut).toBe(5);
+    // §5 PASS: ?? 0 defaults when backend omits stats — NOT a generate-error.
+    expect(done!.specAttempts).toBe(0);
+    expect(done!.specAccepts).toBe(0);
+    expect(findMsg(msgs, "generate-error")).toBeUndefined();
+  });
+
+  test("spec stats math validated only when present: accepts ≤ attempts, rate 0..1 (§4)", async () => {
+    // §4: num_drafted_tokens_ = specAttempts; num_verified_tokens_ (excl bonus) = specAccepts.
+    // acceptanceRate = specAccepts / specAttempts ∈ [0,1]. Only assert math when stats present.
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModuleWithMtp({
+      text: "ok", tokensOut: 6, specAttempts: 16, specAccepts: 12,
+    }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "mtp-math", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    const attempts = done!.specAttempts as number;
+    const accepts  = done!.specAccepts  as number;
+    if (attempts > 0) {
+      expect(accepts).toBeLessThanOrEqual(attempts);
+      const rate = accepts / attempts;
+      expect(rate).toBeGreaterThanOrEqual(0);
+      expect(rate).toBeLessThanOrEqual(1);
+    }
+    // zero-stats case is PASS per §5 (CPU/GPU path) — no assertion needed
+  });
+
+  test("bonus token guarantee: tokensOut ≥ 1 in generate-done (§3: no zero-progress stall)", async () => {
+    // §3: greedy prefix-accept guarantees at least the correction/bonus token per step —
+    // no stall at zero emitted tokens. From JS side: tokensOut on generate-done must be ≥ 1
+    // for any non-empty response.
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModuleWithMtp({
+      text: "response", tokensOut: 3, specAttempts: 4, specAccepts: 2,
+    }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "mtp-bonus", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.tokensOut as number).toBeGreaterThanOrEqual(1);
   });
 
   test("MTP throw → clean fallthrough to streaming, specStats default to 0", async () => {
