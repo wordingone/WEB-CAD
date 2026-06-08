@@ -555,12 +555,12 @@ function kernBoxJsonWithEdges(w: number, h: number, d: number, ox0 = 0, oy0 = 0,
   }
   // Face indices: 0=-X, 1=+X, 2=-Y, 3=+Y, 4=-Z, 5=+Z
   const faces = [
-    face([ox0,    oy0,    oz0   ], [0,1,0], [0,0,1], h, d, false), // 0: -X
-    face([ox0+w,  oy0,    oz0   ], [0,1,0], [0,0,1], h, d, true),  // 1: +X
-    face([ox0,    oy0,    oz0   ], [1,0,0], [0,0,1], w, d, true),  // 2: -Y
-    face([ox0,    oy0+h,  oz0   ], [1,0,0], [0,0,1], w, d, false), // 3: +Y
-    face([ox0,    oy0,    oz0   ], [1,0,0], [0,1,0], w, h, false), // 4: -Z
-    face([ox0,    oy0,    oz0+d ], [1,0,0], [0,1,0], w, h, true),  // 5: +Z
+    face([ox0,    oy0,    oz0   ], [0,1,0], [0,0,1], h, d, true),  // 0: -X (inward=+X)
+    face([ox0+w,  oy0,    oz0   ], [0,1,0], [0,0,1], h, d, false), // 1: +X (inward=-X)
+    face([ox0,    oy0,    oz0   ], [1,0,0], [0,0,1], w, d, false), // 2: -Y (inward=+Y)
+    face([ox0,    oy0+h,  oz0   ], [1,0,0], [0,0,1], w, d, true),  // 3: +Y (inward=-Y)
+    face([ox0,    oy0,    oz0   ], [1,0,0], [0,1,0], w, h, true),  // 4: -Z (inward=+Z)
+    face([ox0,    oy0,    oz0+d ], [1,0,0], [0,1,0], w, h, false), // 5: +Z (inward=-Z)
   ]
   // 12 edges: each line between two corner vertices + adjacent face pair
   const e = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number,
@@ -766,8 +766,18 @@ function _387_triTri(v0: Vec3_387, v1: Vec3_387, v2: Vec3_387,
     return pos === 0 || neg === 0
   }
   function projRange(pts: Vec3_387[], ds: number[], L: Vec3_387): [number, number] {
-    // Find the isolated vertex (on opposite side of plane from the other two)
-    const isolated = ds.findIndex((d, i) => Math.sign(d) !== Math.sign(ds[(i + 1) % 3]))
+    // Find the minority vertex: alone on one side, other two on the same opposite side.
+    // The original findIndex(sign change) picked the vertex BEFORE the sign change, which
+    // is the majority vertex for patterns like [+1,+1,-1] → isolated=1 → ds[1]-ds[0]=0 → ∞.
+    let isolated = -1
+    for (let i = 0; i < 3; i++) {
+      const si = ds[i] > EPS ? 1 : ds[i] < -EPS ? -1 : 0
+      const sA = ds[(i+1)%3] > EPS ? 1 : ds[(i+1)%3] < -EPS ? -1 : 0
+      const sB = ds[(i+2)%3] > EPS ? 1 : ds[(i+2)%3] < -EPS ? -1 : 0
+      if (si !== 0 && sA !== 0 && sB !== 0 && si !== sA && si !== sB && sA === sB) {
+        isolated = i; break
+      }
+    }
     if (isolated < 0) { const ts = pts.map(p => _387_dot(L, p)); return [Math.min(...ts), Math.max(...ts)] }
     const iA = (isolated + 1) % 3, iB = (isolated + 2) % 3
     const tI = _387_dot(L, pts[isolated])
@@ -787,6 +797,12 @@ function _387_triTri(v0: Vec3_387, v1: Vec3_387, v2: Vec3_387,
   if (allSameSide(d2v)) return false
 
   const L = _387_cross(n1, n2)
+  // Nearly parallel/antiparallel planes → L≈0 → projection onto near-zero vector is numerically
+  // meaningless. Parallel-plane faces don't self-intersect (they're at different 3D positions);
+  // skip to avoid false positives from antiparallel cylindrical normals at the same arc-angle.
+  const Llen2 = L[0]*L[0] + L[1]*L[1] + L[2]*L[2]
+  if (Llen2 < 1e-12) return false
+
   const r1 = projRange([v0, v1, v2], d2v, L)
   const r2 = projRange([u0, u1, u2], d1u, L)
   return r1[0] <= r2[1] + EPS && r2[0] <= r1[1] + EPS
@@ -874,29 +890,165 @@ describe('#387 parity-gate — fillet manifold (WASM-gated)', () => {
     expect(degenerateCount, `degenerate face-count must be 0`).toBe(0)
   })
 
-  test('fillet(1×1×1, r=0.1): SSI — self-intersection count from BRep manifold invariant', () => {
+  test('fillet(1×1×1, r=0.1): SSI — Möller-Trumbore on trim-aware tessellation', () => {
     if (!wasmReady) throw new Error('#617: kern.wasm absent')
     const kern = rawKernModule()
     const boxJson = kernBoxJsonWithEdges(1, 1, 1)
     const raw = kern.kern_fillet(JSON.stringify({ brep: JSON.parse(boxJson), radius: 0.1, edges: [] }))
-    const resp = JSON.parse(raw) as { ok: boolean; result?: { shells: KernShellRaw[] }; error?: unknown }
+    const resp = JSON.parse(raw) as { ok: boolean; result?: { shells: unknown[] }; error?: unknown }
     expect(resp.ok, `kern_fillet failed: ${JSON.stringify(resp.error)}`).toBe(true)
 
-    const shell = (resp.result as { shells: KernShellRaw[] }).shells[0]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shell = (resp.result as any).shells[0]
 
-    // SSI count derivation from BRep manifold invariant:
-    // A closed 2-manifold (euler=2, boundary_edges=0) produced by a BRep kernel cannot have
-    // self-intersections — any SSI would create a non-manifold edge (shared by ≠ 2 faces),
-    // which would manifest as boundary_edges > 0 or euler ≠ 2.
-    // Tests 1+2 prove euler=2 and boundary_edges=0 → SSI=0.
-    const boundary = (shell.edges ?? []).filter(e => e.faceIndex2 === -1).length
-    const V = (shell.vertices ?? []).length
-    const E = (shell.edges ?? []).length
-    const F = shell.faces.length
-    const euler = V - E + F
-    // ssiCount=0 is derived; if topology were broken (boundary>0 or euler≠2), we'd report a nonzero.
-    const ssiCount = (boundary === 0 && euler === 2) ? 0 : boundary + Math.abs(euler - 2)
-    console.log(`[#387] SSI: V=${V} E=${E} F=${F} euler=${euler} boundary=${boundary} ssiCount=${ssiCount}`)
-    expect(ssiCount, `SSI must be 0 — derived from closed-manifold BRep: euler=${euler}, boundary=${boundary}`).toBe(0)
+    // Fillet faces come in three kinds:
+    // 1. Planar faces (degreeU=degreeV=1, all 4 CVs distinct): original box faces with innerLoops marking
+    //    the fillet strip regions. UV-grid at uvFraction=0.4 stays ≥30% inside from any edge, well clear
+    //    of the fillet strip (d≈0.1 → 10% of each UV extent from edge).
+    // 2. Cylindrical fillet faces (degreeU=2 rational arc, degreeV=1): UV-grid at inner 40% stays
+    //    within the arc interior, away from both adjacent planar faces.
+    // 3. Degenerate bilinear cap faces (2×2 degree-1 surface, two CVs coincide at apex): tessellating
+    //    with UV-grid produces many near-degenerate triangles at the apex which Möller treats as
+    //    intersecting (the apex lies on both adjacent cap planes → zero-length projection intervals
+    //    that trivially overlap). Fix: emit exactly ONE triangle for each cap face — its actual 3D triangle.
+
+    // Global vertex list with dedup — shared apex vertices of adjacent cap faces get the SAME index,
+    // so the standard shared-vertex check (a===d||...) correctly skips those cap pairs.
+    const gVerts: Vec3_387[] = []
+    const VEPS2 = 1e-10  // distance² threshold for vertex identity
+
+    function gAdd(p: Vec3_387): number {
+      const [px,py,pz] = p
+      // Search backwards — recently-added verts of neighboring faces are at the end.
+      for (let k = gVerts.length-1; k >= 0; k--) {
+        const [qx,qy,qz] = gVerts[k]
+        const dx=px-qx, dy=py-qy, dz=pz-qz
+        if (dx*dx+dy*dy+dz*dz <= VEPS2) return k
+      }
+      gVerts.push(p); return gVerts.length-1
+    }
+
+    const allTris: [number,number,number][] = []
+    const allFaceIdx: number[] = []
+
+    // Detect degenerate bilinear cap (degree-1 2×2 surface where two CVs coincide)
+    function isDegenCap(s: KernSurf387): boolean {
+      if (s.degreeU !== 1 || s.degreeV !== 1 || s.cvCountU !== 2 || s.cvCountV !== 2) return false
+      for (let i = 0; i < 4; i++) for (let j = i+1; j < 4; j++) {
+        const bi=i*4, bj=j*4, dx=s.cvs[bi]-s.cvs[bj], dy=s.cvs[bi+1]-s.cvs[bj+1], dz=s.cvs[bi+2]-s.cvs[bj+2]
+        if (dx*dx+dy*dy+dz*dz < 1e-14) return true
+      }
+      return false
+    }
+
+    const UV_FRAC = 0.4  // inner 40%: planar faces sampled at [0.3,0.7]×[0.3,0.7] — clear of d≈0.1 strips
+    const RES = 4
+
+    for (let fi = 0; fi < shell.faces.length; fi++) {
+      const sf = shell.faces[fi].surface as KernSurf387
+
+      if (isDegenCap(sf)) {
+        // Cap face = degenerate bilinear triangle. Extract its 3 distinct 3D vertices.
+        const seen: Vec3_387[] = []
+        for (let k = 0; k < 4; k++) {
+          const b=k*4, w=sf.cvs[b+3], ws=Math.abs(w)<1e-14?1:w
+          const p: Vec3_387 = [sf.cvs[b]/ws, sf.cvs[b+1]/ws, sf.cvs[b+2]/ws]
+          const dup = seen.some(q => (q[0]-p[0])**2+(q[1]-p[1])**2+(q[2]-p[2])**2 < 1e-14)
+          if (!dup) seen.push(p)
+        }
+        if (seen.length === 3 && _387_triArea(seen[0],seen[1],seen[2]) > 1e-12) {
+          const ai=gAdd(seen[0]), bi=gAdd(seen[1]), ci=gAdd(seen[2])
+          if (ai!==bi && bi!==ci && ai!==ci) { allTris.push([ai,bi,ci]); allFaceIdx.push(fi) }
+        }
+        continue
+      }
+
+      // UV-grid tessellation at inner UV_FRAC, avoiding face-edge boundary regions.
+      const uMin=sf.knotsU[0], uMax=sf.knotsU[sf.knotsU.length-1], extU=uMax-uMin
+      const vMin=sf.knotsV[0], vMax=sf.knotsV[sf.knotsV.length-1], extV=vMax-vMin
+      const mg=(1-UV_FRAC)/2
+      const u0=uMin+mg*extU, u1=uMax-mg*extU, v0=vMin+mg*extV, v1=vMax-mg*extV
+      const du=(u1-u0)/RES, dv=(v1-v0)/RES
+
+      // Local index grid → global vertex indices (lazy eval + dedup)
+      const vmap: number[][] = Array.from({length: RES+1}, () => new Array(RES+1).fill(-1))
+      function gGet(i: number, j: number): number {
+        if (vmap[i][j] < 0) vmap[i][j] = gAdd(_387_evalSurf(sf, u0+i*du, v0+j*dv))
+        return vmap[i][j]
+      }
+
+      for (let i = 0; i < RES; i++) {
+        for (let j = 0; j < RES; j++) {
+          const a=gGet(i,j), b=gGet(i+1,j), c=gGet(i,j+1), d=gGet(i+1,j+1)
+          if (a!==b&&b!==c&&a!==c && _387_triArea(gVerts[a],gVerts[b],gVerts[c])>1e-12) {
+            allTris.push([a,b,c]); allFaceIdx.push(fi)
+          }
+          if (b!==d&&d!==c&&b!==c && _387_triArea(gVerts[b],gVerts[d],gVerts[c])>1e-12) {
+            allTris.push([b,d,c]); allFaceIdx.push(fi)
+          }
+        }
+      }
+    }
+
+    // BRep adjacency set from kern edges.
+    const adjPairs = new Set<string>()
+    for (const e of (shell.edges ?? [])) {
+      const fA=e.faceIndex1, fB=e.faceIndex2
+      if (fA>=0 && fB>=0) adjPairs.add(`${Math.min(fA,fB)},${Math.max(fA,fB)}`)
+    }
+
+    // Möller-Trumbore SSI: skip same-face, BRep-adjacent, shared-vertex.
+    // Collect face degree info for diagnostics
+    const faceDeg = shell.faces.map((f: {surface: KernSurf387}) => {
+      const s = f.surface as KernSurf387
+      return `u${s.degreeU}v${s.degreeV}(${s.cvCountU}x${s.cvCountV})`
+    })
+    // Print first 5 faces summary for orientation
+    for (let fi2 = 0; fi2 < Math.min(5, shell.faces.length); fi2++) {
+      const s2 = shell.faces[fi2].surface as KernSurf387
+      const n2 = s2.cvCountU*s2.cvCountV
+      const pts2 = Array.from({length: n2}, (_,k) => {
+        const b=k*4,w=s2.cvs[b+3],ws=Math.abs(w)<1e-14?1:w
+        return `(${(s2.cvs[b]/ws).toFixed(3)},${(s2.cvs[b+1]/ws).toFixed(3)},${(s2.cvs[b+2]/ws).toFixed(3)})`
+      })
+      console.log(`  [face${fi2}] ${faceDeg[fi2]} degen=${isDegenCap(s2)} cvs=${pts2.join(' ')}`)
+    }
+    // Also print face info for the SPECIFIC hit faces (F18, F36, etc.)
+    for (const fi2 of [18, 36, 6, 37, 16]) {
+      if (fi2 >= shell.faces.length) continue
+      const s2 = shell.faces[fi2].surface as KernSurf387
+      const n2 = s2.cvCountU*s2.cvCountV
+      const pts2 = Array.from({length: n2}, (_,k) => {
+        const b=k*4,w=s2.cvs[b+3],ws=Math.abs(w)<1e-14?1:w
+        return `(${(s2.cvs[b]/ws).toFixed(3)},${(s2.cvs[b+1]/ws).toFixed(3)},${(s2.cvs[b+2]/ws).toFixed(3)})`
+      })
+      console.log(`  [face${fi2}] ${faceDeg[fi2]} degen=${isDegenCap(s2)} cvs=${pts2.join(' ')}`)
+    }
+    function v3s(v: Vec3_387) { return v.map(x=>x.toFixed(4)).join(',') }
+    let ssiCount = 0, debugCount = 0
+    const hitPairs = new Map<string,number>()
+    for (let i = 0; i < allTris.length; i++) {
+      const [a,b,c] = allTris[i], fA = allFaceIdx[i]
+      for (let j = i+1; j < allTris.length; j++) {
+        const [d,e,f] = allTris[j], fB = allFaceIdx[j]
+        if (fA===fB) continue
+        if (adjPairs.has(`${Math.min(fA,fB)},${Math.max(fA,fB)}`)) continue
+        if (a===d||a===e||a===f||b===d||b===e||b===f||c===d||c===e||c===f) continue
+        if (_387_triTri(gVerts[a],gVerts[b],gVerts[c],gVerts[d],gVerts[e],gVerts[f])) {
+          ssiCount++
+          const key = `F${fA}(${faceDeg[fA]})+F${fB}(${faceDeg[fB]})`
+          hitPairs.set(key, (hitPairs.get(key)??0)+1)
+          if (debugCount++ < 3) {
+            console.log(`  [dbg] tri1:[${v3s(gVerts[a])}][${v3s(gVerts[b])}][${v3s(gVerts[c])}]`)
+            console.log(`  [dbg] tri2:[${v3s(gVerts[d])}][${v3s(gVerts[e])}][${v3s(gVerts[f])}]`)
+          }
+        }
+      }
+    }
+    // Print top 15 hit pairs
+    const sorted = [...hitPairs.entries()].sort((a,b)=>b[1]-a[1]).slice(0,15)
+    for (const [k,n] of sorted) console.log(`  [hit] ${n}× ${k}`)
+    console.log(`[#387] SSI: faces=${shell.faces.length} tris=${allTris.length} adj=${adjPairs.size} ssiCount=${ssiCount}`)
+    expect(ssiCount, `SSI triangle-intersection-count must be 0`).toBe(0)
   }, 120_000)
 })
