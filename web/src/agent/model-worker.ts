@@ -10,6 +10,7 @@
 // Protocol (worker → main): see onnx-transformers-backend.ts (unchanged from prior revision).
 
 import { OnnxTransformersBackend } from "./onnx-transformers-backend.js";
+import { LiteRtLmBackend } from "./litert-lm-backend.js";
 import type { InferenceBackend } from "./inference-backend.js";
 
 const DEFAULT_ENGINE = "onnx" as const;
@@ -27,8 +28,12 @@ const engineId = (urlParam("engine") ?? DEFAULT_ENGINE) as "onnx" | "litert";
 let backend: InferenceBackend;
 if (engineId === "onnx") {
   backend = new OnnxTransformersBackend(post);
+} else if (engineId === "litert") {
+  // Route-c: LiteRT-LM VisionLiteRtCompiledModelExecutor scaffold (#617).
+  // Preprocessing is live; executor load deferred until Leo's #66 WASM bundle arrives.
+  backend = new LiteRtLmBackend(post);
 } else {
-  post({ type: "error", error: `Unknown engine: ${engineId}. Available: onnx` });
+  post({ type: "error", error: `Unknown engine: ${engineId}. Available: onnx, litert` });
   throw new Error(`Unknown engine: ${engineId}`);
 }
 
