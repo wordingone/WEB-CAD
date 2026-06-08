@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-// litert-lm-backend.ts — route-c: LiteRT-LM SessionInterface JS integration (#617).
+// litert-lm-backend.ts — route-c: LiteRT-LM SessionInterface JS integration (#617, #621).
 //
 // Contract pinned from engine.h + io_types.h (Leo mail #14144, 2026-06-08):
 //   Public surface: SessionInterface::GenerateContent(std::vector<InputData> contents)
@@ -7,6 +7,11 @@
 //   Two-phase (encode → decode) is INTERNAL to the engine — JS never calls it.
 //   InputImage accepts raw bytes OR TensorBuffer; prefer raw bytes → engine's
 //   stb_image_preprocessor patchifies (896→4096×588) — eliminates JS/C++ drift.
+//
+// MTP decode stub (#621):
+//   llm_litert_mtp_drafter.cc compiles clean for web (Leo mail #14175).
+//   generateContentWithMtp? is the engine hook — fill in + flip caps.mtp true when
+//   Leo delivers the drafter decode contract with the #66 bundle.
 //
 // patchifyImage() is kept as the TensorBuffer-path fallback only.
 //
@@ -54,6 +59,10 @@ export interface LiteRtLmResult {
   prefillMs: number;
   /** Decode phase duration in ms. */
   decodeMs: number;
+  /** MTP spec-decode attempts (0 when MTP not active). Passed through from engine. */
+  specAttempts?: number;
+  /** MTP spec-decode accepted tokens (0 when MTP not active). Passed through from engine. */
+  specAccepts?: number;
 }
 
 /** Per-token streaming callback — receives partial decoded text per step. */
@@ -77,6 +86,22 @@ export interface LiteRtLmModule {
     contents: InputData[],
     callback: StreamCallback,
     opts?: { maxNewTokens?: number; eosId?: number },
+  ): Promise<LiteRtLmResult>;
+  /**
+   * MTP speculative-decode path — optional; present only when llm_litert_mtp_drafter.cc
+   * is compiled into the bundle (Leo #66 build).
+   *
+   * Decode contract (to be filled when #66 bundle lands):
+   *   Engine runs the C++ drafter internally — draftK tokens drafted per step.
+   *   Returns LiteRtLmResult with specAttempts + specAccepts populated.
+   *   JS never calls the drafter directly — engine orchestrates target+drafter.
+   *
+   * When contract arrives: implement this method + flip caps.mtp to true.
+   */
+  generateContentWithMtp?(
+    contents: InputData[],
+    callback: StreamCallback,
+    opts?: { maxNewTokens?: number; eosId?: number; draftK?: number },
   ): Promise<LiteRtLmResult>;
   /** Release VRAM. */
   dispose(): void;
@@ -234,20 +259,32 @@ export class LiteRtLmBackend implements InferenceBackend {
     };
 
     let result: LiteRtLmResult;
-    try {
-      result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId });
-    } catch {
-      // Streaming not available in this build — fall back to blocking generateContent().
-      result = await _module.generateContent(contents, { maxNewTokens, eosId });
+    // MTP path: use generateContentWithMtp if the bundle exposes it (caps.mtp flips true when wired).
+    if (_module.generateContentWithMtp) {
+      try {
+        result = await _module.generateContentWithMtp(contents, onToken, { maxNewTokens, eosId });
+      } catch {
+        // MTP failed — fall through to standard streaming path.
+        result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId })
+          .catch(() => _module!.generateContent(contents, { maxNewTokens, eosId }));
+      }
+    } else {
+      try {
+        result = await _module.generateContentStream(contents, onToken, { maxNewTokens, eosId });
+      } catch {
+        // Streaming not available in this build — fall back to blocking generateContent().
+        result = await _module.generateContent(contents, { maxNewTokens, eosId });
+      }
     }
 
     // ONNX parity: post generate-done with the same field names the agent-harness reads.
+    // specAttempts/specAccepts forwarded from engine result (0 when MTP not active).
     this._post({
       type:         "generate-done",
       turnId,
       text:         result.text,
-      specAttempts: 0,
-      specAccepts:  0,
+      specAttempts: result.specAttempts ?? 0,
+      specAccepts:  result.specAccepts  ?? 0,
       prefillMs:    result.prefillMs,
       decodeMs:     result.decodeMs,
       inputLength:  0,   // LiteRT engine handles tokenization internally — not exposed to JS
