@@ -737,14 +737,16 @@ function initWorkerIfNeeded(): Worker {
         if (cb) {
           _generateCallbacks.delete(msg.turnId as string);
           // turnCount incremented by GENERATE_REQUESTED dispatch at turn start
+          // Defensive defaults: backend always sends all fields, but guard against
+          // partial messages from older bundle builds (mirrors LiteRT PR #625).
           cb.resolve({
-            text:         msg.text as string,
-            specAttempts: msg.specAttempts as number,
-            specAccepts:  msg.specAccepts as number,
-            prefillMs:    msg.prefillMs as number,
-            decodeMs:     msg.decodeMs as number,
-            inputLength:  msg.inputLength as number,
-            tokensOut:    msg.tokensOut as number,
+            text:         (msg.text         as string  | undefined) ?? "",
+            specAttempts: (msg.specAttempts as number  | undefined) ?? 0,
+            specAccepts:  (msg.specAccepts  as number  | undefined) ?? 0,
+            prefillMs:    (msg.prefillMs    as number  | undefined) ?? 0,
+            decodeMs:     (msg.decodeMs     as number  | undefined) ?? 0,
+            inputLength:  (msg.inputLength  as number  | undefined) ?? 0,
+            tokensOut:    (msg.tokensOut    as number  | undefined) ?? 0,
           });
         }
         // §WEB-CAD#25: record turn metrics.
