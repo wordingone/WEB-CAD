@@ -207,8 +207,14 @@ async function buildContents(
 // ── LiteRtLmBackend ───────────────────────────────────────────────────────────
 
 export class LiteRtLmBackend implements InferenceBackend {
-  readonly id   = "litert" as const;
-  readonly caps = { multimodal: true, mtp: false } as const;
+  readonly id = "litert" as const;
+
+  // caps.mtp is a runtime feature check — true only when the loaded bundle exposes
+  // generateContentWithMtp (confirmed by the #66 bundle + drafter decode contract).
+  // Stays false until then so the harness never advertises MTP to the UI prematurely.
+  get caps(): { multimodal: boolean; mtp: boolean } {
+    return { multimodal: true, mtp: !!(_module?.generateContentWithMtp) };
+  }
 
   private readonly _post: PostFn;
   private _loaded   = false;
@@ -248,6 +254,7 @@ export class LiteRtLmBackend implements InferenceBackend {
     const eosId        = (req.eosId as number | undefined) ?? 1;
     // _watchdogMs: injectable timeout for tests; production callers omit it.
     const watchdogMs   = req._watchdogMs as number | undefined;
+    const draftK       = req.draftK as number | undefined;
 
     const contents = await buildContents(messages, imageUrl);
 
@@ -279,7 +286,7 @@ export class LiteRtLmBackend implements InferenceBackend {
       // MTP path: use generateContentWithMtp if the bundle exposes it (caps.mtp flips true when wired).
       if (_module.generateContentWithMtp) {
         try {
-          result = await withWatchdog(_module.generateContentWithMtp(contents, onToken, { maxNewTokens, eosId }));
+          result = await withWatchdog(_module.generateContentWithMtp(contents, onToken, { maxNewTokens, eosId, draftK }));
         } catch (e) {
           if ((e as Error).message === "generate watchdog timeout") throw e;
           // MTP failed — fall through to standard streaming path.
