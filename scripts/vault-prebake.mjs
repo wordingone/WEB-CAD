@@ -7,6 +7,10 @@
  *
  * Run once before committing; committed outputs are served as static assets.
  *
+ * REGEN: re-run this script after any vault corpus update (new buildings, QID-cache
+ * resolution, facet/layer changes). vault/manifest.json is a SNAPSHOT — it will silently
+ * go stale if the underlying vault data changes without a re-run. Tracked: #52 (#619).
+ *
  * Usage: node scripts/vault-prebake.mjs
  *        bun scripts/vault-prebake.mjs
  */

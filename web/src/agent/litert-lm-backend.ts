@@ -1,76 +1,103 @@
 /// <reference lib="webworker" />
-// litert-lm-backend.ts — route-c: LiteRT-LM VisionLiteRtCompiledModelExecutor JS integration (#617).
+// litert-lm-backend.ts — route-c: LiteRT-LM SessionInterface JS integration (#617).
 //
-// Replaces the broken route-b MediaPipe path (INVALID_ARGUMENT: LlmVisionInferenceCalculator,
-// LiteRT-LM issue #2150). Leo's #66 WASM build (litert_lm.wasm/.js) exposes the native
-// VisionLiteRtCompiledModelExecutor with these image-input tensors:
-//   kImages    — Float32, [batch, num_patches, patch_dim]   preprocessed image patches
-//   kPositionsXy — Int32, [batch, num_patches, 2]           patch position grid (col, row)
+// Contract pinned from engine.h + io_types.h (Leo mail #14144, 2026-06-08):
+//   Public surface: SessionInterface::GenerateContent(std::vector<InputData> contents)
+//   InputData = variant<InputText, InputImage, InputImageEnd, ...>
+//   Two-phase (encode → decode) is INTERNAL to the engine — JS never calls it.
+//   InputImage accepts raw bytes OR TensorBuffer; prefer raw bytes → engine's
+//   stb_image_preprocessor patchifies (896→4096×588) — eliminates JS/C++ drift.
 //
-// Scaffold: image preprocessing + tensor construction are fully implemented here.
-// The LiteRtLmModule interface is the stub that accepts the #66 bundle when Leo delivers it.
-// Wire-in is: import the bundle, call LiteRtLmBackend.setModule(m), done — zero redesign.
+// patchifyImage() is kept as the TensorBuffer-path fallback only.
 //
 // DO NOT remove route-b (litert-route-b-probe files) until route-c renders a real vision result.
 
 import type { InferenceBackend, LoadOpts, PostFn } from "./inference-backend.js";
 
-// ── Vision preprocessing constants (Gemma-4 E4B, SigLIP ViT-400M) ────────────
+// ── InputData variant types (mirrors io_types.h) ─────────────────────────────
 
-const IMG_SIZE    = 896;   // Resize target per tile (pixels)
-const PATCH_SIZE  = 14;    // Patch side in pixels
-const GRID_SIZE   = IMG_SIZE / PATCH_SIZE;    // 64 — patches per side
-const NUM_PATCHES = GRID_SIZE * GRID_SIZE;    // 4096
-const PATCH_DIM   = PATCH_SIZE * PATCH_SIZE * 3; // 588 — floats per patch (RGB)
+export interface InputText {
+  kind: "text";
+  text: string;
+}
 
-// SigLIP normalization: pixel / 255 * 2 - 1  (maps [0,255] → [-1,+1])
-const NORM_SCALE  = 2.0 / 255.0;
-const NORM_BIAS   = -1.0;
+/** Raw-bytes path (preferred) — engine stb preprocessor patchifies internally. */
+export interface InputImageBytes {
+  kind: "image";
+  bytes: Uint8Array;
+  mimeType?: string;
+}
+
+/** TensorBuffer path (fallback) — JS-side patchify already done. */
+export interface InputImageTensor {
+  kind: "image-tensor";
+  kImages: Float32Array;      // [NUM_PATCHES * PATCH_DIM]
+  kPositionsXy: Int32Array;   // [NUM_PATCHES * 2]
+  numPatches: number;
+}
+
+export interface InputImageEnd {
+  kind: "image-end";
+}
+
+export type InputData = InputText | InputImageBytes | InputImageTensor | InputImageEnd;
+
+// ── GenerateContent result ────────────────────────────────────────────────────
+
+export interface LiteRtLmResult {
+  tokenIds: Int32Array;
+  prefillMs: number;
+  decodeMs: number;
+}
+
+export type StreamCallback = (token: string) => void;
 
 // ── LiteRtLmModule — stub for Leo's #66 WASM bundle ─────────────────────────
 // When litert_lm.wasm/.js lands, it must implement this interface.
-// setModule() wires it in; until then, the backend returns a capability-check error.
-
-export interface LiteRtLmRunRequest {
-  kImages:     Float32Array;   // [batch * num_patches * PATCH_DIM]
-  kPositionsXy: Int32Array;    // [batch * num_patches * 2]
-  numPatches:  number;
-  tokenIds:    Int32Array;
-  maxNewTokens: number;
-}
-
-export interface LiteRtLmRunResult {
-  tokenIds:   Int32Array;
-  prefillMs:  number;
-  decodeMs:   number;
-}
+// setLiteRtLmModule() wires it in — zero redesign needed.
 
 export interface LiteRtLmModule {
-  /** Async init — load model weights from the given URL or ArrayBuffer. */
+  /** Load model weights (OPFS-cached if opfsKey provided). */
   load(source: string | ArrayBuffer, opts?: { opfsKey?: string }): Promise<void>;
-  /** Synchronous vision+text inference via VisionLiteRtCompiledModelExecutor. */
-  run(req: LiteRtLmRunRequest): Promise<LiteRtLmRunResult>;
+  /** Single-call inference: interleaved text/image inputs → output tokens.
+   *  Internally orchestrates vision encode → prefill → decode. */
+  generateContent(
+    contents: InputData[],
+    opts?: { maxNewTokens?: number; eosId?: number },
+  ): Promise<LiteRtLmResult>;
+  /** Streaming variant — fires callback per decoded token. */
+  generateContentStream(
+    contents: InputData[],
+    callback: StreamCallback,
+    opts?: { maxNewTokens?: number; eosId?: number },
+  ): Promise<LiteRtLmResult>;
   /** Release VRAM. */
   dispose(): void;
 }
 
 let _module: LiteRtLmModule | null = null;
 
-/** Called by the worker init path once litert_lm.wasm/.js is available. */
+/** Wire in Leo's #66 WASM bundle — one call, zero redesign. */
 export function setLiteRtLmModule(m: LiteRtLmModule): void {
   _module = m;
 }
 
-// ── Image → kImages + kPositionsXy ──────────────────────────────────────────
+// ── Vision preprocessing constants (Gemma-4 E4B, SigLIP ViT-400M) ────────────
+// Used for the TensorBuffer fallback path only.
+
+const IMG_SIZE    = 896;
+const PATCH_SIZE  = 14;
+const GRID_SIZE   = IMG_SIZE / PATCH_SIZE;    // 64
+const NUM_PATCHES = GRID_SIZE * GRID_SIZE;    // 4096
+const PATCH_DIM   = PATCH_SIZE * PATCH_SIZE * 3; // 588
+
+const NORM_SCALE  = 2.0 / 255.0;
+const NORM_BIAS   = -1.0;
 
 /**
- * Resize an ImageBitmap to IMG_SIZE×IMG_SIZE via OffscreenCanvas, extract patches,
- * return kImages (Float32, shape [NUM_PATCHES, PATCH_DIM]) and
- * kPositionsXy (Int32, shape [NUM_PATCHES, 2]) as flat arrays ready for LiteRT-LM.
- *
- * Multi-tile pan-and-zoom: for images with aspect ratio > 1.5 or < 0.67, callers
- * should slice the image into N tiles before calling patchify on each and concatenate
- * the results. Single-tile path is implemented here; tile loop lives in the backend.
+ * TensorBuffer fallback — JS-side SigLIP patchify.
+ * Use ONLY when the raw-bytes path is unavailable (engine too old to bundle stb).
+ * Returns kImages (Float32, [NUM_PATCHES, PATCH_DIM]) + kPositionsXy (Int32, [NUM_PATCHES, 2]).
  */
 export function patchifyImage(
   bitmap: ImageBitmap,
@@ -80,24 +107,24 @@ export function patchifyImage(
   ctx.drawImage(bitmap, 0, 0, IMG_SIZE, IMG_SIZE);
   const { data } = ctx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
 
-  const kImages     = new Float32Array(NUM_PATCHES * PATCH_DIM);
+  const kImages      = new Float32Array(NUM_PATCHES * PATCH_DIM);
   const kPositionsXy = new Int32Array(NUM_PATCHES * 2);
 
   for (let pr = 0; pr < GRID_SIZE; pr++) {
     for (let pc = 0; pc < GRID_SIZE; pc++) {
       const patchIdx = pr * GRID_SIZE + pc;
-      kPositionsXy[patchIdx * 2]     = pc; // x = column
-      kPositionsXy[patchIdx * 2 + 1] = pr; // y = row
+      kPositionsXy[patchIdx * 2]     = pc;
+      kPositionsXy[patchIdx * 2 + 1] = pr;
       const patchBase = patchIdx * PATCH_DIM;
       for (let py = 0; py < PATCH_SIZE; py++) {
         for (let px = 0; px < PATCH_SIZE; px++) {
           const imgX  = pc * PATCH_SIZE + px;
           const imgY  = pr * PATCH_SIZE + py;
-          const pixel = (imgY * IMG_SIZE + imgX) * 4; // RGBA stride
+          const pixel = (imgY * IMG_SIZE + imgX) * 4;
           const dest  = patchBase + (py * PATCH_SIZE + px) * 3;
-          kImages[dest]     = data[pixel]     * NORM_SCALE + NORM_BIAS; // R
-          kImages[dest + 1] = data[pixel + 1] * NORM_SCALE + NORM_BIAS; // G
-          kImages[dest + 2] = data[pixel + 2] * NORM_SCALE + NORM_BIAS; // B
+          kImages[dest]     = data[pixel]     * NORM_SCALE + NORM_BIAS;
+          kImages[dest + 1] = data[pixel + 1] * NORM_SCALE + NORM_BIAS;
+          kImages[dest + 2] = data[pixel + 2] * NORM_SCALE + NORM_BIAS;
         }
       }
     }
@@ -105,24 +132,44 @@ export function patchifyImage(
   return { kImages, kPositionsXy };
 }
 
-/**
- * Fetch an image URL, decode to ImageBitmap, and patchify.
- * Returns null on fetch/decode failure (non-fatal — generate continues text-only).
- */
-async function fetchAndPatchify(
-  url: string,
-): Promise<{ kImages: Float32Array; kPositionsXy: Int32Array } | null> {
+/** Fetch raw image bytes from a URL — preferred InputImage path. */
+async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
   try {
     const resp = await fetch(url);
     if (!resp.ok) return null;
-    const blob   = await resp.blob();
-    const bitmap = await createImageBitmap(blob, { resizeWidth: IMG_SIZE, resizeHeight: IMG_SIZE, resizeQuality: "high" });
-    const tensors = patchifyImage(bitmap);
-    bitmap.close();
-    return tensors;
+    const buf = await resp.arrayBuffer();
+    return new Uint8Array(buf);
   } catch {
     return null;
   }
+}
+
+// ── Build InputData[] from messages + optional image URL ────────────────────
+
+async function buildContents(
+  messages: Array<{ role: string; content: string }>,
+  imageUrl: string | undefined,
+): Promise<InputData[]> {
+  const contents: InputData[] = [];
+
+  if (imageUrl) {
+    const bytes = await fetchImageBytes(imageUrl);
+    if (bytes) {
+      // Infer MIME from URL extension; default to JPEG (most common)
+      const ext = imageUrl.split(".").pop()?.toLowerCase() ?? "";
+      const mimeMap: Record<string, string> = { png: "image/png", webp: "image/webp", gif: "image/gif" };
+      const mimeType = mimeMap[ext] ?? "image/jpeg";
+      contents.push({ kind: "image", bytes, mimeType });
+      contents.push({ kind: "image-end" });
+    }
+  }
+
+  for (const msg of messages) {
+    contents.push({ kind: "text", text: `${msg.role}: ${msg.content}` });
+  }
+  contents.push({ kind: "text", text: "assistant:" });
+
+  return contents;
 }
 
 // ── LiteRtLmBackend ───────────────────────────────────────────────────────────
@@ -132,16 +179,13 @@ export class LiteRtLmBackend implements InferenceBackend {
   readonly caps = { multimodal: true, mtp: false } as const;
 
   private readonly _post: PostFn;
-  private _modelId  = "";
-  private _eosId    = 1;
-  private _loaded   = false;
+  private _loaded = false;
 
   constructor(post: PostFn) {
     this._post = post;
   }
 
   async load(modelId: string, opts: LoadOpts): Promise<void> {
-    this._modelId = modelId;
     if (!_module) {
       this._post({ type: "error", error: "LiteRT-LM WASM module not loaded — awaiting #66 bundle" });
       return;
@@ -162,44 +206,30 @@ export class LiteRtLmBackend implements InferenceBackend {
     const messages     = req.messages as Array<{ role: string; content: string }>;
     const imageUrl     = req.imageUrl as string | undefined;
     const maxNewTokens = (req.maxNewTokens as number | undefined) ?? 512;
-    const eosId        = (req.eosId as number | undefined) ?? this._eosId;
+    const eosId        = (req.eosId as number | undefined) ?? 1;
     const t0           = performance.now();
 
-    // Image preprocessing → kImages / kPositionsXy
-    let imageTensors: { kImages: Float32Array; kPositionsXy: Int32Array } | null = null;
-    if (imageUrl) {
-      imageTensors = await fetchAndPatchify(imageUrl);
-    }
-
-    // Tokenize prompt (stub — needs LiteRT-LM tokenizer API from #66 bundle)
-    // When #66 lands: replace with _module.tokenize(chatText, { addBos: true })
-    const chatText  = messages.map(m => `${m.role}: ${m.content}`).join("\n") + "\nassistant:";
-    const tokenIds  = new Int32Array(0); // placeholder — tokenizer not yet wired
-
-    const runReq: LiteRtLmRunRequest = {
-      kImages:      imageTensors?.kImages     ?? new Float32Array(0),
-      kPositionsXy: imageTensors?.kPositionsXy ?? new Int32Array(0),
-      numPatches:   imageTensors ? NUM_PATCHES : 0,
-      tokenIds,
-      maxNewTokens,
-    };
+    const contents = await buildContents(messages, imageUrl);
 
     this._post({ type: "progress", phase: "inference", progress: 0, throughputBytesPerSec: 0 });
-    const result = await _module.run(runReq);
+
+    const result = await _module.generateContent(contents, { maxNewTokens, eosId });
 
     const elapsed = performance.now() - t0;
-    const tps = result.tokenIds.length > 0 ? Math.round(result.tokenIds.length / (result.decodeMs / 1000)) : 0;
+    const tps = result.tokenIds.length > 0
+      ? Math.round(result.tokenIds.length / (result.decodeMs / 1000))
+      : 0;
 
     this._post({
-      type:         "generate-done",
-      turnId:       req.turnId,
-      tokenIds:     Array.from(result.tokenIds),
-      prefill_ms:   result.prefillMs,
-      decode_ms:    result.decodeMs,
-      elapsed_ms:   elapsed,
-      tg_tps:       tps,
-      tokens_out:   result.tokenIds.length,
-      eos_hit:      result.tokenIds[result.tokenIds.length - 1] === eosId,
+      type:       "generate-done",
+      turnId:     req.turnId,
+      tokenIds:   Array.from(result.tokenIds),
+      prefill_ms: result.prefillMs,
+      decode_ms:  result.decodeMs,
+      elapsed_ms: elapsed,
+      tg_tps:     tps,
+      tokens_out: result.tokenIds.length,
+      eos_hit:    result.tokenIds[result.tokenIds.length - 1] === eosId,
     });
   }
 
@@ -210,5 +240,4 @@ export class LiteRtLmBackend implements InferenceBackend {
   }
 }
 
-// Export constants so the probe page can verify shapes without re-importing backend
 export { NUM_PATCHES, PATCH_DIM, GRID_SIZE, PATCH_SIZE, IMG_SIZE };

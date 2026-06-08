@@ -23,7 +23,13 @@ import { iconSVG } from "../ui/icons";
 import { buildLayoutMode, addPanel, getController, type SceneBounds } from "./layout";
 import { buildLayoutPalette } from "./workbench";
 import { buildLayoutLayersPanel } from "./layers-panel";
-import { buildVaultPrecedentPanel } from "../research/vault-precedent-panel";
+import { createVaultPrecedentPanel } from "../research/vault-precedent-panel";
+import {
+  fetchVaultManifest,
+  queryVaultCorpus,
+  type VaultManifest,
+  type VaultCorpusResult,
+} from "../research/vault-corpus-query";
 import {
   buildResearchIndex,
   queryResearch,
@@ -80,6 +86,9 @@ interface ResearchState {
   filterLocal: boolean;
   filterWeb: boolean;
   filterCite: boolean;
+  vaultManifest: VaultManifest | null;
+  vaultResults: VaultCorpusResult[];
+  activeVaultBuilding: string | null;
 }
 
 function buildResearchMode(): HTMLElement {
@@ -97,6 +106,9 @@ function buildResearchMode(): HTMLElement {
     filterLocal: true,
     filterWeb: true,
     filterCite: false,
+    vaultManifest: null,
+    vaultResults: [],
+    activeVaultBuilding: null,
   };
 
   // Expose state for in-page debugging + headless tests poking from
@@ -124,6 +136,11 @@ function buildResearchMode(): HTMLElement {
     <div class="research-col" id="r-right-col">
       <div class="research-header">${iconSVG("sparkle", 13)} FINDINGS <span class="pill" id="r-cite-pill">0 cited</span></div>
       <div class="research-body findings-list" id="r-findings"></div>
+      <div class="research-header vault-query-header" style="margin-top:8px">
+        ${iconSVG("import", 13)} VAULT · BUILDINGS
+        <span class="pill" id="r-vault-pill">loading…</span>
+      </div>
+      <div class="research-body vault-results-list" id="r-vault-results"></div>
       <div class="research-prompt">
         <div class="rp-actions">
           <div class="rp-toggles">
@@ -137,11 +154,12 @@ function buildResearchMode(): HTMLElement {
     </div>
   `;
 
-  // ---- Vault precedent panel — prepended into the right column ----
+  // ---- Vault precedent panel — reactive, wired below ----
   const rightCol = el.querySelector<HTMLElement>("#r-right-col");
+  const vaultCtrl = createVaultPrecedentPanel("white-house-washington-d-c");
+  state.activeVaultBuilding = "white-house-washington-d-c";
   if (rightCol) {
-    const vaultPanel = buildVaultPrecedentPanel("white-house-washington-d-c");
-    rightCol.insertBefore(vaultPanel, rightCol.firstChild);
+    rightCol.appendChild(vaultCtrl.el);
   }
 
   // ---- DOM handles ----
@@ -154,6 +172,53 @@ function buildResearchMode(): HTMLElement {
   const findings = el.querySelector<HTMLElement>("#r-findings")!;
   const citePill = el.querySelector<HTMLElement>("#r-cite-pill")!;
   const exportBtn = el.querySelector<HTMLElement>("#r-export")!;
+  const vaultPill = el.querySelector<HTMLElement>("#r-vault-pill")!;
+  const vaultResultsList = el.querySelector<HTMLElement>("#r-vault-results")!;
+
+  // ---- Vault manifest — fetch once at init ----
+  fetchVaultManifest()
+    .then((manifest) => {
+      state.vaultManifest = manifest;
+      vaultPill.textContent = `${manifest.count} buildings`;
+      // Seed vault results with DCS-ranked full list.
+      state.vaultResults = queryVaultCorpus(manifest, "", { limit: 6 });
+      renderVaultResults();
+    })
+    .catch(() => {
+      vaultPill.textContent = "unavailable";
+    });
+
+  function renderVaultResults() {
+    if (!state.vaultManifest) return;
+    const results = state.vaultResults;
+    if (results.length === 0) {
+      vaultResultsList.innerHTML = `<div class="vault-no-results">No buildings matched.</div>`;
+      return;
+    }
+    vaultResultsList.innerHTML = results.map((r) => {
+      const b = r.building;
+      const active = state.activeVaultBuilding === b.slug ? " active" : "";
+      const dcsBar = Math.round(Math.min(1, b.dcs) * 100);
+      return `
+        <div class="doc-card vault-bld-card${active}" data-vault-slug="${escAttr(b.slug)}">
+          <div class="dc-name">${escText(b.name)}</div>
+          <div class="dc-source">${escText(b.country ?? "—")} · ${escText(b.era ?? "—")} · ${escText(b.type ?? "—")}</div>
+          <div class="dc-meta">DCS ${dcsBar}% · ${b.record_count} records${r.score < 1 ? ` · rel ${r.score.toFixed(2)}` : ""}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // ---- Vault result card click → update precedent panel ----
+  vaultResultsList.addEventListener("click", (e) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>(".vault-bld-card");
+    if (!card) return;
+    const slug = card.dataset.vaultSlug;
+    if (!slug || slug === state.activeVaultBuilding) return;
+    state.activeVaultBuilding = slug;
+    vaultCtrl.update(slug);
+    renderVaultResults();
+  });
 
   // ---- Build the index asynchronously ----
   buildResearchIndex(defaultCorpus())
@@ -341,6 +406,19 @@ function buildResearchMode(): HTMLElement {
       // Auto-jump active doc to top result.
       if (state.results.length > 0) state.activeDoc = state.results[0].name;
     }
+
+    // Vault corpus query — runs in parallel with TF-IDF search.
+    if (state.vaultManifest) {
+      state.vaultResults = queryVaultCorpus(state.vaultManifest, q, { limit: 6 });
+      renderVaultResults();
+      // Auto-switch precedent panel to top vault result when query changes.
+      const topVault = state.vaultResults[0];
+      if (topVault && topVault.building.slug !== state.activeVaultBuilding) {
+        state.activeVaultBuilding = topVault.building.slug;
+        vaultCtrl.update(topVault.building.slug);
+      }
+    }
+
     renderAll();
   }
 
