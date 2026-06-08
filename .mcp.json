@@ -5,6 +5,19 @@
       "command": "node",
       "args": ["tools/mcp/webcad-mcp.mjs"],
       "env": {}
+    },
+    "train": {
+      "type": "stdio",
+      "command": "B:/M/avir/infra/train-mcp/target/release/train-mcp.exe"
+    },
+    "mailbox": {
+      "type": "stdio",
+      "command": "B:/M/avir/infra/mailbox/target/release/mailbox.exe",
+      "args": [
+        "--identity",
+        "archie"
+      ],
+      "env": {}
     }
   }
 }
