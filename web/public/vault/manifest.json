@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "count": 2,
+  "buildings": [
+    {
+      "slug": "villa-savoye",
+      "name": "Villa Savoye",
+      "qid": "Q940746",
+      "era": "contemporary",
+      "year": 1931,
+      "type": "house",
+      "country": "France",
+      "record_count": 7,
+      "dcs": 0.833,
+      "facets": [
+        "photos",
+        "provenance",
+        "site-geo"
+      ]
+    },
+    {
+      "slug": "white-house-washington-d-c",
+      "name": "White House Washington D C",
+      "qid": "Q35525",
+      "era": "early-modern",
+      "year": 1800,
+      "type": "civic",
+      "country": "United States",
+      "record_count": 9,
+      "dcs": 1.167,
+      "facets": [
+        "drawings-raster",
+        "drawings-vector",
+        "mesh",
+        "photos",
+        "provenance"
+      ]
+    }
+  ]
+}

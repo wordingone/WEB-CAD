@@ -48,7 +48,23 @@ function buildingDisplayName(slug: string): string {
   return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
+export interface VaultPrecedentController {
+  el: HTMLElement;
+  /** Swap to a different building slug without recreating the DOM node. */
+  update(slug: string): void;
+}
+
+export function createVaultPrecedentPanel(initialBuilding = "white-house-washington-d-c"): VaultPrecedentController {
+  const ctrl = _buildPanel(initialBuilding);
+  return ctrl;
+}
+
+/** @deprecated Use createVaultPrecedentPanel for reactive updates. */
 export function buildVaultPrecedentPanel(building = "white-house-washington-d-c"): HTMLElement {
+  return _buildPanel(building).el;
+}
+
+function _buildPanel(building: string): VaultPrecedentController {
   const wrap = document.createElement("div");
   wrap.className = "vault-panel";
 
@@ -172,5 +188,19 @@ export function buildVaultPrecedentPanel(building = "white-house-washington-d-c"
     }
   }
 
-  return wrap;
+  return {
+    el: wrap,
+    update(slug: string) {
+      building = slug;
+      pill.textContent = "loading…";
+      body.innerHTML = "";
+      fetch(vaultUrl(`precedent/${slug}.json`))
+        .then((r) => r.json() as Promise<VaultQueryResult>)
+        .then((data) => renderRecords(data))
+        .catch((e) => {
+          pill.textContent = "error";
+          body.innerHTML = `<p class="vault-error">Failed to load vault data: ${esc(String(e))}</p>`;
+        });
+    },
+  };
 }
