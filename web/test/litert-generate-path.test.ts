@@ -6,7 +6,7 @@
 // module via setLiteRtLmModule() and the same assertions hold.
 
 import { describe, expect, test, beforeEach } from "bun:test";
-import { LiteRtLmBackend, setLiteRtLmModule } from "../src/agent/litert-lm-backend";
+import { LiteRtLmBackend, setLiteRtLmModule, type LiteRtLmModule } from "../src/agent/litert-lm-backend";
 import {
   createMockLiteRtLmModule,
   createMockLiteRtLmModuleWithMtp,
@@ -352,5 +352,134 @@ describe("back-to-back turns without reinit (slot reuse)", () => {
     const dones = msgs.filter(m => m.type === "generate-done");
     expect(dones.length).toBe(3);
     expect(dones.map(d => d.turnId)).toEqual(["tA", "tB", "tC"]);
+  });
+});
+
+// ── caps.mtp runtime feature check (#72) ─────────────────────────────────────
+// caps.mtp is a getter — true only when loaded module exposes generateContentWithMtp.
+// Prevents harness from advertising MTP until the real #66 bundle confirms support.
+
+describe("caps.mtp runtime feature check", () => {
+  test("caps.mtp is false before any module loaded", () => {
+    // beforeEach resets module to null; getter must reflect that
+    const backend = new LiteRtLmBackend(() => {});
+    expect(backend.caps.mtp).toBe(false);
+  });
+
+  test("caps.mtp is false after loading non-MTP module", () => {
+    const backend = new LiteRtLmBackend(() => {});
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "ok" }));
+    expect(backend.caps.mtp).toBe(false);
+    expect(backend.caps.multimodal).toBe(true);
+  });
+
+  test("caps.mtp is true after loading MTP-capable module", () => {
+    const backend = new LiteRtLmBackend(() => {});
+    setLiteRtLmModule(createMockLiteRtLmModuleWithMtp({ specAttempts: 4, specAccepts: 3 }));
+    expect(backend.caps.mtp).toBe(true);
+  });
+
+  test("caps.mtp reverts to false after module reset", () => {
+    const backend = new LiteRtLmBackend(() => {});
+    setLiteRtLmModule(createMockLiteRtLmModuleWithMtp({ specAttempts: 1, specAccepts: 1 }));
+    expect(backend.caps.mtp).toBe(true);
+    setLiteRtLmModule(null as unknown as LiteRtLmModule);
+    expect(backend.caps.mtp).toBe(false);
+  });
+});
+
+// ── MTP generate path mock-validation (#72) ───────────────────────────────────
+// When bundle lands: replace mock with setLiteRtLmModule(realBundle) — same assertions hold.
+
+describe("MTP generate path mock-validated (#72)", () => {
+  test("MTP hit: specAttempts/specAccepts forwarded through generate-done (ONNX-parity names)", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModuleWithMtp({
+      text: "mtp response",
+      tokensOut: 8,
+      specAttempts: 12,
+      specAccepts: 9,
+    }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({ turnId: "mtp-1", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.specAttempts).toBe(12);
+    expect(done!.specAccepts).toBe(9);
+    expect(done!.tokensOut).toBe(8);
+    expect(done!.text).toBe("mtp response");
+    // ONNX-parity camelCase field names must be present
+    expect("specAttempts" in done!).toBe(true);
+    expect("specAccepts"  in done!).toBe(true);
+  });
+
+  test("MTP with draftK forwarded to module", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    let capturedDraftK: number | undefined;
+    const mod: LiteRtLmModule = {
+      ...createMockLiteRtLmModuleWithMtp({ specAttempts: 5, specAccepts: 4 }),
+      async generateContentWithMtp(_c, cb, opts) {
+        capturedDraftK = opts?.draftK;
+        cb("tok", 1);
+        return { text: "ok", tokensOut: 1, prefillMs: 0, decodeMs: 0, specAttempts: 5, specAccepts: 4 };
+      },
+    };
+    setLiteRtLmModule(mod);
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    await backend.generate({
+      turnId: "mtp-dk",
+      messages: [{ role: "user", content: "go" }],
+      draftK: 7,
+    });
+
+    expect(capturedDraftK).toBe(7);
+    expect(findMsg(msgs, "generate-done")).toBeDefined();
+  });
+
+  test("MTP throw → clean fallthrough to streaming, specStats default to 0", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    // Module exposes MTP (caps.mtp = true) but throws at runtime → must fall through.
+    const mod: LiteRtLmModule = {
+      ...createMockLiteRtLmModule({ text: "streamed", tokensOut: 4 }),
+      async generateContentWithMtp() { throw new Error("mtp-not-supported-this-build"); },
+    };
+    setLiteRtLmModule(mod);
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    // caps.mtp reflects the method presence even though the method throws
+    expect(backend.caps.mtp).toBe(true);
+
+    await backend.generate({ turnId: "mtp-fallback", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.text).toBe("streamed");
+    expect(done!.tokensOut).toBe(4);
+    expect(done!.specAttempts).toBe(0);   // streaming path → no spec stats
+    expect(done!.specAccepts).toBe(0);
+    expect(findMsg(msgs, "generate-error")).toBeUndefined();
+  });
+
+  test("non-MTP module: generate path uses streaming, caps.mtp stays false", async () => {
+    const { post, msgs } = makePost();
+    const backend = new LiteRtLmBackend(post);
+    setLiteRtLmModule(createMockLiteRtLmModule({ text: "stream-only", tokensOut: 3 }));
+    (backend as unknown as { _loaded: boolean })._loaded = true;
+
+    expect(backend.caps.mtp).toBe(false);
+
+    await backend.generate({ turnId: "no-mtp", messages: [{ role: "user", content: "go" }] });
+
+    const done = findMsg(msgs, "generate-done");
+    expect(done).toBeDefined();
+    expect(done!.text).toBe("stream-only");
+    expect(done!.specAttempts).toBe(0);
+    expect(done!.specAccepts).toBe(0);
   });
 });
