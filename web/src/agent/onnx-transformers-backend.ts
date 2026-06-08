@@ -32,6 +32,7 @@ export class OnnxTransformersBackend implements InferenceBackend {
   readonly caps = { multimodal: true, mtp: true };
 
   private readonly _post: PostFn;
+  private _disposed = false;
 
   // §#1595-M2: epoch for phase_timing elapsed_ms fields.
   private readonly _workerStartMs: number;
@@ -665,6 +666,7 @@ export class OnnxTransformersBackend implements InferenceBackend {
   // ── dispose (handleShutdown) ──────────────────────────────────────────────────
 
   async dispose(): Promise<void> {
+    this._disposed = true;
     if (this._drafterSession) {
       try { await (this._drafterSession as any).release?.(); } catch { /* non-fatal */ }
       this._drafterSession = null;
@@ -993,6 +995,13 @@ export class OnnxTransformersBackend implements InferenceBackend {
       try { (v as any)?.dispose?.(); } catch { /* non-fatal */ }
     }
     // §#412-reverted: post-dispose flush removed.
+
+    // If dispose() was called while generate was awaiting (async interleave), post error
+    // instead of done — same guard class as LiteRT _disposed (PR #625).
+    if (this._disposed) {
+      this._post({ type: "generate-error", turnId, error: "disposed during generate" });
+      return;
+    }
 
     this._post({
       type: "generate-done",

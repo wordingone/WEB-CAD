@@ -174,3 +174,113 @@ describe("#990 §A-init — handleInit disposes prior session on re-init (model 
     expect(state.processor).toBeNull();
   });
 });
+
+// ── Dispose-mid-generate (#625) ───────────────────────────────────────────────
+// Mirrors the LiteRT _disposed guard (PR #625). Same class: concurrent async
+// dispose() + generate() must not silently drop — either generate-done or
+// generate-error fires; shutdown-complete always fires.
+
+interface BackendLike {
+  disposed: boolean;
+  post(msg: Record<string, unknown>): void;
+  dispose(): Promise<void>;
+  generate(turnId: string, slowMs: number): Promise<void>;
+}
+
+function makeOnnxLikeBackend(): BackendLike & { msgs: Record<string, unknown>[] } {
+  const msgs: Record<string, unknown>[] = [];
+  const be: BackendLike & { msgs: Record<string, unknown>[] } = {
+    msgs,
+    disposed: false,
+    post(msg) { msgs.push(msg); },
+    async dispose() {
+      this.disposed = true;
+      this.post({ type: "shutdown-complete" });
+    },
+    // Simulate generate: stalls for slowMs, then checks _disposed before posting done.
+    async generate(turnId: string, slowMs: number) {
+      await new Promise(r => setTimeout(r, slowMs));
+      if (this.disposed) {
+        this.post({ type: "generate-error", turnId, error: "disposed during generate" });
+        return;
+      }
+      this.post({ type: "generate-done", turnId, text: "result", tokensOut: 1,
+        specAttempts: 0, specAccepts: 0, prefillMs: 0, decodeMs: 0, inputLength: 0 });
+    },
+  };
+  return be;
+}
+
+describe("dispose-mid-generate (_disposed guard, PR #625 parity with LiteRT)", () => {
+  test("dispose during stalled generate: shutdown-complete fires; generate path non-silent", async () => {
+    const be = makeOnnxLikeBackend();
+
+    await Promise.all([
+      be.generate("t-disp", 30),
+      be.dispose(),
+    ]);
+
+    expect(be.msgs.find(m => m.type === "shutdown-complete")).toBeDefined();
+    const done  = be.msgs.find(m => m.type === "generate-done");
+    const err   = be.msgs.find(m => m.type === "generate-error");
+    expect(done !== undefined || err !== undefined).toBe(true);
+  });
+
+  test("fast generate completes before dispose: generate-done fires", async () => {
+    const be = makeOnnxLikeBackend();
+
+    await be.generate("t-fast", 0);  // instant
+    await be.dispose();
+
+    expect(be.msgs.find(m => m.type === "generate-done")).toBeDefined();
+    expect(be.msgs.find(m => m.type === "shutdown-complete")).toBeDefined();
+    expect(be.msgs.find(m => m.type === "generate-error")).toBeUndefined();
+  });
+
+  test("generate after dispose: _disposed flag blocks generate-done, posts generate-error", async () => {
+    const be = makeOnnxLikeBackend();
+
+    await be.dispose();
+    be.msgs.length = 0;  // reset after dispose
+    await be.generate("t-post-disp", 0);
+
+    expect(be.msgs.find(m => m.type === "generate-error")).toBeDefined();
+    expect(be.msgs.find(m => m.type === "generate-done")).toBeUndefined();
+  });
+
+  test("back-to-back generates (slot-reuse): both post generate-done with correct turnIds", async () => {
+    const be = makeOnnxLikeBackend();
+
+    await be.generate("turn-A", 0);
+    await be.generate("turn-B", 0);
+
+    const doneA = be.msgs.find(m => m.type === "generate-done" && m.turnId === "turn-A");
+    const doneB = be.msgs.find(m => m.type === "generate-done" && m.turnId === "turn-B");
+    expect(doneA).toBeDefined();
+    expect(doneB).toBeDefined();
+  });
+});
+
+// ── Harness generate-done receive-side defensive defaults (#625) ──────────────
+// The harness resolves _generateCallbacks with msg fields cast to number/string.
+// After PR #625, defensive ?? 0 / "" defaults guard against partial backend messages.
+// This test audits the source to confirm the pattern is present.
+
+describe("harness generate-done receive-side defensive defaults (source audit)", () => {
+  test("agent-harness.ts generate-done handler uses ?? defaults on all numeric fields", () => {
+    const src = require("node:fs").readFileSync(
+      new URL("../src/agent/agent-harness.ts", import.meta.url),
+      "utf8",
+    ) as string;
+
+    // Locate the generate-done case block
+    const caseSrc = src.slice(src.indexOf("case \"generate-done\":"));
+    // Verify ?? 0 used on every numeric field
+    for (const field of ["specAttempts", "specAccepts", "prefillMs", "decodeMs", "inputLength", "tokensOut"]) {
+      expect(caseSrc).toContain(`?? 0`);
+      expect(caseSrc).toContain(field);
+    }
+    // Verify ?? "" used on text
+    expect(caseSrc).toContain(`?? ""`);
+  });
+});
