@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "_regen": "run `bun scripts/vault-prebake.mjs` after any vault corpus update — this is a snapshot, tracked #619",
   "count": 2,
   "buildings": [
     {
