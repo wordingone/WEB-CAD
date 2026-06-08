@@ -24,6 +24,7 @@ import { getState } from "../app-state";
 import { makeAgentInstanceFactory } from "./agent-instance";
 export type { AgentInstance, AgentTurn } from "./agent-instance";
 import { StandardBackend } from "./standard-backend";
+import { LiteRtBackend } from "./litert-backend";
 import {
   WASM_BACKEND_ENABLED,
   WASM_DRAFTER_URL,
@@ -138,6 +139,32 @@ function activateStandardBackend(): void {
     .catch((e) => {
       _standardBackendActivating = false;
       console.warn("[agent-harness] standard backend init failed:", (e as Error).message);
+    });
+}
+
+// ---- LiteRT-LM dedicated slot (#71) ----------------------------------------
+// Activated when ?engine=litert is in the page URL — replaces the ONNX worker.
+
+const _LITERT_ENGINE_MODE: boolean =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("engine") === "litert";
+
+let _litertBackend: LiteRtBackend | null = null;
+let _litertBackendActivating = false;
+
+function activateLiteRtBackend(): void {
+  if (_litertBackend || _litertBackendActivating) return;
+  _litertBackendActivating = true;
+  const lb = new LiteRtBackend();
+  lb.init()
+    .then(() => {
+      _litertBackend = lb;
+      window.dispatchEvent(new CustomEvent("agentmodel:ready", { detail: { device: "LiteRT" } }));
+      updateBadge(`<span class="v">G</span>EMMA·4·E4B  ·  LiteRT · READY`);
+    })
+    .catch((e) => {
+      _litertBackendActivating = false;
+      console.warn("[agent-harness] LiteRT backend init failed:", (e as Error).message);
     });
 }
 
@@ -1064,6 +1091,13 @@ export function prefetchModel(): void {
     void prefillSystemPromptAsync();
     return;
   }
+  // LiteRT dedicated slot — skip ONNX worker entirely.
+  if (_LITERT_ENGINE_MODE) {
+    updateBadge(`<span class="v">G</span>EMMA·4·E4B  ·  LiteRT · LOADING…`);
+    window.dispatchEvent(new CustomEvent("agentmodel:loading", { detail: { progress: 0 } }));
+    activateLiteRtBackend();
+    return;
+  }
   // Emit an early loading event so the overlay mounts BEFORE the worker
   // triggers the browser storage-permission prompt on the first ONNX fetch.
   // Returning-user path (cached model): worker posts "returning-user" within
@@ -1826,6 +1860,60 @@ async function runStandardBackendTurn(req: AgentRequest): Promise<AgentResponse>
   return { dispatches, text: text.trim() || responseText, plan, raw: undefined };
 }
 
+// ---- LiteRT turn (#71) ---------------------------------------------------
+
+/** Route a turn through the LiteRT dedicated-slot worker. */
+async function runLiteRtTurn(req: AgentRequest): Promise<AgentResponse> {
+  if (!_litertBackend) throw new Error("LiteRT backend not initialized");
+
+  const MAX_HISTORY_MSGS = 20;
+  const trimmedHistory = (req.history ?? []).slice(-MAX_HISTORY_MSGS);
+  const role = req.role ?? selectAgentRole(req.prompt ?? "");
+  const sysPrompt = buildWebGPUSystemPrompt(req.skills, role);
+  const messages = [
+    { role: "system" as const, content: sysPrompt },
+    ...trimmedHistory,
+    { role: "user" as const, content: req.prompt },
+  ];
+
+  const turnId = `litert-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const t0 = Date.now();
+  updateBadge(`<span class="v">G</span>EMMA·4·E4B  ·  LiteRT · ⟳`);
+
+  const stream = _litertBackend.generate({
+    turnId,
+    messages,
+    imageUrl:     req.userImage,
+    maxNewTokens: req.maxNewTokens ?? 1024,
+    onProgress:   (tOut) => {
+      const elapsed = Date.now() - t0;
+      const tps = elapsed > 0 ? (tOut / (elapsed / 1000)).toFixed(0) : "…";
+      updateBadge(`<span class="v">G</span>EMMA·4·E4B  ·  LiteRT · ${tps} t/s`);
+    },
+  });
+
+  // Drain token stream (tokens stream internally via postMessage in the worker).
+  for await (const _tok of stream) { /* streaming tokens arrive via onProgress */ }
+
+  const result = await stream.resultPromise;
+  const tgTps = result.decodeMs > 0
+    ? (result.tokensOut / (result.decodeMs / 1000)).toFixed(0)
+    : "—";
+  const mtpLabel = (result.specAttempts ?? 0) > 0 ? " · MTP" : "";
+  updateBadge(`<span class="v">G</span>EMMA·4·E4B  ·  LiteRT${mtpLabel} · ${tgTps} t/s`);
+
+  (window as unknown as { __agentRawOutputs: _RawOutputEntry[] }).__agentRawOutputs
+    .push({ turnId: ++_rawOutIdx, ts: new Date().toISOString(), raw: result.text.slice(0, 102400) });
+
+  let plan: string | undefined;
+  const afterPlan = result.text.replace(/<plan>([\s\S]*?)<\/plan>/i, (_, inner: string) => {
+    plan = inner.trim();
+    return "";
+  });
+  const { dispatches, text } = parseDispatches(afterPlan);
+  return { dispatches, text: text.trim() || result.text, plan, raw: undefined };
+}
+
 // ---- WASM backend turn (#736) --------------------------------------------
 
 let _wasmLoading = false;
@@ -1887,6 +1975,14 @@ export async function runAgentTurn(req: AgentRequest): Promise<AgentResponse> {
   // P10-2: if a prior worker error engaged the session-level fallback, route remote.
   if (REMOTE_URL && _arc.webgpuFallbackEngaged) return runRemoteAgentTurn(req);
   if (REMOTE_URL) return runRemoteAgentTurn(req);
+
+  // LiteRT dedicated slot (#71) — when ?engine=litert, bypass ONNX worker entirely.
+  if (_LITERT_ENGINE_MODE) {
+    if (!_litertBackend) activateLiteRtBackend();
+    // Wait for backend to boot (init() resolves at boot-complete).
+    if (_litertBackend) return runLiteRtTurn(req);
+    // Still loading — fall through to ONNX path as temporary fallback.
+  }
 
   // #736: WASM backend — env-gated, runs turboquant MTP in-browser via Emscripten.
   if (WASM_BACKEND_ENABLED && !payloadHasMultimodal(req)) return runWasmBackendTurn(req);
