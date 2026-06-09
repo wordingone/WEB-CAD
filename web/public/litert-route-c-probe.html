@@ -307,6 +307,10 @@ const wasmReady = new Promise((resolve) => {
     print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
     printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
     onRuntimeInitialized: () => resolve(window.Module),
+    // Skip callMain() — probe uses LiteRT C++ API directly, not the main() entry point.
+    // Without this, emscripten calls callMain() after ctors, which crashes because
+    // __main_argc_argv (renamed by wasm-opt) is not yet mapped in patched exports.
+    noInitialRun: true,
   };
 });
 
