@@ -221,39 +221,65 @@ class ReadableStreamDataStreamWrapper {
   }
 
   // ── export fix ───────────────────────────────────────────────────────────────
-  // Confirmed from wasm-dis body analysis of litert_lm_main.wasm export section.
-  function fixExports(instance) {
+  // Copy-based approach: return a fake instance with a plain mutable exports
+  // object so we avoid V8's non-extensible WebAssembly exports object.
+  function makeFixedInstance(instance) {
     if (!instance || !instance.exports) return instance;
     const e = instance.exports;
-    // Auto-detect by type (robust to any export order):
-    if (!e.memory) {
-      for (const k of Object.keys(e)) { if (e[k] instanceof WebAssembly.Memory) { e.memory = e[k]; break; } }
+    const exportKeys = Object.getOwnPropertyNames(e);
+    // emit() available after DOM ready; use a late-bound reference
+    const dbg = msg => { try { emit('  [shim] ' + msg, 'info'); } catch {} };
+    dbg('fixExports called — raw export keys: ' + exportKeys.join(','));
+
+    // Build a plain mutable copy
+    const patched = Object.create(null);
+    for (const k of exportKeys) patched[k] = e[k];
+
+    // Auto-detect Memory/Table by type (robust to any wasm-opt export ordering)
+    if (!patched.memory) {
+      for (const k of exportKeys) {
+        if (e[k] instanceof WebAssembly.Memory) { patched.memory = e[k]; dbg('memory → ' + k); break; }
+      }
     }
-    if (!e.__indirect_function_table) {
-      for (const k of Object.keys(e)) { if (e[k] instanceof WebAssembly.Table) { e.__indirect_function_table = e[k]; break; } }
+    if (!patched.memory && e.M) { patched.memory = e.M; dbg('memory → M (fallback)'); }
+
+    if (!patched.__indirect_function_table) {
+      for (const k of exportKeys) {
+        if (e[k] instanceof WebAssembly.Table) { patched.__indirect_function_table = e[k]; dbg('table → ' + k); break; }
+      }
     }
-    // Confirmed from wasm-dis body analysis (function signatures + bodies):
-    if (!e.stackAlloc         && e.Y) e.stackAlloc         = e.Y; // (i32)->(i32): stack-subtract+align
-    if (!e.__trap             && e.X) e.__trap             = e.X; // ()->(): unreachable body
-    if (!e.__errno_location   && e.Q) e.__errno_location   = e.Q; // ()->(i32): returns const 2173348
-    if (!e.__wasm_call_ctors  && e.N) e.__wasm_call_ctors  = e.N; // ()->(): complex ctors (best guess)
-    if (!e.__set_temp_ret     && e.R) e.__set_temp_ret     = e.R; // (i32)->(): set temp return val
-    if (!e.emscripten_builtin_memalign && e.O) e.emscripten_builtin_memalign = e.O; // (i32,i32)->(i32)
-    // Remaining S-W exports by signature (malloc/free/sbrk/stackSave/stackRestore guesses):
-    if (!e.malloc       && e.S) e.malloc       = e.S;
-    if (!e.free         && e.T) e.free         = e.T;
-    if (!e.sbrk         && e.U) e.sbrk         = e.U;
-    if (!e.stackSave    && e.V) e.stackSave    = e.V;
-    if (!e.stackRestore && e.W) e.stackRestore = e.W;
-    return instance;
+    if (!patched.__indirect_function_table && e.P) { patched.__indirect_function_table = e.P; dbg('table → P (fallback)'); }
+
+    // Confirmed from wasm-dis body analysis:
+    if (!patched.stackAlloc         && e.Y) { patched.stackAlloc         = e.Y; }
+    if (!patched.__trap             && e.X) { patched.__trap             = e.X; }
+    if (!patched.__errno_location   && e.Q) { patched.__errno_location   = e.Q; }
+    if (!patched.__wasm_call_ctors  && e.N) { patched.__wasm_call_ctors  = e.N; }
+    if (!patched.__set_temp_ret     && e.R) { patched.__set_temp_ret     = e.R; }
+    if (!patched.emscripten_builtin_memalign && e.O) { patched.emscripten_builtin_memalign = e.O; }
+    if (!patched.malloc       && e.S) patched.malloc       = e.S;
+    if (!patched.free         && e.T) patched.free         = e.T;
+    if (!patched.sbrk         && e.U) patched.sbrk         = e.U;
+    if (!patched.stackSave    && e.V) patched.stackSave    = e.V;
+    if (!patched.stackRestore && e.W) patched.stackRestore = e.W;
+
+    dbg('patched exports: memory=' + (!!patched.memory) + ' __wasm_call_ctors=' + (!!patched.__wasm_call_ctors) + ' stackAlloc=' + (!!patched.stackAlloc));
+    // Return fake instance — emscripten only reads .exports from instance
+    return { exports: patched };
   }
 
   const origI = WebAssembly.instantiate;
   const origIS = WebAssembly.instantiateStreaming;
   WebAssembly.instantiate = (src, imports, ...rest) =>
-    origI(src, addAliases(imports), ...rest).then(r => { fixExports(r.instance); return r; });
+    origI(src, addAliases(imports), ...rest).then(r => {
+      if (r instanceof WebAssembly.Instance)
+        return makeFixedInstance(r);
+      return { module: r.module, instance: makeFixedInstance(r.instance) };
+    });
   WebAssembly.instantiateStreaming = (src, imports, ...rest) =>
-    origIS(src, addAliases(imports), ...rest).then(r => { fixExports(r.instance); return r; });
+    origIS(src, addAliases(imports), ...rest).then(r => ({
+      module: r.module, instance: makeFixedInstance(r.instance),
+    }));
 })();
 
 // ── WASM init → main ─────────────────────────────────────────────────────────
