@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal decode (#72)</title>
+<title>LiteRT Route-C Probe — GPU_ARTISAN + Gemma-4 E4B web multimodal (#72)</title>
 <style>
 body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
 pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
@@ -12,21 +12,25 @@ h2{color:#8be;margin-top:1.2rem}
 </style>
 </head>
 <body>
-<h1>LiteRT Route-C Probe — CDN WASM + Gemma-4 E4B multimodal (#72)</h1>
+<h1>LiteRT Route-C Probe — GPU_ARTISAN streaming + Gemma-4 E4B web multimodal (#72)</h1>
 <p>
   Uses <code>@litert-lm/core@0.12.1</code> CDN WASM (official LiteRT runtime with embind API).<br>
-  Downloads 3.66 GB <code>gemma-4-E4B-it.litertlm</code> to OPFS, then copies to WASM FS (avoids streaming
-  which fails for kTfLiteEmbedder models).<br>
-  CPU backend via Engine.createEngine. Runs a real decode via Conversation.sendMessage + vision.
+  Model: <code>gemma-4-E4B-it-web.litertlm</code> (2.97 GB, GPU_ARTISAN backend — avoids
+  kTfLiteEmbedder 4GB WASM heap OOM via streaming).<br>
+  GPU_ARTISAN streams model weights directly to GPU without buffering in WASM linear memory.
+  Vision decode via Conversation.sendMessage with image path.
 </p>
 <h2>Log</h2>
 <pre id="log">Waiting for WASM init...</pre>
 
 <script>
-// ── Constants (MTP_DECODE_CONTRACT.md) ───────────────────────────────────────
-const LITERT_WASM_URL  = 'https://wordingone.github.io/WEB-CAD/litert_lm_main.wasm';
-const LITERT_JS_URL    = 'https://wordingone.github.io/WEB-CAD/litert_lm_main.js';
-const LITERT_MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
+// ── Constants ────────────────────────────────────────────────────────────────
+// Web model = GPU_ARTISAN variant (2.97 GB), supports streaming (no kTfLiteEmbedder restriction).
+// Original gemma-4-E4B-it.litertlm (3.66 GB) is kTfLiteEmbedder (CPU TFLite) — cannot fit in
+// 32-bit WASM 4GB heap alongside runtime. The -web variant targets GPU_ARTISAN which streams
+// weights to GPU without materializing the full model in WASM linear memory.
+const LITERT_MODEL_WEB_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm';
+const MODEL_KEY = 'litert_lm_model_e4b_web.litertlm';
 
 const logEl = document.getElementById('log');
 function emit(msg, cls='') {
@@ -43,13 +47,6 @@ async function opfsExists(key) {
     const f = await fh.getFile();
     return f.size > 0;
   } catch { return false; }
-}
-
-async function opfsStream(key) {
-  const root = await navigator.storage.getDirectory();
-  const fh = await root.getFileHandle(key);
-  const f = await fh.getFile();
-  return f.stream();
 }
 
 async function opfsWriteStream(key, url, onProgress) {
@@ -77,7 +74,9 @@ async function opfsWriteStream(key, url, onProgress) {
   }
 }
 
-// ── ReadableStreamDataStreamWrapper (BigInt-safe, from v8d probe) ─────────────
+// ── ReadableStreamDataStreamWrapper (GPU_ARTISAN streaming bridge) ────────────
+// Required by m.ReadableStreamDataStream.create() to stream model weights to GPU.
+// Bridges a JS ReadableStream to the C++ DataStream interface expected by LiteRT.
 
 class Slice {
   constructor(size) {
@@ -198,21 +197,14 @@ class ReadableStreamDataStreamWrapper {
 }
 
 // ── WASM init via @litert-lm/core@0.12.1 CDN ModuleFactory ──────────────────
-// The CDN package is the official LiteRT runtime with embind bindings for
-// Engine, ModelAssets, Conversation, ReadableStreamDataStream, etc.
-// No shim needed — CDN WASM has correct import/export names.
-
 const wasmLog = [];
-// wasmReady is a Promise<Module> that resolves after WASM+embind init
-// (ModuleFactory is defined by the CDN script tag below)
 let _wasmReadyResolve, _wasmReadyReject;
 const wasmReady = new Promise((res, rej) => { _wasmReadyResolve = res; _wasmReadyReject = rej; });
 
 </script>
-<!-- @litert-lm/core@0.12.1 CDN — defines global ModuleFactory -->
+<!-- @litert-lm/core@0.12.1 CDN — defines global ModuleFactory with embind API -->
 <script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_compat_internal.js"></script>
 <script>
-// Init the CDN WASM module and resolve wasmReady
 ModuleFactory({
   locateFile: p => 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/' + p,
   print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
@@ -221,10 +213,9 @@ ModuleFactory({
 </script>
 <script>
 window.addEventListener('load', async () => {
-  emit('=== LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal (#72) ===', 'info');
-  emit(`LITERT_JS_URL:    ${LITERT_JS_URL}`, 'info');
-  emit(`LITERT_WASM_URL:  ${LITERT_WASM_URL}`, 'info');
-  emit(`LITERT_MODEL_URL: ${LITERT_MODEL_URL}`, 'info');
+  emit('=== LiteRT Route-C Probe — GPU_ARTISAN + Gemma-4 E4B web multimodal (#72) ===', 'info');
+  emit(`Model: gemma-4-E4B-it-web.litertlm (2.97 GB, GPU_ARTISAN streaming)`, 'info');
+  emit(`Note: -web variant (same repo) required — original 3.66 GB kTfLiteEmbedder cannot fit in 32-bit WASM 4 GB heap`, 'info');
 
   const probeResult = { ok: false, verdict: '', error: null };
 
@@ -233,19 +224,18 @@ window.addEventListener('load', async () => {
     emit('1. Waiting for @litert-lm/core@0.12.1 CDN WASM init...', 'info');
     const m = await wasmReady;
     emit('   ✓ WASM runtime initialized (@litert-lm/core@0.12.1 CDN)', 'ok');
-
     if (m.setupLogging) m.setupLogging();
 
     // ── 2. Model to OPFS (download if cold, skip if warm) ────────────────────
-    const MODEL_KEY = 'litert_lm_model_e4b.litertlm';
     const opfsRoot = await navigator.storage.getDirectory();
-
     if (await opfsExists(MODEL_KEY)) {
-      emit('2. Model cache HIT — OPFS warm (skipping download)', 'ok');
+      const fh = await opfsRoot.getFileHandle(MODEL_KEY);
+      const f = await fh.getFile();
+      emit(`2. Model cache HIT — OPFS warm (${(f.size/1e9).toFixed(3)} GB, skipping download)`, 'ok');
     } else {
-      emit('2. Model cache MISS — downloading 3.66 GB from HuggingFace to OPFS...', 'warn');
+      emit('2. Model cache MISS — downloading 2.97 GB from HuggingFace to OPFS...', 'warn');
       emit('   This may take 20 min–4 hr; page must stay open', 'info');
-      await opfsWriteStream(MODEL_KEY, LITERT_MODEL_URL, (bytes, total, secs) => {
+      await opfsWriteStream(MODEL_KEY, LITERT_MODEL_WEB_URL, (bytes, total, secs) => {
         if (total > 0 && bytes % (200 * 1024 * 1024) < 65536) {
           const pct = (bytes / total * 100).toFixed(1);
           const mbps = (bytes / 1e6 / secs).toFixed(1);
@@ -255,59 +245,67 @@ window.addEventListener('load', async () => {
       emit('   ✓ Model written to OPFS', 'ok');
     }
 
-    // ── 3. OPFS → WASM FS (chunk-by-chunk; avoids 3.66 GB JS ArrayBuffer) ────
-    // ModelAssets.createStreaming fails for kTfLiteEmbedder models. Non-streaming
-    // path (ModelAssets.create) requires the model file in WASM FS.
-    // WASM max heap = 4 GB; we grow it incrementally as chunks arrive.
-    emit('3. Copying model OPFS → WASM FS (3.66 GB, may take ~1 min)...', 'info');
-    const wfsPath = '/model.litertlm';
-    {
-      const opfsFh = await opfsRoot.getFileHandle(MODEL_KEY);
-      const opfsFile = await opfsFh.getFile();
-      const opfsSize = opfsFile.size;
-      emit(`   OPFS file: ${(opfsSize/1e9).toFixed(3)} GB`, 'info');
+    // ── 3. WebGPU device setup ────────────────────────────────────────────────
+    // Required for GPU_ARTISAN backend. m.preinitializedWebGPUDevice must be set
+    // before Engine.createStreaming is called.
+    emit('3. Setting up WebGPU device for GPU_ARTISAN backend...', 'info');
+    if (!navigator.gpu) throw new Error('WebGPU not available (navigator.gpu is undefined)');
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) throw new Error('No WebGPU adapter found');
+    const DESIRED_FEATURES = ['shader-f16', 'subgroups'];
+    const requiredFeatures = DESIRED_FEATURES.filter(f => adapter.features.has(f));
+    const requiredLimits = {
+      maxBufferSize: adapter.limits.maxBufferSize,
+      maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      maxStorageBuffersPerShaderStage: adapter.limits.maxStorageBuffersPerShaderStage,
+      maxTextureDimension2D: adapter.limits.maxTextureDimension2D,
+    };
+    const gpuDevice = await adapter.requestDevice({ requiredFeatures, requiredLimits });
+    m.preinitializedWebGPUDevice = gpuDevice;
+    emit(`   ✓ WebGPU device ready (features: [${requiredFeatures.join(', ')}])`, 'ok');
 
-      const wfsStream = m.FS.open(wfsPath, 'w');
-      const reader = opfsFile.stream().getReader();
-      let copied = 0;
-      const t0copy = performance.now();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        m.FS.write(wfsStream, value, 0, value.length);
-        copied += value.length;
-        if (copied % (500 * 1024 * 1024) < value.length) {
-          emit(`   [wasm-fs] ${(copied/1e9).toFixed(2)} / ${(opfsSize/1e9).toFixed(2)} GB written`, 'info');
-        }
-      }
-      m.FS.close(wfsStream);
-      emit(`   ✓ WASM FS: ${(copied/1e9).toFixed(3)} GB in ${((performance.now()-t0copy)/1000).toFixed(1)}s`, 'ok');
-    }
+    // ── 4. GPU_ARTISAN streaming engine ──────────────────────────────────────
+    // Stream model from OPFS directly to GPU — bypasses WASM linear memory entirely.
+    emit('4. GPU_ARTISAN streaming: OPFS → DataStream → ModelAssets.createStreaming...', 'info');
+    const opfsFh = await opfsRoot.getFileHandle(MODEL_KEY);
+    const opfsFile = await opfsFh.getFile();
+    emit(`   OPFS file: ${(opfsFile.size/1e9).toFixed(3)} GB`, 'info');
 
-    // ── 4. ModelAssets → EngineSettings → Engine (CPU) ───────────────────────
-    emit('4. ModelAssets.create from WASM FS...', 'info');
-    const modelAssets = m.ModelAssets.create(wfsPath);
-    emit('   ✓ ModelAssets.create OK', 'ok');
+    const modelStream = opfsFile.stream();
+    const streamWrapper = new ReadableStreamDataStreamWrapper(modelStream, () => m.HEAPU8);
+    const dataStream = m.ReadableStreamDataStream.create(streamWrapper);
+    const modelAssets = m.ModelAssets.createStreaming(dataStream);
+    emit('   ✓ ModelAssets.createStreaming OK', 'ok');
 
-    // CPU backend requires full VFS load (non-streaming). Per LiteRT-LM TS wrapper:
-    const settings = m.EngineSettings.createDefault(modelAssets, m.Backend.CPU);
+    const settings = m.EngineSettings.createDefault(modelAssets, m.Backend.GPU_ARTISAN);
     settings.setParallelFileSectionLoading(false);
     settings.setSingleThreadedExecution(true);
-    emit('   ✓ EngineSettings.createDefault(CPU, single-threaded)', 'ok');
+    emit('   ✓ EngineSettings.createDefault(GPU_ARTISAN)', 'ok');
 
-    emit('4b. Engine.createEngine(CPU)... [may take several minutes]', 'info');
+    emit('4b. Engine.createStreaming(GPU_ARTISAN)... [may take several minutes on first load]', 'info');
     const t0eng = performance.now();
-    const engine = await m.Engine.createEngine(settings, '');
+    const engine = await m.Engine.createStreaming(settings, '');
     modelAssets.delete();
     settings.delete();
-    const engMs = (performance.now() - t0eng);
-    emit(`   ✓ Engine created in ${(engMs/1000).toFixed(1)}s`, 'ok');
+    dataStream.delete();
+    const engMs = performance.now() - t0eng;
+    emit(`   ✓ Engine created in ${(engMs/1000).toFixed(1)}s (GPU_ARTISAN streaming)`, 'ok');
 
-    // ── 5. Conversation setup ─────────────────────────────────────────────────
-    emit('5. Conversation.createDefault...', 'info');
-    const convConfig = m.ConversationConfig.createDefault(engine);
-    const conv = await m.Conversation.create(engine, convConfig);
-    emit('   ✓ Conversation ready', 'ok');
+    // ── 5. Conversation setup with vision enabled ─────────────────────────────
+    emit('5. Conversation setup (vision modality enabled)...', 'info');
+    const sessionConfig = m.SessionConfig.createDefault();
+    sessionConfig.setVisionModalityEnabled(true);
+    const convConfig = m.ConversationConfig.createCustom(
+      engine, sessionConfig,
+      false, // enableConstrainedDecoding
+      false, // prefillPrefaceOnInit
+      false, // filterChannelContentFromKvCache
+      '',    // prefaceJson
+    );
+    sessionConfig.delete();
+    const conv = m.Conversation.create(engine, convConfig);
+    convConfig.delete();
+    emit('   ✓ Conversation ready (vision modality enabled)', 'ok');
 
     // ── 6. Text-only decode (baseline) ───────────────────────────────────────
     emit('6. Text decode: sendMessage("Reply with exactly one word: hello")...', 'info');
@@ -328,8 +326,8 @@ window.addEventListener('load', async () => {
     // ── 7. Vision decode (multimodal) ─────────────────────────────────────────
     emit('7. Vision decode: fetch test image → WASM FS → sendMessage with image...', 'info');
     let visionOk = false;
+    let visTxt = '';
     try {
-      // Fetch a small test image (CORS-accessible)
       const imgResp = await fetch(
         'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/320px-Cat03.jpg',
         { mode: 'cors' }
@@ -348,7 +346,6 @@ window.addEventListener('load', async () => {
         ]
       }));
       const visMs = performance.now() - t0vis;
-      let visTxt = '';
       try {
         const r = JSON.parse(visResult);
         if (Array.isArray(r?.content)) visTxt = r.content.map(c => c.text || '').join('');
@@ -358,22 +355,25 @@ window.addEventListener('load', async () => {
       visionOk = true;
     } catch (vErr) {
       emit(`   ⚠ Vision decode failed: ${vErr.message}`, 'warn');
-      emit('     (Text-only decode above still confirms LiteRT path is functional)', 'info');
+      if (vErr.stack) emit(vErr.stack.split('\n').slice(0,4).join('\n'), 'warn');
     }
 
     // ── VERDICT ───────────────────────────────────────────────────────────────
     emit('', '');
     emit('=== VERDICT ===', 'ok');
-    emit(`Route-C WASM: @litert-lm/core@0.12.1 CDN (official LiteRT embind runtime)`, 'ok');
-    emit(`Engine load:  ${(engMs/1000).toFixed(1)}s (CPU backend, ModelAssets.create non-streaming)`, 'ok');
-    emit(`Text decode:  ${decoded.trim().slice(0,60)}`, 'ok');
-    emit(`Vision:       ${visionOk ? 'OK — multimodal decode confirmed' : 'FAILED — see warning above'}`, visionOk ? 'ok' : 'warn');
-    emit(`MTP:          caps.mtp = ${!!m.Engine?.generateContentWithMtp} (not yet wired to generate path — #72)`, 'info');
+    emit(`Backend:      GPU_ARTISAN (WebGPU streaming — no WASM heap OOM)`, 'ok');
+    emit(`Model:        gemma-4-E4B-it-web.litertlm (2.97 GB, litert-community repo)`, 'ok');
+    emit(`Engine load:  ${(engMs/1000).toFixed(1)}s`, 'ok');
+    emit(`Text decode:  ${decoded.trim().slice(0,80)}`, 'ok');
+    emit(`Vision:       ${visionOk ? 'OK — ' + visTxt.trim().slice(0,60) : 'FAILED — see warning above'}`, visionOk ? 'ok' : 'warn');
 
     probeResult.ok = true;
     probeResult.verdict = visionOk ? 'MULTIMODAL_DECODE_CONFIRMED' : 'TEXT_DECODE_CONFIRMED_VISION_FAILED';
     probeResult.textOutput = decoded.trim();
+    probeResult.visionOutput = visTxt.trim();
     probeResult.engineLoadMs = Math.round(engMs);
+    probeResult.model = 'gemma-4-E4B-it-web.litertlm';
+    probeResult.backend = 'GPU_ARTISAN';
 
   } catch (err) {
     const msg = err.message || String(err);
@@ -381,16 +381,15 @@ window.addEventListener('load', async () => {
     if (err.stack) emit(err.stack.split('\n').slice(0, 6).join('\n'), 'err');
     probeResult.error = msg;
     probeResult.verdict = 'FAILED';
+    probeResult.model = 'gemma-4-E4B-it-web.litertlm';
+    probeResult.backend = 'GPU_ARTISAN';
 
-    // Classify the error for diagnosis
-    if (/HEAPU8|memory|OOM|ArrayBuffer|wasm memory/i.test(msg)) {
-      emit('\n→ Memory wall: wasm32 4GB ceiling hit with 3.66GB model on CPU', 'warn');
-      emit('  Fix: chunked OPFS read + FileSystemSyncAccessHandle, or GPU_ARTISAN streaming', 'warn');
-    } else if (/createStreaming|createEngine|ModelAssets/i.test(msg)) {
-      emit('\n→ Engine init wall: streaming not supported for CPU in this build config', 'warn');
-      emit('  Fix: try Engine.createEngine (non-streaming, but 3.66GB VFS write needed)', 'warn');
-    } else if (/ReadableStreamDataStream|DataStream/i.test(msg)) {
-      emit('\n→ DataStream binding missing in this WASM build', 'warn');
+    if (/WebGPU|gpu|adapter|requestDevice/i.test(msg)) {
+      emit('\n→ WebGPU unavailable — try Chrome 126+ with hardware GPU', 'warn');
+    } else if (/kTfLiteEmbedder|Streaming.*not.*support/i.test(msg)) {
+      emit('\n→ Streaming restriction — model may not be GPU_ARTISAN format', 'warn');
+    } else if (/HEAPU8|memory|OOM|ArrayBuffer/i.test(msg)) {
+      emit('\n→ Memory error (unexpected for GPU_ARTISAN path)', 'warn');
     }
   }
 
