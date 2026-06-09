@@ -15,8 +15,9 @@ h2{color:#8be;margin-top:1.2rem}
 <h1>LiteRT Route-C Probe — CDN WASM + Gemma-4 E4B multimodal (#72)</h1>
 <p>
   Uses <code>@litert-lm/core@0.12.1</code> CDN WASM (official LiteRT runtime with embind API).<br>
-  Streams 3.66 GB <code>gemma-4-E4B-it.litertlm</code> from HuggingFace via ReadableStreamDataStream.<br>
-  CPU backend via Engine.createStreaming. Runs a real decode via Conversation.sendMessage + vision.
+  Downloads 3.66 GB <code>gemma-4-E4B-it.litertlm</code> to OPFS, then copies to WASM FS (avoids streaming
+  which fails for kTfLiteEmbedder models).<br>
+  CPU backend via Engine.createEngine. Runs a real decode via Conversation.sendMessage + vision.
 </p>
 <h2>Log</h2>
 <pre id="log">Waiting for WASM init...</pre>
@@ -235,63 +236,70 @@ window.addEventListener('load', async () => {
 
     if (m.setupLogging) m.setupLogging();
 
-    // ── 2. Model load (OPFS cache if warm, else stream from HF) ─────────────
+    // ── 2. Model to OPFS (download if cold, skip if warm) ────────────────────
     const MODEL_KEY = 'litert_lm_model_e4b.litertlm';
-    let modelStream;
+    const opfsRoot = await navigator.storage.getDirectory();
 
     if (await opfsExists(MODEL_KEY)) {
-      emit('2. Model cache HIT — reading from OPFS (warm cache)...', 'ok');
-      modelStream = await opfsStream(MODEL_KEY);
+      emit('2. Model cache HIT — OPFS warm (skipping download)', 'ok');
     } else {
-      emit('2. Model cache MISS — streaming 3.66 GB from HuggingFace...', 'warn');
-      emit('   (Writing to OPFS simultaneously for next-load warm cache)', 'info');
-      // Tee: one branch streams to Engine, other writes to OPFS
-      const resp = await fetch(LITERT_MODEL_URL, { mode: 'cors' });
-      if (!resp.ok) throw new Error(`fetch model ${resp.status} ${resp.statusText}`);
-      const total = Number(resp.headers.get('content-length') || 0);
-      emit(`   Content-Length: ${(total/1e9).toFixed(2)} GB`, 'info');
-      const [streamA, streamB] = resp.body.tee();
-
-      // Write streamB to OPFS asynchronously (don't await — fire and forget)
-      const root = await navigator.storage.getDirectory();
-      const fh = await root.getFileHandle(MODEL_KEY, { create: true });
-      const writable = await fh.createWritable();
-      const t0opfs = performance.now();
-      (async () => {
-        const rdr = streamB.getReader();
-        try {
-          while (true) {
-            const { done, value } = await rdr.read();
-            if (done) break;
-            await writable.write(value);
-          }
-          await writable.close();
-          emit(`   ✓ OPFS write complete in ${((performance.now()-t0opfs)/1000).toFixed(1)}s`, 'ok');
-        } catch (e) {
-          await writable.abort();
-          emit(`   ⚠ OPFS write failed: ${e.message}`, 'warn');
+      emit('2. Model cache MISS — downloading 3.66 GB from HuggingFace to OPFS...', 'warn');
+      emit('   This may take 20 min–4 hr; page must stay open', 'info');
+      await opfsWriteStream(MODEL_KEY, LITERT_MODEL_URL, (bytes, total, secs) => {
+        if (total > 0 && bytes % (200 * 1024 * 1024) < 65536) {
+          const pct = (bytes / total * 100).toFixed(1);
+          const mbps = (bytes / 1e6 / secs).toFixed(1);
+          emit(`   [dl] ${pct}% — ${(bytes/1e9).toFixed(2)} / ${(total/1e9).toFixed(2)} GB (${mbps} MB/s)`, 'info');
         }
-      })();
-
-      modelStream = streamA;
+      });
+      emit('   ✓ Model written to OPFS', 'ok');
     }
 
-    // ── 3. Create DataStream wrapper → ModelAssets → EngineSettings ──────────
-    emit('3. Creating ReadableStreamDataStreamWrapper...', 'info');
-    const wrapper = new ReadableStreamDataStreamWrapper(modelStream, () => m.HEAPU8);
-    const dataStream = m.ReadableStreamDataStream.create(wrapper);
-    const modelAssets = m.ModelAssets.createStreaming(dataStream);
-    emit('   ✓ ModelAssets.createStreaming OK', 'ok');
+    // ── 3. OPFS → WASM FS (chunk-by-chunk; avoids 3.66 GB JS ArrayBuffer) ────
+    // ModelAssets.createStreaming fails for kTfLiteEmbedder models. Non-streaming
+    // path (ModelAssets.create) requires the model file in WASM FS.
+    // WASM max heap = 4 GB; we grow it incrementally as chunks arrive.
+    emit('3. Copying model OPFS → WASM FS (3.66 GB, may take ~1 min)...', 'info');
+    const wfsPath = '/model.litertlm';
+    {
+      const opfsFh = await opfsRoot.getFileHandle(MODEL_KEY);
+      const opfsFile = await opfsFh.getFile();
+      const opfsSize = opfsFile.size;
+      emit(`   OPFS file: ${(opfsSize/1e9).toFixed(3)} GB`, 'info');
 
-    // createDefault: sets CPU backend. Vision is enabled at the session/conversation level.
+      const wfsStream = m.FS.open(wfsPath, 'w');
+      const reader = opfsFile.stream().getReader();
+      let copied = 0;
+      const t0copy = performance.now();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        m.FS.write(wfsStream, value, 0, value.length);
+        copied += value.length;
+        if (copied % (500 * 1024 * 1024) < value.length) {
+          emit(`   [wasm-fs] ${(copied/1e9).toFixed(2)} / ${(opfsSize/1e9).toFixed(2)} GB written`, 'info');
+        }
+      }
+      m.FS.close(wfsStream);
+      emit(`   ✓ WASM FS: ${(copied/1e9).toFixed(3)} GB in ${((performance.now()-t0copy)/1000).toFixed(1)}s`, 'ok');
+    }
+
+    // ── 4. ModelAssets → EngineSettings → Engine (CPU) ───────────────────────
+    emit('4. ModelAssets.create from WASM FS...', 'info');
+    const modelAssets = m.ModelAssets.create(wfsPath);
+    emit('   ✓ ModelAssets.create OK', 'ok');
+
+    // CPU backend requires full VFS load (non-streaming). Per LiteRT-LM TS wrapper:
     const settings = m.EngineSettings.createDefault(modelAssets, m.Backend.CPU);
-    emit('   ✓ EngineSettings.createDefault(CPU)', 'ok');
+    settings.setParallelFileSectionLoading(false);
+    settings.setSingleThreadedExecution(true);
+    emit('   ✓ EngineSettings.createDefault(CPU, single-threaded)', 'ok');
 
-    // ── 4. Create Engine (streaming) ─────────────────────────────────────────
-    emit('4. Engine.createStreaming(CPU)... [may take minutes for 3.66 GB]', 'info');
+    emit('4b. Engine.createEngine(CPU)... [may take several minutes]', 'info');
     const t0eng = performance.now();
-    const engine = await m.Engine.createStreaming(settings, '');
-    dataStream.delete();
+    const engine = await m.Engine.createEngine(settings, '');
+    modelAssets.delete();
+    settings.delete();
     const engMs = (performance.now() - t0eng);
     emit(`   ✓ Engine created in ${(engMs/1000).toFixed(1)}s`, 'ok');
 
@@ -357,7 +365,7 @@ window.addEventListener('load', async () => {
     emit('', '');
     emit('=== VERDICT ===', 'ok');
     emit(`Route-C WASM: @litert-lm/core@0.12.1 CDN (official LiteRT embind runtime)`, 'ok');
-    emit(`Engine load:  ${(engMs/1000).toFixed(1)}s (CPU backend, streaming)`, 'ok');
+    emit(`Engine load:  ${(engMs/1000).toFixed(1)}s (CPU backend, ModelAssets.create non-streaming)`, 'ok');
     emit(`Text decode:  ${decoded.trim().slice(0,60)}`, 'ok');
     emit(`Vision:       ${visionOk ? 'OK — multimodal decode confirmed' : 'FAILED — see warning above'}`, visionOk ? 'ok' : 'warn');
     emit(`MTP:          caps.mtp = ${!!m.Engine?.generateContentWithMtp} (not yet wired to generate path — #72)`, 'info');
