@@ -42,12 +42,10 @@ export interface LiteRtBundleUrls {
 //
 // These constants are the single point of truth — no literals elsewhere in this file.
 
-/** @stub — replace with Leo's #66 served URL when available */
-export const LITERT_WASM_URL  = hfResolveUrl("litert-community/gemma-4-E4B-it-litert-lm", "litert_lm.wasm");
-/** @stub — replace with Leo's #66 served URL when available */
-export const LITERT_JS_URL    = hfResolveUrl("litert-community/gemma-4-E4B-it-litert-lm", "litert_lm.js");
-/** @stub — replace with user's HF served model URL when Leo delivers #66 */
-export const LITERT_MODEL_URL = hfResolveUrl("litert-community/gemma-4-E4B-it-litert-lm", "model.litertlm");
+// #66 delivered: custom emsdk 3.1.50 build deployed to Pages + HF canonical model URL.
+export const LITERT_WASM_URL  = "https://wordingone.github.io/WEB-CAD/litert_lm_main.wasm";
+export const LITERT_JS_URL    = "https://wordingone.github.io/WEB-CAD/litert_lm_main.js";
+export const LITERT_MODEL_URL = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm";
 
 function resolveUrls(base: Partial<LiteRtBundleUrls> = {}): LiteRtBundleUrls {
   const params = (() => {
