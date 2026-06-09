@@ -196,6 +196,32 @@ class ReadableStreamDataStreamWrapper {
   }
 }
 
+// ── WASM import shim ──────────────────────────────────────────────────────────
+// The WASM binary was linked at -O3 which emscripten links with short import
+// names ("a","b",...) via wasm-opt renaming, while the emscripten JS wrapper
+// retains full names (__assert_fail, __syscall_dup, ...). The mapping below
+// was extracted by ordering wasmImports keys against the WASM import section.
+// We intercept WebAssembly.instantiate* and add the short aliases so the WASM
+// can resolve Import #0 "a" "a" → __assert_fail, etc.
+(function patchWasmInstantiate() {
+  // Exact order from wasmImports in litert_lm_main.js (38 entries)
+  const SHORT = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL'.split('');
+  function addAliases(imports) {
+    if (!imports || !imports.a) return imports;
+    const env = imports.a;
+    const keys = Object.keys(env);
+    // Add short aliases: a→keys[0], b→keys[1], ...
+    keys.forEach((k, i) => {
+      if (i < SHORT.length) env[SHORT[i]] = env[k];
+    });
+    return imports;
+  }
+  const origI = WebAssembly.instantiate;
+  const origIS = WebAssembly.instantiateStreaming;
+  WebAssembly.instantiate = (src, imports, ...rest) => origI(src, addAliases(imports), ...rest);
+  WebAssembly.instantiateStreaming = (src, imports, ...rest) => origIS(src, addAliases(imports), ...rest);
+})();
+
 // ── WASM init → main ─────────────────────────────────────────────────────────
 
 const wasmLog = [];
