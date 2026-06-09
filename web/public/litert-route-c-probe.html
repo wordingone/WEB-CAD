@@ -196,30 +196,64 @@ class ReadableStreamDataStreamWrapper {
   }
 }
 
-// ── WASM import shim ──────────────────────────────────────────────────────────
-// The WASM binary was linked at -O3 which emscripten links with short import
-// names ("a","b",...) via wasm-opt renaming, while the emscripten JS wrapper
-// retains full names (__assert_fail, __syscall_dup, ...). The mapping below
-// was extracted by ordering wasmImports keys against the WASM import section.
-// We intercept WebAssembly.instantiate* and add the short aliases so the WASM
-// can resolve Import #0 "a" "a" → __assert_fail, etc.
+// ── WASM import + export shim ─────────────────────────────────────────────────
+// emscripten -O3 wasm-opt renames both imports AND exports to single-letter names.
+//
+// Import fix (PR #634): WASM imports come in as "a"..."L"; JS wrapper expects full
+// names (__assert_fail, __syscall_dup, ...). We add short-name aliases to imports.a.
+//
+// Export fix (this PR): WASM exports come out as "M"..."Y"; JS receiveInstance does
+// wasmExports["memory"] → undefined → crash in updateMemoryViews. We patch exports
+// by auto-detecting WebAssembly.Memory/Table instances and mapping confirmed
+// function exports from wasm-dis body analysis:
+//   M=memory, N=__wasm_call_ctors, O=emscripten_builtin_memalign, P=table,
+//   Q=__errno_location, R=__set_temp_ret, S-W=malloc/free/sbrk/stackSave/stackRestore,
+//   X=__trap, Y=stackAlloc
 (function patchWasmInstantiate() {
-  // Exact order from wasmImports in litert_lm_main.js (38 entries)
+  // ── import fix ───────────────────────────────────────────────────────────────
   const SHORT = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL'.split('');
   function addAliases(imports) {
     if (!imports || !imports.a) return imports;
     const env = imports.a;
     const keys = Object.keys(env);
-    // Add short aliases: a→keys[0], b→keys[1], ...
-    keys.forEach((k, i) => {
-      if (i < SHORT.length) env[SHORT[i]] = env[k];
-    });
+    keys.forEach((k, i) => { if (i < SHORT.length) env[SHORT[i]] = env[k]; });
     return imports;
   }
+
+  // ── export fix ───────────────────────────────────────────────────────────────
+  // Confirmed from wasm-dis body analysis of litert_lm_main.wasm export section.
+  function fixExports(instance) {
+    if (!instance || !instance.exports) return instance;
+    const e = instance.exports;
+    // Auto-detect by type (robust to any export order):
+    if (!e.memory) {
+      for (const k of Object.keys(e)) { if (e[k] instanceof WebAssembly.Memory) { e.memory = e[k]; break; } }
+    }
+    if (!e.__indirect_function_table) {
+      for (const k of Object.keys(e)) { if (e[k] instanceof WebAssembly.Table) { e.__indirect_function_table = e[k]; break; } }
+    }
+    // Confirmed from wasm-dis body analysis (function signatures + bodies):
+    if (!e.stackAlloc         && e.Y) e.stackAlloc         = e.Y; // (i32)->(i32): stack-subtract+align
+    if (!e.__trap             && e.X) e.__trap             = e.X; // ()->(): unreachable body
+    if (!e.__errno_location   && e.Q) e.__errno_location   = e.Q; // ()->(i32): returns const 2173348
+    if (!e.__wasm_call_ctors  && e.N) e.__wasm_call_ctors  = e.N; // ()->(): complex ctors (best guess)
+    if (!e.__set_temp_ret     && e.R) e.__set_temp_ret     = e.R; // (i32)->(): set temp return val
+    if (!e.emscripten_builtin_memalign && e.O) e.emscripten_builtin_memalign = e.O; // (i32,i32)->(i32)
+    // Remaining S-W exports by signature (malloc/free/sbrk/stackSave/stackRestore guesses):
+    if (!e.malloc       && e.S) e.malloc       = e.S;
+    if (!e.free         && e.T) e.free         = e.T;
+    if (!e.sbrk         && e.U) e.sbrk         = e.U;
+    if (!e.stackSave    && e.V) e.stackSave    = e.V;
+    if (!e.stackRestore && e.W) e.stackRestore = e.W;
+    return instance;
+  }
+
   const origI = WebAssembly.instantiate;
   const origIS = WebAssembly.instantiateStreaming;
-  WebAssembly.instantiate = (src, imports, ...rest) => origI(src, addAliases(imports), ...rest);
-  WebAssembly.instantiateStreaming = (src, imports, ...rest) => origIS(src, addAliases(imports), ...rest);
+  WebAssembly.instantiate = (src, imports, ...rest) =>
+    origI(src, addAliases(imports), ...rest).then(r => { fixExports(r.instance); return r; });
+  WebAssembly.instantiateStreaming = (src, imports, ...rest) =>
+    origIS(src, addAliases(imports), ...rest).then(r => { fixExports(r.instance); return r; });
 })();
 
 // ── WASM init → main ─────────────────────────────────────────────────────────
