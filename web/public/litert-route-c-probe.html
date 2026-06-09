@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal decode (#72)</title>
+<style>
+body { font-family: monospace; padding: 1rem; background: #111; color: #ddd; }
+pre { background: #222; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.82rem;
+      white-space: pre-wrap; max-height: 80vh; }
+.ok{color:#4f4}.err{color:#f44}.info{color:#8be}.warn{color:#fa4}
+h2{color:#8be;margin-top:1.2rem}
+</style>
+</head>
+<body>
+<h1>LiteRT Route-C Probe — custom WASM build + Gemma-4 E4B multimodal (#72)</h1>
+<p>
+  Uses our custom <code>litert_lm_main.wasm</code> (14 MB, LiteRT + QAT + MTP + turboquant) built in #66.<br>
+  Streams 3.66 GB <code>gemma-4-E4B-it.litertlm</code> from HuggingFace via ReadableStreamDataStream.<br>
+  CPU backend. Runs a real decode via Conversation.sendMessage. Vision path optional (image test).
+</p>
+<h2>Log</h2>
+<pre id="log">Waiting for WASM init...</pre>
+
+<script>
+// ── Constants (MTP_DECODE_CONTRACT.md) ───────────────────────────────────────
+const LITERT_WASM_URL  = 'https://wordingone.github.io/WEB-CAD/litert_lm_main.wasm';
+const LITERT_JS_URL    = 'https://wordingone.github.io/WEB-CAD/litert_lm_main.js';
+const LITERT_MODEL_URL = 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm';
+
+const logEl = document.getElementById('log');
+function emit(msg, cls='') {
+  const ts = new Date().toISOString().slice(11,23);
+  logEl.innerHTML += `<span class="${cls}">[${ts}] ${msg}\n</span>`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── OPFS cache helpers ────────────────────────────────────────────────────────
+async function opfsExists(key) {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const fh = await root.getFileHandle(key);
+    const f = await fh.getFile();
+    return f.size > 0;
+  } catch { return false; }
+}
+
+async function opfsStream(key) {
+  const root = await navigator.storage.getDirectory();
+  const fh = await root.getFileHandle(key);
+  const f = await fh.getFile();
+  return f.stream();
+}
+
+async function opfsWriteStream(key, url, onProgress) {
+  const root = await navigator.storage.getDirectory();
+  const fh = await root.getFileHandle(key, { create: true });
+  const writable = await fh.createWritable();
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw new Error(`fetch ${url} → ${resp.status}`);
+  const total = Number(resp.headers.get('content-length') || 0);
+  let bytes = 0;
+  const t0 = performance.now();
+  const reader = resp.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await writable.write(value);
+      bytes += value.byteLength;
+      onProgress(bytes, total, (performance.now() - t0) / 1000);
+    }
+    await writable.close();
+  } catch (e) {
+    await writable.abort();
+    throw e;
+  }
+}
+
+// ── ReadableStreamDataStreamWrapper (BigInt-safe, from v8d probe) ─────────────
+
+class Slice {
+  constructor(size) {
+    this.size = size; this.data = null;
+    this.fullyDiscarded = false; this.discardedRegions = [];
+  }
+  discard(s, e) {
+    if (this.fullyDiscarded) return;
+    this.discardedRegions.push([s, e]);
+    this.discardedRegions.sort((a,b) => a[0]-b[0]);
+    const m = [];
+    for (const r of this.discardedRegions) {
+      const l = m[m.length-1];
+      if (!l || l[1] < r[0]) m.push([r[0], r[1]]); else l[1] = Math.max(l[1], r[1]);
+    }
+    this.discardedRegions = m;
+    if (m.length===1 && m[0][0]===0 && m[0][1]===this.size) {
+      this.fullyDiscarded = true; this.data = undefined;
+    }
+  }
+  hasDiscard(s, e) { return this.discardedRegions.some(([a,b]) => a<e && b>s); }
+}
+
+class ReadableStreamDataStreamWrapper {
+  constructor(stream, getWasmHeap, bps = 10_000_000) {
+    this.getWasmHeap = getWasmHeap; this.bps = bps;
+    this.slices = []; this.streamDone = false; this.globalPos = 0;
+    this.leftover = undefined; this.reading = false;
+    try { this.byobR = stream.getReader({mode:'byob'}); }
+    catch { this.defR = stream.getReader(); }
+  }
+  *getViews(start, end) {
+    if (start >= end) return;
+    let scratch, prev, pos = start;
+    while (pos < end) {
+      const si = Math.floor(pos / this.bps);
+      const sp = pos % this.bps;
+      const sliceStart = si * this.bps;
+      let sl = this.slices[si];
+      if (!sl) {
+        if (!prev || !prev.fullyDiscarded) scratch = new Uint8Array(this.bps);
+        sl = new Slice(this.bps); sl.data = scratch; this.slices[si] = sl;
+      }
+      const ve = Math.min(this.bps, end - sliceStart);
+      const vl = ve - sp;
+      const cs = sl, csp = sp, cve = ve;
+      yield {
+        getView: () => new Uint8Array(cs.data.buffer, cs.data.byteOffset + csp, vl),
+        discardView: () => cs.discard(csp, cve),
+        setView: v => { cs.data = new Uint8Array(v.buffer, 0, v.buffer.byteLength); scratch = cs.data; },
+      };
+      prev = sl; pos += vl;
+    }
+  }
+  async fillBuf(buf) {
+    const bl = buf.byteLength; if (!bl) return buf;
+    let br = 0, ab = buf.buffer; const bo = buf.byteOffset;
+    while (br < bl) {
+      if (this.streamDone && (!this.leftover || !this.leftover.length))
+        throw new Error(`EOF at ${this.globalPos}`);
+      if (this.byobR) {
+        const v = new Uint8Array(ab, bo + br, bl - br);
+        const r = await this.byobR.read(v);
+        if (r.done) this.streamDone = true;
+        if (!r.value) throw new Error('null value from BYOB reader');
+        this.globalPos += r.value.byteLength; br += r.value.byteLength; ab = r.value.buffer;
+      } else {
+        let c;
+        if (this.leftover && this.leftover.length) { c = this.leftover; this.leftover = undefined; }
+        else {
+          const r = await this.defR.read();
+          if (r.done) { this.streamDone = true; if (!r.value) continue; }
+          if (!r.value) throw new Error('null value from default reader');
+          c = r.value;
+        }
+        const need = bl - br, cp = Math.min(c.length, need);
+        new Uint8Array(ab, bo + br, cp).set(c.subarray(0, cp));
+        if (c.length > cp) this.leftover = c.subarray(cp);
+        this.globalPos += cp; br += cp;
+      }
+    }
+    return new Uint8Array(ab, bo, br);
+  }
+  async readInternal(dest, off, cnt, discard) {
+    if (this.reading) throw new Error('concurrent read');
+    this.reading = true;
+    try {
+      for (const {getView, setView} of this.getViews(this.globalPos, off)) {
+        const nv = await this.fillBuf(getView()); setView(nv); if (!nv.length) break;
+      }
+      const ec = Math.min(this.globalPos, off + cnt); let d = dest;
+      for (const {getView, discardView} of this.getViews(off, ec)) {
+        const v = getView(); this.getWasmHeap().set(v, d); if (discard) discardView(); d += v.length;
+      }
+      const su = Math.max(ec, off);
+      for (const {getView, setView, discardView} of this.getViews(su, off + cnt)) {
+        if (this.streamDone && this.globalPos <= su) break;
+        const nv = await this.fillBuf(getView()); setView(nv);
+        this.getWasmHeap().set(nv, d); if (discard) discardView(); d += nv.length;
+      }
+    } finally { this.reading = false; }
+  }
+  async readAndDiscard(da, o, c) {
+    try { await this.readInternal(da >>> 0, Number(o), Number(c), true); return {}; }
+    catch (e) { return {error: e}; }
+  }
+  async readAndPreserve(da, o, c) {
+    try { await this.readInternal(da >>> 0, Number(o), Number(c), false); return {}; }
+    catch (e) { return {error: e}; }
+  }
+  async discard(o, c) {
+    try {
+      const start = Number(o), end = Number(o) + Number(c);
+      for (const {discardView} of this.getViews(start, end)) discardView();
+      return {};
+    } catch (e) { return {error: e}; }
+  }
+}
+
+// ── WASM init → main ─────────────────────────────────────────────────────────
+
+const wasmLog = [];
+const wasmReady = new Promise((resolve) => {
+  window.Module = {
+    locateFile: (p) => {
+      // Route .wasm file to Pages URL (same directory as JS)
+      if (p.endsWith('.wasm')) return LITERT_WASM_URL;
+      return p;
+    },
+    print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
+    printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
+    onRuntimeInitialized: () => resolve(window.Module),
+  };
+});
+
+</script>
+<!-- Load our custom-built LiteRT-LM emscripten module -->
+<script src="https://wordingone.github.io/WEB-CAD/litert_lm_main.js"></script>
+<script>
+window.addEventListener('load', async () => {
+  emit('=== LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal (#72) ===', 'info');
+  emit(`LITERT_JS_URL:    ${LITERT_JS_URL}`, 'info');
+  emit(`LITERT_WASM_URL:  ${LITERT_WASM_URL}`, 'info');
+  emit(`LITERT_MODEL_URL: ${LITERT_MODEL_URL}`, 'info');
+
+  const probeResult = { ok: false, verdict: '', error: null };
+
+  try {
+    // ── 1. Wait for WASM runtime ─────────────────────────────────────────────
+    emit('1. Waiting for litert_lm_main.wasm runtime init...', 'info');
+    const m = await wasmReady;
+    emit('   ✓ WASM runtime initialized (litert_lm_main.js + litert_lm_main.wasm)', 'ok');
+
+    if (m.setupLogging) m.setupLogging();
+
+    // ── 2. Model load (OPFS cache if warm, else stream from HF) ─────────────
+    const MODEL_KEY = 'litert_lm_model_e4b.litertlm';
+    let modelStream;
+
+    if (await opfsExists(MODEL_KEY)) {
+      emit('2. Model cache HIT — reading from OPFS (warm cache)...', 'ok');
+      modelStream = await opfsStream(MODEL_KEY);
+    } else {
+      emit('2. Model cache MISS — streaming 3.66 GB from HuggingFace...', 'warn');
+      emit('   (Writing to OPFS simultaneously for next-load warm cache)', 'info');
+      // Tee: one branch streams to Engine, other writes to OPFS
+      const resp = await fetch(LITERT_MODEL_URL, { mode: 'cors' });
+      if (!resp.ok) throw new Error(`fetch model ${resp.status} ${resp.statusText}`);
+      const total = Number(resp.headers.get('content-length') || 0);
+      emit(`   Content-Length: ${(total/1e9).toFixed(2)} GB`, 'info');
+      const [streamA, streamB] = resp.body.tee();
+
+      // Write streamB to OPFS asynchronously (don't await — fire and forget)
+      const root = await navigator.storage.getDirectory();
+      const fh = await root.getFileHandle(MODEL_KEY, { create: true });
+      const writable = await fh.createWritable();
+      const t0opfs = performance.now();
+      (async () => {
+        const rdr = streamB.getReader();
+        try {
+          while (true) {
+            const { done, value } = await rdr.read();
+            if (done) break;
+            await writable.write(value);
+          }
+          await writable.close();
+          emit(`   ✓ OPFS write complete in ${((performance.now()-t0opfs)/1000).toFixed(1)}s`, 'ok');
+        } catch (e) {
+          await writable.abort();
+          emit(`   ⚠ OPFS write failed: ${e.message}`, 'warn');
+        }
+      })();
+
+      modelStream = streamA;
+    }
+
+    // ── 3. Create DataStream wrapper → ModelAssets → EngineSettings ──────────
+    emit('3. Creating ReadableStreamDataStreamWrapper...', 'info');
+    const wrapper = new ReadableStreamDataStreamWrapper(modelStream, () => m.HEAPU8);
+    const dataStream = m.ReadableStreamDataStream.create(wrapper);
+    const modelAssets = m.ModelAssets.createStreaming(dataStream);
+    emit('   ✓ ModelAssets.createStreaming OK', 'ok');
+
+    // Use createDefaultWithVision to enable vision sections in the .litertlm
+    const settings = m.EngineSettings.createDefaultWithVision(
+      modelAssets, m.Backend.CPU, m.Backend.CPU
+    );
+    settings.setParallelFileSectionLoading(false);
+    settings.setSingleThreadedExecution(true);
+    emit('   ✓ EngineSettings.createDefaultWithVision(CPU, CPU)', 'ok');
+
+    // ── 4. Create Engine (streaming) ─────────────────────────────────────────
+    emit('4. Engine.createStreaming(CPU)... [may take minutes for 3.66 GB]', 'info');
+    const t0eng = performance.now();
+    const engine = await m.Engine.createStreaming(settings, '');
+    dataStream.delete();
+    const engMs = (performance.now() - t0eng);
+    emit(`   ✓ Engine created in ${(engMs/1000).toFixed(1)}s`, 'ok');
+
+    // ── 5. Conversation setup ─────────────────────────────────────────────────
+    emit('5. Conversation.createDefault...', 'info');
+    const convConfig = m.ConversationConfig.createDefault(engine);
+    const conv = await m.Conversation.create(engine, convConfig);
+    emit('   ✓ Conversation ready', 'ok');
+
+    // ── 6. Text-only decode (baseline) ───────────────────────────────────────
+    emit('6. Text decode: sendMessage("Reply with exactly one word: hello")...', 'info');
+    const t0txt = performance.now();
+    const rawResult = await conv.sendMessage(
+      JSON.stringify({ role: 'user', content: [{ type: 'text', text: 'Reply with exactly one word: hello' }] })
+    );
+    const txtMs = performance.now() - t0txt;
+    let decoded = '';
+    try {
+      const r = JSON.parse(rawResult);
+      if (Array.isArray(r?.content)) decoded = r.content.map(c => c.text || '').join('');
+      else if (r?.content) decoded = String(r.content);
+      else decoded = JSON.stringify(r);
+    } catch { decoded = String(rawResult); }
+    emit(`   ✓ Text decode in ${(txtMs/1000).toFixed(2)}s: "${decoded.trim().slice(0,120)}"`, 'ok');
+
+    // ── 7. Vision decode (multimodal) ─────────────────────────────────────────
+    emit('7. Vision decode: fetch test image → WASM FS → sendMessage with image...', 'info');
+    let visionOk = false;
+    try {
+      // Fetch a small test image (CORS-accessible)
+      const imgResp = await fetch(
+        'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/320px-Cat03.jpg',
+        { mode: 'cors' }
+      );
+      if (!imgResp.ok) throw new Error(`fetch img ${imgResp.status}`);
+      const imgBytes = new Uint8Array(await imgResp.arrayBuffer());
+      m.FS.writeFile('/probe_image.jpg', imgBytes);
+      emit(`   ✓ Image written to WASM FS: /probe_image.jpg (${imgBytes.length} bytes)`, 'ok');
+
+      const t0vis = performance.now();
+      const visResult = await conv.sendMessage(JSON.stringify({
+        role: 'user',
+        content: [
+          { type: 'image', path: '/probe_image.jpg' },
+          { type: 'text', text: 'Describe this image in exactly five words.' }
+        ]
+      }));
+      const visMs = performance.now() - t0vis;
+      let visTxt = '';
+      try {
+        const r = JSON.parse(visResult);
+        if (Array.isArray(r?.content)) visTxt = r.content.map(c => c.text || '').join('');
+        else visTxt = String(visResult);
+      } catch { visTxt = String(visResult); }
+      emit(`   ✓ Vision decode in ${(visMs/1000).toFixed(2)}s: "${visTxt.trim().slice(0,120)}"`, 'ok');
+      visionOk = true;
+    } catch (vErr) {
+      emit(`   ⚠ Vision decode failed: ${vErr.message}`, 'warn');
+      emit('     (Text-only decode above still confirms LiteRT path is functional)', 'info');
+    }
+
+    // ── VERDICT ───────────────────────────────────────────────────────────────
+    emit('', '');
+    emit('=== VERDICT ===', 'ok');
+    emit(`Route-C WASM: litert_lm_main.wasm (14 MB, custom emsdk 3.1.50 build)`, 'ok');
+    emit(`Engine load:  ${(engMs/1000).toFixed(1)}s (CPU backend, streaming)`, 'ok');
+    emit(`Text decode:  ${decoded.trim().slice(0,60)}`, 'ok');
+    emit(`Vision:       ${visionOk ? 'OK — multimodal decode confirmed' : 'FAILED — see warning above'}`, visionOk ? 'ok' : 'warn');
+    emit(`MTP:          caps.mtp = ${!!m.Engine?.generateContentWithMtp} (not yet wired to generate path — #72)`, 'info');
+
+    probeResult.ok = true;
+    probeResult.verdict = visionOk ? 'MULTIMODAL_DECODE_CONFIRMED' : 'TEXT_DECODE_CONFIRMED_VISION_FAILED';
+    probeResult.textOutput = decoded.trim();
+    probeResult.engineLoadMs = Math.round(engMs);
+
+  } catch (err) {
+    const msg = err.message || String(err);
+    emit(`\n✗ FATAL: ${msg}`, 'err');
+    if (err.stack) emit(err.stack.split('\n').slice(0, 6).join('\n'), 'err');
+    probeResult.error = msg;
+    probeResult.verdict = 'FAILED';
+
+    // Classify the error for diagnosis
+    if (/HEAPU8|memory|OOM|ArrayBuffer|wasm memory/i.test(msg)) {
+      emit('\n→ Memory wall: wasm32 4GB ceiling hit with 3.66GB model on CPU', 'warn');
+      emit('  Fix: chunked OPFS read + FileSystemSyncAccessHandle, or GPU_ARTISAN streaming', 'warn');
+    } else if (/createStreaming|createEngine|ModelAssets/i.test(msg)) {
+      emit('\n→ Engine init wall: streaming not supported for CPU in this build config', 'warn');
+      emit('  Fix: try Engine.createEngine (non-streaming, but 3.66GB VFS write needed)', 'warn');
+    } else if (/ReadableStreamDataStream|DataStream/i.test(msg)) {
+      emit('\n→ DataStream binding missing in this WASM build', 'warn');
+    }
+  }
+
+  window.__routeCResult = probeResult;
+  console.log('__routeCResult', JSON.stringify(probeResult, null, 2));
+});
+</script>
+</body>
+</html>
