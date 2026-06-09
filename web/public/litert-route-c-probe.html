@@ -215,6 +215,18 @@ class ReadableStreamDataStreamWrapper {
   function addAliases(imports) {
     if (!imports || !imports.a) return imports;
     const env = imports.a;
+
+    // C++ static ctors (export N = __wasm_call_ctors) call __syscall_rmdir and
+    // __syscall_unlinkat to clean up temp paths that don't exist in browser MEMFS.
+    // emscripten's ___syscall_rmdir catch only handles ErrnoError — a TypeError
+    // from FS.lookupNode(null, ...) escapes. Wrap to absorb TypeError as -ENOENT.
+    const wrapSyscall = fn => function(...a) {
+      try { return fn.apply(this, a); } catch(e) { if (e instanceof TypeError) return -2; throw e; }
+    };
+    ['__syscall_rmdir', '__syscall_unlinkat', '__syscall_openat'].forEach(name => {
+      if (typeof env[name] === 'function') env[name] = wrapSyscall(env[name]);
+    });
+
     const keys = Object.keys(env);
     keys.forEach((k, i) => { if (i < SHORT.length) env[SHORT[i]] = env[k]; });
     return imports;
