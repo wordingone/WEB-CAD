@@ -12,11 +12,11 @@ h2{color:#8be;margin-top:1.2rem}
 </style>
 </head>
 <body>
-<h1>LiteRT Route-C Probe — custom WASM build + Gemma-4 E4B multimodal (#72)</h1>
+<h1>LiteRT Route-C Probe — CDN WASM + Gemma-4 E4B multimodal (#72)</h1>
 <p>
-  Uses our custom <code>litert_lm_main.wasm</code> (14 MB, LiteRT + QAT + MTP + turboquant) built in #66.<br>
+  Uses <code>@litert-lm/core@0.12.1</code> CDN WASM (official LiteRT runtime with embind API).<br>
   Streams 3.66 GB <code>gemma-4-E4B-it.litertlm</code> from HuggingFace via ReadableStreamDataStream.<br>
-  CPU backend. Runs a real decode via Conversation.sendMessage. Vision path optional (image test).
+  CPU backend via Engine.createStreaming. Runs a real decode via Conversation.sendMessage + vision.
 </p>
 <h2>Log</h2>
 <pre id="log">Waiting for WASM init...</pre>
@@ -196,127 +196,27 @@ class ReadableStreamDataStreamWrapper {
   }
 }
 
-// ── WASM import + export shim ─────────────────────────────────────────────────
-// emscripten -O3 wasm-opt renames both imports AND exports to single-letter names.
-//
-// Import fix (PR #634): WASM imports come in as "a"..."L"; JS wrapper expects full
-// names (__assert_fail, __syscall_dup, ...). We add short-name aliases to imports.a.
-//
-// Export fix (this PR): WASM exports come out as "M"..."Y"; JS receiveInstance does
-// wasmExports["memory"] → undefined → crash in updateMemoryViews. We patch exports
-// by auto-detecting WebAssembly.Memory/Table instances and mapping confirmed
-// function exports from wasm-dis body analysis:
-//   M=memory, N=__wasm_call_ctors, O=emscripten_builtin_memalign, P=table,
-//   Q=__errno_location, R=__set_temp_ret, S-W=malloc/free/sbrk/stackSave/stackRestore,
-//   X=__trap, Y=stackAlloc
-(function patchWasmInstantiate() {
-  // ── import fix ───────────────────────────────────────────────────────────────
-  const SHORT = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKL'.split('');
-  function addAliases(imports) {
-    if (!imports || !imports.a) return imports;
-    const env = imports.a;
-
-    // C++ static ctors (export N = __wasm_call_ctors) call __syscall_rmdir and
-    // __syscall_unlinkat to clean up temp paths that don't exist in browser MEMFS.
-    // emscripten's ___syscall_rmdir catch only handles ErrnoError — a TypeError
-    // from FS.lookupNode(null, ...) escapes. Wrap to absorb TypeError as -ENOENT.
-    const wrapSyscall = fn => function(...a) {
-      try { return fn.apply(this, a); } catch(e) { if (e instanceof TypeError) return -2; throw e; }
-    };
-    ['__syscall_rmdir', '__syscall_unlinkat', '__syscall_openat'].forEach(name => {
-      if (typeof env[name] === 'function') env[name] = wrapSyscall(env[name]);
-    });
-
-    const keys = Object.keys(env);
-    keys.forEach((k, i) => { if (i < SHORT.length) env[SHORT[i]] = env[k]; });
-    return imports;
-  }
-
-  // ── export fix ───────────────────────────────────────────────────────────────
-  // Copy-based approach: return a fake instance with a plain mutable exports
-  // object so we avoid V8's non-extensible WebAssembly exports object.
-  function makeFixedInstance(instance) {
-    if (!instance || !instance.exports) return instance;
-    const e = instance.exports;
-    const exportKeys = Object.getOwnPropertyNames(e);
-    // emit() available after DOM ready; use a late-bound reference
-    const dbg = msg => { try { emit('  [shim] ' + msg, 'info'); } catch {} };
-    dbg('fixExports called — raw export keys: ' + exportKeys.join(','));
-
-    // Build a plain mutable copy
-    const patched = Object.create(null);
-    for (const k of exportKeys) patched[k] = e[k];
-
-    // Auto-detect Memory/Table by type (robust to any wasm-opt export ordering)
-    if (!patched.memory) {
-      for (const k of exportKeys) {
-        if (e[k] instanceof WebAssembly.Memory) { patched.memory = e[k]; dbg('memory → ' + k); break; }
-      }
-    }
-    if (!patched.memory && e.M) { patched.memory = e.M; dbg('memory → M (fallback)'); }
-
-    if (!patched.__indirect_function_table) {
-      for (const k of exportKeys) {
-        if (e[k] instanceof WebAssembly.Table) { patched.__indirect_function_table = e[k]; dbg('table → ' + k); break; }
-      }
-    }
-    if (!patched.__indirect_function_table && e.P) { patched.__indirect_function_table = e.P; dbg('table → P (fallback)'); }
-
-    // Confirmed from wasm-dis body analysis:
-    if (!patched.stackAlloc         && e.Y) { patched.stackAlloc         = e.Y; }
-    if (!patched.__trap             && e.X) { patched.__trap             = e.X; }
-    if (!patched.__errno_location   && e.Q) { patched.__errno_location   = e.Q; }
-    if (!patched.__wasm_call_ctors  && e.N) { patched.__wasm_call_ctors  = e.N; }
-    if (!patched.__set_temp_ret     && e.R) { patched.__set_temp_ret     = e.R; }
-    if (!patched.emscripten_builtin_memalign && e.O) { patched.emscripten_builtin_memalign = e.O; }
-    if (!patched.malloc       && e.S) patched.malloc       = e.S;
-    if (!patched.free         && e.T) patched.free         = e.T;
-    if (!patched.sbrk         && e.U) patched.sbrk         = e.U;
-    if (!patched.stackSave    && e.V) patched.stackSave    = e.V;
-    if (!patched.stackRestore && e.W) patched.stackRestore = e.W;
-
-    dbg('patched exports: memory=' + (!!patched.memory) + ' __wasm_call_ctors=' + (!!patched.__wasm_call_ctors) + ' stackAlloc=' + (!!patched.stackAlloc));
-    // Return fake instance — emscripten only reads .exports from instance
-    return { exports: patched };
-  }
-
-  const origI = WebAssembly.instantiate;
-  const origIS = WebAssembly.instantiateStreaming;
-  WebAssembly.instantiate = (src, imports, ...rest) =>
-    origI(src, addAliases(imports), ...rest).then(r => {
-      if (r instanceof WebAssembly.Instance)
-        return makeFixedInstance(r);
-      return { module: r.module, instance: makeFixedInstance(r.instance) };
-    });
-  WebAssembly.instantiateStreaming = (src, imports, ...rest) =>
-    origIS(src, addAliases(imports), ...rest).then(r => ({
-      module: r.module, instance: makeFixedInstance(r.instance),
-    }));
-})();
-
-// ── WASM init → main ─────────────────────────────────────────────────────────
+// ── WASM init via @litert-lm/core@0.12.1 CDN ModuleFactory ──────────────────
+// The CDN package is the official LiteRT runtime with embind bindings for
+// Engine, ModelAssets, Conversation, ReadableStreamDataStream, etc.
+// No shim needed — CDN WASM has correct import/export names.
 
 const wasmLog = [];
-const wasmReady = new Promise((resolve) => {
-  window.Module = {
-    locateFile: (p) => {
-      // Route .wasm file to Pages URL (same directory as JS)
-      if (p.endsWith('.wasm')) return LITERT_WASM_URL;
-      return p;
-    },
-    print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
-    printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
-    onRuntimeInitialized: () => resolve(window.Module),
-    // Skip callMain() — probe uses LiteRT C++ API directly, not the main() entry point.
-    // Without this, emscripten calls callMain() after ctors, which crashes because
-    // __main_argc_argv (renamed by wasm-opt) is not yet mapped in patched exports.
-    noInitialRun: true,
-  };
-});
+// wasmReady is a Promise<Module> that resolves after WASM+embind init
+// (ModuleFactory is defined by the CDN script tag below)
+let _wasmReadyResolve, _wasmReadyReject;
+const wasmReady = new Promise((res, rej) => { _wasmReadyResolve = res; _wasmReadyReject = rej; });
 
 </script>
-<!-- Load our custom-built LiteRT-LM emscripten module -->
-<script src="https://wordingone.github.io/WEB-CAD/litert_lm_main.js"></script>
+<!-- @litert-lm/core@0.12.1 CDN — defines global ModuleFactory -->
+<script src="https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/litertlm_wasm_compat_internal.js"></script>
+<script>
+// Init the CDN WASM module and resolve wasmReady
+ModuleFactory({
+  locateFile: p => 'https://cdn.jsdelivr.net/npm/@litert-lm/core@0.12.1/wasm/' + p,
+  print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
+  printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
+}).then(m => _wasmReadyResolve(m)).catch(e => _wasmReadyReject(e));
 <script>
 window.addEventListener('load', async () => {
   emit('=== LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal (#72) ===', 'info');
@@ -328,9 +228,9 @@ window.addEventListener('load', async () => {
 
   try {
     // ── 1. Wait for WASM runtime ─────────────────────────────────────────────
-    emit('1. Waiting for litert_lm_main.wasm runtime init...', 'info');
+    emit('1. Waiting for @litert-lm/core@0.12.1 CDN WASM init...', 'info');
     const m = await wasmReady;
-    emit('   ✓ WASM runtime initialized (litert_lm_main.js + litert_lm_main.wasm)', 'ok');
+    emit('   ✓ WASM runtime initialized (@litert-lm/core@0.12.1 CDN)', 'ok');
 
     if (m.setupLogging) m.setupLogging();
 
@@ -382,13 +282,9 @@ window.addEventListener('load', async () => {
     const modelAssets = m.ModelAssets.createStreaming(dataStream);
     emit('   ✓ ModelAssets.createStreaming OK', 'ok');
 
-    // Use createDefaultWithVision to enable vision sections in the .litertlm
-    const settings = m.EngineSettings.createDefaultWithVision(
-      modelAssets, m.Backend.CPU, m.Backend.CPU
-    );
-    settings.setParallelFileSectionLoading(false);
-    settings.setSingleThreadedExecution(true);
-    emit('   ✓ EngineSettings.createDefaultWithVision(CPU, CPU)', 'ok');
+    // createDefault: sets CPU backend. Vision is enabled at the session/conversation level.
+    const settings = m.EngineSettings.createDefault(modelAssets, m.Backend.CPU);
+    emit('   ✓ EngineSettings.createDefault(CPU)', 'ok');
 
     // ── 4. Create Engine (streaming) ─────────────────────────────────────────
     emit('4. Engine.createStreaming(CPU)... [may take minutes for 3.66 GB]', 'info');
@@ -459,7 +355,7 @@ window.addEventListener('load', async () => {
     // ── VERDICT ───────────────────────────────────────────────────────────────
     emit('', '');
     emit('=== VERDICT ===', 'ok');
-    emit(`Route-C WASM: litert_lm_main.wasm (14 MB, custom emsdk 3.1.50 build)`, 'ok');
+    emit(`Route-C WASM: @litert-lm/core@0.12.1 CDN (official LiteRT embind runtime)`, 'ok');
     emit(`Engine load:  ${(engMs/1000).toFixed(1)}s (CPU backend, streaming)`, 'ok');
     emit(`Text decode:  ${decoded.trim().slice(0,60)}`, 'ok');
     emit(`Vision:       ${visionOk ? 'OK — multimodal decode confirmed' : 'FAILED — see warning above'}`, visionOk ? 'ok' : 'warn');
