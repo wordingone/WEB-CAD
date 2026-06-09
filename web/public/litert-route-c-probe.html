@@ -217,6 +217,7 @@ ModuleFactory({
   print:    t => { wasmLog.push({s:'out',t}); emit(`  [wasm:out] ${t}`, 'info'); },
   printErr: t => { wasmLog.push({s:'err',t}); emit(`  [wasm:err] ${t}`, 'warn'); },
 }).then(m => _wasmReadyResolve(m)).catch(e => _wasmReadyReject(e));
+</script>
 <script>
 window.addEventListener('load', async () => {
   emit('=== LiteRT Route-C Probe — custom build + Gemma-4 E4B multimodal (#72) ===', 'info');
