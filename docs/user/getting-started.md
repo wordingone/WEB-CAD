@@ -86,6 +86,8 @@ Click **Export** in the toolbar. Choose a format:
 | `Cmd-K` | Command palette |
 | `Ctrl+E` | Open export drawer |
 
+See also [Privacy and telemetry](privacy.md).
+
 ## Session restore
 
 WEB-CAD auto-saves your scene to the browser's IndexedDB every 2 seconds after a change and every 60 seconds as a heartbeat. If you close the tab and reopen, it offers to restore your last session.
