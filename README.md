@@ -1,5 +1,37 @@
 # WEB-CAD
 
+> **At a glance (read this first)**
+>
+> **What it is.** An experimental CAD workbench that runs in the browser: draw walls, slabs, columns and openings, inspect IFC metadata, import and export IFC4 and other 3D formats, and optionally type a prompt that an in-browser Gemma 4 model turns into geometry. It is a research prototype, not a replacement for Rhino, Revit or ArchiCAD. Its output is not checked for structure, code compliance or buildability (see the disclaimer below).
+>
+> **Status.** Experimental prototype; last code change June 2026, with a documentation-and-hygiene pass on 2026-11-04. Not tested beyond the author's own use. Built for the Gemma 4 Good Hackathon (Kaggle and Google DeepMind) as a fork of [gemma-architect](https://github.com/wordingone/gemma-architect) ([`docs/ORIGIN.md`](docs/ORIGIN.md)); whether it was submitted is not confirmed in this repo (the checklist in [`submission/README.md`](submission/README.md) is still unchecked).
+>
+> **Who wrote it.** I designed and directed this work; most of the code was written by AI coding agents under my review.
+>
+> **What the AI feature really does.** Prompts that resemble one of about 60 bundled examples are answered from a pre-built cache by fuzzy matching, with no model call (about 100 ms, "demo-stable" in the repo's own words); only prompts that miss the cache go to the model. Some demos are fixed scripted sequences. Source: [`docs/ai-pipeline.md`](docs/ai-pipeline.md). Where the sections below say the model "generates geometry" or "works well", read them with this in mind; I found no evaluation in the repo that supports "works well".
+>
+> **Key measured results** (each is a file you can open):
+> - *In-browser model speed:* median decode of 2.13 tokens/s over 25 samples (interquartile range 2.07 to 2.19, min 1.96, max 2.23), all from one short prompt ("What's currently in the scene?"). Measured 2026-05-25 against the earlier gemma-architect deployment, not this repo's page, with the stock `gemma-4-E4B-it-ONNX` model. Source: [`docs/measurements/baseline-tps-2026-05-25.json`](docs/measurements/baseline-tps-2026-05-25.json), `stats.median`. Expect the AI panel to be slow.
+> - *Geometry kernel check:* the experimental C++/WASM boolean kernel was compared with replicad/OpenCASCADE on 7 box-pair cases (volumes, 0.1% tolerance): 7/7 pass; a robustness fuzz of 60 operations had no crash or NaN: 60/60. Scope is box/box booleans only; the NURBS part of that run was skipped and is **not verified**; fillet, chamfer, loft and non-box geometry are not covered. Source: "Runtime parity" in [`docs/kern-parity-report.md`](docs/kern-parity-report.md). The report links a run log (`kern-parity-oracle-run-2026-11-04.log`) that is not committed in the repo, so the numbers rest on the report text alone; the oracle script is `scripts/kern-parity-oracle.mjs`.
+> - *IFC export:* the IFC4 file is hand-written STEP-21 and the check is that web-ifc can re-open it (tests in `web/test/ifc-round-trip.test.ts`, `web/test/ifc-loadability.test.ts`). It has **not** been tested in Revit or ArchiCAD in any log I found, so "opens in Revit/ArchiCAD" is untested here.
+> - *Test suite:* the commit message of `c672cb9` (2026-11-04) reports a full `bun test web/` run of 2,654 tests with 0 failures. I did not re-run it; this is the commit's own statement. The latest CI state on GitHub was not checked from this session.
+>
+> **Try it.** Live page: https://wordingone.github.io/WEB-CAD/ (needs a recent Chrome or Edge with WebGPU for the AI panel; the first visit downloads the model weights, several GB). I could not reach the live page from this session, so its current state is **unchecked**. A path that does not need the AI model: pick the Wall tool, click twice in the viewport, click the wall to see its IFC class, storey and GUID in the sidebar, then use Export and choose IFC4 (steps from [Quick start](#quick-start-browser) below).
+>
+> **Run locally.** Requires [Bun](https://bun.sh/) 1.1+ and a WebGPU browser for the AI panel.
+> ```bash
+> bun install
+> bun run web:dev        # http://localhost:5847
+> bun test web/
+> ```
+> Full setup: [`SETUP.md`](SETUP.md).
+>
+> **Licence, credits, privacy.** Source-available, not open source: [`LICENSE`](LICENSE) allows use but forbids modification and redistribution. Third-party components and their licences: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Production builds may send anonymous error reports; opt out with `?notelemetry=1` ([`docs/user/privacy.md`](docs/user/privacy.md)). Where this box and the sections below disagree, this box is more conservative and takes precedence.
+>
+> **Sources for this summary:** the repo files linked above at `master` commit `c672cb9`.
+
+---
+
 A free browser-based experimental CAD workbench: draw walls/slabs/levels, try an AI CREATE agent, inspect BIM-like metadata, import/export common 3D formats, and experiment with IFC—no install required.
 
 **Live:** https://wordingone.github.io/WEB-CAD/ · **License:** [Source-Available](LICENSE)
