@@ -110,7 +110,12 @@ Copy `kern.mjs` and `kern.wasm` to `web/public/` (or `web/src/`) so the Vite imp
 
 ## Runtime parity
 
-Status: PENDING compilation.
+Status: RUN 2026-11-04. `node scripts/kern-parity-oracle.mjs` against the committed `web/public/kern.wasm` (log: [`kern-parity-oracle-run-2026-11-04.log`](kern-parity-oracle-run-2026-11-04.log)).
+
+- Boolean oracle parity (kern vs replicad/OpenCASCADE, 7 box cases: volumes, tolerance 0.1%): 7/7 PASS.
+- Robustness fuzz (20 box pairs x 3 ops, no crash/NaN): 60/60 PASS.
+- NURBS eval (verb-nurbs): SKIPPED in this run ("window is not defined" under Node), so not verified.
+- Scope: box/box booleans only; this run does not cover fillet, chamfer, loft, or non-box geometry.
 
 Once `kern.wasm` builds: run `bun test web/test/parity-gate.test.ts` — WASM-gated cases will activate and verify the boolean pipeline against the TS ssi parity cases.
 
@@ -210,6 +215,11 @@ Copy both to `web/public/` for Vite URL import.
 
 ## Runtime parity
 
-Status: PENDING compilation (emsdk required).
+Status: RUN 2026-11-04. `node scripts/kern-parity-oracle.mjs` against the committed `web/public/kern.wasm` (log: [`kern-parity-oracle-run-2026-11-04.log`](kern-parity-oracle-run-2026-11-04.log)).
+
+- Boolean oracle parity (kern vs replicad/OpenCASCADE, 7 box cases: volumes, tolerance 0.1%): 7/7 PASS.
+- Robustness fuzz (20 box pairs x 3 ops, no crash/NaN): 60/60 PASS.
+- NURBS eval (verb-nurbs): SKIPPED in this run ("window is not defined" under Node), so not verified.
+- Scope: box/box booleans only; this run does not cover fillet, chamfer, loft, or non-box geometry.
 
 Once built: `bun test web/test/parity-gate.test.ts` — WASM-gated boolean cases activate; Phase C fillet/chamfer/loft exercised via parity-gate once test cases added.

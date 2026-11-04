@@ -10,14 +10,14 @@ import { createRequire } from 'module';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { existsSync } from 'fs';
 import path from 'path';
-import createKern from '../web/kern.js';
+import createKern from '../web/public/kern.mjs';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 // ── Boot WASM kernel ──────────────────────────────────────────────────────────
 
-const kernWasmPath = path.join(__dir, '../web/kern.wasm');
+const kernWasmPath = path.join(__dir, '../web/public/kern.wasm');
 if (!existsSync(kernWasmPath)) {
   console.error('FATAL: kern.wasm not found at', kernWasmPath);
   console.error('Build first: cd kern && emcmake cmake ... && cmake --build .');
@@ -25,7 +25,7 @@ if (!existsSync(kernWasmPath)) {
 }
 
 const kern = await createKern({
-  locateFile: (f) => pathToFileURL(path.join(__dir, '../web/', f)).href,
+  locateFile: (f) => pathToFileURL(path.join(__dir, '../web/public/', f)).href,
 });
 console.log('[kern] WASM module loaded:', typeof kern.boolUnion);
 
