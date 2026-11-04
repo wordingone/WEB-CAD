@@ -13,6 +13,7 @@ import { registerOpeningHandlers } from "../src/handlers/openings";
 import { registerStructuralHandlers } from "../src/handlers/structural";
 import { linkOpToolExtrudeCanonical } from "../src/viewer/op-tool-canonical";
 import { WORLD_XY } from "../src/viewer/cplane";
+import { levelStore } from "../src/geometry/levels";
 import { __sceneSerializationForTests } from "../src/viewer/viewer";
 import { brepNakedEdgeCount } from "../src/nurbs/nurbs-brep";
 import type { Viewer } from "../src/viewer/viewer";
@@ -52,6 +53,10 @@ function makeViewer(): {
 }
 
 beforeEach(() => {
+  // levelStore is a module singleton. Earlier test files in the same bun process
+  // (e.g. transforms.test.ts, whose SdLevel case calls levelStore.setActive on a new
+  // "level/1") leave it active, so reset it to the ground level these assertions assume.
+  levelStore.setActive("level/0");
   for (const name of [
     "SdBox", "SdSphere", "SdCylinder", "SdCone", "SdExtrude",
     "SdWall", "SdSlab", "SdColumn", "SdBeam", "SdSpace",
