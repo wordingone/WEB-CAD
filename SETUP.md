@@ -36,7 +36,7 @@ bun run web:typecheck   # web/tsconfig.json (strict mode)
 ## Tests
 
 ```bash
-bun test web/           # full web test suite (~1509 tests)
+bun test web/           # full web test suite
 ```
 
 ## Audit gate stack
@@ -67,7 +67,7 @@ bash scripts/enable-auto-merge.sh   # enable GitHub auto-merge on the repo (admi
 ## Environment notes
 
 - `.claude/` is gitignored — contains local hooks, session state, skills. Not for committed code.
-- `state/` is gitignored — runtime state (KG graph, hook logs, learnings).
+- `state/` is gitignored (runtime state); the one exception is `state/surface-allowfail.txt`, which is tracked on purpose (see docs/internal/verify-discipline.md).
 - `outputs/` and `data/` are gitignored — built training artifacts.
 - Vite config: `web/vite.config.ts`. Plugin deps: `vite-plugin-wasm`, `vite-plugin-top-level-await`.
 

@@ -21,7 +21,7 @@ After start, verify:
 ```bash
 curl http://localhost:9222/json/version
 # expect: { "Browser": "Chrome/147...", "webSocketDebuggerUrl": "ws://..." }
-cat B:/M/WEB-CAD-master/.shared-browser/cdp.json
+cat <repo-root>/.shared-browser/cdp.json
 # expect: { "endpoint": "ws://...", "started_at": "...", "pid": <int> }
 ```
 
@@ -50,7 +50,7 @@ curl -s http://localhost:9222/json/version | python -c "import json,sys; d=json.
 # cdp.json should exist with a live PID
 python -c "
 import json, subprocess, sys
-d = json.load(open('B:/M/WEB-CAD-master/.shared-browser/cdp.json'))
+d = json.load(open('<repo-root>/.shared-browser/cdp.json'))
 pid = d['pid']
 print('endpoint:', d['endpoint'])
 result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'], capture_output=True, text=True)
@@ -68,7 +68,7 @@ bun run verify:raw
 
 The raw CDP runner (`scripts/gemma-verify-raw.mjs`) writes the same JSON as the SKILL.md skill:
 ```
-B:/M/WEB-CAD-master/state/gemma-verify-<sha>-<timestamp>.json
+<repo-root>/state/gemma-verify-<sha>-<timestamp>.json
 { "sha": "...", "attached_via_cdp": true, "all_passed": true, "surfaces": [...] }
 ```
 
@@ -126,7 +126,7 @@ powershell -File scripts/shared-browser/stop.ps1
 powershell -File scripts/shared-browser/start.ps1
 ```
 
-The persistent profile at `B:\M\WEB-CAD-master\.shared-browser\profile` survives restarts — cookies, localStorage (theme, console-mode, scene state) are preserved.
+The persistent profile at `<repo-root>\.shared-browser\profile` survives restarts — cookies, localStorage (theme, console-mode, scene state) are preserved.
 
 ---
 

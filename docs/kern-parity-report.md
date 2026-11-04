@@ -93,13 +93,13 @@ Complex split guard: SSI curves with >32 points refused with "complex split not 
 
 ## Compilation
 
-Status: PENDING — emsdk installing at `B:/M/emsdk`.
+Status: PENDING — emsdk installing at `<emsdk-root>`.
 
 After emsdk activate:
 
 ```
 cmake \
-  -DCMAKE_TOOLCHAIN_FILE=B:/M/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -DCMAKE_TOOLCHAIN_FILE=<emsdk-root>/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
   -B build \
   && cmake --build build
 ```
@@ -198,7 +198,7 @@ Global-interpolation skinning (Piegl & Tiller §9.2) + planar caps.
 
 ```
 cmake \
-  -DCMAKE_TOOLCHAIN_FILE=B:/M/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
+  -DCMAKE_TOOLCHAIN_FILE=<emsdk-root>/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake \
   -B build/wasm \
   -DCMAKE_BUILD_TYPE=Release \
   && cmake --build build/wasm --target kern
