@@ -14,7 +14,7 @@ See [SETUP.md](SETUP.md) for full prerequisites and build/deploy steps.
 ## Branch conventions
 
 - `master` is the deployed branch. All code PRs target `master`.
-- Docs-only PRs may target `main`.
+- Docs-only PRs may target `master`.
 - Branch naming: `feat/<issue>-<slug>`, `fix/<issue>-<slug>`, `refactor/<issue>-<slug>`.
 
 ```bash
@@ -51,7 +51,7 @@ See [SETUP.md](SETUP.md) for environment setup.
 gh pr create --base master --title "feat(scope): ..." --body "..."
 ```
 
-Always `--base master`. The GitHub default is `main` — use the flag explicitly.
+Always `--base master` (the repository default branch).
 
 After opening:
 
@@ -64,7 +64,7 @@ CI green → merge fires automatically.
 ## Test suite
 
 ```bash
-bun test web/           # ~1509 tests, should report 0 fail
+bun test web/           # should report 0 fail
 ```
 
 Tests live in `web/test/`. Each handler module has a corresponding `*.test.ts` file. When adding a new verb, add a test file alongside it.

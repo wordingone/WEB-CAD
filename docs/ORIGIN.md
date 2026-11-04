@@ -1,3 +1,3 @@
 # Origin
 
-This project originated from a submitted project for the gemma-4 good hackathon hosted by Google Deepmind and Kaggle.
+This project was forked on 2026-05-24 (per the repository description) from gemma-architect, which was built for the Gemma 4 Good Hackathon (Kaggle + Google DeepMind).

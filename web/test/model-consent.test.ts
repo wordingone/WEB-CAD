@@ -10,6 +10,10 @@ describe("model consent cancellation", () => {
     document.body.innerHTML = "";
     localStorage.clear();
     delete (window as unknown as Record<string, unknown>).__agentModelStatus;
+    // agent-harness.ts sets window.__arc at import time (reachable transitively from earlier
+    // test files in the same bun process). checkConsentAndLoad treats an "idle"/"ready" __arc
+    // as "model already loaded" and skips the dialog (370b11c, #310), so clear it here.
+    delete (window as unknown as Record<string, unknown>).__arc;
   });
 
   test("Not now explicitly skips AI boot without calling model load", async () => {
