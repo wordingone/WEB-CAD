@@ -2,7 +2,8 @@ import { defineConfig } from "vite";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { rmSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -14,10 +15,36 @@ const here = dirname(fileURLToPath(import.meta.url));
 //   for multithreaded paths when available.
 // - root pinned to the config file's directory so `vite --config web/vite.config.ts`
 //   from the repo root resolves index.html in web/, not the repo root.
+// Developer probes and synthetic model fixtures live in web/public/ so the dev
+// server can serve them, but they must not ship to the public Pages site
+// (audit ticket WC-3). Remove them from dist/ after the build copies public/.
+const DEV_ONLY_PUBLIC = [
+  "litert-route-b-probe.html",
+  "litert-route-b-probe-v8b.html",
+  "litert-route-b-probe-v8c.html",
+  "litert-route-b-probe-v8d.html",
+  "litert-route-c-probe.html",
+  "litert-vision-gate.html",
+  "phase0-llm-test.html",
+  "qat-onnx-eval.html",
+  "fake_gemma4.litertlm",
+  "vision_test.litertlm",
+  "litert-bench",
+];
+const stripDevOnlyPublic = () => ({
+  name: "strip-dev-only-public",
+  apply: "build" as const,
+  closeBundle() {
+    for (const f of DEV_ONLY_PUBLIC) {
+      rmSync(join(here, "dist", f), { recursive: true, force: true });
+    }
+  },
+});
+
 export default defineConfig({
   root: here,
   base: "./",
-  plugins: [wasm(), topLevelAwait()],
+  plugins: [wasm(), topLevelAwait(), stripDevOnlyPublic()],
   worker: {
     format: "es",
     plugins: () => [wasm(), topLevelAwait()],
