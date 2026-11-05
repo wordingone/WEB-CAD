@@ -1,5 +1,7 @@
 # WEB-CAD
 
+*Part of the research and design work collected at https://wordingone.github.io/.*
+
 > **At a glance (read this first)**
 >
 > **What it is.** An experimental CAD workbench that runs in the browser: draw walls, slabs, columns and openings, inspect IFC metadata, import and export IFC4 and other 3D formats, and optionally type a prompt that an in-browser Gemma 4 model turns into geometry. It is a research prototype, not a replacement for Rhino, Revit or ArchiCAD. Its output is not checked for structure, code compliance or buildability (see the disclaimer below).
@@ -14,9 +16,9 @@
 > - *In-browser model speed:* median decode of 2.13 tokens/s over 25 samples (interquartile range 2.07 to 2.19, min 1.96, max 2.23), all from one short prompt ("What's currently in the scene?"). Measured 2026-05-25 against the earlier gemma-architect deployment, not this repo's page, with the stock `gemma-4-E4B-it-ONNX` model. Source: [`docs/measurements/baseline-tps-2026-05-25.json`](docs/measurements/baseline-tps-2026-05-25.json), `stats.median`. Expect the AI panel to be slow.
 > - *Geometry kernel check:* the experimental C++/WASM boolean kernel was compared with replicad/OpenCASCADE on 7 box-pair cases (volumes, 0.1% tolerance): 7/7 pass; a robustness fuzz of 60 operations had no crash or NaN: 60/60. Scope is box/box booleans only; the NURBS part of that run was skipped and is **not verified**; fillet, chamfer, loft and non-box geometry are not covered. Source: "Runtime parity" in [`docs/kern-parity-report.md`](docs/kern-parity-report.md). The report links a run log (`kern-parity-oracle-run-2026-11-04.log`) that is not committed in the repo, so the numbers rest on the report text alone; the oracle script is `scripts/kern-parity-oracle.mjs`.
 > - *IFC export:* the IFC4 file is hand-written STEP-21 and the check is that web-ifc can re-open it (tests in `web/test/ifc-round-trip.test.ts`, `web/test/ifc-loadability.test.ts`). It has **not** been tested in Revit or ArchiCAD in any log I found, so "opens in Revit/ArchiCAD" is untested here.
-> - *Test suite:* the commit message of `c672cb9` (2026-11-04) reports a full `bun test web/` run of 2,654 tests with 0 failures. I did not re-run it; this is the commit's own statement. The latest CI state on GitHub was not checked from this session.
+> - *Test suite:* the commit message of `c672cb9` (2026-11-04) reports a full `bun test web/` run of 2,654 tests with 0 failures. I did not re-run it; this is the commit's own statement. The CI workflow then passed on `master` at commit `278c5ae` on 2026-11-04 ([run 41818305917](https://github.com/wordingone/WEB-CAD/actions/runs/41818305917)).
 >
-> **Try it.** Live page: https://wordingone.github.io/WEB-CAD/ (needs a recent Chrome or Edge with WebGPU for the AI panel; the first visit downloads the model weights, several GB). I could not reach the live page from this session, so its current state is **unchecked**. A path that does not need the AI model: pick the Wall tool, click twice in the viewport, click the wall to see its IFC class, storey and GUID in the sidebar, then use Export and choose IFC4 (steps from [Quick start](#quick-start-browser) below).
+> **Try it.** Live page: https://wordingone.github.io/WEB-CAD/ (needs a recent Chrome or Edge with WebGPU for the AI panel; the first visit downloads the model weights, several GB). On 2026-11-05 the live page loaded in headless Chromium with the drawing toolbar (Wall, Slab, Column) and the EXPORT button present and no console error other than a missing favicon; drawing, export and the AI panel were not exercised in that check. A path that does not need the AI model: pick the Wall tool, click twice in the viewport, click the wall to see its IFC class, storey and GUID in the sidebar, then use Export and choose IFC4 (steps from [Quick start](#quick-start-browser) below).
 >
 > **Run locally.** Requires [Bun](https://bun.sh/) 1.1+ and a WebGPU browser for the AI panel.
 > ```bash
@@ -28,7 +30,7 @@
 >
 > **Licence, credits, privacy.** Source-available, not open source: [`LICENSE`](LICENSE) allows use but forbids modification and redistribution. Third-party components and their licences: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Production builds may send anonymous error reports; opt out with `?notelemetry=1` ([`docs/user/privacy.md`](docs/user/privacy.md)). Where this box and the sections below disagree, this box is more conservative and takes precedence.
 >
-> **Sources for this summary:** the repo files linked above at `master` commit `c672cb9`.
+> **Sources for this summary:** the repo files linked above at `master` commit `c672cb9`; the CI run and live-page check were added on 2026-11-05.
 
 ---
 
@@ -42,7 +44,7 @@ A free browser-based experimental CAD workbench: draw walls/slabs/levels, try an
 
 ## What it is
 
-WEB-CAD is an experimental workbench — not a production replacement for Rhino, Revit, or ArchiCAD. It runs entirely in the browser: no server, no API key, no install. The goal is to make basic parametric architectural modelling accessible from any device with a modern browser.
+WEB-CAD is an experimental workbench — not a production replacement for Rhino, Revit, or ArchiCAD. It runs in the browser with no account, API key or install. It is not offline: the page and, on first use of the AI panel, the Gemma 4 ONNX weights (`onnx-community/gemma-4-E4B-it-ONNX`, several GB) are downloaded, and production builds may send anonymous error reports ([`docs/user/privacy.md`](docs/user/privacy.md)). The goal is to make basic parametric architectural modelling accessible from any device with a modern browser.
 
 ---
 
@@ -51,7 +53,7 @@ WEB-CAD is an experimental workbench — not a production replacement for Rhino,
 | Feature | Notes |
 |---|---|
 | **Draw** walls, slabs, columns, stairs, roofs, openings | DSL console or AI agent |
-| **AI CREATE agent** | Type a natural-language prompt; Gemma 4 generates geometry |
+| **AI CREATE agent** | Type a prompt; it is answered from a ~60-row cache when it matches a bundled example, otherwise by the in-browser Gemma 4 model ([`docs/ai-pipeline.md`](docs/ai-pipeline.md)) |
 | **Levels / storeys** | Named elevation planes; objects attach to levels |
 | **NURBS geometry** | Revolve, sweep, loft — NURBS surfaces stored, IFC4 round-trip via `IfcBSplineSurfaceWithKnots` |
 | **Boolean ops** | Union, difference, intersection on any two objects |
@@ -71,7 +73,7 @@ WEB-CAD is an experimental workbench — not a production replacement for Rhino,
 Open the live URL above. No account required.
 
 1. **Draw** — pick a tool from the left palette (Wall, Slab, Column, …) and click in the viewport.
-2. **AI agent** — open the chat panel, type a description ("add a gabled roof over the house"), press Enter.
+2. **AI agent** — open the chat panel, type a description ("add a gabled roof over the house"), press Enter. Prompts close to a bundled example come from the cache; others run on the in-browser model, which decoded at about 2 tokens/s in the one measurement described in the box above.
 3. **Import** — drag any `.ifc`, `.glb`, `.step`, `.obj`, or `.stl` file onto the page.
 4. **Export** — click **Export** in the toolbar and pick a format.
 
@@ -120,7 +122,7 @@ See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CO
 
 | Format | Import | Export |
 |---|---|---|
-| IFC4 | ✓ (web-ifc) | ✓ (hand-emitted STEP-21, round-trip verified) |
+| IFC4 | ✓ (web-ifc) | ✓ (hand-emitted STEP-21; tests check that web-ifc re-opens it; not tested in Revit or ArchiCAD) |
 | STEP / IGES / BREP | ✓ (OpenCascade WASM) | ✓ (STEP, when geometry originated from OCCT) |
 | GLB / GLTF | ✓ (three.js) | ✓ |
 | OBJ | ✓ (three.js) | ✓ |
@@ -134,18 +136,18 @@ See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CO
 ## Known limitations
 
 - **Experimental.** This is a research/prototyping tool. Geometry output is not structurally validated.
-- **AI agent accuracy varies.** The in-browser Gemma 4 model works well for common schematic shapes; novel or complex prompts may need refinement.
+- **AI agent output is not evaluated.** No evaluation of the model's geometry was found in this repo. Prompts that match a bundled example are answered from a cache; other prompts depend on a stock, not fine-tuned, in-browser model and may fail or need refinement.
 - **No collaboration.** Single-user, single-tab. No server-side persistence.
 - **WebGPU required for AI.** Browsers without WebGPU fall back to CPU inference (slower). The geometry viewer works without WebGPU.
 - **SharedArrayBuffer / multi-thread WASM** requires COOP+COEP headers. GitHub Pages serves single-thread; any COOP+COEP-capable host (Vercel, self-hosted nginx) gets multi-thread.
-- **IFC schema coverage.** Import handles IFC2×3 and IFC4. Export targets IFC4; round-trip verified via `IfcAPI.OpenModel`.
+- **IFC schema coverage.** Import handles IFC2×3 and IFC4. Export targets IFC4; the tests check that the file re-opens via web-ifc's `IfcAPI.OpenModel`, which is a parse check, not a check in other BIM software.
 - **English only.** The AI agent prompt corpus is English.
 
 ---
 
 ## Stack
 
-- **AI:** Gemma 4 E4B-it (`onnx-community/gemma-4-E4B-it-ONNX`), in-browser via Transformers.js v4 + WebGPU
+- **AI:** Gemma 4 E4B-it (`onnx-community/gemma-4-E4B-it-ONNX`), in-browser via Transformers.js v4 + WebGPU; an experimental LiteRT backend is switched on with `?engine=litert` (`web/src/agent/agent-harness.ts`)
 - **Spatial SDK:** `web/src/commands/spatial-api.yaml` — typed dispatch contract for all geometry verbs; handler modules under `web/src/handlers/`
 - **NURBS kernel:** custom pure-JS NURBS curves + surfaces (`web/src/nurbs/`) — no WASM dep, fully testable in Bun
 - **Parametric geometry:** [replicad](https://replicad.xyz/) 0.20 (LGPL-2.1) + OpenCascade WASM
@@ -186,7 +188,7 @@ submission/             Hackathon submission artifacts (historical)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Issues and PRs welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Issues are welcome. Note that the current [`LICENSE`](LICENSE) forbids modification and redistribution, which does not fit with accepting outside pull requests; until that is settled, please open an issue before writing code.
 
 ---
 
