@@ -20,7 +20,7 @@
 // Re-record from scratch:  see docs/demo-video.md ("Re-record").
 import { chromium } from "playwright-core";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const argv = process.argv.slice(2);
@@ -35,6 +35,10 @@ const WORK = resolve(opt("work", "A:/tmp-webcad-demo-work"));
 const SPEEDUP = Number(opt("wait-speedup", "1"));
 const PROMPT_IDS = opt("prompts", "wall,slab-with-hole,circular-column,four-walled-room,wall-with-doorway").split(",");
 const PROBE = flag("probe");
+// --local-files <dir>: serve model files that exist in <dir> (same file name, size and sha256 verified beforehand against the
+// Hugging Face LFS oid) from disk instead of the network. Same bytes, same model; only the transfer is skipped. The recording
+// note must say so.
+const LOCAL = opt("local-files", null);
 const VIEW = { width: 1280, height: 720 };
 const HOLD_AFTER_LAST_MS = 4000;
 const TURN_TIMEOUT_MS = 6 * 60_000;
@@ -79,6 +83,22 @@ async function launch(record) {
     ...(record ? { recordVideo: { dir: WORK, size: VIEW } } : {}),
   });
   await ctx.addInitScript(INIT);
+  if (LOCAL) {
+    await ctx.route(/huggingface\.co\/.+\/resolve\//, async (route) => {
+      const name = new URL(route.request().url()).pathname.split("/").pop();
+      const f = join(LOCAL, name);
+      if (!existsSync(f)) return route.continue();
+      const buf = readFileSync(f);
+      const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()["range"] ?? "");
+      const headers = { "content-type": "application/octet-stream", "access-control-allow-origin": "*", "accept-ranges": "bytes" };
+      if (range) {
+        const a = Number(range[1]), b = range[2] ? Number(range[2]) : buf.length - 1;
+        return route.fulfill({ status: 206, headers: { ...headers, "content-range": `bytes ${a}-${b}/${buf.length}` }, body: buf.subarray(a, b + 1) });
+      }
+      return route.fulfill({ status: 200, headers, body: buf });
+    });
+    log("local model files served from", LOCAL, readdirSync(LOCAL).join(", "));
+  }
   const page = ctx.pages()[0] ?? await ctx.newPage();
   return { ctx, page };
 }
