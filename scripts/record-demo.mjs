@@ -2,7 +2,7 @@
 // with the real in-browser model answering prompts. Headless only: no window, no desktop input.
 //
 // Usage:
-//   node scripts/record-demo.mjs --base http://localhost:5871/ --profile A:/tmp-webcad-demo-profile \
+//   node scripts/record-demo.mjs --base http://localhost:5871/ --profile <browser-profile-dir> \
 //        [--model e4b|e2b] [--prompts wall,slab-with-hole,...] [--wait-speedup 4] [--out web/public/demo] \
 //        [--work <dir for raw webm + logs>] [--warm-only] [--no-warm] [--probe]
 //
@@ -22,16 +22,18 @@ import { chromium } from "playwright-core";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readdirSync, statSync, copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf("--" + k); return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : d; };
 const flag = (k) => argv.includes("--" + k);
 
+if (!opt("profile", null)) { console.error("--profile <dir> is required (a dedicated browser profile that holds the cached model)"); process.exit(2); }
 const BASE = opt("base", "http://localhost:5871/");
-const PROFILE = opt("profile", "A:/tmp-webcad-demo-profile");
+const PROFILE = opt("profile", null);
 const MODEL = opt("model", "e4b");
 const OUT = resolve(opt("out", "web/public/demo"));
-const WORK = resolve(opt("work", "A:/tmp-webcad-demo-work"));
+const WORK = resolve(opt("work", join(tmpdir(), "webcad-demo-work")));
 const SPEEDUP = Number(opt("wait-speedup", "1"));
 const PROMPT_IDS = opt("prompts", "wall,slab-with-hole,circular-column,four-walled-room,wall-with-doorway").split(",");
 const PROBE = flag("probe");
@@ -41,11 +43,18 @@ const PROBE = flag("probe");
 const LOCAL = opt("local-files", null);
 const VIEW = { width: 1280, height: 720 };
 const HOLD_AFTER_LAST_MS = 4000;
-const TURN_TIMEOUT_MS = 6 * 60_000;
+const TURN_TIMEOUT_MS = Number(opt("turn-timeout", "360")) * 1000;
 const BOOT_TIMEOUT_MS = 60 * 60_000; // first download is slow; the take itself loads from cache
 
 const PROMPTS = {
   "wall": "Build a wall, 5.5m long, 0.2m thick, 2.8m tall.",
+  "slab": "Place a 6 by 6m floor slab, 0.2m thick.",
+  "roof-slab": "Place a 3 by 3m slab, 0.2m thick, raised 3m above ground.",
+  "beam": "Place a horizontal beam 5m long, 0.3m wide and 0.4m deep, 3m above ground.",
+  "rect-column": "A rectangular column 0.4m by 0.4m and 3.5m tall.",
+  "wall-b": "Build a wall, 4m long, 0.2m thick, 2.8m tall.",
+  "l-explicit": "Build two walls at right angles: one 6m long along x and one 4m long along y, both 0.2m thick and 2.8m tall.",
+  "column-b": "A circular column with 0.3m radius and 4m height.",
   "circular-column": "A circular column with 0.45m radius and 5m height.",
   "raised-slab": "Place a 5 by 4m floor slab, 0.2m thick, raised 3m above ground.",
   "slab-with-hole": "Slab 6x6m x 0.2m thick with a 1x1m square hole at (2.5, 2.5).",
@@ -153,6 +162,12 @@ if (!boot.ok) { await ctx.close(); console.error("boot failed:", boot.error); pr
 await page.waitForTimeout(1500);
 marks.push({ label: "app ready", kind: "live", t0: since() - 1500, t1: since() });
 
+// A profile that has been used before offers "Restore your last session?"; discard it in the take, like a visitor would.
+{
+  const discard = page.locator("#restore-prompt:not([hidden]) #restore-discard-btn");
+  if (await discard.count()) { await discard.click(); log("take: discarded the restore-session prompt"); await page.waitForTimeout(800); }
+}
+
 // prompt mode (the chat input lives in the prompt dock)
 await page.evaluate(() => {
   try { localStorage.setItem("gemma-cad:console-mode-v1", "prompt"); } catch { /* */ }
@@ -168,6 +183,7 @@ for (const id of PROMPT_IDS) {
   const turnsBefore = await page.evaluate(() => window.__demo.turns.length);
   const genBefore = await page.evaluate(() => window.__demo.genTicks);
   const progBefore = await page.evaluate(() => window.__demo.progress);
+  const meshesBefore = await page.evaluate(() => { const v = window.__viewer?.scene; return v ? v.children.filter((c) => c.isMesh || (c.children && c.children.some && c.children.some((k) => k.isMesh))).length : null; });
   const tType0 = since();
   await input.click();
   await input.pressSequentially(text, { delay: 28 });
@@ -184,7 +200,11 @@ for (const id of PROMPT_IDS) {
     if (n > turnsBefore) { done = true; break; }
   }
   const tDone = since();
-  if (!done) { console.error(`prompt ${id} did not finish within ${TURN_TIMEOUT_MS / 1000} s; stopping the take`); await ctx.close(); process.exit(1); }
+  if (!done) {
+    if (PROBE) { results.push({ id, prompt: text, done: false, pass: false, genSeconds: +((tDone - tSend) / 1000).toFixed(1), turn: null, reply: [] }); log("probe: prompt", id, "FAIL (no turn within", TURN_TIMEOUT_MS / 1000, "s)");
+      await page.reload({ waitUntil: "domcontentloaded" }); const b2 = await waitBoot(page); if (!b2.ok) break; continue; }
+    console.error(`prompt ${id} did not finish within ${TURN_TIMEOUT_MS / 1000} s; this take does not ship`); await ctx.close(); process.exit(1);
+  }
   marks.push({ label: `generate: ${id}`, kind: "wait", t0: tSend, t1: tDone });
   await page.waitForTimeout(3500); // let the viewport frame the result and let the viewer read it
   marks.push({ label: `result: ${id}`, kind: "live", t0: tDone, t1: since() });
@@ -195,8 +215,11 @@ for (const id of PROMPT_IDS) {
   });
   // Evidence the live model (not a cache) answered: ARC state went to 'generating' and/or the worker streamed progress.
   const liveModel = (await page.evaluate(() => window.__demo.genTicks)) > genBefore || (await page.evaluate(() => window.__demo.progress)) > progBefore;
-  results.push({ id, prompt: text, done, liveModel, genSeconds: +((tDone - tSend) / 1000).toFixed(1), turn, reply });
-  log("take: prompt", id, JSON.stringify({ done, liveModel, gen_s: (tDone - tSend) / 1000, verbs: turn?.verbs, meshes: turn?.meshes }));
+  // A prompt passes only if the turn ended with at least one build verb AND the number of scene meshes rose.
+  const pass = !!turn && (turn.verbs?.length ?? 0) > 0 && turn.meshes != null && meshesBefore != null && turn.meshes > meshesBefore;
+  results.push({ id, prompt: text, done, pass, liveModel, genSeconds: +((tDone - tSend) / 1000).toFixed(1), meshesBefore, turn, reply });
+  log("take: prompt", id, JSON.stringify({ done, pass, liveModel, gen_s: (tDone - tSend) / 1000, verbs: turn?.verbs, meshesBefore, meshes: turn?.meshes }));
+  if (!pass && !PROBE) { await page.screenshot({ path: join(WORK, `failed-${id}.png`) }).catch(() => {}); await ctx.close(); console.error(`prompt ${id} built nothing (verbs ${JSON.stringify(turn?.verbs)}, meshes ${meshesBefore} -> ${turn?.meshes}); this take does not ship`); process.exit(1); }
   if (PROBE) await page.screenshot({ path: join(WORK, `probe-${id}.png`) });
 }
 await page.waitForTimeout(HOLD_AFTER_LAST_MS);
@@ -210,8 +233,7 @@ if (PROBE) { log("probe done; results in", WORK); process.exit(0); }
 log("take: raw video", rawPath);
 
 // ---- phase 3: encode -----------------------------------------------------------------------------
-// FFMPEG env var overrides the binary. Needs a modern ffmpeg with libx264 (an old 2013 build is on PATH on
-// the recording PC; the imageio-ffmpeg 7.1 binary was used there).
+// FFMPEG env var overrides the binary. Needs a modern ffmpeg with libx264 (an old build on PATH will not do).
 const FFMPEG = process.env.FFMPEG || "ffmpeg";
 const ff = (args) => execFileSync(FFMPEG, ["-y", "-hide_banner", "-loglevel", "error", ...args], { stdio: ["ignore", "inherit", "inherit"] });
 const probeDur = (f) => {
@@ -264,7 +286,7 @@ const meta = {
   durationSeconds: Math.round(dur),
   rawSeconds: Math.round(rawDur),
   waitSecondsRaw: Math.round(speedNote),
-  prompts: results.map((r) => ({ id: r.id, prompt: r.prompt, genSeconds: r.genSeconds, verbs: r.turn?.verbs ?? [] })),
+  prompts: results.map((r) => ({ id: r.id, prompt: r.prompt, genSeconds: r.genSeconds, verbs: r.turn?.verbs ?? [], meshesBefore: r.meshesBefore, meshesAfter: r.turn?.meshes ?? null })),
 };
 writeFileSync(join(OUT, "demo.json"), JSON.stringify(meta, null, 2) + "\n");
 copyFileSync(rawPath, join(WORK, "raw-take.webm"));

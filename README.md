@@ -135,7 +135,7 @@ See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CO
 
 ## Demo video
 
-A 71-second recording of the real app with the in-browser Gemma 4 E2B model building a wall, a slab and a column from three typed prompts (one continuous take on an RTX 4090, no speed-up, no cuts). Play it from Help > Play demo video, from the consent dialog, or by opening https://wordingone.github.io/WEB-CAD/?demo=1. It needs no WebGPU and downloads no model. It shows three single elements, not a whole building. Two other prompts tried in the same session built nothing; the full list of prompts tried, what was kept and how to re-record is in [docs/demo-video.md](docs/demo-video.md).
+A 85-second recording of the real app with the in-browser Gemma 4 E2B model building a wall, a slab, a column and a beam from four typed prompts (one continuous take on an RTX 4090, no speed-up, no cuts). Play it from Help > Play demo video, from the consent dialog, or by opening https://wordingone.github.io/WEB-CAD/?demo=1. It needs no WebGPU and downloads no model. It shows four single elements, not a whole building. Prompts that built nothing, or something other than what was asked, were tried and are not in the video; the full list of prompts tried, what was kept and how to re-record is in [docs/demo-video.md](docs/demo-video.md).
 
 ## Known limitations
 
