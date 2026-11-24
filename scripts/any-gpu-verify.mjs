@@ -4,6 +4,9 @@
 //   case = adapter   print the real adapter this headless browser gets, then exit
 //   case = igpu      real GPU, adapter NAME reported as Intel integrated (simulated name,
 //                    real load): expects reload onto the small model, no modal, model ready
+//   case = deeplink / deeplink-nogpu   open <base>?demo=1&keep=1: the video player is open at once, no request
+//                    to huggingface.co and no model download strip while it is open, Esc closes it, the
+//                    URL loses only demo=1, and the normal app is there (deeplink-nogpu: with WebGPU off)
 //   case = nogpu     WebGPU removed: expects the modal, a working "Play demo video" button (the
 //                    overlay opens a <video> whose src returns HTTP 200; nothing is fetched before
 //                    the click; Esc closes it), and "Continue without AI" to work
@@ -15,7 +18,7 @@ const [base, kase, profile] = process.argv.slice(2);
 if (!base || !kase) { console.error("usage: any-gpu-verify.mjs <base-url> <case> [profile-dir]"); process.exit(2); }
 
 const args = ["--headless=new", "--enable-unsafe-webgpu", "--enable-features=WebGPU", "--window-position=-32000,-32000"];
-if (kase === "nogpu") args.push("--disable-features=WebGPU");
+if (kase === "nogpu" || kase === "deeplink-nogpu") args.push("--disable-features=WebGPU");
 const ctx = await chromium.launchPersistentContext(profile ?? "", {
   channel: "chrome", headless: true, args, viewport: { width: 1400, height: 900 },
 });
@@ -41,11 +44,40 @@ if (kase === "igpu") {
     };
   });
 }
-if (kase === "nogpu") {
+if (kase === "nogpu" || kase === "deeplink-nogpu") {
   await page.addInitScript(() => { try { Object.defineProperty(navigator, "gpu", { get: () => undefined }); } catch { /* flag already removed it */ } });
 }
 
-await page.goto(base, { waitUntil: "domcontentloaded" });
+const hfRequests = [];
+page.on("request", (r) => { if (/huggingface\.co/.test(r.url())) hfRequests.push(r.url()); });
+const startUrl = kase.startsWith("deeplink") ? base + (base.includes("?") ? "&" : "?") + "demo=1&keep=1" : base;
+await page.goto(startUrl, { waitUntil: "domcontentloaded" });
+
+if (kase.startsWith("deeplink")) {
+  await page.waitForSelector("#demo-video-overlay video", { timeout: 15_000 }).catch(() => {});
+  if (!(await page.locator("#demo-video-overlay video").count())) await fail("?demo=1 did not open the player");
+  await page.waitForTimeout(6000); // time for a model download or consent dialog to appear if it were going to
+  const open = await page.evaluate(() => ({
+    overlay: !!document.querySelector("#demo-video-overlay"), strip: !!document.getElementById("model-download-strip"),
+    url: location.search, caption: document.querySelector("#demo-video-overlay .dv-caption")?.textContent ?? "",
+  }));
+  console.log("deeplink open:", JSON.stringify(open), "hf requests:", hfRequests.length);
+  if (!open.overlay) await fail("player closed by itself");
+  if (hfRequests.length) await fail("model files requested while the demo video is open: " + hfRequests[0]);
+  if (open.strip) await fail("model download strip appeared while the demo video is open");
+  await page.keyboard.press("Escape");
+  if (await page.locator("#demo-video-overlay").count()) await fail("Esc did not close the player");
+  const after = await page.evaluate(() => ({ url: location.search, app: !!document.querySelector(".menu-item") }));
+  console.log("after close:", JSON.stringify(after));
+  if (/demo=/.test(after.url) || !/keep=1/.test(after.url)) await fail("URL after close should lose only demo=1: " + after.url);
+  if (!after.app) await fail("the normal app is not there after closing");
+  if (kase === "deeplink-nogpu") {
+    await page.waitForSelector(".bcg-modal", { timeout: 20_000 }).catch(() => {});
+    if (!(await page.locator(".bcg-modal").count())) await fail("normal no-WebGPU modal did not follow the video");
+  }
+  console.log("PASS " + kase + ": ?demo=1 opens the video first; nothing downloads while it is open; closing leaves the normal app");
+  await ctx.close(); process.exit(0);
+}
 
 if (kase === "adapter") {
   const info = await page.evaluate(async () => {

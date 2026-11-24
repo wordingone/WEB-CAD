@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  demoCaption, openDemoVideo, closeDemoVideo, makeDemoButton,
+  demoCaption, isDemoDeepLink, withoutDemoParam, whenDemoClosed, openDemoFromUrl, openDemoVideo, closeDemoVideo, makeDemoButton,
   DEMO_OVERLAY_ID, DEMO_VIDEO_URL, DEMO_POSTER_URL,
 } from "../src/agent/demo-video";
 
@@ -88,5 +88,45 @@ describe("demo video is reachable from every entry point", () => {
   test("Help menu in the app chrome", () => {
     const src = read("../src/shell/shell.ts");
     expect(src).toContain('label: "Play demo video"');
+  });
+});
+
+describe("?demo=1 deep link", () => {
+  beforeEach(() => { closeDemoVideo(); document.body.innerHTML = ""; });
+  test("recognised with other params present, and only for demo=1", () => {
+    expect(isDemoDeepLink("?demo=1")).toBe(true);
+    expect(isDemoDeepLink("?gemma_model=e2b&demo=1&mtp=off")).toBe(true);
+    expect(isDemoDeepLink("?demo=0")).toBe(false);
+    expect(isDemoDeepLink("?demo")).toBe(false);
+    expect(isDemoDeepLink("")).toBe(false);
+  });
+  test("closing drops only the demo param", () => {
+    const u = new URL(withoutDemoParam("https://example.test/WEB-CAD/?gemma_model=e2b&demo=1&mtp=off#view"));
+    expect(u.searchParams.has("demo")).toBe(false);
+    expect(u.searchParams.get("gemma_model")).toBe("e2b");
+    expect(u.searchParams.get("mtp")).toBe("off");
+    expect(u.hash).toBe("#view");
+  });
+  test("model prefetch waits while the player is open and goes on when it closes", async () => {
+    await whenDemoClosed(); // not open: resolves at once
+    openDemoVideo();
+    let released = false;
+    const p = whenDemoClosed().then(() => { released = true; });
+    await Promise.resolve();
+    expect(released).toBe(false);
+    closeDemoVideo();
+    await p;
+    expect(released).toBe(true);
+  });
+  test("boot wires the deep link before the model load, and the load waits on the player", () => {
+    const wb = read("../src/shell/workbench.ts");
+    expect(wb).toContain("openDemoFromUrl()");
+    expect(wb.indexOf("initBootScreen();")).toBeLessThan(wb.indexOf("openDemoFromUrl()"));
+    const chat = read("../src/shell/workbench-legacy-chat-input.ts");
+    expect(chat.indexOf("await whenDemoClosed()")).toBeLessThan(chat.indexOf("checkConsentAndLoad(MODEL_ID"));
+  });
+  test("openDemoFromUrl does nothing without the param", () => {
+    expect(openDemoFromUrl()).toBe(false);
+    expect(document.getElementById(DEMO_OVERLAY_ID)).toBeNull();
   });
 });

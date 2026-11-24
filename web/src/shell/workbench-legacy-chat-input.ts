@@ -5,6 +5,7 @@
 import { iconSVG } from "../ui/icons";
 import { checkConsentAndLoad } from "../agent/model-consent";
 import { isCadOnlyMode } from "../agent/boot-screen";
+import { whenDemoClosed } from "../agent/demo-video";
 import { ChatPanel } from "../chat/chat-panel";
 import {
   prefetchModel, MODEL_ID,
@@ -278,8 +279,9 @@ export function buildDock(
     if (panes[id]) bodyHost.appendChild(panes[id]);
     if (id === "prompt" && !_modelLoadStarted) {
       _modelLoadStarted = true;
-      void getCapabilityGatePromiseFn().then((path) => {
+      void getCapabilityGatePromiseFn().then(async (path) => {
         if (path === "cad-only" || path === "flags") return;
+        await whenDemoClosed(); // ?demo=1 visitors download nothing until they close the video
         const remoteUrl = (import.meta.env as Record<string, string>).VITE_GEMMA_AGENT_URL ?? "";
         if (remoteUrl) {
           prefetchModel();

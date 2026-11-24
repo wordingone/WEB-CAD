@@ -88,6 +88,38 @@ function loadMeta(): Promise<Partial<DemoMeta> | null> {
   return _meta;
 }
 
+// ---- Deep link: ?demo=1 --------------------------------------------------------------------------
+
+/** Pure: does this query string ask for the demo video (?demo=1)? Other params are ignored. */
+export function isDemoDeepLink(search: string): boolean {
+  try { return new URLSearchParams(search).get("demo") === "1"; } catch { return false; }
+}
+
+/** Pure: the same URL without the demo param (other params and the hash are kept). */
+export function withoutDemoParam(href: string): string {
+  const u = new URL(href);
+  u.searchParams.delete("demo");
+  return u.href;
+}
+
+const _closeWaiters: Array<() => void> = [];
+
+/**
+ * Resolves at once when the player is not open; otherwise when it closes. The model prefetch waits on
+ * this, so a visitor who opened the page only to watch the video downloads nothing until they close it.
+ */
+export function whenDemoClosed(): Promise<void> {
+  if (!document.getElementById(DEMO_OVERLAY_ID)) return Promise.resolve();
+  return new Promise<void>((res) => { _closeWaiters.push(res); });
+}
+
+/** Called once at boot: with ?demo=1 in the address, open the player before anything else. */
+export function openDemoFromUrl(): boolean {
+  if (!isDemoDeepLink(location.search)) return false;
+  openDemoVideo();
+  return true;
+}
+
 /** Close the player if it is open. */
 export function closeDemoVideo(): void {
   const overlay = document.getElementById(DEMO_OVERLAY_ID);
@@ -96,6 +128,9 @@ export function closeDemoVideo(): void {
   if (v) { v.pause(); v.removeAttribute("src"); v.load(); }
   overlay.remove();
   document.removeEventListener("keydown", onKeyDown, true);
+  // A deep-linked visit continues as a normal visit: drop ?demo=1 so a reload does not reopen it.
+  try { if (isDemoDeepLink(location.search)) history.replaceState(history.state, "", withoutDemoParam(location.href)); } catch { /* */ }
+  for (const w of _closeWaiters.splice(0)) w();
 }
 
 function onKeyDown(e: KeyboardEvent): void {
