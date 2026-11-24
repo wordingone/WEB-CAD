@@ -4,7 +4,7 @@
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
-import { initCapabilityGate, explicitModelParam } from "./boot-capability-gate";
+import { initCapabilityGate, explicitModelParam, getCapabilityGatePromise } from "./boot-capability-gate";
 import { openDemoVideo } from "./demo-video";
 
 // Download-size label follows the model in use (E2B q4f16 ≈ 3.4 GB, E4B ≈ 5 GB).
@@ -132,6 +132,11 @@ export function initBootScreen(): void {
   // §#1637: capability gate runs after overlay is mounted; modal injects into document.body
   // at z-index:9999 (same layer as overlay), visible before model loading starts.
   initCapabilityGate(document.body);
+  // "Continue without AI" never loads a model, so nothing else ends the loading screen: without this it stays over the whole app
+  // (found on a fresh no-WebGPU visit; the same on master). boot-skipped is the event that hands the CAD workbench over.
+  void getCapabilityGatePromise().then((path) => {
+    if (path === 'cad-only') window.dispatchEvent(new CustomEvent('agentmodel:boot-skipped', { detail: { reason: 'cad-only' } }));
+  });
   void _detectBootPath(); // §WEB-CAD#14-B: async cold/warm detection; updates label when done
   _wireEvents();
   _startTime = performance.now();

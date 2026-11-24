@@ -180,6 +180,7 @@ if (kase === "nogpu") {
   await page.locator('[data-path="cad-only"]').click();
   await page.waitForFunction(() => (window).__bcg?.path === "cad-only", null, { timeout: 20_000 });
   // The same video is reachable from the app chrome (Help menu) once the app is in use.
+  await page.waitForSelector("#boot-screen", { state: "hidden", timeout: 30_000 }).catch(() => {});
   await page.locator(".menu-item", { hasText: "Help" }).first().click();
   await page.locator('.menu-dropdown[data-for="help"] .menu-row', { hasText: "Play demo video" }).click();
   await page.waitForSelector("#demo-video-overlay video", { timeout: 10_000 }).catch(() => {});

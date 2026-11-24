@@ -65,4 +65,8 @@ describe("first-visit consent: a fresh page must ask before any model byte is re
     expect(src).toContain("boot-demo-link");
     expect(src).toContain("openDemoVideo()");
   });
+  test("choosing \"Continue without AI\" ends the loading screen (boot-skipped), or it covers the whole app", () => {
+    const src = readFileSync(new URL("../src/agent/boot-screen.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/path === 'cad-only'.*agentmodel:boot-skipped/);
+  });
 });
