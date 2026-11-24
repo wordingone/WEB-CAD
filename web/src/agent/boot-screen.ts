@@ -5,6 +5,7 @@
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
 import { initCapabilityGate, explicitModelParam } from "./boot-capability-gate";
+import { openDemoVideo } from "./demo-video";
 
 // Download-size label follows the model in use (E2B q4f16 ≈ 3.4 GB, E4B ≈ 5 GB).
 const _DOWNLOAD_LABEL = explicitModelParam() === "e2b"
@@ -636,6 +637,28 @@ function _buildOverlay(): void {
     marginBottom: 'clamp(2px, 0.4vh, 6px)',
   });
   progress.appendChild(logo);
+
+  // Demo video: a visitor waiting on the model download can watch a recorded session instead.
+  const demoBtn = document.createElement('button');
+  demoBtn.type = 'button';
+  demoBtn.id = 'boot-demo-link';
+  demoBtn.dataset.demoVideo = 'open';
+  demoBtn.textContent = 'Watch demo video';
+  Object.assign(demoBtn.style, {
+    alignSelf: 'flex-start',
+    background: 'none',
+    border: '0',
+    borderBottom: '1px solid #4ca6ff',
+    color: '#4ca6ff',
+    cursor: 'pointer',
+    font: 'inherit',
+    fontSize: 'clamp(9px, 1.0vw, 13px)',
+    letterSpacing: '0.12em',
+    padding: '2px 0',
+    marginBottom: 'clamp(4px, 0.6vh, 8px)',
+  });
+  demoBtn.addEventListener('click', () => openDemoVideo());
+  progress.appendChild(demoBtn);
 
   // §WEB-CAD#14-D: dynamic phase label — content rotates as boot phases advance.
   // id="boot-phase-label" scraped by phase-j-verify.mjs to record phase_labels_sequence_observed.

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { arcModelIsLoaded } from "../src/agent/model-consent";
 import { planBoot, smallModelUrl, explicitModelParam } from "../src/agent/boot-capability-gate";
 
 describe("boot capability plan: no visitor has to change a browser flag", () => {
@@ -43,5 +44,25 @@ describe("boot capability plan: no visitor has to change a browser flag", () => 
     expect(harness).toContain("stepDownToSmallModel(_errMsg)");
     // the ?gpu=wasm redirect is only taken when a CPU model is actually configured
     expect(harness).toContain("_budget === 0 && WASM_BACKEND_ENABLED");
+  });
+});
+
+describe("first-visit consent: a fresh page must ask before any model byte is requested", () => {
+  test('only "ready" and "generating" count as a loaded model; "idle" is a fresh page', () => {
+    expect(arcModelIsLoaded("ready")).toBe(true);
+    expect(arcModelIsLoaded("generating")).toBe(true);
+    for (const st of ["idle", "booting", "recovering", "recycling", "failed", undefined, null, ""]) {
+      expect(arcModelIsLoaded(st as string | undefined)).toBe(false);
+    }
+  });
+  test("checkConsentAndLoad does not auto-grant on the idle state (regression of #310)", () => {
+    const src = readFileSync(new URL("../src/agent/model-consent.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/state\s*===\s*"idle"/);
+    expect(src).toContain("arcModelIsLoaded(arcState)");
+  });
+  test("the boot screen carries a demo link too", () => {
+    const src = readFileSync(new URL("../src/agent/boot-screen.ts", import.meta.url), "utf8");
+    expect(src).toContain("boot-demo-link");
+    expect(src).toContain("openDemoVideo()");
   });
 });
