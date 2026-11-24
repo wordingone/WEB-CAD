@@ -6,10 +6,25 @@
 //
 // Remote path (VITE_GEMMA_AGENT_URL set): consent gate is skipped — no local download.
 //
+// A "Watch demo video" button sits next to the download button, so a visitor can see what the
+// agent does without downloading anything (demo-video.ts).
+//
 // Progress strip: listens to agentmodel:loading custom events and renders a thin
 // full-width bar that auto-hides when agentmodel:ready fires.
 
+import { openDemoVideo } from "./demo-video";
+
 const CONSENT_KEY = "gemma4-e4b-consent-v1";
+
+const WARM_STORAGE_BYTES = 500_000_000;
+
+/**
+ * Pure: is the model genuinely loaded in this page? Only "ready" and "generating" mean so.
+ * "idle" is a fresh page, "booting"/"recovering" are loading, "failed" has nothing.
+ */
+export function arcModelIsLoaded(state: string | undefined | null): boolean {
+  return state === "ready" || state === "generating";
+}
 
 function hasConsent(): boolean {
   try {
@@ -202,7 +217,12 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
       Your browser may show a storage permission prompt for large caches.
       Progress appears at the bottom of the screen during download.
     </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+      <button id="consent-demo" type="button" style="
+        padding:7px 16px;border:1px solid rgba(255,255,255,.15);border-radius:6px;
+        background:transparent;color:inherit;font:13px var(--font-ui,'Inter',sans-serif);
+        cursor:pointer;margin-right:auto;
+      ">Watch demo video</button>
       <button id="consent-cancel" style="
         padding:7px 16px;border:1px solid rgba(255,255,255,.15);border-radius:6px;
         background:transparent;color:inherit;font:13px var(--font-ui,'Inter',sans-serif);
@@ -221,6 +241,7 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
     overlay.remove();
     onApprove();
   });
+  card.querySelector("#consent-demo")?.addEventListener("click", () => openDemoVideo());
   card.querySelector("#consent-cancel")?.addEventListener("click", () => {
     overlay.remove();
     const detail = { reason: "user-cancelled-model-download" };
@@ -274,23 +295,21 @@ export function checkConsentAndLoad(modelId: string, onProceed: () => void): voi
     return;
   }
 
-  // If the model is already loaded in this session (worker recycled, warm OPFS boot,
-  // or prior prefetch completed), grant consent silently and proceed.
-  // This prevents the dialog from appearing on top of a running app.
-  const arcState = (window as unknown as Record<string, unknown>).__arc;
-  const arcLoaded = arcState && typeof arcState === "object" &&
-    ((arcState as Record<string, unknown>).state === "ready" ||
-     (arcState as Record<string, unknown>).state === "idle");
-  if (arcLoaded) {
+  // If the model is already loaded in this session (worker recycled, or a prior prefetch completed),
+  // grant consent silently and proceed. "idle" is the state of a page that has loaded NOTHING, so it
+  // must not count: reading it as "loaded" skipped the dialog on every first visit, and a multi-GB
+  // download started with no ask.
+  const arcState = (window as unknown as { __arc?: { state?: string } }).__arc?.state;
+  if (arcModelIsLoaded(arcState)) {
     grantConsent();
     onProceed();
     return;
   }
 
-  // If model files are already cached (Cache API hit OR warm OPFS storage ≥500 MB),
-  // skip the dialog — no download will happen.
+  // If model files are already cached (Cache API hit OR warm OPFS storage >= 500 MB),
+  // skip the dialog: no download will happen.
   const warmStorageP = (navigator.storage?.estimate?.() ?? Promise.resolve({ usage: 0 }))
-    .then(est => (est.usage ?? 0) >= 500_000_000)
+    .then(est => (est.usage ?? 0) >= WARM_STORAGE_BYTES)
     .catch(() => false);
 
   Promise.all([hasCachedModel(modelId), warmStorageP]).then(([cached, warmStorage]) => {

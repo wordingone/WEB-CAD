@@ -4,7 +4,13 @@
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
-import { initCapabilityGate } from "./boot-capability-gate";
+import { initCapabilityGate, explicitModelParam, getCapabilityGatePromise } from "./boot-capability-gate";
+import { openDemoVideo } from "./demo-video";
+
+// Download-size label follows the model in use (E2B q4f16 ≈ 3.4 GB, E4B ≈ 5 GB).
+const _DOWNLOAD_LABEL = explicitModelParam() === "e2b"
+  ? 'Downloading neural model (≈3.4 GB)'
+  : 'Downloading neural model (≈5 GB)';
 
 const LOOP_MS = 6_000;          // one travel-head cycle
 const FADE_MS = 200;             // fade-out duration on completion
@@ -102,7 +108,7 @@ async function _detectBootPath(): Promise<void> {
 function _updatePhaseLabel(): void {
   if (!_hintEl) return;
   const COLD_LABELS: Record<_BootPhase, string> = {
-    'download':   'Downloading neural model (≈5 GB)',
+    'download':   _DOWNLOAD_LABEL,
     'model-init': 'Setting up inference engine',
     'warmup':     'Warming up',
     'drafter':    'Loading assistant',
@@ -126,6 +132,11 @@ export function initBootScreen(): void {
   // §#1637: capability gate runs after overlay is mounted; modal injects into document.body
   // at z-index:9999 (same layer as overlay), visible before model loading starts.
   initCapabilityGate(document.body);
+  // "Continue without AI" never loads a model, so nothing else ends the loading screen: without this it stays over the whole app
+  // (found on a fresh no-WebGPU visit; the same on master). boot-skipped is the event that hands the CAD workbench over.
+  void getCapabilityGatePromise().then((path) => {
+    if (path === 'cad-only') window.dispatchEvent(new CustomEvent('agentmodel:boot-skipped', { detail: { reason: 'cad-only' } }));
+  });
   void _detectBootPath(); // §WEB-CAD#14-B: async cold/warm detection; updates label when done
   _wireEvents();
   _startTime = performance.now();
@@ -632,11 +643,33 @@ function _buildOverlay(): void {
   });
   progress.appendChild(logo);
 
+  // Demo video: a visitor waiting on the model download can watch a recorded session instead.
+  const demoBtn = document.createElement('button');
+  demoBtn.type = 'button';
+  demoBtn.id = 'boot-demo-link';
+  demoBtn.dataset.demoVideo = 'open';
+  demoBtn.textContent = 'Watch demo video';
+  Object.assign(demoBtn.style, {
+    alignSelf: 'flex-start',
+    background: 'none',
+    border: '0',
+    borderBottom: '1px solid #4ca6ff',
+    color: '#4ca6ff',
+    cursor: 'pointer',
+    font: 'inherit',
+    fontSize: 'clamp(9px, 1.0vw, 13px)',
+    letterSpacing: '0.12em',
+    padding: '2px 0',
+    marginBottom: 'clamp(4px, 0.6vh, 8px)',
+  });
+  demoBtn.addEventListener('click', () => openDemoVideo());
+  progress.appendChild(demoBtn);
+
   // §WEB-CAD#14-D: dynamic phase label — content rotates as boot phases advance.
   // id="boot-phase-label" scraped by phase-j-verify.mjs to record phase_labels_sequence_observed.
   const hintEl = document.createElement('div');
   hintEl.id = 'boot-phase-label';
-  hintEl.textContent = 'Downloading neural model (≈5 GB)'; // cold default; updated by _updatePhaseLabel()
+  hintEl.textContent = _DOWNLOAD_LABEL; // cold default; updated by _updatePhaseLabel()
   Object.assign(hintEl.style, {
     color: '#383838',
     fontSize: 'clamp(9px, 1.0vw, 13px)',

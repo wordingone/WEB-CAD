@@ -1,0 +1,52 @@
+{
+  "recordedOn": "2026-11-24",
+  "hardware": "an RTX 4090",
+  "model": "Gemma 4 E2B",
+  "waitSpeedup": null,
+  "note": "The four model weight files were served from a verified local copy on disk (sha256 equal to Hugging Face's) during recording, because the download was too slow; same bytes, same model. Four prompts, each ended with a build step and one more shape in the scene. The model places every new shape at the origin, so a second wall or column would land on the first; prompts that built nothing, or built something other than what was asked, are not shown.",
+  "durationSeconds": 85,
+  "rawSeconds": 85,
+  "waitSecondsRaw": 54,
+  "prompts": [
+    {
+      "id": "wall",
+      "prompt": "Build a wall, 5.5m long, 0.2m thick, 2.8m tall.",
+      "genSeconds": 8.1,
+      "verbs": [
+        "SdWall"
+      ],
+      "meshesBefore": 3,
+      "meshesAfter": 4
+    },
+    {
+      "id": "slab",
+      "prompt": "Place a 6 by 6m floor slab, 0.2m thick.",
+      "genSeconds": 7.1,
+      "verbs": [
+        "SdSlab"
+      ],
+      "meshesBefore": 4,
+      "meshesAfter": 5
+    },
+    {
+      "id": "circular-column",
+      "prompt": "A circular column with 0.45m radius and 5m height.",
+      "genSeconds": 6.1,
+      "verbs": [
+        "SdColumn"
+      ],
+      "meshesBefore": 5,
+      "meshesAfter": 7
+    },
+    {
+      "id": "beam",
+      "prompt": "Place a horizontal beam 5m long, 0.3m wide and 0.4m deep, 3m above ground.",
+      "genSeconds": 8,
+      "verbs": [
+        "SdBeam"
+      ],
+      "meshesBefore": 7,
+      "meshesAfter": 8
+    }
+  ]
+}

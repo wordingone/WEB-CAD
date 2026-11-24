@@ -13,6 +13,7 @@ import { axesGizmoSVG } from "../ui/icons";
 import { dispatchSync } from "../commands/dispatch";
 import { subscribe as subscribeAppState, type ViewName } from "../app-state";
 import { initBootScreen, getCapabilityGatePromise } from "../agent/boot-screen";
+import { openDemoFromUrl } from "../agent/demo-video";
 import { getCreateSequence } from "../tools/index";
 
 import { buildPalette } from "./workbench-panels";
@@ -266,6 +267,7 @@ function wirePanelToggles(): void {
 
 export function buildWorkbench(): void {
   initBootScreen();
+  openDemoFromUrl(); // ?demo=1 deep link: the video opens first, before consent or any model download
 
   const paletteHost = document.getElementById("palette-host");
   const dockTabsHost = document.getElementById("dock-tabs-host");

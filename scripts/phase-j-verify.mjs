@@ -70,7 +70,7 @@ const outFile   = `${STATE_DIR}/phase-j-verify-${sha}-${timestamp}.json`;
 console.log(`\n── Phase J verify  sha=${sha}  ${ts()} ──`);
 console.log(`   Pages: ${PAGES_URL}`);
 console.log(`   Prompts: ${PROMPT_N}  boot-timeout: ${BOOT_TIMEOUT_MS/60000}m  turn-timeout: ${TURN_TIMEOUT_MS/60000}m`);
-console.log(`   Mode: ${WASM_COHORT ? "WASM-COHORT (cold-cache + igpu-mock + Path-2 click)" : COLD_CACHE ? "COLD-CACHE (HTTP+cookies+Storage — gate default)" : NO_RELOAD ? "NO-RELOAD (warm — INVALID as gate test)" : "WARM (--warm — INVALID as gate test)"}${T1_ONLY && !WASM_COHORT ? "  [t1-only]" : ""}`);
+console.log(`   Mode: ${WASM_COHORT ? "WASM-COHORT (cold-cache + software-adapter-mock + Path-2 click)" : COLD_CACHE ? "COLD-CACHE (HTTP+cookies+Storage — gate default)" : NO_RELOAD ? "NO-RELOAD (warm — INVALID as gate test)" : "WARM (--warm — INVALID as gate test)"}${T1_ONLY && !WASM_COHORT ? "  [t1-only]" : ""}`);
 
 // ── CDP connection ─────────────────────────────────────────────────────────────
 
@@ -248,7 +248,11 @@ await cdp("Page.addScriptToEvaluateOnNewDocument", {
   source: `window.__progressPoll={series:[],labels:[]};(function(){var t=function(){var bar=document.getElementById('boot-progress-bar');if(bar){var v=parseInt(bar.getAttribute('aria-valuenow')||'0',10);window.__progressPoll.series.push(v);}var lbl=document.getElementById('boot-phase-label');if(lbl&&lbl.textContent){var tx=lbl.textContent.trim();var la=window.__progressPoll.labels;if(tx&&tx!==la[la.length-1])la.push(tx);}};t();window.__progressPollInterval=setInterval(t,1000);})();`,
 });
 
-// §#1637 wasm-cohort: mock requestAdapter as igpu to trigger boot-capability modal on first boot.
+// §#1637 wasm-cohort: mock requestAdapter as a SOFTWARE-only adapter (isFallbackAdapter) to trigger
+// the boot-capability modal on first boot. Before the any-GPU change this mock named an Intel
+// integrated adapter and expected the modal; integrated graphics now load the small model with no
+// modal (nobody has to change a flag), so only "no usable WebGPU adapter" shows it. The Path 2
+// click then needs a GGUF model configured in the build (VITE_WASM_LLAMA_TARGET_URL).
 // Only applied when ?gpu=wasm is absent (first boot). After Path 2 click the page reloads with
 // ?gpu=wasm → isGpuWasmForced()=true → gate resolves immediately → no adapter call at all.
 if (WASM_COHORT) {
@@ -264,8 +268,8 @@ if (WASM_COHORT) {
             return {
               requestAdapter: function() {
                 return Promise.resolve({
-                  info: { vendor: 'intel', architecture: 'gen-12', description: 'Intel Gen12 (harness-igpu-mock)' },
-                  isFallbackAdapter: false,
+                  info: { vendor: 'google', architecture: 'swiftshader', description: 'SwiftShader software adapter (harness-software-mock)' },
+                  isFallbackAdapter: true,
                   features: { has: function() { return false; } },
                   limits: {},
                 });
@@ -277,7 +281,7 @@ if (WASM_COHORT) {
       } catch(e) { console.warn('[wasm-cohort] GPU mock failed:', e.message); }
     })();`,
   });
-  console.log(`   [wasm-cohort] GPU adapter mock injected (igpu simulation for first boot)`);
+  console.log(`   [wasm-cohort] GPU adapter mock injected (software-adapter simulation for first boot)`);
   if (!COLD_CACHE) {
     console.error("ERROR: --cold-cache-wasm-cohort requires cold-cache mode (omit --warm and --no-reload)");
     process.exit(1);
@@ -375,7 +379,7 @@ if (WASM_COHORT && !NO_RELOAD) {
     await delay(1000);
   }
   if (!_modalFound) {
-    console.error(`[wasm-cohort] FAIL-FAST: .bcg-modal not found within 60s — GPU mock may have failed or adapter classified as dgpu.`);
+    console.error(`[wasm-cohort] FAIL-FAST: .bcg-modal not found within 60s — GPU mock may have failed or the adapter was classified as a real GPU (only software/no-WebGPU shows the modal).`);
     process.exit(1);
   }
   _wasmCohort.modalShown = true;
