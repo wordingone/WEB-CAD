@@ -18,9 +18,9 @@
 > - *IFC export:* the IFC4 file is hand-written STEP-21 and the check is that web-ifc can re-open it (tests in `web/test/ifc-round-trip.test.ts`, `web/test/ifc-loadability.test.ts`). It has **not** been tested in Revit or ArchiCAD in any log I found, so "opens in Revit/ArchiCAD" is untested here.
 > - *Test suite:* the commit message of `c672cb9` (2026-11-04) reports a full `bun test web/` run of 2,654 tests with 0 failures. I did not re-run it; this is the commit's own statement. The CI workflow then passed on `master` at commit `278c5ae` on 2026-11-04 ([run 41818305917](https://github.com/wordingone/WEB-CAD/actions/runs/41818305917)).
 >
-> **Try it.** Live page: https://wordingone.github.io/WEB-CAD/ (needs a recent Chrome or Edge with WebGPU for the AI panel; the first visit downloads the model weights, several GB). On 2026-11-05 the live page loaded in headless Chromium with the drawing toolbar (Wall, Slab, Column) and the EXPORT button present and no console error other than a missing favicon; drawing, export and the AI panel were not exercised in that check. A path that does not need the AI model: pick the Wall tool, click twice in the viewport, click the wall to see its IFC class, storey and GUID in the sidebar, then use Export and choose IFC4 (steps from [Quick start](#quick-start-browser) below).
+> **Try it.** Live page: https://wordingone.github.io/WEB-CAD/ (the AI panel needs a browser with WebGPU, with no flags to change; the first visit downloads the model weights, several GB. Without WebGPU you get the CAD tools and a recorded demo video, see [Demo video](#demo-video)). On 2026-11-05 the live page loaded in headless Chromium with the drawing toolbar (Wall, Slab, Column) and the EXPORT button present and no console error other than a missing favicon; drawing, export and the AI panel were not exercised in that check. A path that does not need the AI model: pick the Wall tool, click twice in the viewport, click the wall to see its IFC class, storey and GUID in the sidebar, then use Export and choose IFC4 (steps from [Quick start](#quick-start-browser) below).
 >
-> **Run locally.** Requires [Bun](https://bun.sh/) 1.1+ and a WebGPU browser for the AI panel.
+> **Run locally.** Requires [Bun](https://bun.sh/) 1.1+; the AI panel also needs a browser with WebGPU.
 > ```bash
 > bun install
 > bun run web:dev        # http://localhost:5847
@@ -133,12 +133,16 @@ See [SETUP.md](SETUP.md) for the full environment guide and [CONTRIBUTING.md](CO
 
 ---
 
+## Demo video
+
+A 71-second recording of the real app with the in-browser Gemma 4 E2B model building a wall, a slab and a column from three typed prompts (one continuous take on an RTX 4090, no speed-up, no cuts). Play it from Help > Play demo video, from the consent dialog, or by opening https://wordingone.github.io/WEB-CAD/?demo=1. It needs no WebGPU and downloads no model. It shows three single elements, not a whole building. Two other prompts tried in the same session built nothing; the full list of prompts tried, what was kept and how to re-record is in [docs/demo-video.md](docs/demo-video.md).
+
 ## Known limitations
 
 - **Experimental.** This is a research/prototyping tool. Geometry output is not structurally validated.
 - **AI agent output is not evaluated.** No evaluation of the model's geometry was found in this repo. Prompts that match a bundled example are answered from a cache; other prompts depend on a stock, not fine-tuned, in-browser model and may fail or need refinement.
 - **No collaboration.** Single-user, single-tab. No server-side persistence.
-- **WebGPU required for AI.** Browsers without WebGPU fall back to CPU inference (slower). The geometry viewer works without WebGPU.
+- **AI needs WebGPU; changing browser flags is optional.** Any real WebGPU adapter loads the in-browser model. Integrated graphics reload once onto the smaller Gemma 4 E2B model and show a dismissible tip about optional speed-ups. A browser with no usable WebGPU adapter (none, or software-only) gets the CAD tools (modelling, IFC import/export, views) with the AI panel off, plus the [recorded demo video](#demo-video); there is no CPU model. The integrated-graphics path was checked here by reporting an Intel adapter name on a dedicated GPU (`scripts/any-gpu-verify.mjs`); it has **not** been run on real integrated graphics, Safari or Firefox.
 - **SharedArrayBuffer / multi-thread WASM** requires COOP+COEP headers. GitHub Pages serves single-thread; any COOP+COEP-capable host (Vercel, self-hosted nginx) gets multi-thread.
 - **IFC schema coverage.** Import handles IFC2×3 and IFC4. Export targets IFC4; the tests check that the file re-opens via web-ifc's `IfcAPI.OpenModel`, which is a parse check, not a check in other BIM software.
 - **English only.** The AI agent prompt corpus is English.
