@@ -10,10 +10,13 @@
 //       Path 1 "flags":         optional steps to turn WebGPU on, then reload.
 //       Path 2 "wasm-fallback": Reload with ?gpu=wasm (only when a GGUF is configured).
 //       Path 3 "cad-only":      No AI. CREATE tab disabled; chat panel not mounted.
+//       Demo card:              "Play demo video" — a recorded real session (demo-video.ts).
 //
 // Gate promise resolves immediately (no modal) when:
 //   - a real WebGPU adapter exists, OR
 //   - ?gpu=wasm already in URL (returning user from Path 2)
+
+import { openDemoVideo } from "./demo-video";
 
 export type AdapterClass = "dgpu" | "igpu" | "software" | "unknown" | "no-webgpu";
 export type UserPath = "dgpu-proceed" | "flags" | "wasm-fallback" | "cad-only";
@@ -205,6 +208,17 @@ function _buildModal(
             </button>
           </div>
 
+          <div class="bcg-path" tabindex="0" role="button" aria-label="Watch the demo video">
+            <div class="bcg-path-header">
+              <span class="bcg-path-title">Watch the demo video</span>
+              <span class="bcg-path-perf bcg-path-perf--none">No AI needed</span>
+            </div>
+            <p class="bcg-path-desc">See a recorded, unedited session of the app and its AI agent, instead of running the model yourself.</p>
+            <button class="bcg-path-btn" type="button" data-demo-video="open" aria-label="Play demo video">
+              Play demo video
+            </button>
+          </div>
+
           <div class="bcg-path" tabindex="0" role="button" aria-label="Skip AI features">
             <div class="bcg-path-header">
               <span class="bcg-path-title">Skip AI features</span>
@@ -244,6 +258,12 @@ function _buildModal(
       const orig = btn.textContent;
       btn.textContent = "Copied!";
       setTimeout(() => { btn.textContent = orig; }, 1500);
+    });
+
+    // Demo video: opens the player on top; the modal stays so the visitor can still choose a path.
+    modal.querySelector<HTMLButtonElement>("[data-demo-video]")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDemoVideo();
     });
 
     // Path button clicks

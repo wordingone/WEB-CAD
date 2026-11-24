@@ -6,8 +6,13 @@
 //
 // Remote path (VITE_GEMMA_AGENT_URL set): consent gate is skipped — no local download.
 //
+// A "Watch demo video" button sits next to the download button, so a visitor can see what the
+// agent does without downloading anything (demo-video.ts).
+//
 // Progress strip: listens to agentmodel:loading custom events and renders a thin
 // full-width bar that auto-hides when agentmodel:ready fires.
+
+import { openDemoVideo } from "./demo-video";
 
 const CONSENT_KEY = "gemma4-e4b-consent-v1";
 
@@ -202,7 +207,12 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
       Your browser may show a storage permission prompt for large caches.
       Progress appears at the bottom of the screen during download.
     </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+      <button id="consent-demo" type="button" style="
+        padding:7px 16px;border:1px solid rgba(255,255,255,.15);border-radius:6px;
+        background:transparent;color:inherit;font:13px var(--font-ui,'Inter',sans-serif);
+        cursor:pointer;margin-right:auto;
+      ">Watch demo video</button>
       <button id="consent-cancel" style="
         padding:7px 16px;border:1px solid rgba(255,255,255,.15);border-radius:6px;
         background:transparent;color:inherit;font:13px var(--font-ui,'Inter',sans-serif);
@@ -221,6 +231,7 @@ function buildConsentDialog(onApprove: () => void, onCancel: () => void): HTMLEl
     overlay.remove();
     onApprove();
   });
+  card.querySelector("#consent-demo")?.addEventListener("click", () => openDemoVideo());
   card.querySelector("#consent-cancel")?.addEventListener("click", () => {
     overlay.remove();
     const detail = { reason: "user-cancelled-model-download" };

@@ -3,6 +3,7 @@ import { dispatchSync } from "../commands/dispatch.js";
 import { buildPhoneSlider } from "../ui/phone-slider.js";
 import { getState, subscribe } from "../app-state.js";
 import { openExportDrawer } from "../io/export-drawer.js";
+import { openDemoVideo } from "../agent/demo-video.js";
 import { subscribeSnap, getSnap } from "../viewer/snap-state.js";
 import { formatLength } from "../units.js";
 import { initCommandAtCursor } from "./command-at-cursor.js";
@@ -81,6 +82,7 @@ const MENUS: MenuItem[] = [
   ]},
   { label: "Help", entries: [
     { label: "Keyboard shortcuts",    shortcut: "⌘K", onAction: () => document.getElementById("ribbon-palette-btn")?.click() },
+    { label: "Play demo video", onAction: () => openDemoVideo() },
     { label: "About WEB-CAD", stub: true,    onAction: () => alert("WEB-CAD\n\nOpen-source architectural design environment.\ngithub.com/wordingone/WEB-CAD") },
     { separator: true },
     { label: "Clear app data…", onAction: () => clearAppData() },
