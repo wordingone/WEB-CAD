@@ -17,6 +17,7 @@
 //
 // Headless, no visible window. Exit 0 = pass, 1 = fail.
 import { chromium } from "playwright-core";
+import { execFileSync } from "node:child_process";
 
 const [base, kase, profile] = process.argv.slice(2);
 if (!base || !kase) { console.error("usage: any-gpu-verify.mjs <base-url> <case> [profile-dir]"); process.exit(2); }
@@ -212,6 +213,10 @@ const snap = () => page.evaluate(async () => {
     strip: document.getElementById("model-download-strip")?.textContent?.replace(/\s+/g, " ").trim() ?? null };
 }).catch(() => null);
 let lastSig = "", lastChange = Date.now(), started = false, lastPrint = 0, cur = null;
+// One big model file shows no page-level event while it downloads (it is cached when it completes), so the stall rule also counts
+// machine-wide received bytes (netstat -e): more than 1 MB per 5 s tick is progress.
+let lastRx = 0;
+const netRx = () => { try { const o = execFileSync("netstat", ["-e"], { encoding: "utf8" }); const m = /Bytes\s+(\d+)\s+(\d+)/.exec(o); return m ? Number(m[1]) : 0; } catch { return 0; } };
 for (;;) {
   cur = await snap();
   const el = Math.round((Date.now() - t0) / 1000);
@@ -221,6 +226,7 @@ for (;;) {
     if (!started && (cur.loadingEvents > 0 || hfRequests.length > 0)) { started = true; console.log(`download/load started after ${el} s (${hfRequests.length} huggingface requests)`); }
     const sig = [cur.loadingEvents, hfRequests.length, Math.round(cur.usage / 1e6), cur.strip].join("|");
     if (sig !== lastSig) { lastSig = sig; lastChange = Date.now(); }
+    const rx = netRx(); if (rx - lastRx > 1_000_000) lastChange = Date.now(); lastRx = rx;
     if (Date.now() - lastPrint > 60_000) { lastPrint = Date.now(); console.log(`  +${el}s arc=${cur.arc} usage=${(cur.usage / 1e6).toFixed(0)}MB loading-events=${cur.loadingEvents} hf=${hfRequests.length} ${cur.strip ?? ""}`.slice(0, 260)); }
   }
   if (!started && Date.now() - t0 > 120_000) await fail("no model download or load started within 2 minutes (consent=" + cur?.consentGranted + ", arc=" + cur?.arc + ")");
