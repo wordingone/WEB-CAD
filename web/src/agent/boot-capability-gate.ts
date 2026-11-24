@@ -1,14 +1,18 @@
 // boot-capability-gate.ts — #1637: Boot-time GPU capability detection + 3-path user choice.
 //
-// Runs before model loading starts. If adapter class is not dgpu (and ?gpu=wasm not already
-// set), shows a full-screen modal requiring user to pick one of three paths before proceeding.
+// Runs before model loading starts. A visitor is never required to change browser flags:
 //
-// Path 1 "flags":         Show chrome://flags instructions. Page sits; user must reload manually.
-// Path 2 "wasm-fallback": Reload with ?gpu=wasm — next boot uses WASM EP, modal skipped.
-// Path 3 "cad-only":      No AI. CREATE tab disabled; chat panel not mounted.
+//   - Any real WebGPU adapter (dedicated, integrated, or unrecognised) proceeds straight to
+//     the model. Integrated graphics get the small model (E2B) unless ?gemma_model= says
+//     otherwise, plus a dismissible, non-blocking tip with the optional speed-up steps.
+//   - Only when the browser has no usable WebGPU adapter at all (none, or software-only) is
+//     the modal shown, because the ONNX model cannot run there:
+//       Path 1 "flags":         optional steps to turn WebGPU on, then reload.
+//       Path 2 "wasm-fallback": Reload with ?gpu=wasm (only when a GGUF is configured).
+//       Path 3 "cad-only":      No AI. CREATE tab disabled; chat panel not mounted.
 //
 // Gate promise resolves immediately (no modal) when:
-//   - adapter classifies as dgpu, OR
+//   - a real WebGPU adapter exists, OR
 //   - ?gpu=wasm already in URL (returning user from Path 2)
 
 export type AdapterClass = "dgpu" | "igpu" | "software" | "unknown" | "no-webgpu";
@@ -29,6 +33,60 @@ export function pathToTier(path: UserPath): BootTier {
 
 export function isGpuWasmForced(): boolean {
   try { return new URLSearchParams(location.search).get("gpu") === "wasm"; } catch { return false; }
+}
+
+// ── Boot plan (pure; unit-tested) ────────────────────────────────────────────
+
+export const SMALL_MODEL_PARAM = "e2b";
+
+/** Lower-cased ?gemma_model= value, "" when absent. */
+export function explicitModelParam(search?: string): string {
+  try {
+    return (new URLSearchParams(search ?? location.search).get("gemma_model") ?? "").toLowerCase();
+  } catch { return ""; }
+}
+
+export interface BootPlan {
+  /** Show the blocking modal — only when no usable WebGPU adapter exists. */
+  modal: boolean;
+  /** Reload once with ?gemma_model=e2b so a weaker GPU loads the small model. */
+  stepDownToSmallModel: boolean;
+  /** Show the optional, dismissible "make it faster" tip. */
+  speedTip: boolean;
+}
+
+/**
+ * Decide what the boot gate does. The adapter's name never blocks a visitor: it only picks
+ * the model size and whether to show the optional tip.
+ */
+export function planBoot(classification: AdapterClass, modelParam: string): BootPlan {
+  if (classification === "no-webgpu" || classification === "software") {
+    return { modal: true, stepDownToSmallModel: false, speedTip: false };
+  }
+  const igpu = classification === "igpu";
+  return { modal: false, stepDownToSmallModel: igpu && modelParam === "", speedTip: igpu };
+}
+
+/** URL of this page with ?gemma_model=e2b added (other params and hash kept). */
+export function smallModelUrl(href: string): string {
+  const u = new URL(href);
+  u.searchParams.set("gemma_model", SMALL_MODEL_PARAM);
+  return u.href;
+}
+
+const _STEPDOWN_KEY = "bcg.steppedDown";
+
+/**
+ * Reload onto the small model after the default model failed to load. Returns false (and
+ * does nothing) when the visitor chose a model explicitly or a step-down already happened.
+ */
+export function stepDownToSmallModel(reason: string): boolean {
+  try {
+    if (explicitModelParam() !== "") return false;
+    sessionStorage.setItem(_STEPDOWN_KEY, reason.slice(0, 200));
+    window.location.replace(smallModelUrl(location.href));
+    return true;
+  } catch { return false; }
 }
 
 // ── Adapter detection ────────────────────────────────────────────────────────
@@ -80,7 +138,7 @@ export async function detectAdapterClass(): Promise<{ classification: AdapterCla
 
 function _deviceCopy(cl: AdapterClass, label: string): string {
   if (cl === "no-webgpu" || cl === "software") {
-    return "WebGPU is unavailable in your browser. Full AI features require Chrome or Edge with WebGPU support.";
+    return "This browser has no usable WebGPU graphics adapter, which the in-browser AI model needs. Everything else in the app works without it.";
   }
   if (cl === "igpu") {
     const dev = label ? `(${label}) ` : "";
@@ -101,22 +159,22 @@ function _buildModal(
     modal.setAttribute("aria-modal", "true");
     modal.setAttribute("aria-label", "GPU capability options");
 
-    const flagsUrl = "chrome://flags/#force-high-performance-gpu";
+    const flagsUrl = "chrome://flags/#enable-unsafe-webgpu";
 
     modal.innerHTML = `
       <div class="bcg-inner">
-        <h2 class="bcg-title">Set up GPU for AI</h2>
+        <h2 class="bcg-title">AI needs WebGPU</h2>
         <p class="bcg-device">${_deviceCopy(cl, label)}</p>
 
         <div class="bcg-paths">
 
-          <div class="bcg-path bcg-path--recommended" tabindex="0" role="button" aria-label="Enable full speed (recommended)">
+          <div class="bcg-path bcg-path--recommended" tabindex="0" role="button" aria-label="Turn WebGPU on (optional)">
             <div class="bcg-path-header">
-              <span class="bcg-path-badge">Recommended</span>
-              <span class="bcg-path-title">Enable full speed</span>
-              <span class="bcg-path-perf">30–50 tok/s</span>
+              <span class="bcg-path-badge">Optional</span>
+              <span class="bcg-path-title">Turn WebGPU on</span>
+              <span class="bcg-path-perf">AI enabled</span>
             </div>
-            <p class="bcg-path-desc">Use high-performance GPU via Chrome flag — restores full AI speed.</p>
+            <p class="bcg-path-desc">Use Chrome or Edge, and check that <strong>Settings → System → Use graphics acceleration when available</strong> is on. If it already is, try the flag below.</p>
             <div class="bcg-path-steps" aria-label="Steps">
               <ol>
                 <li>Open a new tab and paste this URL:</li>
@@ -130,14 +188,6 @@ function _buildModal(
                 <li>Click <strong>Relaunch</strong></li>
                 <li>Return to this page</li>
               </ol>
-              <details class="bcg-alt-details">
-                <summary>Or use Windows Graphics Settings</summary>
-                <ol>
-                  <li>Open Windows Settings → System → Display → Graphics</li>
-                  <li>Find <strong>chrome.exe</strong> → Options → <strong>High performance</strong></li>
-                  <li>Save → relaunch Chrome → return here</li>
-                </ol>
-              </details>
             </div>
             <button class="bcg-path-btn bcg-path-btn--primary" type="button" data-path="flags" aria-label="I have done this — reload the page">
               I've done this — reload the page
@@ -305,6 +355,23 @@ function _injectStyles(): void {
 }
 .bcg-path-btn--primary:hover { background: var(--ink-soft); border-color: var(--ink-soft); }
 .bcg-footer { margin: 0; font-size: 11px; color: var(--ink-faint); }
+.bcg-tip {
+  position: fixed; left: 16px; bottom: 16px; z-index: 10000; max-width: 380px;
+  background: var(--paper-solid); border: 1px solid var(--hairline-strong); border-radius: var(--r-lg);
+  padding: 12px 14px; font-family: var(--sans); color: var(--ink);
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.bcg-tip-head { display: flex; align-items: flex-start; gap: 8px; }
+.bcg-tip-title { font-size: 12px; font-weight: 600; flex: 1; }
+.bcg-tip-close {
+  background: none; border: none; color: var(--ink-soft); font-size: 16px; line-height: 1;
+  cursor: pointer; padding: 0 2px;
+}
+.bcg-tip-close:hover { color: var(--ink); }
+.bcg-tip-desc { margin: 0; font-size: 11px; color: var(--ink-soft); line-height: 1.5; }
+.bcg-tip ol { margin: 6px 0 0; padding-left: 18px; font-size: 11px; color: var(--ink-dim); line-height: 1.7; }
+.bcg-tip .bcg-flag-url { display: inline; padding: 1px 4px; }
   `;
   document.head.appendChild(style);
 }
@@ -332,8 +399,44 @@ export function isWasmFallbackMode(): boolean {
 // ── Init (called by boot-screen.ts) ─────────────────────────────────────────
 
 let _modalShown = false;
+let _adapterClass: AdapterClass | null = null;
 
-/** Returns true if the modal was shown (i.e. classification ≠ dgpu and not ?gpu=wasm). */
+// ── Optional speed tip (non-blocking) ────────────────────────────────────────
+
+const _TIP_DISMISS_KEY = "bcg.tipDismissed";
+
+/** Small dismissible card: the model already runs; these steps only make it faster. */
+function _showSpeedTip(container: HTMLElement, label: string): void {
+  try { if (sessionStorage.getItem(_TIP_DISMISS_KEY)) return; } catch { /* storage blocked */ }
+  if (document.querySelector(".bcg-tip")) return;
+  const tip = document.createElement("div");
+  tip.className = "bcg-tip";
+  tip.setAttribute("role", "status");
+  const dev = label ? ` (${label})` : "";
+  const flagsUrl = "chrome://flags/#force-high-performance-gpu";
+  tip.innerHTML = `
+    <div class="bcg-tip-head">
+      <span class="bcg-tip-title">AI is running on integrated graphics${dev}</span>
+      <button class="bcg-tip-close" type="button" aria-label="Dismiss">×</button>
+    </div>
+    <p class="bcg-tip-desc">It works as is, with a smaller model. Nothing below is required.</p>
+    <details class="bcg-alt-details">
+      <summary>Optional: use a dedicated GPU for a larger, faster model</summary>
+      <ol>
+        <li>If this PC has a dedicated GPU, open <code class="bcg-flag-url">${flagsUrl}</code> in a new tab, set it to <strong>Enabled</strong>, and click <strong>Relaunch</strong>.</li>
+        <li>Or: Windows Settings → System → Display → Graphics → <strong>chrome.exe</strong> → <strong>High performance</strong>, then relaunch Chrome.</li>
+        <li>Then open this page again without <code>gemma_model=e2b</code> in the address.</li>
+      </ol>
+    </details>
+  `;
+  tip.querySelector<HTMLButtonElement>(".bcg-tip-close")?.addEventListener("click", () => {
+    try { sessionStorage.setItem(_TIP_DISMISS_KEY, "1"); } catch { /* storage blocked */ }
+    tip.remove();
+  });
+  container.appendChild(tip);
+}
+
+/** Returns true if the modal was shown (i.e. no usable WebGPU adapter and not ?gpu=wasm). */
 export let wasCapabilityModalShown = false;
 /** The user's chosen path after gate resolves (or "dgpu-proceed" if no modal). */
 export let resolvedBootPath: UserPath = "dgpu-proceed";
@@ -353,14 +456,22 @@ export function initCapabilityGate(overlayContainer: HTMLElement): void {
       if (maxBufferSize > 0) {
         (window as unknown as Record<string, unknown>).__adapterMaxBufferSize = maxBufferSize;
       }
-      // §#1637-Leo: unknown defaults to dgpu-path (no modal). False-negative (slower inference
-      // for one user) is much cheaper than false-positive (blocking a healthy user).
-      if (classification === "dgpu" || classification === "unknown") {
+      _adapterClass = classification;
+      const plan = planBoot(classification, explicitModelParam());
+      if (plan.stepDownToSmallModel) {
+        // Integrated graphics: load the small model. One reload, before anything downloads.
+        console.info(`[boot-capability-gate] ${classification} adapter — switching to the small model`);
+        window.location.replace(smallModelUrl(location.href));
+        return new Promise<UserPath>(() => { /* navigation pending */ });
+      }
+      // Any real WebGPU adapter proceeds with no modal: nobody has to change a browser flag.
+      if (!plan.modal) {
+        if (plan.speedTip) { _injectStyles(); _showSpeedTip(overlayContainer, deviceLabel); }
         _resolvedPath = "dgpu-proceed";
         resolvedBootPath = "dgpu-proceed";
         return "dgpu-proceed";
       }
-      // Show modal for igpu / software / no-webgpu
+      // Show modal only for software / no-webgpu (the ONNX model cannot run there).
       _injectStyles();
       _modalShown = true;
       wasCapabilityModalShown = true;
@@ -375,6 +486,7 @@ export function initCapabilityGate(overlayContainer: HTMLElement): void {
   _gatePromise.then((path) => {
     (window as unknown as Record<string, unknown>).__bcg = {
       modalShown: wasCapabilityModalShown,
+      adapterClass: _adapterClass,
       path,
       tier: pathToTier(path),
       maxBufferSize: (window as unknown as Record<string, unknown>).__adapterMaxBufferSize ?? 0,

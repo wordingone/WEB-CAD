@@ -4,7 +4,12 @@
 // Supersedes loading-anim.ts chrome-edge overlay.
 
 export { getCapabilityGatePromise, isCadOnlyMode, isWasmFallbackMode, wasCapabilityModalShown, resolvedBootPath } from "./boot-capability-gate";
-import { initCapabilityGate } from "./boot-capability-gate";
+import { initCapabilityGate, explicitModelParam } from "./boot-capability-gate";
+
+// Download-size label follows the model in use (E2B q4f16 ≈ 3.4 GB, E4B ≈ 5 GB).
+const _DOWNLOAD_LABEL = explicitModelParam() === "e2b"
+  ? 'Downloading neural model (≈3.4 GB)'
+  : 'Downloading neural model (≈5 GB)';
 
 const LOOP_MS = 6_000;          // one travel-head cycle
 const FADE_MS = 200;             // fade-out duration on completion
@@ -102,7 +107,7 @@ async function _detectBootPath(): Promise<void> {
 function _updatePhaseLabel(): void {
   if (!_hintEl) return;
   const COLD_LABELS: Record<_BootPhase, string> = {
-    'download':   'Downloading neural model (≈5 GB)',
+    'download':   _DOWNLOAD_LABEL,
     'model-init': 'Setting up inference engine',
     'warmup':     'Warming up',
     'drafter':    'Loading assistant',
@@ -636,7 +641,7 @@ function _buildOverlay(): void {
   // id="boot-phase-label" scraped by phase-j-verify.mjs to record phase_labels_sequence_observed.
   const hintEl = document.createElement('div');
   hintEl.id = 'boot-phase-label';
-  hintEl.textContent = 'Downloading neural model (≈5 GB)'; // cold default; updated by _updatePhaseLabel()
+  hintEl.textContent = _DOWNLOAD_LABEL; // cold default; updated by _updatePhaseLabel()
   Object.assign(hintEl.style, {
     color: '#383838',
     fontSize: 'clamp(9px, 1.0vw, 13px)',

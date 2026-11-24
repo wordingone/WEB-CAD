@@ -77,6 +77,7 @@ import { recordTurn } from "./telemetry";
 import { selfSpecController, BASELINE_TPS_P50 } from "./self-spec-controller";
 import type { SelfSpecRuntimeState } from "./self-spec-controller";
 import { isWasmFallbackMode } from "./boot-screen";
+import { stepDownToSmallModel } from "./boot-capability-gate";
 import { COLD_CACHE_BASELINES_MS, WARM_CACHE_BASELINES_MS } from "./boot-baselines";
 import {
   initTelemetry,
@@ -912,6 +913,12 @@ function initWorkerIfNeeded(): Worker {
           }, 400);
           break;
         }
+        // Default model failed before it ever finished loading: reload once onto the small
+        // model instead of ending in an error (no-op when ?gemma_model= was set explicitly).
+        if (!_arc.bootComplete && stepDownToSmallModel(_errMsg)) {
+          console.warn("[gemma] default model failed to load — stepping down to the small model:", _errMsg);
+          break;
+        }
         // Non-OOM worker error: fatal path
         // §C-wasm-align (#1632): resolve any in-flight session-refresh (idle-dispose path) on FATAL.
         _sessionRefreshResolve?.();
@@ -943,10 +950,13 @@ function initWorkerIfNeeded(): Worker {
         window.dispatchEvent(new CustomEvent("agentmodel:device-lost", {
           detail: { adClass: _adClass, reason: _lostReason, retryBudget: _budget },
         }));
-        if (_budget === 0) {
-          // igpu/software: skip WebGPU retry — reload under WASM EP (boot-capability-gate path 2).
+        if (_budget === 0 && WASM_BACKEND_ENABLED) {
+          // igpu/software with a CPU model configured: reload under it (boot-capability-gate path 2).
           console.log("[#1627-D] igpu/software device.lost — redirecting to ?gpu=wasm");
           window.location.assign(new URL("?gpu=wasm", window.location.href).href);
+        } else if (_budget === 0 && !_arc.bootComplete && stepDownToSmallModel(`device-lost:${_lostReason}`)) {
+          // Default model lost the device while loading: reload once onto the small model.
+          console.log("[#1627-D] device.lost during load — stepping down to the small model");
         } else if (_inferenceWorker) {
           // dgpu: treat as D3D12 OOM — one recycle allowed before fatal path (matches §C-recycle-limit #1381).
           _inferenceWorker.postMessage({ type: "destroy-device" });
