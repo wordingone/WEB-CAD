@@ -4,7 +4,9 @@
 //   case = adapter   print the real adapter this headless browser gets, then exit
 //   case = igpu      real GPU, adapter NAME reported as Intel integrated (simulated name,
 //                    real load): expects reload onto the small model, no modal, model ready
-//   case = nogpu     WebGPU removed: expects the modal, and "Continue without AI" to work
+//   case = nogpu     WebGPU removed: expects the modal, a working "Play demo video" button (the
+//                    overlay opens a <video> whose src returns HTTP 200; nothing is fetched before
+//                    the click; Esc closes it), and "Continue without AI" to work
 //
 // Headless, no visible window. Exit 0 = pass, 1 = fail.
 import { chromium } from "playwright-core";
@@ -19,6 +21,8 @@ const ctx = await chromium.launchPersistentContext(profile ?? "", {
 });
 const page = ctx.pages()[0] ?? await ctx.newPage();
 const logs = [];
+const demoRequests = [];
+page.on("request", (r) => { if (/\/demo\/demo\.mp4/.test(r.url())) demoRequests.push(r.url()); });
 page.on("console", (m) => { const t = m.text(); if (/boot-capability-gate|#1627|gemma|stepping down|adapter/i.test(t)) logs.push(t.slice(0, 300)); });
 
 const fail = async (why) => { console.log("FAIL:", why); console.log(logs.slice(-25).join("\n")); await ctx.close(); process.exit(1); };
@@ -68,9 +72,49 @@ console.log("gate:", JSON.stringify(s));
 if (kase === "nogpu") {
   if (!s.modal) await fail("expected the modal when WebGPU is absent");
   if (await page.locator('[data-path="wasm-fallback"]').count()) await fail("CPU option offered though no CPU model is configured");
+  // Demo video: button present, nothing fetched yet, click opens a <video> with a live src.
+  if (await page.locator(".bcg-modal [data-demo-video]").count() !== 1) await fail("no 'Play demo video' button in the modal");
+  if (demoRequests.length) await fail("demo video was requested before the click");
+  await page.locator(".bcg-modal [data-demo-video]").click();
+  await page.waitForSelector("#demo-video-overlay video", { timeout: 10_000 }).catch(() => {});
+  const demo = await page.evaluate(async () => {
+    const v = document.querySelector("#demo-video-overlay video");
+    if (!v) return null;
+    const res = await fetch(v.currentSrc || v.src, { method: "HEAD" });
+    return { controls: v.hasAttribute("controls"), preload: v.getAttribute("preload"), src: v.currentSrc || v.src,
+      status: res.status, type: res.headers.get("content-type"), len: Number(res.headers.get("content-length") ?? 0),
+      caption: document.querySelector("#demo-video-overlay .dv-caption")?.textContent ?? "" };
+  });
+  console.log("demo:", JSON.stringify(demo));
+  if (!demo) await fail("clicking 'Play demo video' did not open the player");
+  if (demo.status !== 200) await fail("demo video src did not resolve: HTTP " + demo.status);
+  if (!/^video\//.test(demo.type ?? "")) await fail("demo video src is not a video: " + demo.type);
+  if (!demo.controls || demo.preload !== "none") await fail("player must have controls and preload=none");
+  if (!/real session/.test(demo.caption)) await fail("caption missing: " + demo.caption);
+  // HTTP 200 is not playback: actually play it (muted, as autoplay policy requires) and watch the clock.
+  const played = await page.evaluate(async () => {
+    const v = document.querySelector("#demo-video-overlay video");
+    v.muted = true;
+    try { await v.play(); } catch (e) { return { ok: false, error: String(e) }; }
+    await new Promise((r) => setTimeout(r, 1500));
+    return { ok: v.currentTime > 0.3 && v.videoWidth > 0, currentTime: +v.currentTime.toFixed(2), videoWidth: v.videoWidth,
+      videoHeight: v.videoHeight, duration: +v.duration.toFixed(1), error: v.error?.message ?? null };
+  });
+  console.log("play:", JSON.stringify(played));
+  if (!played.ok) await fail("demo video did not play: " + JSON.stringify(played));
+  await page.keyboard.press("Escape");
+  if (await page.locator("#demo-video-overlay").count()) await fail("Esc did not close the demo player");
+  if (!(await page.locator(".bcg-modal").count())) await fail("closing the player must leave the modal in place");
   await page.locator('[data-path="cad-only"]').click();
   await page.waitForFunction(() => (window).__bcg?.path === "cad-only", null, { timeout: 20_000 });
-  console.log("PASS nogpu: modal shown, app usable without AI"); await ctx.close(); process.exit(0);
+  // The same video is reachable from the app chrome (Help menu) once the app is in use.
+  await page.locator(".menu-item", { hasText: "Help" }).first().click();
+  await page.locator('.menu-dropdown[data-for="help"] .menu-row', { hasText: "Play demo video" }).click();
+  await page.waitForSelector("#demo-video-overlay video", { timeout: 10_000 }).catch(() => {});
+  if (!(await page.locator("#demo-video-overlay video").count())) await fail("Help > Play demo video did not open the player");
+  await page.keyboard.press("Escape");
+  if (await page.locator("#demo-video-overlay").count()) await fail("Esc did not close the player opened from Help");
+  console.log("PASS nogpu: modal shown, demo video plays from its button, app usable without AI"); await ctx.close(); process.exit(0);
 }
 
 // igpu case
